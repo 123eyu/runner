@@ -156,22 +156,48 @@ struct SidebarNodeDrag {
     node_id: String,
     label: String,
     icon: Option<(ChatIcon, bool)>,
+    width: std::rc::Rc<std::cell::Cell<Pixels>>,
+}
+
+impl SidebarNodeDrag {
+    fn new(node_id: String, label: String, icon: Option<(ChatIcon, bool)>) -> Self {
+        Self {
+            node_id,
+            label,
+            icon,
+            width: Default::default(),
+        }
+    }
+
+    /// Records the source row's width so the ghost covers the row it lifts.
+    fn measure(&self) -> impl IntoElement {
+        let width = self.width.clone();
+        gpui::canvas(
+            move |bounds, _, _| width.set(bounds.size.width),
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
+    }
 }
 
 impl Render for SidebarNodeDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
-            .max_w(rems(220. / 16.))
-            .px_3()
-            .py_2()
+            .w(self.width.get())
+            .px(rems(10. / 16.))
+            .py(rems(6. / 16.))
             .rounded_sm()
             .border_1()
             .border_color(theme::chrome_selected_border())
             .bg(theme::chrome_selected())
-            .shadow_lg()
+            // A shadow paints its whole box, which shows through glass's translucent fill.
+            .when(!theme::is_glass(), |ghost| ghost.shadow_lg())
             .text_size(theme::text_body())
             .text_color(theme::text())
-            .when(self.icon.is_some(), |row| row.flex().items_center().gap_2())
+            .when(self.icon.is_some(), |row| {
+                row.flex().items_center().gap(rems(6. / 16.))
+            })
             .children(
                 self.icon
                     .map(|(icon, live)| elements::sidebar_icon(icon, live)),

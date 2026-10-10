@@ -1,22 +1,29 @@
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, rems, svg, App, Context, FocusHandle, FontWeight, KeyDownEvent, MouseButton, Render,
-    Window,
+    div, rems, svg, App, Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton,
+    Render, Window,
 };
 use runner_app::lifecycle::{quit_choice, QuitChoice, QuitRequest, QuitState, SessionSummary};
 use runner_app::ui::{Button, ButtonVariant};
 use runner_core::protocol::status::Activity;
+use runner_core::protocol::ClientError;
 
 use crate::{app_store::global_app_store, theme, NativeRoot};
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
+/// Stops the background service and its sessions, blocking until it exits.
+pub(crate) struct SessionStopper(pub Arc<dyn Fn() -> Result<(), ClientError> + Send + Sync>);
+impl Global for SessionStopper {}
+
 pub(crate) struct QuitDialog {
     summary: SessionSummary,
     choice: QuitChoice,
     dont_ask: bool,
+    stopping: bool,
     focus: FocusHandle,
     previous_focus: Option<FocusHandle>,
     close: CloseHandler,
@@ -28,6 +35,33 @@ pub(crate) fn finish_quit(choice: QuitChoice, cx: &mut App) {
     }
     cx.global_mut::<QuitState>().choice = choice;
     cx.quit();
+}
+
+/// Agents can take seconds to exit, so they stop off the main thread while the
+/// dialog shows progress. False when no stopper is installed; the quit handler
+/// then stops them instead.
+fn stop_sessions_then_quit(cx: &mut App) -> bool {
+    let Some(stopper) = cx
+        .try_global::<SessionStopper>()
+        .map(|stopper| stopper.0.clone())
+    else {
+        return false;
+    };
+    if cx.try_global::<QuitState>().is_none() {
+        cx.set_global(QuitState::default());
+    }
+    let state = cx.global_mut::<QuitState>();
+    state.choice = QuitChoice::Stop;
+    state.stopping = true;
+    let stopped = cx.background_spawn(async move { stopper() });
+    cx.spawn(async move |cx| {
+        if let Err(error) = stopped.await {
+            eprintln!("Runner quit session teardown failed: {error}");
+        }
+        cx.update(|cx| cx.quit());
+    })
+    .detach();
+    true
 }
 
 impl QuitDialog {
@@ -45,13 +79,17 @@ impl QuitDialog {
             summary,
             choice,
             dont_ask: false,
+            stopping: false,
             focus,
             previous_focus,
             close,
         }
     }
 
-    fn confirm(&self, cx: &mut App) {
+    fn confirm(&mut self, cx: &mut Context<Self>) {
+        if self.stopping {
+            return;
+        }
         global_app_store(cx).update(cx, |store, cx| {
             store.update_settings(
                 |settings| {
@@ -65,6 +103,11 @@ impl QuitDialog {
                 cx,
             );
         });
+        if self.choice == QuitChoice::Stop && stop_sessions_then_quit(cx) {
+            self.stopping = true;
+            cx.notify();
+            return;
+        }
         finish_quit(self.choice, cx);
     }
 }
@@ -119,11 +162,13 @@ impl Render for QuitDialog {
                     } else {
                         theme::bg()
                     })
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.choice = choice;
-                        cx.notify();
-                    }))
+                    .when(!self.stopping, |card| {
+                        card.cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.choice = choice;
+                                cx.notify();
+                            }))
+                    })
                     .child(
                         div()
                             .mt_1()
@@ -186,6 +231,9 @@ impl Render for QuitDialog {
             .key_context("QuitDialog")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                if this.stopping {
+                    return;
+                }
                 match event.keystroke.key.as_str() {
                     "escape" => {
                         cx.stop_propagation();
@@ -234,7 +282,15 @@ impl Render for QuitDialog {
                         div()
                             .text_size(theme::text_body())
                             .text_color(theme::muted())
-                            .child(self.summary.caption()),
+                            .child(if self.stopping {
+                                format!(
+                                    "Stopping {} session{}…",
+                                    self.summary.live,
+                                    if self.summary.live == 1 { "" } else { "s" }
+                                )
+                            } else {
+                                self.summary.caption()
+                            }),
                     )
                     .children(choices)
                     .child(
@@ -250,11 +306,14 @@ impl Render for QuitDialog {
                                     .flex()
                                     .items_center()
                                     .gap_2()
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.dont_ask = !this.dont_ask;
-                                        cx.notify();
-                                    }))
+                                    .when(!self.stopping, |check| {
+                                        check.cursor_pointer().on_click(cx.listener(
+                                            |this, _, _, cx| {
+                                                this.dont_ask = !this.dont_ask;
+                                                cx.notify();
+                                            },
+                                        ))
+                                    })
                                     .child(
                                         div()
                                             .size(rems(13. / 16.))
@@ -281,11 +340,13 @@ impl Render for QuitDialog {
                             .child(
                                 Button::new("quit-cancel", "Cancel")
                                     .variant(ButtonVariant::Secondary)
+                                    .disabled(self.stopping)
                                     .on_press(move |window, cx| cancel(window, cx)),
                             )
                             .child(
                                 Button::new("quit-confirm", "Quit")
                                     .variant(ButtonVariant::Primary)
+                                    .loading(self.stopping)
                                     .on_press({
                                         let dialog = cx.entity();
                                         move |_, cx| dialog.update(cx, |this, cx| this.confirm(cx))
@@ -297,6 +358,27 @@ impl Render for QuitDialog {
 }
 
 impl NativeRoot {
+    /// Opens the quit dialog already stopping, for quits that chose Stop
+    /// without asking.
+    pub(crate) fn show_stopping_quit(
+        &mut self,
+        summary: SessionSummary,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !stop_sessions_then_quit(cx) {
+            return false;
+        }
+        let close: CloseHandler = Rc::new(|_, _| {});
+        self.quit_dialog = Some(cx.new(|cx| {
+            let mut dialog = QuitDialog::new(summary, QuitChoice::Stop, close, window, cx);
+            dialog.stopping = true;
+            dialog
+        }));
+        cx.notify();
+        true
+    }
+
     pub(crate) fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if cx.try_global::<QuitState>().is_none() {
             cx.set_global(QuitState::default());
@@ -368,6 +450,11 @@ impl NativeRoot {
                     let previous = settings.last_quit_choice;
                     if let Some(choice) = quit_choice(QuitRequest::User, behavior, summary.live) {
                         cx.global_mut::<QuitState>().complete(owner, generation);
+                        if choice == QuitChoice::Stop
+                            && this.show_stopping_quit(summary, window, cx)
+                        {
+                            return;
+                        }
                         finish_quit(choice, cx);
                         return;
                     }
@@ -501,6 +588,65 @@ mod tests {
             assert_eq!(visual.read(|cx| cx.global::<QuitState>().choice), choice);
         }
     }
+    fn counting_stopper(cx: &mut TestAppContext) -> Arc<std::sync::atomic::AtomicUsize> {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = calls.clone();
+        cx.update(|cx| {
+            cx.set_global(SessionStopper(Arc::new(move || {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            })))
+        });
+        calls
+    }
+
+    #[test]
+    fn confirming_stop_keeps_the_dialog_up_and_inert_while_sessions_stop() {
+        let _theme = ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        cx.update(|cx| cx.set_global(GlobalAppStore(store.clone())));
+        let stops = counting_stopper(&mut cx);
+        let cancelled = Rc::new(Cell::new(0));
+        let cancel = cancelled.clone();
+        let window = cx.add_window(|window, cx| {
+            window.resize(size(px(1000.), px(700.)));
+            DialogHost(cx.new(|cx| {
+                QuitDialog::new(
+                    SessionSummary {
+                        live: 2,
+                        working: Vec::new(),
+                    },
+                    QuitChoice::Stop,
+                    Rc::new(move |_, _| cancel.set(cancel.get() + 1)),
+                    window,
+                    cx,
+                )
+            }))
+        });
+        cx.run_until_parked();
+        let dialog = window.read_with(&cx, |host, _| host.0.clone()).unwrap();
+        let mut visual = VisualTestContext::from_window(window.into(), &cx);
+        visual.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        dialog.read_with(&cx, |dialog, _| assert!(dialog.stopping));
+        assert_eq!(stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+        visual.read(|cx| {
+            let state = cx.global::<QuitState>();
+            assert!(state.stopping);
+            assert_eq!(state.choice, QuitChoice::Stop);
+            assert!(!state.stop_sessions(false));
+        });
+        let keep = visual.debug_bounds("QUIT_KEEP").unwrap();
+        visual.simulate_click(keep.center(), Modifiers::default());
+        visual.simulate_keystrokes("escape enter");
+        cx.run_until_parked();
+        assert_eq!(cancelled.get(), 0);
+        assert_eq!(stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+        dialog.read_with(&cx, |dialog, _| assert_eq!(dialog.choice, QuitChoice::Stop));
+    }
+
     struct LiveService(runner_daemon::daemon::InProcessTransport);
     impl runner_core::protocol::Transport for LiveService {
         fn call(
@@ -607,6 +753,46 @@ mod tests {
                 })
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn quit_set_to_stop_opens_the_dialog_already_stopping() {
+        let _theme = ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        store.update(&mut cx, |store, _| {
+            store.settings.quit_behavior = runner_app::lifecycle::QuitBehavior::Stop;
+            store.client = runner_core::protocol::DaemonClient::new(Arc::new(LiveService(
+                runner_daemon::daemon::InProcessTransport(store.test_core.clone()),
+            )));
+        });
+        let stops = counting_stopper(&mut cx);
+        let window = cx.add_window(|window, cx| {
+            NativeRoot::new(
+                "quit-stop".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            )
+        });
+        window
+            .update(&mut cx, |root, window, cx| root.request_quit(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |root, window, cx| {
+                let dialog = root.quit_dialog.clone().unwrap();
+                assert!(dialog.read(cx).stopping);
+                assert!(cx.global::<QuitState>().stopping);
+                root.request_quit(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(stops.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     struct UnavailableService;

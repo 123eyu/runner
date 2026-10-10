@@ -1476,6 +1476,10 @@ fn run() -> Result<()> {
 
         // App::shutdown clears its windows before polling the returned future, so the
         // checkpoint must run in this callback body rather than inside the future.
+        let stop_connection = connection.clone();
+        cx.set_global(surfaces::quit_dialog::SessionStopper(Arc::new(move || {
+            stop_connection.shutdown()
+        })));
         let quit_connection = connection.clone();
         cx.on_app_quit(move |cx| {
             save_window_settings(cx);
@@ -1526,7 +1530,31 @@ fn run() -> Result<()> {
         });
         #[cfg(target_os = "macos")]
         cx.on_action(|_: &QuitAndStopSessions, cx| {
-            surfaces::quit_dialog::finish_quit(runner_app::lifecycle::QuitChoice::Stop, cx);
+            cx.defer(|cx| {
+                if cx.global::<runner_app::lifecycle::QuitState>().stopping {
+                    return;
+                }
+                let live = global_app_store(cx).read(cx).live_session_count;
+                let shown = live > 0
+                    && cx
+                        .active_window()
+                        .and_then(|window| window.downcast::<NativeRoot>())
+                        .and_then(|window| {
+                            window
+                                .update(cx, |this, window, cx| {
+                                    let summary = runner_app::lifecycle::SessionSummary {
+                                        live,
+                                        working: Vec::new(),
+                                    };
+                                    this.show_stopping_quit(summary, window, cx)
+                                })
+                                .ok()
+                        })
+                        .unwrap_or(false);
+                if !shown {
+                    surfaces::quit_dialog::finish_quit(runner_app::lifecycle::QuitChoice::Stop, cx);
+                }
+            });
         });
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());

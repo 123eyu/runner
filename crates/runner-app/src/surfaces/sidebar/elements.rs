@@ -164,7 +164,9 @@ pub(super) fn workspace_row(
         } else {
             gpui::transparent_black()
         })
-        .when(active, |row| row.bg(theme::chrome_selected()).shadow_sm())
+        .when(active, |row| row.bg(theme::chrome_selected()))
+        // A shadow paints its whole box, which shows through glass's translucent fill.
+        .when(active && !theme::is_glass(), |row| row.shadow_sm())
         .cursor_pointer()
         .text_size(theme::text_title())
         .font_weight(if active {
