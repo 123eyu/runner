@@ -18,12 +18,11 @@ impl Sidebar {
     pub(super) fn open_sidebar_context_menu(
         &mut self,
         position: gpui::Point<gpui::Pixels>,
-        width: f32,
         entries: Vec<(UiMenuItem, SidebarMenuAction)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_sidebar_menu(MenuOrigin::Pointer(position), width, entries, window, cx);
+        self.open_sidebar_menu(MenuOrigin::Pointer(position), entries, window, cx);
     }
 
     /// Opens a menu at `origin`. Pressing the button a menu is open under
@@ -31,7 +30,6 @@ impl Sidebar {
     fn open_sidebar_menu(
         &mut self,
         origin: MenuOrigin,
-        width: f32,
         entries: Vec<(UiMenuItem, SidebarMenuAction)>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -86,8 +84,7 @@ impl Sidebar {
                     });
                 }),
             )
-            .return_focus(return_focus)
-            .width(px(width));
+            .return_focus(return_focus);
             match anchor {
                 Some(anchor) => menu.anchored_to(anchor),
                 None => menu,
@@ -156,7 +153,7 @@ impl Sidebar {
             terminal_session_id,
             &self.settings(cx).keymap_overrides,
         );
-        self.open_sidebar_context_menu(position, 260., entries, window, cx);
+        self.open_sidebar_context_menu(position, entries, window, cx);
     }
 
     pub(super) fn open_mission_menu(
@@ -173,7 +170,7 @@ impl Sidebar {
             &summary.mission.id,
             summary.mission.title,
         );
-        self.open_sidebar_context_menu(position, 160., entries, window, cx);
+        self.open_sidebar_context_menu(position, entries, window, cx);
     }
 
     pub(super) fn open_project_create_menu(
@@ -185,7 +182,6 @@ impl Sidebar {
     ) {
         self.open_sidebar_menu(
             MenuOrigin::Button(anchor),
-            220.,
             project_create_menu_entries(&project_id, &self.settings(cx).keymap_overrides),
             window,
             cx,
@@ -200,7 +196,7 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) {
         let entries = project_menu_entries(project.id, project.name);
-        self.open_sidebar_menu(origin, 200., entries, window, cx);
+        self.open_sidebar_menu(origin, entries, window, cx);
     }
 
     pub(super) fn handle_sidebar_menu_action(

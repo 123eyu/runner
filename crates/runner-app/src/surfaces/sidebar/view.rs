@@ -333,7 +333,6 @@ impl Sidebar {
                                 cx.stop_propagation();
                                 this.open_sidebar_context_menu(
                                     event.position,
-                                    160.,
                                     vec![(
                                         UiMenuItem::new("New chat").icon("message-square-plus.svg"),
                                         SidebarMenuAction::NewChat(ProjectScope::Root),

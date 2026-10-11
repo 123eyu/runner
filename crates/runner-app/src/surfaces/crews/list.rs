@@ -555,7 +555,6 @@ impl NativeRoot {
                 }),
             )
             .return_focus(return_focus)
-            .width(px(160.))
         });
         let focus = menu.read(cx).focus_handle();
         self.crew_surfaces.context_menu = Some(menu);
