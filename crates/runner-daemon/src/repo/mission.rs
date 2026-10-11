@@ -124,6 +124,15 @@ pub fn list(conn: &Connection, crew_id: Option<&str>) -> rusqlite::Result<Vec<Mi
     rows.map(|r| r.map(Mission::from)).collect()
 }
 
+pub fn list_all(conn: &Connection) -> rusqlite::Result<Vec<Mission>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM missions ORDER BY started_at, id",
+        select_list(COLUMNS)
+    ))?;
+    let rows = stmt.query_map([], |row| from_row::<MissionRow>(row).map_err(de_err))?;
+    rows.map(|row| row.map(Mission::from)).collect()
+}
+
 /// Archived missions, optionally filtered by crew, newest-archived
 /// first — the Settings → Archived pane's read surface. Mirror image
 /// of `list()`.

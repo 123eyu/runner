@@ -321,6 +321,18 @@ pub fn crew_names(conn: &Connection, role_id: &str) -> rusqlite::Result<Vec<Stri
     rows.collect()
 }
 
+pub fn unarchived_mission_names(conn: &Connection, role_id: &str) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT m.title, m.id FROM missions m JOIN sessions s ON s.mission_id = m.id WHERE s.role_id = ?1 AND m.archived_at IS NULL ORDER BY m.title, m.id")?;
+    let rows = stmt.query_map([role_id], |row| {
+        Ok(format!(
+            "{} ({})",
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?
+        ))
+    })?;
+    rows.collect()
+}
+
 pub fn session_count(conn: &Connection, role_id: &str) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT COUNT(*) FROM sessions WHERE role_id = ?1",

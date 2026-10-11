@@ -1,4 +1,5 @@
 pub mod feed;
+pub mod roster;
 
 pub fn mission_set_project(
     state: &AppCore,
@@ -177,8 +178,9 @@ pub fn start(
     let (project_id, cwd) = project::resolve_scope(conn, &input.scope, input.cwd)?;
 
     // Validate crew exists and is launchable.
-    let crew = crew::get(conn, &input.crew_id)?;
-    let roster = slot::list(conn, &input.crew_id)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let crew = crew::get(&tx, &input.crew_id)?;
+    let roster = slot::list(&tx, &input.crew_id)?;
     if roster.is_empty() {
         return Err(Error::msg(format!(
             "crew {} has no slots; cannot start mission",
@@ -209,7 +211,6 @@ pub fn start(
     // includes mission_id (`$APPDATA/missions/<mission_id>/shims/...`),
     // the roster sidecar is per-mission, and the router boots fresh per
     // mission.
-    let tx = conn.transaction()?;
 
     let id = new_id();
     let started_at = now();
@@ -235,13 +236,7 @@ pub fn start(
     let mission_dir = event_log::mission_dir(app_data_dir, &crew.id, &id);
     std::fs::create_dir_all(&mission_dir)?;
 
-    // Snapshot the roster into a per-mission sidecar so the CLI can
-    // validate `runner msg post --to <handle>` without DB access. The
-    // roster is frozen here at mission_start: later changes to crew
-    // membership do not retroactively invalidate `--to` lookups in this
-    // mission's log (per PR #19 reviewer guidance).
-    let roster_for_sidecar = slot::list(&tx, &crew.id)?;
-    write_roster_sidecar(&mission_dir, &roster_for_sidecar)?;
+    roster::write(&mission_dir, &roster::snapshot(&crew, &roster))?;
 
     // The mission states its own goal.
     let goal_text = input.goal_override.clone().unwrap_or_default();
@@ -332,46 +327,6 @@ pub fn stop(conn: &mut Connection, app_data_dir: &Path, id: &str) -> Result<Miss
     Ok(mission)
 }
 
-/// Write the per-mission roster snapshot to `roster.json` next to
-/// `events.ndjson`. The CLI (`runner msg post --to`) reads this to
-/// validate handles without DB access. Frozen at mission_start: if the
-/// crew's membership changes mid-mission, the running mission still
-/// validates against this snapshot.
-///
-/// Atomic write via `tempfile::NamedTempFile::persist` so a crash
-/// mid-write can't leave a half-formed file the CLI would
-/// parse-fail on.
-fn write_roster_sidecar(mission_dir: &Path, roster: &[crate::model::SlotWithRole]) -> Result<()> {
-    use std::io::Write;
-
-    #[derive(serde::Serialize)]
-    struct RosterEntry<'a> {
-        // `handle` is the slot's in-crew identity (slot_handle). The
-        // CLI's `runner msg post --to <handle>` looks up against this
-        // sidecar — the role template's globally-unique `handle`
-        // is irrelevant in mission contexts, where two slots could
-        // share the same template.
-        handle: &'a str,
-        lead: bool,
-    }
-    let entries: Vec<RosterEntry> = roster
-        .iter()
-        .map(|m| RosterEntry {
-            handle: &m.slot.slot_handle,
-            lead: m.slot.lead,
-        })
-        .collect();
-
-    std::fs::create_dir_all(mission_dir)?;
-    let target = mission_dir.join("roster.json");
-    let mut tmp = tempfile::NamedTempFile::new_in(mission_dir)?;
-    let json = serde_json::to_vec(&entries)?;
-    tmp.write_all(&json)?;
-    tmp.flush()?;
-    tmp.persist(&target).map_err(|e| Error::Io(e.error))?;
-    Ok(())
-}
-
 pub use runner_core::protocol::mission::PostSignalInput;
 
 pub use runner_core::protocol::mission::PostMessageInput;
@@ -401,11 +356,16 @@ pub fn mission_events_replay(
     read_events(&state.app_data_dir, &conn, mission_id)
 }
 
-fn validate_roster_handle(conn: &Connection, mission: &Mission, from: Option<&str>) -> Result<()> {
+fn validate_roster_handle(
+    conn: &Connection,
+    app_data_dir: &Path,
+    mission: &Mission,
+    from: Option<&str>,
+) -> Result<()> {
     let Some(from) = from else {
         return Ok(());
     };
-    let roster = slot::list(conn, &mission.crew_id)?;
+    let roster = roster::load(conn, app_data_dir, mission)?.slots;
     if roster.iter().any(|member| member.slot.slot_handle == from) {
         Ok(())
     } else {
@@ -420,7 +380,7 @@ pub async fn mission_signal_impl(
     let (mission, from) = {
         let conn = state.db.get()?;
         let mission = get(&conn, &input.mission_id)?;
-        validate_roster_handle(&conn, &mission, input.from.as_deref())?;
+        validate_roster_handle(&conn, &state.app_data_dir, &mission, input.from.as_deref())?;
         let from = if let Some(from) = input.from.as_deref() {
             let Some(signal_type) = KnownSignalType::from_name(&input.signal_type) else {
                 return Err(Error::msg(format!(
@@ -491,13 +451,13 @@ fn post_message(
         )));
     }
 
-    validate_roster_handle(conn, &mission, input.from.as_deref())?;
+    validate_roster_handle(conn, app_data_dir, &mission, input.from.as_deref())?;
 
     if let Some(target) = input.to.as_deref() {
         if target == "human" {
             return Err(Error::msg("cannot address a mission message to @human"));
         }
-        let roster = slot::list(conn, &mission.crew_id)?;
+        let roster = roster::load(conn, app_data_dir, &mission)?.slots;
         if !roster
             .iter()
             .any(|member| member.slot.slot_handle == target)
@@ -601,20 +561,14 @@ pub async fn mission_start_impl_with_size(
     // while the crew still has half a live mission that blocks future
     // starts via the one-live-mission-per-crew invariant.
     //
-    // The roster lives in `slots`, joined with the role template
-    // each slot references. Mission spawn iterates per slot — two
-    // slots referencing the same role template both produce
-    // distinct PTYs identifying as their respective slot_handles.
-    let (crew_name, crew_addendum) = {
+    let loaded = {
         let conn = state.db.get()?;
-        let crew = crew::get(&conn, &out.mission.crew_id)?;
-        (crew.name, crew.system_prompt_addendum)
+        roster::load(&conn, &state.app_data_dir, &out.mission)?
     };
+    let crew_name = loaded.file.crew_name;
+    let crew_addendum = loaded.file.crew_addendum;
+    let roster = loaded.slots;
     let allowed_signals = all_known_signals();
-    let roster = {
-        let conn = state.db.get()?;
-        slot::list(&conn, &out.mission.crew_id)?
-    };
     let events_log_path =
         event_log::events_path(&state.app_data_dir, &out.mission.crew_id, &out.mission.id);
 
@@ -990,16 +944,14 @@ pub(crate) async fn ensure_mission_router_mounted(state: &AppCore, mission_id: &
         return Ok(());
     }
 
-    let (crew_name, crew_addendum) = {
+    let loaded = {
         let conn = state.db.get()?;
-        let crew = crew::get(&conn, &mission.crew_id)?;
-        (crew.name, crew.system_prompt_addendum)
+        roster::load(&conn, &state.app_data_dir, &mission)?
     };
+    let crew_name = loaded.file.crew_name;
+    let crew_addendum = loaded.file.crew_addendum;
+    let roster = loaded.slots;
     let allowed_signals = all_known_signals();
-    let roster = {
-        let conn = state.db.get()?;
-        slot::list(&conn, &mission.crew_id)?
-    };
 
     // Pull the latest session_id per slot for this mission so the
     // rebuilt Router can resolve `slot_handle → session_id` for stdin
@@ -1335,6 +1287,12 @@ pub fn mission_list_archived(state: &AppCore, crew_id: Option<String>) -> Result
     repo::mission::list_archived(&conn, crew_id.as_deref()).map_err(Into::into)
 }
 
+pub fn mission_roster(state: &AppCore, id: &str) -> Result<Vec<crate::model::SlotWithRole>> {
+    let conn = state.db.get()?;
+    let mission = get(&conn, id)?;
+    Ok(roster::load(&conn, &state.app_data_dir, &mission)?.slots)
+}
+
 pub fn mission_get(state: &AppCore, id: &str) -> Result<Mission> {
     let conn = state.db.get()?;
     get(&conn, id)
@@ -1448,6 +1406,7 @@ fn mission_activity_from_log(
     mission_activity_from_latest(live_handles, &latest)
 }
 
+#[cfg(test)]
 fn live_session_handles(conn: &Connection, mission_id: &str) -> rusqlite::Result<Vec<String>> {
     repo::session::live_handles_for_mission(conn, mission_id)
 }
@@ -1465,15 +1424,18 @@ pub async fn mission_list_summary_impl(
     let conn = state.db.get()?;
     let missions = list(&conn, crew_id.as_deref())?;
 
-    // Crew name lookup. We could JOIN in SQL, but the row count for
-    // missions is small in v0 and `crew::get` is a single indexed lookup;
-    // doing it in Rust keeps the SQL identical to `list()` and avoids a
-    // second row-mapper for the joined shape.
     let mut summaries = Vec::with_capacity(missions.len());
     for m in missions {
         let crew_name = match crew::get(&conn, &m.crew_id) {
-            Ok(c) => c.name,
-            Err(_) => String::new(), // crew was deleted; row still surfaces
+            Ok(crew) => crew.name,
+            Err(_) => String::new(),
+        };
+        let sessions = match super::session::list_for_mission(&conn, &state.app_data_dir, &m.id) {
+            Ok(sessions) => sessions,
+            Err(error) => {
+                log::warn!("mission {} summary unavailable: {error}; skipping", m.id);
+                continue;
+            }
         };
         // Live router is authoritative when mounted. For unmounted
         // missions — terminal status, or orphan `running` rows after a
@@ -1492,7 +1454,11 @@ pub async fn mission_list_summary_impl(
         // The same query feeds both projections: `any_session_live`
         // preserves the existing paused/no-live behavior, while
         // `activity` overlays busy/idle only for live mission slots.
-        let live_handles = live_session_handles(&conn, &m.id).unwrap_or_default();
+        let live_handles: Vec<_> = sessions
+            .iter()
+            .filter(|session| session.session.status == SessionStatus::Running)
+            .map(|session| session.handle.clone())
+            .collect();
         let any_session_live = !live_handles.is_empty();
         let all_sessions_live = all_mission_sessions_live(&conn, &m.id).unwrap_or(false);
         let activity = if any_session_live {
@@ -1501,7 +1467,7 @@ pub async fn mission_list_summary_impl(
         } else {
             None
         };
-        let session_statuses = repo::session::list_for_mission(&conn, &m.id)?
+        let session_statuses = sessions
             .into_iter()
             .filter(|session| !Runtime::parse(&session.runtime).is_some_and(Runtime::is_shell))
             .map(|session| {

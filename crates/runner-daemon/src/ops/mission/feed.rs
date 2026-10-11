@@ -211,7 +211,7 @@ pub fn mission_status(state: &crate::AppCore, id: &str) -> Result<MissionStatusS
     let conn = state.db.get()?;
     let (mission, entries, skipped) = read_log_entries(&state.app_data_dir, &conn, id, 0)?;
     let crew = crew::get(&conn, &mission.crew_id)?;
-    let sessions = session::list_for_mission(&conn, &mission.id)?;
+    let sessions = session::list_for_mission(&conn, &state.app_data_dir, &mission.id)?;
     let projection = EventProjection::from_entries(&entries);
     let live_session_count = sessions
         .iter()

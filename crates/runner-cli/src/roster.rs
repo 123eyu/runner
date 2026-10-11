@@ -8,13 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RosterEntry {
-    pub handle: String,
-    pub lead: bool,
-}
+use runner_core::mission_roster::{MissionRoster, RosterSlot};
 
 /// Locate the sidecar from the events-log path. The roster.json sits in
 /// the same mission directory as events.ndjson.
@@ -23,10 +17,12 @@ pub fn sidecar_path(event_log: &Path) -> Option<PathBuf> {
     Some(mission_dir.join("roster.json"))
 }
 
-pub fn load(event_log: &Path) -> Option<Vec<RosterEntry>> {
+pub fn load(event_log: &Path) -> Option<Vec<RosterSlot>> {
     let path = sidecar_path(event_log)?;
     let bytes = std::fs::read(&path).ok()?;
-    serde_json::from_slice::<Vec<RosterEntry>>(&bytes).ok()
+    serde_json::from_slice::<MissionRoster>(&bytes)
+        .ok()
+        .map(|roster| roster.slots)
 }
 
 /// Returns true if `handle` is in the roster. Missing-sidecar is
@@ -66,7 +62,7 @@ mod tests {
         std::fs::create_dir_all(&mission).unwrap();
         std::fs::write(
             mission.join("roster.json"),
-            br#"[{"handle":"lead","lead":true},{"handle":"impl","lead":false}]"#,
+            br#"{"version":2,"crew_name":"Pair","crew_addendum":null,"slots":[{"id":"s1","role_id":"r1","position":0,"handle":"lead","lead":true},{"id":"s2","role_id":"r2","position":1,"handle":"impl","lead":false}]}"#,
         )
         .unwrap();
         let log = mission.join("events.ndjson");
@@ -81,5 +77,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("events.ndjson");
         assert!(is_known(&log, "anyone"));
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn only_version_two_is_read_and_unknown_handles_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("events.ndjson");
+        let path = dir.path().join("roster.json");
+        for bytes in [
+            br#"[{"handle":"lead","lead":true}]"#.as_slice(),
+            br#"{"version":3,"slots":[]}"#.as_slice(),
+            b"invalid",
+        ] {
+            std::fs::write(&path, bytes).unwrap();
+            assert!(load(&log).is_none());
+        }
+        std::fs::write(&path, br#"{"version":2,"crew_name":"Pair","crew_addendum":null,"slots":[{"id":"s","handle":"original","lead":true,"position":0,"role_id":"r"}]}"#).unwrap();
+        assert!(is_known(&log, "original"));
+        assert!(!is_known(&log, "renamed"));
+        assert!(!is_known(&log, "added"));
     }
 }
