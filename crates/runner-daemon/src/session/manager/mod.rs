@@ -1770,57 +1770,30 @@ fn resolve_spawn_cwd(explicit: Option<&str>, role_default: Option<&str>) -> Opti
         })
 }
 
-/// Outcome of resolving a runtime override against a role row
-/// (feature 41).
-#[derive(Debug)]
-pub(crate) struct RuntimeOverrideResolution {
-    /// Rebuilt role config after applying any runtime, model, or
-    /// effort override. `None` means the role row is byte-identical.
-    pub effective: Option<Role>,
-    /// True when a non-blank runtime override was explicitly requested —
-    /// including one matching the role's current runtime. Spawn
-    /// paths record the effective runtime on the session row for
-    /// pinned spawns so a later edit to the role template's
-    /// runtime can't silently re-engine this session's resume (and
-    /// hand its native session key to a different CLI).
-    pub pinned: bool,
-}
-
-/// Resolve the role config a spawn should actually use. Layering is
-/// role template, then runtime override, then model/effort overrides.
-/// A matching runtime override keeps an otherwise unchanged spawn
-/// byte-identical but still pins. Model/effort-only overrides never pin.
+/// Resolve the role config a spawn should actually use (feature 41).
+/// Layering is role template, then runtime override, then model/effort
+/// overrides. `None` means the role row applies unchanged; a runtime
+/// override naming the role's own runtime is no override.
 pub(crate) fn resolve_runtime_override(
     role: &Role,
     runtime_override: Option<&str>,
     model_override: Option<&str>,
     effort_override: Option<&str>,
-) -> Result<RuntimeOverrideResolution> {
-    let runtime_override = runtime_override.map(str::trim).filter(|s| !s.is_empty());
+) -> Result<Option<Role>> {
+    let runtime_override = runtime_override
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && *name != role.runtime.as_str());
     let model_override = model_override
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let effort_override = effort_override
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let pinned = runtime_override.is_some();
     if runtime_override.is_none() && model_override.is_none() && effort_override.is_none() {
-        return Ok(RuntimeOverrideResolution {
-            effective: None,
-            pinned: false,
-        });
-    }
-    if runtime_override == Some(role.runtime.as_str())
-        && model_override.is_none()
-        && effort_override.is_none()
-    {
-        return Ok(RuntimeOverrideResolution {
-            effective: None,
-            pinned: true,
-        });
+        return Ok(None);
     }
     let mut effective = role.clone();
-    if let Some(name) = runtime_override.filter(|name| *name != role.runtime.as_str()) {
+    if let Some(name) = runtime_override {
         let def = crate::runtimes::for_key(name)
             .catalog()
             .ok_or_else(|| Error::msg(format!("unknown runtime: {name}")))?;
@@ -1841,10 +1814,7 @@ pub(crate) fn resolve_runtime_override(
     if effort_override.is_some() {
         effective.effort = effort_override.map(ToOwned::to_owned);
     }
-    Ok(RuntimeOverrideResolution {
-        effective: Some(effective),
-        pinned,
-    })
+    Ok(Some(effective))
 }
 
 pub(crate) fn runtime_direct_role(

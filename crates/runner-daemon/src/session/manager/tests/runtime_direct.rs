@@ -561,7 +561,7 @@ fn pinned_direct_spawn_records_override_model_and_effort() {
 }
 
 #[test]
-fn unpinned_direct_spawn_persists_options_without_pinning_runtime() {
+fn options_only_direct_spawn_persists_options_and_role_runtime() {
     let pool = pool_with_schema();
     let role_id = ulid::Ulid::new().to_string();
     crate::test_support::insert_test_role(
@@ -603,7 +603,7 @@ fn unpinned_direct_spawn_persists_options_without_pinning_runtime() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
-    assert_eq!(stored.0, None, "options-only direct chats must not pin");
+    assert_eq!(stored.0.as_deref(), Some("codex"));
     assert_eq!(stored.1.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(stored.2.as_deref(), Some("ultra"));
 
