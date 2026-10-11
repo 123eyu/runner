@@ -50,7 +50,7 @@ Steps 1, 2 and 4 are #562 (role-seeded missions, outside seats, `spawn`, `wait`,
 
 ## Open questions
 
-1. **Where does a session an agent spawned show up?** In a new tab, in the mission's tab as a pane, or kept in the sidebar until the person opens it. It must not take focus from what the person is doing. This belongs in #562's design phase, before Phase 4.
+1. **Where does a session an agent spawned show up?** In a new tab, in the mission's tab as a pane, or kept in the sidebar until the person opens it. It must not take focus from what the person is doing. This belongs in #562's Phase 3 design.
 2. **Does a direct chat get a way to spawn workers without a mission?** No, settled 2026-10-11 when #704 closed into #562: direct chats stay off the bus, and a chat that needs workers starts a mission. Revisit only if that step turns out to be friction in real use.
 
 ## Roadmap implications
