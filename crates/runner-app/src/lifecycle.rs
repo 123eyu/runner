@@ -83,13 +83,15 @@ pub fn quit_choice(
 pub struct QuitState {
     pub choice: QuitChoice,
     pub asking: bool,
+    /// Sessions are stopping off the main thread; the app quits once they have.
+    pub stopping: bool,
     owner: Option<gpui::WindowId>,
     generation: u64,
 }
 impl Global for QuitState {}
 impl QuitState {
     pub fn begin(&mut self, owner: gpui::WindowId) -> Option<u64> {
-        if self.asking {
+        if self.asking || self.stopping {
             return None;
         }
         self.generation = self.generation.wrapping_add(1);
@@ -98,7 +100,7 @@ impl QuitState {
         Some(self.generation)
     }
     pub fn is_current(&self, owner: gpui::WindowId, generation: u64) -> bool {
-        self.asking && self.owner == Some(owner) && self.generation == generation
+        self.asking && !self.stopping && self.owner == Some(owner) && self.generation == generation
     }
     pub fn cancel(&mut self, owner: gpui::WindowId) {
         if self.owner == Some(owner) {
@@ -112,7 +114,7 @@ impl QuitState {
         }
     }
     pub fn stop_sessions(&self, update: bool) -> bool {
-        self.choice == QuitChoice::Stop && !update
+        self.choice == QuitChoice::Stop && !update && !self.stopping
     }
 }
 
@@ -220,6 +222,8 @@ mod tests {
         state.choice = QuitChoice::Stop;
         assert!(state.stop_sessions(false));
         assert!(!state.stop_sessions(true));
+        state.stopping = true;
+        assert!(!state.stop_sessions(false));
     }
     #[test]
     fn stop_line_names_one_working_agent_and_counts_several() {

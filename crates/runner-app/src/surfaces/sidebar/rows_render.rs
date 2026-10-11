@@ -490,20 +490,15 @@ impl Sidebar {
         )))
         .child(header);
         if !renaming {
+            let drag = SidebarNodeDrag::new(drag_node_id, drag_label, None);
             header_wrap = header_wrap
-                .on_drag(
-                    SidebarNodeDrag {
-                        node_id: drag_node_id,
-                        label: drag_label,
-                        icon: None,
-                    },
-                    move |drag: &SidebarNodeDrag, _, _, cx| {
-                        drag_root.update(cx, |this, cx| {
-                            this.start_sidebar_drag(drag.node_id.clone(), cx);
-                        });
-                        cx.new(|_| drag.clone())
-                    },
-                )
+                .child(drag.measure())
+                .on_drag(drag, move |drag: &SidebarNodeDrag, _, _, cx| {
+                    drag_root.update(cx, |this, cx| {
+                        this.start_sidebar_drag(drag.node_id.clone(), cx);
+                    });
+                    cx.new(|_| drag.clone())
+                })
                 .on_drag_move::<SidebarNodeDrag>(cx.listener(
                     move |this, event: &DragMoveEvent<SidebarNodeDrag>, _, cx| {
                         if !event.bounds.contains(&event.event.position) {
@@ -704,11 +699,7 @@ impl Sidebar {
         visible_ids: Vec<String>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let drag = SidebarNodeDrag {
-            node_id: node.id.clone(),
-            label,
-            icon,
-        };
+        let drag = SidebarNodeDrag::new(node.id.clone(), label, icon);
         let drag_root = cx.entity();
         let hovered_id = node.id.clone();
         let marker_prefix = match kind {
@@ -726,6 +717,7 @@ impl Sidebar {
         )))
         .cursor_move()
         .child(row)
+        .child(drag.measure())
         .on_drag(drag, move |drag: &SidebarNodeDrag, _, _, cx| {
             drag_root.update(cx, |this, cx| {
                 this.start_sidebar_drag(drag.node_id.clone(), cx);

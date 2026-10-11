@@ -1396,7 +1396,8 @@ impl NativeRoot {
                 theme::muted()
             })
             .cursor_pointer()
-            .when(active, |row| row.shadow_sm())
+            // A shadow paints its whole box, which shows through glass's translucent fill.
+            .when(active && !theme::is_glass(), |row| row.shadow_sm())
             .when(!active, |row| {
                 row.hover(|row| {
                     row.border_color(theme::chrome_selected_border())
