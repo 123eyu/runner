@@ -2,7 +2,7 @@
 
 > Tracking issue: [#634](https://github.com/yicheng47/runner/issues/634). Priority: P1, the headline of 0.16 (moved from 0.15 to 0.14 on 2026-10-09, renumbered 0.16 on 2026-10-10, when Cursor shipped as 0.15.0). Platforms: macOS and Windows.
 > Status: draft spec. Filed 2026-09-17, closed as not planned on 2026-09-22 under the "not an agent development environment" non-goal, and reopened by Jason on 2026-10-08 for 0.15: reading an agent's changes is still the most common reason to leave Runner, so the read-only viewer is back in and code review moved from Later into scope as phase 4. On 2026-10-09 Jason moved it to 0.14 as the release's key feature. Design first, in `design/specs/793-634-glass-and-files.pen`, which it shares with liquid glass ([793](./archive/793-liquid-glass.md)) so the panel is designed in the new chrome, for sign-off before any code.
-> Related: [#458](https://github.com/yicheng47/runner/issues/458) (⌘-click file links, `file_links.rs`), [704](./704-session-send.md) (session send, the delivery for a review sent to a direct chat; closed unbuilt on 2026-10-11), [826](./826-targeted-messaging.md) (directed messages that wake only their recipient), [403](./archive/403-mission-worktree-isolation.md) (worktree isolation, still dropped).
+> Related: [#458](https://github.com/yicheng47/runner/issues/458) (⌘-click file links, `file_links.rs`), [704](./archive/704-session-send.md) (session send, the delivery for a review sent to a direct chat; closed unbuilt on 2026-10-11), [826](./826-targeted-messaging.md) (directed messages that wake only their recipient), [403](./archive/403-mission-worktree-isolation.md) (worktree isolation, still dropped).
 
 ## Motivation
 

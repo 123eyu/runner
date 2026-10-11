@@ -1,9 +1,9 @@
 # 704 — Send a prompt from one session to another
 
 > Tracking issue: [#704](https://github.com/yicheng47/runner/issues/704)
-> Priority: P1, milestone 0.16, ahead of [562](./562-mission-spawn.md) in 0.17 (moved from 0.13 to 0.15 on 2026-10-07 and to 0.14 on 2026-10-09, renumbered 0.16 on 2026-10-10; filed P2 and raised to P1 on 2026-09-23). Platforms: macOS and Windows.
-> Status: closed unbuilt on 2026-10-11 and not scheduled. Its 2026-10-09 direction, a chat delegating to a worker started from a role with the result returned to it, is now [562](./562-mission-spawn.md)'s start from roles on mission crews with [748](./748-mission-watch-delivery.md) delivering the result, tracked under #562. Reopen #704 if typing a prompt into an already open chat is needed on its own. No design: the feature has no UI.
-> Related: [562](./562-mission-spawn.md) (missions as containers, 0.17). The two are specced together on purpose: this spec is the terminal layer beside 562's coordination layer, and the section on the boundary below is the architecture decision.
+> Priority: P1, milestone 0.16, ahead of [562](../562-mission-spawn.md) in 0.17 (moved from 0.13 to 0.15 on 2026-10-07 and to 0.14 on 2026-10-09, renumbered 0.16 on 2026-10-10; filed P2 and raised to P1 on 2026-09-23). Platforms: macOS and Windows.
+> Status: closed unbuilt on 2026-10-11 and not scheduled. Its 2026-10-09 direction, a chat delegating to a worker started from a role with the result returned to it, is now [562](../562-mission-spawn.md)'s start from roles on mission crews with [748](../748-mission-watch-delivery.md) delivering the result, tracked under #562. Reopen #704 if typing a prompt into an already open chat is needed on its own. No design: the feature has no UI.
+> Related: [562](../562-mission-spawn.md) (missions as containers, 0.17). The two are specced together on purpose: this spec is the terminal layer beside 562's coordination layer, and the section on the boundary below is the architecture decision.
 > Prior art: Orca's `orca terminal send/read/wait` and `orca orchestration …` (read 2026-09-23 in `~/repos/ai/orca/skill-guides/orca-cli.md` and `skill-guides/orchestration/`).
 
 ## Motivation

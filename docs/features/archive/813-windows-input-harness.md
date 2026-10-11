@@ -1,8 +1,8 @@
 # 813 — Live-regression input harness
 
 > Tracking issue: [#813](https://github.com/yicheng47/runner/issues/813)
-> Priority: P2, 0.15 with [704](../704-session-send.md), which it builds on (moved from 0.13 on 2026-10-07). Platforms: Windows first; works on macOS unchanged.
-> Status: draft 2026-10-06; builds on [#704](../704-session-send.md).
+> Priority: P2, 0.15 with [704](./704-session-send.md), which it builds on (moved from 0.13 on 2026-10-07). Platforms: Windows first; works on macOS unchanged.
+> Status: draft 2026-10-06; builds on [#704](./704-session-send.md).
 
 ## Motivation
 
@@ -82,4 +82,4 @@ No change to the release app on macOS. The development-only commands go through 
 - Computer Use guidance: `~/.codex/plugins/cache/openai-bundled/computer-use/<version>/docs/guidance.md`, section "Non-negotiable Windows Automation Safety".
 - Windows regression report and QA checklist: `docs/tests/archive/2026-10-06-pc-full-regression.md`.
 - Input path: `crates/runner-daemon/src/session/manager/terminal.rs` (`write_input`), `session/manager/output.rs` (delivery gate), `crates/runner-terminal/src/mappings.rs` (key encoding).
-- Related: [#704](../704-session-send.md) (session send and wait), #777 (runtime adapter smoke on macOS), [#797](./797-hook-status-ipc.md) (hook status IPC), #645 (runnerd).
+- Related: [#704](./704-session-send.md) (session send and wait), #777 (runtime adapter smoke on macOS), [#797](./797-hook-status-ipc.md) (hook status IPC), #645 (runnerd).
