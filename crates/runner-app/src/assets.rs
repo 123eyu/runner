@@ -142,11 +142,14 @@ const TRAE: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 2
 // Source: https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons/githubcopilot.svg
 const COPILOT: &[u8] = br#"<svg fill="currentColor" fill-rule="evenodd" viewBox="-2 -2 28 28" xmlns="http://www.w3.org/2000/svg"><path d="M19.245 5.364c1.322 1.36 1.877 3.216 2.11 5.817.622 0 1.2.135 1.592.654l.73.964c.21.278.323.61.323.955v2.62c0 .339-.173.669-.453.868C20.239 19.602 16.157 21.5 12 21.5c-4.6 0-9.205-2.583-11.547-4.258-.28-.2-.452-.53-.453-.868v-2.62c0-.345.113-.679.321-.956l.73-.963c.392-.517.974-.654 1.593-.654l.029-.297c.25-2.446.81-4.213 2.082-5.52 2.461-2.54 5.71-2.851 7.146-2.864h.198c1.436.013 4.685.323 7.146 2.864zm-7.244 4.328c-.284 0-.613.016-.962.05-.123.447-.305.85-.57 1.108-1.05 1.023-2.316 1.18-2.994 1.18-.638 0-1.306-.13-1.851-.464-.516.165-1.012.403-1.044.996a65.882 65.882 0 00-.063 2.884l-.002.48c-.002.563-.005 1.126-.013 1.69.002.326.204.63.51.765 2.482 1.102 4.83 1.657 6.99 1.657 2.156 0 4.504-.555 6.985-1.657a.854.854 0 00.51-.766c.03-1.682.006-3.372-.076-5.053-.031-.596-.528-.83-1.046-.996-.546.333-1.212.464-1.85.464-.677 0-1.942-.157-2.993-1.18-.266-.258-.447-.661-.57-1.108-.32-.032-.64-.049-.96-.05zm-2.525 4.013c.539 0 .976.426.976.95v1.753c0 .525-.437.95-.976.95a.964.964 0 01-.976-.95v-1.752c0-.525.437-.951.976-.951zm5 0c.539 0 .976.426.976.95v1.753c0 .525-.437.95-.976.95a.964.964 0 01-.976-.95v-1.752c0-.525.437-.951.976-.951zM7.635 5.087c-1.05.102-1.935.438-2.385.906-.975 1.037-.765 3.668-.21 4.224.405.394 1.17.657 1.995.657h.09c.649-.013 1.785-.176 2.73-1.11.435-.41.705-1.433.675-2.47-.03-.834-.27-1.52-.63-1.813-.39-.336-1.275-.482-2.265-.394zm6.465.394c-.36.292-.6.98-.63 1.813-.03 1.037.24 2.06.675 2.47.968.957 2.136 1.104 2.776 1.11h.044c.825 0 1.59-.263 1.995-.657.555-.556.765-3.187-.21-4.224-.45-.468-1.335-.804-2.385-.906-.99-.088-1.875.058-2.265.394zM12 7.615c-.24 0-.525.015-.84.044.03.16.045.336.06.526l-.001.159a2.94 2.94 0 01-.014.25c.225-.022.425-.027.612-.028h.366c.187 0 .387.006.612.028-.015-.146-.015-.277-.015-.409.015-.19.03-.365.06-.526a9.29 9.29 0 00-.84-.044z"></path></svg>"#;
 
-// Source: https://pi.dev/logo.svg (traced as the one-colour favicon silhouette)
-const PI: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" fill="currentColor"><path d="M0 0h18v12h-6v6H6v6H0zM6 6v6h6V6zM18 12h6v12h-6z"/></svg>"#;
+// Source: https://pi.dev/logo.svg (full colour; viewBox cropped to the mark with the provider marks' 1/12 margin)
+const PI: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="126.17 126.17 547.67 547.67"><path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z"/><path fill="#4D9ABF" d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"/><path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z"/></svg>"##;
 
 // Source: https://cursor.com/favicon.svg (brand path, without the favicon tile)
 const CURSOR: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" fill="currentColor"><path transform="translate(-4 -4) scale(.0625)" d="m415.035 156.35-151.503-87.4695c-4.865-2.8094-10.868-2.8094-15.733 0l-151.4969 87.4695c-4.0897 2.362-6.6146 6.729-6.6146 11.459v176.383c0 4.73 2.5249 9.097 6.6146 11.458l151.5039 87.47c4.865 2.809 10.868 2.809 15.733 0l151.504-87.47c4.089-2.361 6.614-6.728 6.614-11.458v-176.383c0-4.73-2.525-9.097-6.614-11.459zm-9.516 18.528-146.255 253.32c-.988 1.707-3.599 1.01-3.599-.967v-165.872c0-3.314-1.771-6.379-4.644-8.044l-143.645-82.932c-1.707-.988-1.01-3.599.968-3.599h292.509c4.154 0 6.75 4.503 4.673 8.101h-.007z"/></svg>"#;
+
+// Source: https://raw.githubusercontent.com/lobehub/lobe-icons/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons/grok.svg
+const GROK: &[u8] = br#"<svg fill="currentColor" fill-rule="evenodd" viewBox="-2 -2 28 28" xmlns="http://www.w3.org/2000/svg"><path d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"/></svg>"#;
 
 const ASSETS: &[(&str, &[u8])] = &[
     ("app-icon.png", APP_ICON),
@@ -217,6 +220,7 @@ const ASSETS: &[(&str, &[u8])] = &[
     ("copilot.svg", COPILOT),
     ("pi.svg", PI),
     ("cursor.svg", CURSOR),
+    ("grok.svg", GROK),
     ("message-square-plus.svg", MESSAGE_SQUARE_PLUS),
     ("columns-2.svg", COLUMNS_2),
     ("pin.svg", PIN),
@@ -336,8 +340,8 @@ pub fn app_icon_source() -> ImageSource {
     ImageSource::Resource(Resource::Embedded("app-icon.png".into()))
 }
 
-pub fn antigravity_icon_source() -> ImageSource {
-    ImageSource::Resource(Resource::Embedded("antigravity-icon.png".into()))
+pub fn color_mark_source(path: &'static str) -> ImageSource {
+    ImageSource::Resource(Resource::Embedded(path.into()))
 }
 
 impl AssetSource for Assets {
@@ -370,9 +374,9 @@ mod tests {
     }
 
     #[test]
-    fn antigravity_icon_uses_the_embedded_asset_loader() {
+    fn color_marks_use_the_embedded_asset_loader() {
         assert!(matches!(
-            antigravity_icon_source(),
+            color_mark_source("antigravity-icon.png"),
             ImageSource::Resource(Resource::Embedded(path)) if path.as_ref() == "antigravity-icon.png"
         ));
     }
@@ -426,8 +430,8 @@ mod tests {
             "openai.svg",
             "trae.svg",
             "copilot.svg",
-            "pi.svg",
             "cursor.svg",
+            "grok.svg",
         ] {
             let bytes = Assets.load(path).unwrap().expect("bundled provider mark");
             let svg = std::str::from_utf8(&bytes).unwrap();
@@ -443,6 +447,15 @@ mod tests {
     fn antigravity_color_icon_is_bundled() {
         let icon = Assets.load("antigravity-icon.png").unwrap().unwrap();
         assert!(icon.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
+    fn pi_mark_keeps_its_three_brand_colours() {
+        let icon = Assets.load("pi.svg").unwrap().unwrap();
+        let svg = std::str::from_utf8(&icon).unwrap();
+        for fill in ["#F09082", "#4D9ABF", "#F1BE58"] {
+            assert!(svg.contains(&format!("fill=\"{fill}\"")), "{fill}");
+        }
     }
 
     #[test]

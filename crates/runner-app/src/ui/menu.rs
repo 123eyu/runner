@@ -632,7 +632,6 @@ pub struct ContextMenu {
     focus_handle: FocusHandle,
     position: gpui::Point<Pixels>,
     anchor: Option<Bounds<Pixels>>,
-    width: Pixels,
     items: Vec<MenuItem>,
     state: MenuState,
     on_activate: MenuHandler,
@@ -656,18 +655,12 @@ impl ContextMenu {
             focus_handle,
             position,
             anchor: None,
-            width: px(160.),
             items,
             state,
             on_activate,
             on_dismiss,
             return_focus: None,
         }
-    }
-
-    pub fn width(mut self, width: Pixels) -> Self {
-        self.width = width;
-        self
     }
 
     /// Opens under `anchor`, the button that opened the menu, the way a
@@ -742,8 +735,7 @@ impl ContextMenu {
         if !self.state.open {
             return None;
         }
-        let zoom = app_zoom(window);
-        let width = self.width * zoom;
+        let width = context_menu_width(app_zoom(window));
         let entity = cx.weak_entity();
         let rows = self.items.iter().cloned().enumerate().map(|(index, item)| {
             let active = self.state.highlighted == index;
@@ -819,6 +811,7 @@ impl ContextMenu {
                 .children(item.shortcut.map(|shortcut| {
                     div()
                         .flex_none()
+                        .pl(rems(12. / 16.))
                         .text_size(theme::text_meta())
                         .text_color(theme::faint())
                         .child(shortcut)
@@ -847,7 +840,8 @@ impl ContextMenu {
         let menu = div()
             .id(self.id.clone())
             .tab_index(0)
-            .w(width)
+            .min_w(width.0)
+            .max_w(width.1)
             .flex()
             .flex_col()
             .gap(rems(1. / 16.))
@@ -876,15 +870,17 @@ impl Render for ContextMenu {
         if !self.state.open {
             return div().into_any_element();
         }
-        let width = self.width * app_zoom(window);
+        let (min, max) = context_menu_width(app_zoom(window));
         let menu = self.menu_content(window, cx).unwrap();
         let dismiss_entity = cx.entity();
         let dismiss: DismissHandler = Rc::new(move |window, cx| {
             dismiss_entity.update(cx, |menu, cx| menu.dismiss(window, cx));
         });
         let layer = match self.anchor {
-            Some(anchor) => popup_layer(anchor, window, width, menu, dismiss),
-            None => context_menu_layer(self.position, window, width, menu, dismiss),
+            Some(anchor) => {
+                popup_layer_sized(anchor, window, PopupWidth::Fit { min, max }, menu, dismiss)
+            }
+            None => context_menu_layer(self.position, window, min, menu, dismiss),
         };
         div()
             .track_focus(&self.focus_handle)
@@ -892,6 +888,11 @@ impl Render for ContextMenu {
             .child(layer)
             .into_any_element()
     }
+}
+
+/// A context menu is as wide as its widest row, between these bounds.
+fn context_menu_width(zoom: f32) -> (Pixels, Pixels) {
+    (px(160. * zoom), px(320. * zoom))
 }
 
 pub(crate) fn context_menu_layer(
@@ -1126,6 +1127,44 @@ mod tests {
                 visual.update(|window, _| assert!(previous.is_focused(window)));
             }
         }
+    }
+
+    #[test]
+    fn context_menus_fit_their_widest_row() {
+        let panel_width = |items: Vec<MenuItem>| {
+            let mut cx = TestAppContext::single();
+            let host = cx.add_window(|_, cx| {
+                ContextMenu::new(
+                    "context-menu",
+                    cx.focus_handle(),
+                    point(px(20.), px(20.)),
+                    items,
+                    Rc::new(|_, _, _| {}),
+                    Rc::new(|_, _| {}),
+                )
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            visual.run_until_parked();
+            visual
+                .debug_bounds("CONTEXT_MENU_PANEL")
+                .unwrap()
+                .size
+                .width
+        };
+        assert_eq!(panel_width(items()), px(160.));
+        let shortcut = panel_width(vec![
+            MenuItem::new("Pin"),
+            MenuItem::new("Archive").shortcut("⌘W"),
+        ]);
+        let wider = panel_width(vec![
+            MenuItem::new("Pin"),
+            MenuItem::new("Archive this tab").shortcut("⌘W"),
+        ]);
+        assert!(shortcut >= px(160.) && wider > shortcut && wider < px(320.));
+        let capped = panel_width(vec![MenuItem::new(
+            "A label far too long for any context menu to show on one line",
+        )]);
+        assert_eq!(capped, px(320.));
     }
 
     #[test]

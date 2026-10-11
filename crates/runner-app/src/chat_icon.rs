@@ -2,7 +2,7 @@ use gpui::prelude::*;
 use gpui::{div, img, rems, svg, AnyElement, DefiniteLength, Hsla};
 use runner_core::protocol::model::Runtime;
 
-use crate::assets::antigravity_icon_source;
+use crate::assets::color_mark_source;
 use crate::theme;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,8 +59,8 @@ impl ChatIcon {
 
     pub fn render(self, size: impl Into<DefiniteLength>, color: Hsla, live: bool) -> AnyElement {
         let size = size.into();
-        if self.path == "antigravity-icon.png" {
-            img(antigravity_icon_source())
+        if matches!(self.path, "antigravity-icon.png" | "pi.svg") {
+            img(color_mark_source(self.path))
                 .size(size)
                 .flex_none()
                 .opacity(if live { 1. } else { 0.45 })
@@ -114,7 +114,7 @@ mod tests {
                 ("copilot", "copilot.svg", gpui::rgb(0x8534f3).into()),
                 ("pi", "pi.svg", theme::text()),
                 ("cursor", "cursor.svg", theme::text()),
-                ("grok", "bot.svg", theme::text()),
+                ("grok", "grok.svg", theme::text()),
                 ("antigravity", "antigravity-icon.png", theme::text()),
             ] {
                 let icon = ChatIcon::for_runtime(runtime);

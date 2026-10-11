@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{px, Context, Window};
+use gpui::{Context, Window};
 use runner_app::ui::{ContextMenu, MenuItem as UiMenuItem};
 use runner_core::protocol::model::Role;
 use runner_core::protocol::role::RoleWithActivity;
@@ -56,7 +56,6 @@ impl NativeRoot {
                 }),
             )
             .return_focus(return_focus)
-            .width(px(176.))
         });
         let focus = menu.read(cx).focus_handle();
         self.role_surfaces.context_menu = Some(menu);

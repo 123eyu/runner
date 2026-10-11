@@ -95,7 +95,7 @@ pub(crate) fn runtime_ui(runtime: Runtime) -> RuntimeUi {
             ui.skills_caption = CURSOR_CAPTION;
         }
         Runtime::Grok => {
-            ui.icon = "bot.svg";
+            ui.icon = "grok.svg";
             ui.skills_caption = GROK_CAPTION;
         }
         Runtime::Shell => {
