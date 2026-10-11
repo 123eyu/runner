@@ -1,10 +1,10 @@
 # 562 — Missions as containers: missions without a crew, roles added and removed while they run
 
-> Tracking issue: [#562](https://github.com/yicheng47/runner/issues/562). Priority: P1.
+> Tracking issue: [#562](https://github.com/yicheng47/runner/issues/562), "delegate work to other agents". Priority: P1, milestone 0.16 (moved from 0.17 on 2026-10-11, when #562 became the parent of [#863](https://github.com/yicheng47/runner/issues/863) and [#748](https://github.com/yicheng47/runner/issues/748) and [#704](https://github.com/yicheng47/runner/issues/704) closed into it). Delegation from a chat works end to end once Phase 1, Phase 3 and [748](./748-mission-watch-delivery.md) have landed.
 > Status: Phase 1, mission crews, is settled and is the fix for [#863](https://github.com/yicheng47/runner/issues/863); it ships on its own as a patch release. Phases 2 to 4 are refined in this spec before their work starts, and the app phase is designed first.
 > Design: `design/specs/562-mission-spawn.pen`, drawn on `main` before Phase 4, together with the Start mission dialog of [849](./849-start-mission-modal.md).
 > Identity: a caller is the person at the app or a roster handle, never a location ([648](./archive/648-runner-cli.md) decision 7).
-> Related: [704](./704-session-send.md), `runner session send`, the terminal layer beside this coordination layer. Direct chats stay off the bus. [#863](https://github.com/yicheng47/runner/issues/863), the crew-edit roster bug that Phase 1 fixes.
+> Related: [748](./748-mission-watch-delivery.md), which types a mission's updates into the chat that started it, the return path for delegation. Direct chats stay off the bus. [704](./704-session-send.md), `runner session send` into a chat that is already open, closed into this issue on 2026-10-11 and not scheduled. [#863](https://github.com/yicheng47/runner/issues/863), the crew-edit roster bug that Phase 1 fixes.
 > Rewritten 2026-10-10 against the `runnerd` code, after Jason set the direction: a crew is not a prerequisite for a mission, a mission can start from a single role, and roles can be added to or removed from a running mission when needed. Jason chose the same day to give each mission its own crew row (one `crews` table, kind `template` or `mission`, no UI rename) over a separate mission-owned slot model. The 2026-09-18 draft's lead verbs (`runner spawn`, `ps`, `stop`) and outside seats move to Follow-ups; they build on this.
 
 ## Motivation

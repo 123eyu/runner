@@ -22,10 +22,10 @@ Claude Code's subagents spawn Claude and Codex's spawn Codex. No vendor has a re
 
 | Need | How Runner meets it | State |
 | --- | --- | --- |
-| A place to work together | The mission as a container that owns its roster, seeded from a crew or a single role | [#562](https://github.com/yicheng47/runner/issues/562), 0.12 |
+| A place to work together | The mission as a container that owns its roster, seeded from a crew or a single role | [#562](https://github.com/yicheng47/runner/issues/562), 0.16 |
 | Identity | Roster handles; outside agents take a seat | 648 decisions shipped; seats in #562 |
 | Coordination | The mission bus: signals, messages, the inbox | Shipped |
-| Handing off directly | `runner session send` into an open chat, with no bus | [#704](https://github.com/yicheng47/runner/issues/704), 0.12 |
+| Handing off directly | A one-role mission started from the chat, its results typed back into that chat | [#562](https://github.com/yicheng47/runner/issues/562) with [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
 | Living past the app | Sessions that survive quitting the app; today they die with it ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), 0.13 |
 | Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | In #562 |
 | Reaching the person | `ask_lead`, then `ask_human`; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701) |
@@ -51,7 +51,7 @@ Steps 1, 2 and 4 are #562 (role-seeded missions, outside seats, `spawn`, `wait`,
 ## Open questions
 
 1. **Where does a session an agent spawned show up?** In a new tab, in the mission's tab as a pane, or kept in the sidebar until the person opens it. It must not take focus from what the person is doing. This belongs in #562's design phase, before Phase 4.
-2. **Does a direct chat get a way to spawn workers without a mission?** #704 says no: direct chats stay off the bus, and a chat that needs workers starts a mission. Revisit only if that step turns out to be friction in real use.
+2. **Does a direct chat get a way to spawn workers without a mission?** No, settled 2026-10-11 when #704 closed into #562: direct chats stay off the bus, and a chat that needs workers starts a mission. Revisit only if that step turns out to be friction in real use.
 
 ## Roadmap implications
 
