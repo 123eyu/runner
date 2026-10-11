@@ -77,6 +77,8 @@ fn decoration(text: &str, cwd: Option<&str>) -> bool {
             | "opencode"
             | "gemini"
             | "gemini cli"
+            | "grok"
+            | "grok build"
             | "new chat"
             | "new session"
             | "untitled"
@@ -95,7 +97,12 @@ fn decoration(text: &str, cwd: Option<&str>) -> bool {
             | "needs input"
             | "waiting for input"
             | "waiting for approval"
-    ) {
+            | "waiting for response"
+            | "responding"
+            | "running tool"
+            | "not responding"
+    ) || lower.starts_with("running: ")
+    {
         return true;
     }
     // Codex shows the thread id until the thread has a name.
@@ -143,6 +150,23 @@ mod tests {
             );
             assert_eq!(provider_title(&format!("{glyph} Claude Code"), None), None);
             assert_eq!(provider_title(&glyph.to_string(), None), None);
+        }
+    }
+
+    #[test]
+    fn grok_status_titles_carry_no_topic() {
+        let cwd = Some("/repos/runner");
+        for raw in [
+            "grok",
+            "⠙ - Waiting for response… - grok",
+            "⠦ - Responding - grok",
+            "⠋ - Running tool - grok",
+            "⠋ - Running: Bash - grok",
+            "⠋ - Compacting - grok",
+            "⠋ - Not responding - grok",
+            "Action Required - grok",
+        ] {
+            assert_eq!(provider_title(raw, cwd), None, "{raw}");
         }
     }
 
