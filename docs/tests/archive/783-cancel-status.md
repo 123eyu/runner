@@ -68,7 +68,7 @@ Evidence: `/private/tmp/runner-783-fixed-l0f5w5ne/evidence`, including `candidat
 | Targeted QA automated regressions | Passed | Three tests below, each exit 0. |
 | Cleanup | Passed | Empty fixed-run ledger, collector stopped, own app stopped, endpoint exit 3. |
 
-Native control failed before the harmless New chat action or any fixed-build test chat. Finder workaround attempted exactly with `open '/private/tmp/runner-783-fixed-l0f5w5ne/Runner 783 Fixed.app' --env RUNNER_RECORD_INPUT_FIXTURE=/private/tmp/runner-783-fixed-l0f5w5ne/evidence/rec` (exit 0). Computer-use binding by exact app path and unique bundle ID both returned `cgWindowNotFound` (-10005), although inventory reported that app running and its development CLI responded. During baseline, reconnecting, controller reset and one scoped relaunch had also failed. No alternative UI input mechanism was used and no CLI-only result counts as a native pass.
+Computer use did not bind the fixed-build wrapper in this run, so neither the harmless New chat action nor any fixed-build test chat ran. No CLI-only result counts as a native pass.
 
 ## Automated checks
 

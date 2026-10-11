@@ -112,9 +112,9 @@ Environment remained macOS 26.6.2 arm64, Runner 0.12.7 development build, Codex 
 
 ### Native-control blocker
 
-Computer use could not bind the running reviewed wrapper: both its bundle ID and exact `.app` path repeatedly returned `Computer Use server error -10005: cgWindowNotFound`. The native app inventory showed the exact wrapper running. Resetting the computer-use session and rebinding returned the same error. Finder initially exposed its Desktop, but requesting its path dialog and rebinding also returned `cgWindowNotFound`; no terminal test input was sent. Optional native `launch_app` and `listWindows` APIs were absent on this Mac host. App logs recorded a restored window, and the development endpoint was independently reachable; these are not evidence of accessible native UI. The cause of inaccessible windows is not established. See `native-control-blocker.txt` and the native tool results in the QA conversation.
+Computer use did not bind the reviewed wrapper in this run, so no terminal test input was sent. The cause was not established.
 
-No phase-5 crew, role, mission, or agent was created while native control was unavailable. The prepared scratch directories and goal/conventions files were retained. This is an unresolved environment limitation, not an observed delivery failure or a live QA pass.
+No phase-5 crew, role, mission or agent was created. This was an environment limitation, not an observed delivery failure or a live QA pass.
 
 ### Reviewed-candidate matrix
 

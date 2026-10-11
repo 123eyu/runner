@@ -10,7 +10,7 @@ Run on 2026-10-02 in `refactor/777-runtime-adapter-catalog`, at clean `d7e6fa778
 
 Only the installed `/Applications/Runner.app/Contents/MacOS/Runner` was running before QA launched `make run` from this worktree. Both the CLI and development app builds completed successfully. The exact running app was this worktree's `target/debug/Runner`, PID 57623. The absolute development CLI returned exit 0 and reported `0.12.7 (dev)` and the development socket; evidence is `make-run.log` and `dev-status.json`.
 
-The native computer-use inventory exposed only the installed `com.wycstudios.runner`. The two permitted attempts to select the development app failed: `cua.getApp("/Users/jason/repos/yicheng47/runner/.worktrees/refactor-777-runtime-adapter-catalog/target/debug/Runner")` returned `Invalid app`, then `cua.getApp("com.wycstudios.runner-dev")` returned `Invalid app`. QA did not select the installed app or use another UI automation method. Evidence is `native-control-attempts.json`; no screenshot or native UI pass was obtained.
+Computer use could not select the bare development executable in this run, so no native UI pass was obtained.
 
 ## Before wrapper retry
 
@@ -18,7 +18,7 @@ At 13:10:56 UTC, Jason requested two more attempts using the temporary `.app` wr
 
 QA copied `target/debug/Runner` (source mtime 13:05:13 UTC) and `target/debug/runner-agent-cli` (13:03:50 UTC) byte-identically into `/private/tmp/777-qa/before/Runner 777 Before.app`. Source and copied SHA-256 hashes match for both binaries: `91521ce536b5c7d2f0ba8cadefb50dbcf86830a381fcf51e1dd2066cebb1150b` for the app and `703bacee3b881e1c50a985e65941a840b83ab37517588c6436bf6b8e086d11ec` for the CLI. `bundle-hashes.json`, `status-at-wrapper-copy.txt` and `diff-at-wrapper-copy.patch` retain artifact identity and the contemporaneous dirty source state. QA notified coder as soon as the copies were secured.
 
-Both `env -u NO_COLOR open '/private/tmp/777-qa/before/Runner 777 Before.app'` launches returned exit 0. The exact wrapper process was PID 92957, and the development CLI returned exit 0 (`wrapper-dev-status.json`). Native inventory now exposed `Runner 777 Before`, bundle ID `com.wycstudios.runner-777-before-qa`, as running. However, binding computer use to the wrapper path returned `Computer Use server error -10005: cgWindowNotFound` on both permitted attempts, including after reopening the same wrapper. No native screenshot, UI input or surface observation was obtained. Evidence is `wrapper-native-control-attempts.json`, `wrapper-process.json`, `wrapper-open.log` and `wrapper-open-retry.log`.
+QA launched the `.app` wrapper `Runner 777 Before` (bundle ID `com.wycstudios.runner-777-before-qa`) and the development CLI responded, but computer use did not bind it in this run, so no native observation was obtained.
 
 QA created no test objects. After verifying the exact wrapper executable path, QA stopped only PID 92957 using SIGTERM. The process exited, the development CLI returned exit 3 (`wrapper-status-after-cleanup.json`), and installed Runner PID 74707 remained running. The wrapper and all evidence are retained. This retry also remains Blocked; successful launch and endpoint checks do not establish native UI parity.
 
@@ -36,7 +36,7 @@ QA created no test objects. After verifying the exact wrapper executable path, Q
 | Codex and non-Codex crew slot popups, then cancel | Blocked — same native-control limitation | `before/paired-native-control-attempts.json` | Blocked — same limitation | `after/wrapper-native-control-attempts.json` |
 | Native Windows | Skipped — unavailable platform | Mission brief | Skipped — unavailable platform | Mission brief |
 
-Evidence paths in the matrix are relative to `/private/tmp/777-qa/`. Earlier Before attempts remain in `before/native-control-attempts.json` and `before/wrapper-native-control-attempts.json`; the paired retry did not change any native row from Blocked. The brief and Jason's retry instruction permit the mission to continue after the failed native-control attempts; all eight unobserved surfaces remain for Jason's manual before/after comparison. An endpoint response, successful build or copy golden does not establish UI parity. No native behavior regression or visual parity conclusion can be made from these passes. Existing runtime chats, required role/crew availability and data-dependent usage/model differences could not be inspected.
+Evidence paths in the matrix were relative to `/private/tmp/777-qa/`, removed on 2026-10-11. The paired retry did not change any native row from Blocked, and all eight unobserved surfaces went to Jason's manual before/after comparison. An endpoint response, successful build or copy golden does not establish UI parity; existing runtime chats, required role/crew availability and data-dependent usage/model differences could not be inspected.
 
 ## Before cleanup
 
@@ -50,7 +50,7 @@ Coder requested AFTER validation at 14:42:36 UTC on clean `f144908e7e89eca301102
 
 Following Jason's 13:17:58 UTC instruction, QA ran the preserved BEFORE wrapper and then the AFTER wrapper back to back in the same computer-use session, with two binding attempts each. All four `env -u NO_COLOR open ...` invocations returned exit 0. Development status returned exit 0 on each running wrapper, confirming `0.12.7 (dev)` and the development socket. The preserved BEFORE binaries retained their recorded hashes.
 
-BEFORE binding by exact wrapper path returned `cgWindowNotFound` (-10005); after reopening, binding by the wrapper's unique name `Runner 777 Before` returned `Invalid app`. Both AFTER bindings used the exact `.app` path and returned `cgWindowNotFound` (-10005), including after reopening. QA exhausted the two attempts for each wrapper without native screenshots, UI input, window-size measurements or surface observations. Evidence is `before/paired-native-control-attempts.json` and `after/wrapper-native-control-attempts.json`, with the matching open, process and development-status files. The observation is a native-controller access failure; no product cause is established.
+Computer use did not bind either wrapper in this pass, so no native screenshots, input or surface observations were obtained. No product cause was established.
 
 QA independently ran the two existing app copy goldens as supplementary coverage without updating expectations. `skills_ui_catalog_golden` pins captions and global-toggle support, and `usage_ui_catalog_golden` pins visible usage runtimes, labels, error copy, sections and weekly-window selection. Both passed; the working tree remained clean afterward. These use captured/synthetic data and do not establish the native rendering or interaction behavior in the surface matrix.
 
@@ -96,7 +96,7 @@ The usage pill order remained Codex, Claude Code, Antigravity CLI; popover order
 
 The available sidebar data showed Claude Code (`@abc` / Sleep 30 seconds) and Codex. The yicheng47 project group was empty when expanded. Other runtime chat icons, active-session tints, Shell/unknown chat states and live lifecycle behavior were not exercised; the brief asks for existing chats where the data supplies them and forbids starting agents. Real chat/mission execution, cancellation/recovery/resume/rekey, model/effort override execution, skill toggle writes and MCP register/unregister remain Jason's separate manual checks from the brief. This view-only retry does not replace those checks.
 
-Native control was intermittent. Early BEFORE input failures were resolved by refreshing the binding, raising and fitting the window. During AFTER Skills, a scroll reported `windowNotFoundAtPosition`; raising the same window restored input and the remaining Skills/MCP screenshots were captured. After the final required MCP capture, returning to the app reported that the user changed the app, then `getAXState` and one exact-path rebind each returned `cgWindowNotFound`. These failed controller operations remain failed attempts; the later successful observations do not erase them. No cause in Runner or the physical display is established. The final controller loss prevented native Quit and a replacement Copilot top capture; it does not invalidate the earlier retained screenshots. The strict same-size Copilot top check remains for Jason under the authorized fallback.
+Native control was intermittent in this pass and was lost after the final required MCP capture, which prevented native Quit and a replacement Copilot top capture; the earlier retained screenshots stand. The strict same-size Copilot top check remained for Jason under the authorized fallback.
 
 | Retry operational check | Result | Evidence |
 | --- | --- | --- |
@@ -104,7 +104,7 @@ Native control was intermittent. Early BEFORE input failures were resolved by re
 | Exact development wrapper binding and endpoint | Passed | Native screenshots, `before-dev-status.json`, `after-start.json` |
 | Native controller uninterrupted through cleanup | Failed | Input/refresh errors above; `after-control-interruption.json`, `after-stop.json`; continuity did not recover after the last capture |
 | Native Quit of BEFORE | Passed | `before-cleanup.json`; PID 75170 exited, development status exit 3 |
-| Native Quit of AFTER | Blocked | Final `cgWindowNotFound`; no Quit input sent |
+| Native Quit of AFTER | Blocked | Native control lost; no Quit input sent |
 | Owned-process cleanup and installed-app preservation | Passed | `cleanup.json`; verified SIGTERM only to PID 81086; both QA PIDs absent, development status exit 3, installed Runner PID 74707 still running |
 | Frozen expectations, implementation and real configs | Passed for QA scope | No implementation/expectation/config writes; only this QA report changed |
 

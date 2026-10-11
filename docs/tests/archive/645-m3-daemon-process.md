@@ -401,7 +401,7 @@ T4 bracketed multiline paste is **Passed** after reattach: the raw receiver got 
 
 T2 shell PTY resize is **Passed**: native window zoom/restoration during a bounded output probe produced 80 samples with 172×41 → 174×42 → 172×41, followed by completion. `shell/geometry.json`, `resize-before.jpg`, `resize-zoomed.jpg`, `resize-restored.jpg`. Codex alternate-screen redraw/resize was also stimulated natively; completion inspection remains outstanding.
 
-T3 real IME composition is **Blocked** by native input-source control availability: binding SystemUIServer through CUA timed out (-10005), and the available app API cannot inventory/select/restore an input source. Pasted Chinese above is explicitly not an IME pass. No OS input-source setting was changed.
+T3 real IME composition is **Blocked**: computer use could not select an input source in this run. Pasted Chinese above is explicitly not an IME pass. No OS input-source setting was changed.
 
 T5 native modifier-link activation is **Blocked**: CUA mouse actions expose no held modifier, and Runner's activation requires the modifier on mouse-up (`crates/runner-app/src/terminal/element.rs:432`). The terminal's right-click path performs selection rather than Open Link. No CLI open or synthetic private input is substituted for native activation; OSC7 output/live-cwd metadata can only supply a partial observation.
 
