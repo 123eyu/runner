@@ -256,14 +256,30 @@ fn catalog_at(paths: &BTreeMap<McpClientId, PathBuf>) -> McpCatalog {
 }
 
 fn client_paths(home: &Path) -> BTreeMap<McpClientId, PathBuf> {
+    client_paths_with_env(home, &Default::default())
+}
+fn client_paths_with_env(
+    home: &Path,
+    env: &BTreeMap<String, String>,
+) -> BTreeMap<McpClientId, PathBuf> {
     McpClientId::all()
         .into_iter()
-        .map(|client| (client, client.config_path(home)))
+        .map(|client| {
+            (
+                client,
+                crate::runtimes::adapter(client.runtime())
+                    .mcp_path(home, env)
+                    .expect("MCP client has a config path"),
+            )
+        })
         .collect()
 }
 
 pub fn mcp_catalog(home: &Path) -> Result<McpCatalog> {
-    Ok(catalog_at(&client_paths(home)))
+    mcp_catalog_with_env(home, &Default::default())
+}
+pub fn mcp_catalog_with_env(home: &Path, env: &BTreeMap<String, String>) -> Result<McpCatalog> {
+    Ok(catalog_at(&client_paths_with_env(home, env)))
 }
 
 // Every toml_edit node here comes out of the parser, which records a span on each one.
@@ -595,6 +611,16 @@ fn write_entry_at(
                             .expect("a merge always writes a table built from a definition");
                         table = old.clone();
                         definition.write_toml(&mut table);
+                        if let NativeEntry::Toml(native) = translated(&definition, client)? {
+                            if let Some(kind) = native.get("type") {
+                                table["type"] = kind.clone();
+                                table.remove("http_headers");
+                                table.remove("headers");
+                                if let Some(headers) = native.get("headers") {
+                                    table["headers"] = headers.clone();
+                                }
+                            }
+                        }
                     }
                 }
                 Some(table)
@@ -666,7 +692,30 @@ pub fn mcp_copy_server(home: &Path, from: McpClientId, to: McpClientId, name: &s
 }
 
 pub fn mcp_remove_server(home: &Path, client: McpClientId, name: &str) -> Result<()> {
-    write_entry_at(&client.config_path(home), client, name, None, false)
+    mcp_remove_server_with_env(home, &Default::default(), client, name)
+}
+pub fn mcp_remove_server_with_env(
+    home: &Path,
+    env: &BTreeMap<String, String>,
+    client: McpClientId,
+    name: &str,
+) -> Result<()> {
+    write_entry_at(
+        &client_paths_with_env(home, env)[&client],
+        client,
+        name,
+        None,
+        false,
+    )
+}
+pub fn mcp_copy_server_with_env(
+    home: &Path,
+    env: &BTreeMap<String, String>,
+    from: McpClientId,
+    to: McpClientId,
+    name: &str,
+) -> Result<()> {
+    copy_at(&client_paths_with_env(home, env), from, to, name)
 }
 
 fn parse_native(client: McpClientId, name: &str, text: &str) -> Result<NativeEntry> {
@@ -772,6 +821,22 @@ pub fn mcp_edit_server(
     also: &[McpClientId],
 ) -> Result<()> {
     edit_at(&client_paths(home), client, name, native_text, also)
+}
+pub fn mcp_edit_server_with_env(
+    home: &Path,
+    env: &BTreeMap<String, String>,
+    client: McpClientId,
+    name: &str,
+    native_text: &str,
+    also: &[McpClientId],
+) -> Result<()> {
+    edit_at(
+        &client_paths_with_env(home, env),
+        client,
+        name,
+        native_text,
+        also,
+    )
 }
 
 #[cfg(test)]
@@ -1709,7 +1774,11 @@ impl McpDefinitionExt for McpServerDefinition {
         }
         Some(Self::Http {
             url: table.get("url")?.as_str()?.into(),
-            headers: strings("http_headers")?,
+            headers: strings(if table.contains_key("headers") {
+                "headers"
+            } else {
+                "http_headers"
+            })?,
         })
     }
     fn write_toml(&self, table: &mut toml_edit::Table) {
@@ -1756,4 +1825,65 @@ impl McpClientExt for McpClientId {
             codex_status_at(path, binary_path)
         }
     }
+}
+
+#[test]
+fn grok_toml_roundtrip_preserves_comments_and_translates_http_headers() {
+    let home = tempfile::tempdir().unwrap();
+    let config = home.path().join("custom grok");
+    std::fs::create_dir(&config).unwrap();
+    let path = config.join("config.toml");
+    let env = BTreeMap::from([("GROK_HOME".into(), config.display().to_string())]);
+    let before="# preserved\n[models]\ndefault = 'account-model'\n\n[mcp_servers.other]\ncommand = 'other' # preserved\n\n[mcp_servers.web]\nurl = 'https://old.example/mcp'\nheaders = { TOKEN = 'old' }\nenabled = false\ncustom = 7 # preserved\n";
+    std::fs::write(&path, before).unwrap();
+    let client = McpClientId::Grok;
+    let catalog = mcp_catalog_with_env(home.path(), &env).unwrap();
+    assert!(catalog
+        .servers
+        .iter()
+        .any(|server| server.name == "web" && server.clients[&client].registered));
+    mcp_edit_server_with_env(home.path(),&env,client,"web","[mcp_servers.web]\nurl = 'https://new.example/mcp'\nheaders = { TOKEN = 'new' }\nenabled = false\ncustom = 7 # preserved\n",&[McpClientId::Codex]).unwrap();
+    let codex = home.path().join(".codex/config.toml");
+    let written = std::fs::read_to_string(&codex).unwrap();
+    assert!(written.contains("http_headers"));
+    assert!(written.contains("new"));
+    let definition = McpServerDefinition::Http {
+        url: "https://final.example/mcp".into(),
+        headers: BTreeMap::from([("TOKEN".into(), "final".into())]),
+    };
+    write_entry_at(
+        &path,
+        client,
+        "web",
+        Some(translated(&definition, client).unwrap()),
+        true,
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(!written.contains("http_headers"));
+    assert!(written.contains("custom = 7 # preserved"));
+    assert!(written.contains("enabled = false"));
+    assert!(written.contains("command = 'other' # preserved"));
+    let stdio = McpServerDefinition::Stdio {
+        command: "true".into(),
+        args: vec!["--flag".into(), "空格 quoted".into()],
+        env: Default::default(),
+    };
+    write_entry_at(
+        &path,
+        client,
+        "web",
+        Some(translated(&stdio, client).unwrap()),
+        true,
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(!written.contains("headers"));
+    assert!(!written.contains("url ="));
+    assert!(written.contains("custom = 7 # preserved"));
+    mcp_remove_server_with_env(home.path(), &env, client, "web").unwrap();
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .starts_with("# preserved\n[models]\ndefault = 'account-model'"));
+    assert!(!home.path().join(".grok").exists());
 }

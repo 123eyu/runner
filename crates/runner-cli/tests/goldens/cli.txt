@@ -762,12 +762,12 @@ runner role create: --runtime is required
 $ runner role create new --runtime shell
 exit 2
 [stderr]
-unknown role runtime "shell"; expected codex, claude-code, antigravity, pi, copilot, trae, or cursor
+unknown role runtime "shell"; expected codex, claude-code, antigravity, pi, copilot, trae, cursor, or grok
 
 $ runner role create new --runtime shell --json
 exit 2
 [stderr]
-unknown role runtime "shell"; expected codex, claude-code, antigravity, pi, copilot, trae, or cursor
+unknown role runtime "shell"; expected codex, claude-code, antigravity, pi, copilot, trae, cursor, or grok
 
 $ runner mission move mission-fixture
 exit 2

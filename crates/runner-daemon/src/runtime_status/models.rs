@@ -268,10 +268,15 @@ fn current_source(
     discovery: &SharedDiscoveryState,
 ) -> Option<ModelSource> {
     let command = effective_runtime_command(runtime, pool, shell_env, discovery).ok()?;
-    (command.source != RuntimeCommandSource::Catalog).then(|| source(runtime, &command.command))
+    (command.source != RuntimeCommandSource::Catalog)
+        .then(|| source_with_env(runtime, &command.command, &shell_env.read().unwrap()))
 }
 
+#[cfg(test)]
 pub(crate) fn source(runtime: Runtime, command: &str) -> ModelSource {
+    source_with_env(runtime, command, &Default::default())
+}
+pub(crate) fn source_with_env(runtime: Runtime, command: &str, env: &LoginShellEnv) -> ModelSource {
     let executable = std::fs::metadata(command).ok().map(|metadata| Fingerprint {
         modified_ms: metadata
             .modified()
@@ -280,9 +285,7 @@ pub(crate) fn source(runtime: Runtime, command: &str) -> ModelSource {
             .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok()),
         len: metadata.len(),
     });
-    let config_home = crate::runtimes::adapter(runtime)
-        .model_discovery()
-        .and_then(|source| (source.config_home)());
+    let config_home = crate::runtimes::adapter(runtime).discovery_home(env);
     ModelSource {
         command: command.into(),
         executable,

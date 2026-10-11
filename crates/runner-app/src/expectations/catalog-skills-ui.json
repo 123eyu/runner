@@ -35,6 +35,11 @@
     "global_toggle": false
   },
   {
+    "runtime": "grok",
+    "caption": "Skills in ~/.grok/skills and ~/.agents/skills are available to Grok; Runner does not toggle them. Grok Build uses your existing grok.com sign-in and updates itself. Click a row to read a skill, hover it to edit.",
+    "global_toggle": false
+  },
+  {
     "runtime": "shell",
     "caption": "Every skill in these roots loads in every new session; Runner does not toggle skills for this agent. Click a row to read a skill, hover it to edit.",
     "global_toggle": false

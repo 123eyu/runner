@@ -258,6 +258,10 @@ pub fn runtime_catalog(state: &AppCore) -> Result<Vec<RuntimeCatalogEntry>> {
             )
         })
         .collect();
+    let shell_env = state
+        .runtime_shell_env
+        .read()
+        .map_err(|_| Error::msg("runtime shell environment lock poisoned"))?;
     let discovery = state
         .runtime_discovery
         .read()
@@ -274,9 +278,18 @@ pub fn runtime_catalog(state: &AppCore) -> Result<Vec<RuntimeCatalogEntry>> {
                 if let Some(catalog) = command.as_deref().and_then(|command| {
                     discovery.models.catalog(
                         runtime.name,
-                        &crate::runtime_status::models::source(runtime.name, command),
+                        &crate::runtime_status::models::source_with_env(
+                            runtime.name,
+                            command,
+                            &shell_env,
+                        ),
                     )
                 }) {
+                    if let Some(efforts) =
+                        crate::runtimes::adapter(runtime.name).discovered_efforts(catalog)
+                    {
+                        runtime.efforts = efforts;
+                    }
                     runtime.models = std::iter::once(default_model_option())
                         .chain(catalog.models.iter().cloned())
                         .collect();
@@ -419,6 +432,7 @@ mod tests {
             Runtime::Copilot,
             Runtime::Trae,
             Runtime::Cursor,
+            Runtime::Grok,
         ];
         assert_eq!(
             definitions
@@ -427,7 +441,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        assert_eq!(&Runtime::ALL[..7], &expected);
+        assert_eq!(&Runtime::ALL[..8], &expected);
         assert_eq!(
             catalog
                 .iter()
@@ -549,7 +563,8 @@ mod tests {
             Runtime::Antigravity,
             Runtime::Pi,
             Runtime::Copilot,
-            Runtime::Trae,
+            Runtime::Cursor,
+            Runtime::Grok,
         ];
         assert_eq!(
             filter_selectable_runtime_catalog(catalog.clone(), None)

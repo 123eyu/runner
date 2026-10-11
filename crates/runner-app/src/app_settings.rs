@@ -879,30 +879,51 @@ mod tests {
 
     #[test]
     fn agent_enablement_preserves_shipped_defaults_and_explicit_overrides() {
+        let default_enabled = runner_core::protocol::runtime_metadata::runtime_default_enabled;
         let mut settings = AppSettings::default();
-        assert!(settings.is_agent_enabled(Runtime::Codex, true));
-        assert!(settings.is_agent_enabled(Runtime::Copilot, true));
-        assert!(settings.is_agent_enabled(Runtime::Pi, true));
-        assert!(settings.is_agent_enabled(Runtime::Antigravity, true));
-        assert!(settings.is_agent_enabled(Runtime::Trae, true));
-        settings.disabled_agents.insert("antigravity".into());
-        settings.disabled_agents.insert("trae".into());
-        assert!(!settings.is_agent_enabled(Runtime::Antigravity, true));
-        assert!(!settings.is_agent_enabled(Runtime::Trae, true));
-        settings.disabled_agents.insert("copilot".into());
-        assert!(!settings.is_agent_enabled(Runtime::Copilot, true));
-        settings.disabled_agents.insert("codex".into());
-        assert!(!settings.is_agent_enabled(Runtime::Codex, true));
+        assert_eq!(
+            Runtime::ALL
+                .into_iter()
+                .filter(|runtime| settings.is_agent_enabled(*runtime, default_enabled(*runtime)))
+                .collect::<Vec<_>>(),
+            [
+                Runtime::Codex,
+                Runtime::ClaudeCode,
+                Runtime::Antigravity,
+                Runtime::Pi,
+                Runtime::Copilot,
+                Runtime::Cursor,
+                Runtime::Grok,
+            ]
+        );
+        settings.disabled_agents.extend([
+            "codex".into(),
+            "copilot".into(),
+            "cursor".into(),
+            "grok".into(),
+        ]);
+        settings.enabled_agents.insert("trae".into());
+        let settings: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        for runtime in [
+            Runtime::Codex,
+            Runtime::Copilot,
+            Runtime::Cursor,
+            Runtime::Grok,
+        ] {
+            assert!(!settings.is_agent_enabled(runtime, default_enabled(runtime)));
+        }
+        assert!(settings.is_agent_enabled(Runtime::Trae, default_enabled(Runtime::Trae)));
     }
 
     #[test]
-    fn cursor_model_discovery_follows_explicit_enablement() {
-        let mut settings = AppSettings::default();
-        assert!(!settings.model_runtimes().contains(&Runtime::Cursor));
-        settings.enabled_agents.insert("cursor".into());
-        assert!(settings.model_runtimes().contains(&Runtime::Cursor));
-        settings.disabled_agents.insert("cursor".into());
-        assert!(!settings.model_runtimes().contains(&Runtime::Cursor));
+    fn cursor_and_grok_model_discovery_follow_defaults_and_explicit_disablement() {
+        for runtime in [Runtime::Cursor, Runtime::Grok] {
+            let mut settings = AppSettings::default();
+            assert!(settings.model_runtimes().contains(&runtime));
+            settings.disabled_agents.insert(runtime.key().into());
+            assert!(!settings.model_runtimes().contains(&runtime));
+        }
     }
 
     #[test]

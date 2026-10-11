@@ -6,6 +6,7 @@ pub(crate) mod claude_code;
 pub(crate) mod codex;
 pub(crate) mod copilot;
 pub(crate) mod cursor_agent;
+pub(crate) mod grok;
 mod helpers;
 pub(crate) mod pi;
 #[cfg(test)]
@@ -38,6 +39,9 @@ pub fn catalogs() -> Vec<RuntimeCatalog> {
 }
 
 pub struct LaunchContext<'a> {
+    pub default_model: Option<&'a str>,
+    pub env: &'a std::collections::BTreeMap<String, String>,
+    pub cwd: Option<&'a Path>,
     pub role_args: &'a [String],
     pub app_data_dir: &'a Path,
     pub session_id: &'a str,
@@ -152,6 +156,13 @@ pub trait StatusHooks: Send + Sync {
     }
     fn supported(&self, windows: bool) -> bool;
     fn install(&self, _app_data_dir: &Path) {}
+    fn install_with_env(
+        &self,
+        app_data_dir: &Path,
+        _env: &std::collections::BTreeMap<String, String>,
+    ) {
+        self.install(app_data_dir);
+    }
     fn cleanup(&self, _app_data_dir: &Path) {}
     fn tracks_pending_turn(&self) -> bool {
         false
@@ -239,7 +250,24 @@ pub trait RuntimeAdapter: Send + Sync {
     fn native_defaults(&self, _home: &Path) -> crate::runtime_defaults::RuntimeDefaults {
         crate::runtime_defaults::RuntimeDefaults::default()
     }
+    fn native_defaults_with_env(
+        &self,
+        home: &Path,
+        _env: &std::collections::BTreeMap<String, String>,
+    ) -> crate::runtime_defaults::RuntimeDefaults {
+        self.native_defaults(home)
+    }
+    fn discovery_home(&self, _env: &crate::shell_path::LoginShellEnv) -> Option<PathBuf> {
+        self.model_discovery()
+            .and_then(|source| (source.config_home)())
+    }
     fn model_discovery(&self) -> Option<&'static ModelDiscoverySource> {
+        None
+    }
+    fn discovered_efforts(
+        &self,
+        _catalog: &crate::runtime_status::models::ModelCatalog,
+    ) -> Option<Vec<crate::ops::runtime::RuntimeCatalogOption>> {
         None
     }
     fn npm_dist_tag(&self) -> &'static str {
@@ -248,6 +276,14 @@ pub trait RuntimeAdapter: Send + Sync {
     fn usage(&self) -> Option<&'static UsageSource> {
         None
     }
+    fn mcp_path(
+        &self,
+        home: &Path,
+        _env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<PathBuf> {
+        self.mcp()
+            .map(|config| home.join(config.config_file.trim_start_matches("~/")))
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         None
     }
@@ -255,6 +291,9 @@ pub trait RuntimeAdapter: Send + Sync {
         SkillSupport::default()
     }
     fn permissions(&self) -> &'static Permissions;
+    fn launch_role_args(&self, args: &[String]) -> Vec<String> {
+        args.to_vec()
+    }
     fn first_turn_argv(&self, body: Option<&str>) -> Vec<String>;
     fn resume_plan(&self, prior_key: Option<&str>) -> ResumePlan;
     fn model_effort_args(&self, _model: Option<&str>, _effort: Option<&str>) -> Vec<String> {
@@ -342,6 +381,7 @@ pub fn adapter(runtime: Runtime) -> &'static dyn RuntimeAdapter {
         Runtime::Copilot => &copilot::Copilot,
         Runtime::Trae => &trae::Trae,
         Runtime::Cursor => &cursor_agent::CursorAgent,
+        Runtime::Grok => &grok::Grok,
         Runtime::Shell => &NoAgent,
     }
 }

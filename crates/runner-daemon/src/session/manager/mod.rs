@@ -829,7 +829,14 @@ impl SessionManager {
         for runtime in Runtime::ALL {
             let adapter = crate::runtimes::adapter(runtime);
             if let Some(hooks) = adapter.status_hooks() {
-                hooks.install(app_data_dir);
+                hooks.install_with_env(
+                    app_data_dir,
+                    &self
+                        .shell_env
+                        .read()
+                        .expect("runtime shell environment lock poisoned")
+                        .vars,
+                );
             }
             if matches!(adapter.key_capture(), crate::runtimes::KeyCapture::LogTail) {
                 crate::runtimes::antigravity::agy_capture::clear_orphans(app_data_dir, &pool);

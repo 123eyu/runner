@@ -4,7 +4,8 @@
     "claude-code",
     "pi",
     "antigravity",
-    "cursor"
+    "cursor",
+    "grok"
   ],
   "runtimes": [
     {
@@ -147,6 +148,31 @@
         "command": "/golden/agent",
         "executable": null,
         "config_home": "<HOME>/.cursor"
+      },
+      "commands": [
+        {
+          "command": "/golden/agent",
+          "args": [
+            "models"
+          ],
+          "env": {
+            "GOLDEN_ENV": "value",
+            "PATH": "/golden/bin:<DIRECT_CHAT_PATH>"
+          },
+          "cwd": "<HOME>",
+          "stdin": null,
+          "timeout_ms": 15000
+        }
+      ]
+    },
+    {
+      "runtime": "grok",
+      "override_home": false,
+      "supported": true,
+      "source": {
+        "command": "/golden/agent",
+        "executable": null,
+        "config_home": "<HOME>/.grok"
       },
       "commands": [
         {
@@ -315,6 +341,31 @@
         "command": "/golden/agent",
         "executable": null,
         "config_home": "<HOME>/.cursor"
+      },
+      "commands": [
+        {
+          "command": "/golden/agent",
+          "args": [
+            "models"
+          ],
+          "env": {
+            "GOLDEN_ENV": "value",
+            "PATH": "/golden/bin:<DIRECT_CHAT_PATH>"
+          },
+          "cwd": "<HOME>",
+          "stdin": null,
+          "timeout_ms": 15000
+        }
+      ]
+    },
+    {
+      "runtime": "grok",
+      "override_home": true,
+      "supported": true,
+      "source": {
+        "command": "/golden/agent",
+        "executable": null,
+        "config_home": "<HOME>/.grok"
       },
       "commands": [
         {

@@ -61,7 +61,10 @@ pub fn status_list(
         .map(|runtime| {
             let defaults = home
                 .as_deref()
-                .map(|home| crate::runtime_defaults::runtime_defaults(runtime.name, home))
+                .map(|home| {
+                    crate::runtimes::adapter(runtime.name)
+                        .native_defaults_with_env(home, &shell_env.vars)
+                })
                 .unwrap_or_default();
             let detected_path =
                 find_executable(runtime.command, &path).map(|path| path.display().to_string());
@@ -457,6 +460,7 @@ mod tests {
                 (Runtime::Copilot, "GitHub Copilot CLI", "copilot"),
                 (Runtime::Trae, "TRAE CLI", "traecli"),
                 (Runtime::Cursor, "Cursor", "cursor-agent"),
+                (Runtime::Grok, "Grok", "grok"),
             ],
         );
     }
@@ -598,6 +602,32 @@ mod tests {
         assert_eq!(command().unwrap().command, custom.display().to_string());
         assert_eq!(command().unwrap().source, RuntimeCommandSource::Override);
         db::set_runtime_override(&pool, "cursor", None).unwrap();
+        assert_eq!(command().unwrap().command, detected.display().to_string());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn grok_detection_and_override_use_the_grok_executable() {
+        let pool = crate::db::open_in_memory().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let custom = executable(bin.path(), "agent");
+        let path = bin.path().to_str().unwrap();
+        let command = || {
+            effective_runtime_command_on_path(
+                Runtime::Grok,
+                &db::runtime_overrides(&pool).unwrap(),
+                path,
+                false,
+            )
+        };
+        assert!(command().is_err());
+        let detected = executable(bin.path(), "grok");
+        assert_eq!(command().unwrap().command, detected.display().to_string());
+        assert_eq!(command().unwrap().source, RuntimeCommandSource::Detected);
+        db::set_runtime_override(&pool, "grok", Some(custom.to_str().unwrap())).unwrap();
+        assert_eq!(command().unwrap().command, custom.display().to_string());
+        assert_eq!(command().unwrap().source, RuntimeCommandSource::Override);
+        db::set_runtime_override(&pool, "grok", None).unwrap();
         assert_eq!(command().unwrap().command, detected.display().to_string());
     }
 

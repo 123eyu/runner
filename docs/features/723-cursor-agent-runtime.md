@@ -1,7 +1,7 @@
 # 723 — Cursor Agent CLI runtime
 
-> Tracking issue: [#723](https://github.com/yicheng47/runner/issues/723). Cursor only; Grok remains separately scheduled.
-> Status: shipped in 0.15.0 on 2026-10-10 ([#827](https://github.com/yicheng47/runner/pull/827)), default-off. macOS live tested; native Windows unverified. The spec stays active while Grok Build remains open under #723 (0.18).
+> Tracking issue: [#723](https://github.com/yicheng47/runner/issues/723). Cursor only; Grok is in development under [its own spec](./723-grok-build-runtime.md).
+> Status: shipped in 0.15.0 on 2026-10-10 ([#827](https://github.com/yicheng47/runner/pull/827)), initially default-off. This branch enables Cursor by default under Jason's 2026-10-11 policy change. macOS live tested; native Windows unverified. The spec stays active while Grok Build is in development under [its own spec](./723-grok-build-runtime.md).
 > Contract: [Runtime integration](../arch/runtime-integration.md).
 
 ## Motivation

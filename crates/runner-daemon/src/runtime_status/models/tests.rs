@@ -392,6 +392,62 @@ cat "$d/catalog""#,
     }
 
     #[test]
+    fn grok_discovery_reads_captured_home_and_retains_efforts_offline() {
+        let fixture = Fixture::new(
+            Runtime::Grok,
+            r#"test "$1" = models || exit 1
+d="$(dirname "$0")"
+test ! -f "$d/fail" || exit 1
+cat "$d/catalog""#,
+        );
+        fixture
+            .env
+            .write()
+            .unwrap()
+            .vars
+            .insert("GROK_HOME".into(), fixture.dir.path().display().to_string());
+        std::fs::write(
+            fixture.dir.path().join("catalog"),
+            "Default model: grok-test\nAvailable models:\n* grok-test (default)\n- other-test\n",
+        )
+        .unwrap();
+        std::fs::write(fixture.dir.path().join("models_cache.json"), serde_json::json!({"models":{"grok-test":{"info":{"reasoning_efforts":[{"id":"high"}]}},"other-test":{"info":{"reasoning_efforts":[{"id":"low"}]}}}}).to_string()).unwrap();
+        fixture.refresh(true);
+        let cached = fixture.catalog().unwrap();
+        assert_eq!(cached.default_model.as_deref(), Some("grok-test"));
+        let mut core = crate::test_support::test_core();
+        core.db = Arc::clone(&fixture.pool);
+        core.runtime_shell_env = Arc::clone(&fixture.env);
+        core.runtime_discovery = Arc::clone(&fixture.discovery);
+        let runtime = crate::ops::runtime::runtime_catalog(&core)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.name == Runtime::Grok)
+            .unwrap();
+        assert_eq!(runtime.default_model.as_deref(), Some("grok-test"));
+        assert_eq!(
+            runtime
+                .efforts
+                .iter()
+                .map(|effort| effort.value.as_str())
+                .collect::<Vec<_>>(),
+            ["", "high", "low"]
+        );
+        assert_eq!(
+            runtime.models[1].supported_efforts,
+            Some(vec!["high".into()])
+        );
+        std::fs::write(fixture.dir.path().join("fail"), "").unwrap();
+        fixture.refresh(true);
+        assert_eq!(fixture.catalog(), Some(cached));
+        fixture.env.write().unwrap().vars.insert(
+            "GROK_HOME".into(),
+            fixture.dir.path().join("different").display().to_string(),
+        );
+        assert!(fixture.catalog().is_none());
+    }
+
+    #[test]
     fn claude_uses_control_only_query_and_unsupported_runtimes_are_skipped() {
         let body = format!("test \"$*\" = '-p --input-format stream-json --output-format stream-json --include-partial-messages --verbose --safe-mode --no-session-persistence' || exit 1\nread request\nprintf '%s' \"$request\" > \"$(dirname \"$0\")/request\"\nprintf '%s' '{}'", claude::STREAM);
         let fixture = Fixture::new(Runtime::ClaudeCode, &body);

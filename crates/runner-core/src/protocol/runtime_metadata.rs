@@ -628,7 +628,7 @@ pub mod trae {
             native_fork: false,
             description: "",
             install_url: "",
-            default_enabled: true,
+            default_enabled: false,
             models: vec![default_model_option()],
             efforts: common_efforts(),
             skills_dirs: SKILL_DIRS,
@@ -681,7 +681,75 @@ pub mod cursor_agent {
             native_fork: false,
             description: "Cursor Agent CLI",
             install_url: "https://cursor.com/docs/cli/installation",
-            default_enabled: false,
+            default_enabled: true,
+            models: vec![default_model_option()],
+            efforts: vec![default_effort()],
+            skills_dirs: SKILL_DIRS,
+            update_args: &[],
+            npm_package: None,
+        })
+    }
+}
+pub mod grok {
+    use super::super::runtime_options::*;
+    use super::*;
+    pub const SKILL_DIRS: &[&str] = &[".grok/skills", ".agents/skills"];
+    pub static PERMISSIONS: Permissions = Permissions {
+        offered: &[
+            PermissionMode::Default,
+            PermissionMode::AcceptEdits,
+            PermissionMode::Auto,
+            PermissionMode::Bypass,
+        ],
+        strip_flags: &[
+            ("--permission-mode", true),
+            ("--always-approve", false),
+            ("--yolo", false),
+            ("--trust", false),
+            ("--sandbox", true),
+        ],
+        equals_on_bool: false,
+        variadic_flag: None,
+        args: |mode| {
+            strings(&[
+                "--permission-mode",
+                match mode {
+                    PermissionMode::Default => "default",
+                    PermissionMode::AcceptEdits => "acceptEdits",
+                    PermissionMode::Auto => "auto",
+                    PermissionMode::Bypass => "bypassPermissions",
+                },
+            ])
+        },
+        matches: |args, mode| {
+            (mode == PermissionMode::Bypass
+                && args
+                    .iter()
+                    .any(|arg| matches!(arg.as_str(), "--always-approve" | "--yolo")))
+                || flag_value_matches(
+                    args,
+                    "--permission-mode",
+                    Some(match mode {
+                        PermissionMode::Default => "default",
+                        PermissionMode::AcceptEdits => "acceptEdits",
+                        PermissionMode::Auto => "auto",
+                        PermissionMode::Bypass => "bypassPermissions",
+                    }),
+                )
+        },
+        mission_bypass: None,
+        strip_on_mission_resume: false,
+    };
+    pub fn catalog() -> Option<RuntimeCatalog> {
+        Some(RuntimeCatalog {
+            name: Runtime::Grok,
+            display_name: Runtime::Grok.display_name(),
+            command: Runtime::Grok.command().unwrap(),
+            capabilities: RuntimeCapabilities::default(),
+            native_fork: true,
+            description: "xAI Grok Build CLI",
+            install_url: "https://docs.x.ai/build/overview",
+            default_enabled: true,
             models: vec![default_model_option()],
             efforts: vec![default_effort()],
             skills_dirs: SKILL_DIRS,
@@ -699,6 +767,7 @@ pub fn catalog_for(runtime: Runtime) -> Option<RuntimeCatalog> {
         Runtime::Pi => pi::catalog(),
         Runtime::Trae => trae::catalog(),
         Runtime::Cursor => cursor_agent::catalog(),
+        Runtime::Grok => grok::catalog(),
         Runtime::Shell => None,
     }
 }
@@ -726,6 +795,7 @@ impl RuntimeMetadata {
             Runtime::Pi => &pi::PERMISSIONS,
             Runtime::Trae => &trae::PERMISSIONS,
             Runtime::Cursor => &cursor_agent::PERMISSIONS,
+            Runtime::Grok => &grok::PERMISSIONS,
             Runtime::Shell => &NO_PERMISSIONS,
         }
     }
@@ -755,5 +825,6 @@ pub fn model_discovery_runtimes() -> Vec<Runtime> {
         Runtime::Pi,
         Runtime::Antigravity,
         Runtime::Cursor,
+        Runtime::Grok,
     ]
 }

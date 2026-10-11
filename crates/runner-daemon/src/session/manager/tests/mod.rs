@@ -7,6 +7,7 @@ mod fork;
 mod forwarder;
 #[cfg(unix)]
 mod golden;
+mod grok;
 mod hook_status;
 mod input;
 mod launch_gate;

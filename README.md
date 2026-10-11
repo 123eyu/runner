@@ -125,27 +125,30 @@ runner mission stop "$mission"
 
 ## Supported agents
 
-| | Codex | Claude Code | Antigravity CLI | pi | GitHub Copilot CLI | Cursor |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Chats, missions, resume after relaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| In-session conversation change updates Runner's resume key | ✓ | ✓ | ✓ | ✓ | — | macOS/Linux only |
-| Runs on Windows | ✓ | ✓ | ✓ ¹ | ✓ ² | ✓ | — ³ |
-| Fork a chat | ✓ | ✓ | — | ✓ | — | — |
-| Working / Idle from the agent's hooks | ✓ | ✓ | macOS only | ✓ | ✓ | — (terminal baseline) |
-| Needs you: approval and question dialogs shown | — | ✓ | — | from extensions only | ✓ | — |
-| Model list read from the CLI | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-| Update from Settings → Agents | ✓ | ✓ | — | ✓ | ✓ | — |
-| Weekly usage pill and detailed popover | ✓ | ✓ | ✓ | — | — | — |
-| Mission access | Bypass | Bypass | Bypass | trusted workspace | Bypass | Bypass |
-| Skills pane | catalog + on/off | catalog + on/off | catalog | catalog | catalog + on/off | catalog |
-| Runner skill installed | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Terminal rendering covered by fixtures | ✓ | ✓ | ✓ | — | — | — |
+| | Codex | Claude Code | Antigravity CLI | pi | GitHub Copilot CLI | Cursor | Grok |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Chats, missions, resume after relaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | macOS ⁵ |
+| In-session conversation change updates Runner's resume key | ✓ | ✓ | ✓ | ✓ | — | macOS/Linux only | macOS/Linux only ⁴ |
+| Runs on Windows | ✓ | ✓ | ✓ ¹ | ✓ ² | ✓ | — ³ | — ³ |
+| Fork a chat | ✓ | ✓ | — | ✓ | — | — | ✓ |
+| Working / Idle from the agent's hooks | ✓ | ✓ | macOS only | ✓ | ✓ | — (terminal baseline) | macOS/Linux only |
+| Needs you: approval and question dialogs shown | — | ✓ | — | from extensions only | ✓ | — | approval only (macOS/Linux) |
+| Model list read from the CLI | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| Update from Settings → Agents | ✓ | ✓ | — | ✓ | ✓ | — | — |
+| Weekly usage pill and detailed popover | ✓ | ✓ | ✓ | — | — | — | — |
+| Mission access | Bypass | Bypass | Bypass | trusted workspace | Bypass | Bypass | Bypass |
+| Skills pane | catalog + on/off | catalog + on/off | catalog | catalog | catalog + on/off | catalog | catalog |
+| Runner skill installed | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Terminal rendering covered by fixtures | ✓ | ✓ | ✓ | — | — | — | ✓ |
 
 ¹ Antigravity CLI has not been smoke-tested on Windows yet.
 ² pi runs natively on Windows but has not been smoke-tested there yet; its bash tool requires Git for Windows.
-³ Cursor has not been verified on Windows yet.
+³ Cursor and Grok Build have not been verified on Windows yet.
+⁴ Switching between already loaded Grok dashboard sessions updates the key on the next prompt; an idle switch has no native hook.
 
-Claude Code, Codex and Antigravity CLI are the primary agents. Claude Code and Codex have tuned launch and nudge timing. GitHub Copilot CLI needs a Copilot subscription. pi brings your own configured model provider. Antigravity CLI signs in with a Google account and updates itself when it starts, so it has no **Update** button. Cursor is default-off; see the [Cursor spec](./docs/features/723-cursor-agent-runtime.md) for its current capabilities. [Issues](https://github.com/yicheng47/runner/issues) are welcome.
+⁵ Grok chats, missions and stop/resume passed native macOS checks; full app-relaunch persistence remains unverified.
+
+Claude Code, Codex and Antigravity CLI are the primary agents. Claude Code and Codex have tuned launch and nudge timing. GitHub Copilot CLI needs a Copilot subscription. pi brings your own configured model provider. Antigravity CLI signs in with a Google account and updates itself when it starts, so it has no **Update** button. Cursor is enabled by default; see the [Cursor spec](./docs/features/723-cursor-agent-runtime.md) for its current capabilities. Grok Build uses your existing grok.com sign-in, updates itself, and is enabled by default; see the [Grok spec](./docs/features/723-grok-build-runtime.md) and [validation record](./docs/tests/723-grok-build-runtime.md) for platform evidence. TRAE CLI is available as an opt-in runtime in Settings → Agents. [Issues](https://github.com/yicheng47/runner/issues) are welcome.
 
 Runner detects each CLI on `PATH`, with a per-agent executable override in **Settings → Agents**, which also shows each CLI's version and, when a newer one is published, an **Update** button that runs the CLI's own updater in a terminal. PowerShell 7 is optional on Windows. Agents run natively on Windows, without WSL.
 

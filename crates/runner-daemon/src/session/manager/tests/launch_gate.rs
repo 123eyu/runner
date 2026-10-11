@@ -123,7 +123,7 @@ fn custom_claude_settings_do_not_prepare_a_status_watcher() {
             shell_path: None,
             initial_size: Some((80, 24)),
         };
-        SessionManager::apply_runtime_args(
+        mgr_with_fake(None, fake_runtime()).apply_runtime_args(
             &mut spec,
             &role,
             &crate::runtimes::adapter(Runtime::ClaudeCode).resume_plan(None),
@@ -159,7 +159,7 @@ fn spawn_argv_injects_runtime_settings_for_fresh_and_resume() {
             shell_path: None,
             initial_size: Some((80, 24)),
         };
-        SessionManager::apply_runtime_args(
+        mgr_with_fake(None, fake_runtime()).apply_runtime_args(
             &mut spec,
             &role,
             &plan,

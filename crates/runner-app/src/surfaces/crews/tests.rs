@@ -292,7 +292,8 @@ fn slot_runtime_select_restores_role_and_override_in_selector_order() {
             "pi",
             "copilot",
             "trae",
-            "cursor"
+            "cursor",
+            "grok"
         ]
     );
 }

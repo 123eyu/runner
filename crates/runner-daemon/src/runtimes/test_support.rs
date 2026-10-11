@@ -79,6 +79,9 @@ pub(crate) fn trailing_runtime_args(
     first_turn: Option<&str>,
 ) -> Vec<String> {
     selected(runtime).launch_args(&LaunchContext {
+        default_model: None,
+        env: &Default::default(),
+        cwd: None,
         role_args,
         app_data_dir,
         session_id: runner_session_id,

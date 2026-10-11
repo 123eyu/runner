@@ -249,7 +249,7 @@ fn antigravity_cwd_context_covers_chats_leads_workers_and_resumes_without_changi
             ..Default::default()
         };
         let plan = crate::runtimes::for_key(&role.runtime).resume_plan(prior);
-        SessionManager::apply_runtime_args(
+        mgr_with_fake(None, fake_runtime()).apply_runtime_args(
             &mut spec,
             &role,
             &plan,

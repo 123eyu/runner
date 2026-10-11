@@ -205,3 +205,17 @@ fn scrollback_survives_and_display_offset_clamps() {
     term.scroll_display(alacritty_terminal::grid::Scroll::Bottom);
     assert_eq!(term.grid().display_offset(), 0);
 }
+
+#[test]
+fn grok_first_turn_uses_alternate_screen_and_reports_mouse_at_idle() {
+    let fixture = Fixture::load(&fixtures_dir().join("grok-first-turn.ndjson")).unwrap();
+    let terminal = replay_fixture(&fixture).unwrap();
+    let mode = *terminal.mode();
+    assert!(mode.contains(TermMode::ALT_SCREEN));
+    assert!(mode.intersects(TermMode::MOUSE_MODE));
+    assert!(mode.contains(TermMode::BRACKETED_PASTE));
+    let screen = screen_snapshot(&terminal);
+    assert!(screen.contains("GROK_FIXTURE_OK"));
+    assert!(screen.contains("Grok 4.5"));
+    assert!(encode_scroll(mode, 1, false, 7, 4).is_some());
+}

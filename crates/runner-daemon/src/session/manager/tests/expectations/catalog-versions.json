@@ -42,6 +42,12 @@
     "dist_tag": "latest"
   },
   {
+    "runtime": "grok",
+    "channel": null,
+    "package": null,
+    "dist_tag": "latest"
+  },
+  {
     "runtime": "shell",
     "channel": null,
     "package": null,
@@ -85,6 +91,12 @@
   },
   {
     "runtime": "cursor",
+    "channel": "latest",
+    "package": null,
+    "dist_tag": "latest"
+  },
+  {
+    "runtime": "grok",
     "channel": "latest",
     "package": null,
     "dist_tag": "latest"
@@ -138,6 +150,12 @@
     "dist_tag": "latest"
   },
   {
+    "runtime": "grok",
+    "channel": "stable",
+    "package": null,
+    "dist_tag": "latest"
+  },
+  {
     "runtime": "shell",
     "channel": "stable",
     "package": null,
@@ -181,6 +199,12 @@
   },
   {
     "runtime": "cursor",
+    "channel": "unknown",
+    "package": null,
+    "dist_tag": "latest"
+  },
+  {
+    "runtime": "grok",
     "channel": "unknown",
     "package": null,
     "dist_tag": "latest"
