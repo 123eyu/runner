@@ -28,7 +28,7 @@ fn codex_speed_follows_role_args_for_direct_and_mission_spawns() {
                     shell_path: None,
                     initial_size: None,
                 };
-                SessionManager::apply_runtime_args(
+                mgr_with_fake(None, fake_runtime()).apply_runtime_args(
                     &mut spec,
                     &role,
                     &crate::runtimes::adapter(Runtime::Codex).resume_plan(key),
@@ -88,7 +88,7 @@ fn codex_spawn_composes_hooks_without_changing_user_home_and_respects_overrides(
                 shell_path: None,
                 initial_size: None,
             };
-            SessionManager::apply_runtime_args(
+            mgr_with_fake(None, fake_runtime()).apply_runtime_args(
                 &mut spec,
                 &role,
                 &crate::runtimes::adapter(Runtime::Codex).resume_plan(key),
@@ -775,7 +775,7 @@ fn codex_windows_batch_pending_prompt_is_recorded_before_argv_suppression() {
         command: role.command.clone(),
         ..Default::default()
     };
-    SessionManager::apply_runtime_args(
+    mgr_with_fake(None, fake_runtime()).apply_runtime_args(
         &mut spec,
         &role,
         &crate::runtimes::adapter(Runtime::Codex).resume_plan(None),

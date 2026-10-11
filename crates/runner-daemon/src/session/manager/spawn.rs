@@ -622,7 +622,9 @@ impl SessionManager {
     /// positional. Returns whether the body was delivered via argv
     /// so the caller can warn if a supported runtime somehow missed
     /// the deterministic path.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn apply_runtime_args(
+        &self,
         spec: &mut SpawnSpec,
         role: &Role,
         plan: &router::runtime::ResumePlan,
@@ -632,6 +634,22 @@ impl SessionManager {
         mission_bus_dir: Option<&Path>,
     ) -> bool {
         let adapter = crate::runtimes::for_key(&role.runtime);
+        let env = crate::shell_path::LoginShellEnv {
+            path: spec.shell_path.clone(),
+            vars: spec.env.clone(),
+        };
+        let default_model = Runtime::parse(&role.runtime).and_then(|runtime| {
+            self.discovery_state
+                .read()
+                .ok()?
+                .models
+                .catalog(
+                    runtime,
+                    &crate::runtime_status::models::source_with_env(runtime, &spec.command, &env),
+                )?
+                .default_model
+                .clone()
+        });
         spec.agent_runtime = Runtime::parse(&role.runtime);
         spec.pending_turn = adapter
             .status_hooks()
@@ -650,6 +668,7 @@ impl SessionManager {
             let env = hooks.env(&role.args, plan, app_data_dir, spec);
             spec.env.extend(env);
         }
+        spec.args = adapter.launch_role_args(&spec.args);
         let mut composed: Vec<String> = Vec::new();
         if plan.prepend {
             composed.extend(plan.args.iter().cloned());
@@ -664,6 +683,9 @@ impl SessionManager {
         composed.extend(crate::runtimes::for_key(&role.runtime).mission_dir_args(mission_bus_dir));
         for extra in
             crate::runtimes::for_key(&role.runtime).launch_args(&crate::runtimes::LaunchContext {
+                default_model: default_model.as_deref(),
+                env: &spec.env,
+                cwd: spec.cwd.as_deref(),
                 role_args: &role.args,
                 app_data_dir,
                 session_id: &spec.session_id,
@@ -873,7 +895,7 @@ impl SessionManager {
         );
         let mission_bus_dir =
             runner_core::event_log::path::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
-        let first_turn_delivered_via_argv = Self::apply_runtime_args(
+        let first_turn_delivered_via_argv = self.apply_runtime_args(
             &mut spec,
             &role,
             &plan,
@@ -1585,7 +1607,7 @@ impl SessionManager {
             initial_size,
             direct_env,
         );
-        let first_turn_delivered_via_argv = Self::apply_runtime_args(
+        let first_turn_delivered_via_argv = self.apply_runtime_args(
             &mut spec,
             &role,
             &plan,
@@ -2082,7 +2104,7 @@ impl SessionManager {
                         return Err(error);
                     }
                 };
-                let _ = Self::apply_runtime_args(
+                let _ = self.apply_runtime_args(
                     &mut spec,
                     &role,
                     &plan,
@@ -2575,7 +2597,10 @@ impl SessionManager {
         let adapter = crate::runtimes::for_key(&role.runtime);
         let missing = adapter.missing_conversation();
         let mut probe_env = role.env.clone();
-        if role.runtime == Runtime::Cursor.key() {
+        if matches!(
+            Runtime::parse(&role.runtime),
+            Some(Runtime::Cursor | Runtime::Grok)
+        ) {
             probe_env = self
                 .shell_env
                 .read()
@@ -2781,7 +2806,7 @@ impl SessionManager {
             .as_deref()
             .map(|body| crate::session::system_prompt::write(app_data_dir, session_id, body))
             .transpose()?;
-        let first_turn_delivered_via_argv = Self::apply_runtime_args(
+        let first_turn_delivered_via_argv = self.apply_runtime_args(
             &mut spec,
             &role,
             &plan,

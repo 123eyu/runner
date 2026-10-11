@@ -60,6 +60,7 @@ pub enum McpClientId {
     Trae,
     Copilot,
     Antigravity,
+    Grok,
 }
 impl McpClientId {
     pub fn all() -> Vec<Self> {
@@ -69,7 +70,7 @@ impl McpClientId {
             .collect()
     }
     pub fn parse(raw: &str) -> Result<Self, ClientError> {
-        Self::all().into_iter().find(|client| client.key() == raw).ok_or_else(|| ClientError::msg(format!("unknown MCP client: {raw:?} (expected codex, claude_code, antigravity, copilot, or trae)")))
+        Self::all().into_iter().find(|client| client.key() == raw).ok_or_else(|| ClientError::msg(format!("unknown MCP client: {raw:?} (expected codex, claude_code, antigravity, copilot, trae, or grok)")))
     }
     pub fn key(self) -> &'static str {
         match self {
@@ -78,6 +79,7 @@ impl McpClientId {
             Self::Antigravity => "antigravity",
             Self::Copilot => "copilot",
             Self::Trae => "trae",
+            Self::Grok => "grok",
         }
     }
     pub fn for_runtime(runtime: Runtime) -> Option<Self> {
@@ -87,6 +89,7 @@ impl McpClientId {
             Runtime::Antigravity => Some(Self::Antigravity),
             Runtime::Copilot => Some(Self::Copilot),
             Runtime::Trae => Some(Self::Trae),
+            Runtime::Grok => Some(Self::Grok),
             _ => None,
         }
     }
@@ -97,6 +100,7 @@ impl McpClientId {
             Self::Antigravity => Runtime::Antigravity,
             Self::Copilot => Runtime::Copilot,
             Self::Trae => Runtime::Trae,
+            Self::Grok => Runtime::Grok,
         }
     }
     pub fn label(self) -> &'static str {
@@ -109,6 +113,7 @@ impl McpClientId {
             Self::Antigravity => "~/.gemini/config/mcp_config.json",
             Self::Copilot => "~/.copilot/mcp-config.json",
             Self::Trae => "~/.trae/traecli.toml",
+            Self::Grok => "~/.grok/config.toml",
         }
     }
     pub fn entry_key(self, name: &str) -> String {
@@ -128,7 +133,7 @@ impl McpClientId {
         self != Self::Antigravity
     }
     pub fn is_json(self) -> bool {
-        !matches!(self, Self::Codex | Self::Trae)
+        !matches!(self, Self::Codex | Self::Trae | Self::Grok)
     }
 }
 impl McpServerDefinition {

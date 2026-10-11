@@ -528,7 +528,7 @@
     "native_fork": false,
     "description": "",
     "install_url": "",
-    "default_enabled": true,
+    "default_enabled": false,
     "available": false,
     "default_model": null,
     "default_effort": null,
@@ -574,7 +574,33 @@
     "native_fork": false,
     "description": "Cursor Agent CLI",
     "install_url": "https://cursor.com/docs/cli/installation",
-    "default_enabled": false,
+    "default_enabled": true,
+    "available": false,
+    "default_model": null,
+    "default_effort": null,
+    "models": [
+      {
+        "value": "",
+        "label": "default",
+        "description": "Use the agent's own default model."
+      }
+    ],
+    "efforts": [
+      {
+        "value": "",
+        "label": "default",
+        "description": "Use the agent's own default effort; no flag passed."
+      }
+    ]
+  },
+  {
+    "name": "grok",
+    "display_name": "Grok",
+    "command": "grok",
+    "native_fork": true,
+    "description": "xAI Grok Build CLI",
+    "install_url": "https://docs.x.ai/build/overview",
+    "default_enabled": true,
     "available": false,
     "default_model": null,
     "default_effort": null,

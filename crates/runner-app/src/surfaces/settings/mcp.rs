@@ -1448,6 +1448,7 @@ mod tests {
                 McpClientId::ClaudeCode,
                 McpClientId::Antigravity,
                 McpClientId::Copilot,
+                McpClientId::Grok,
             ]
         );
         assert!(conflict_caption(github, McpClientId::ClaudeCode)
@@ -1525,6 +1526,7 @@ mod tests {
                 McpClientId::Antigravity,
                 McpClientId::Copilot,
                 McpClientId::Trae,
+                McpClientId::Grok,
             ]
         );
         assert_eq!(
@@ -1534,13 +1536,14 @@ mod tests {
                 McpClientId::ClaudeCode,
                 McpClientId::Antigravity,
                 McpClientId::Copilot,
+                McpClientId::Grok,
             ]
         );
         settings.disabled_agents.insert("claude-code".into());
         settings.disabled_agents.insert("antigravity".into());
         assert_eq!(
             available_clients(&runtimes(), &settings),
-            [McpClientId::Codex, McpClientId::Copilot]
+            [McpClientId::Codex, McpClientId::Copilot, McpClientId::Grok]
         );
     }
 

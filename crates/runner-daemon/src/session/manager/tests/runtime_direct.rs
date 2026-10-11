@@ -116,7 +116,7 @@ fn only_terminal_shells_get_the_osc7_integration() {
             initial_size: Some((80, 24)),
             ..SpawnSpec::default()
         };
-        SessionManager::apply_runtime_args(
+        mgr_with_fake(None, fake_runtime()).apply_runtime_args(
             &mut spec,
             role,
             &crate::runtimes::for_key(&role.runtime).resume_plan(None),

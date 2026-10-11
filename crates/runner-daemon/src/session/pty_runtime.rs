@@ -3592,6 +3592,9 @@ mod tests {
             );
             args.extend(crate::runtimes::adapter(runtime).launch_args(
                 &crate::runtimes::LaunchContext {
+                    default_model: None,
+                    env: &Default::default(),
+                    cwd: None,
                     role_args: &[],
                     app_data_dir: app_data,
                     session_id: "01M2NCJRAFFVFJQBA0NGDWMDXR",

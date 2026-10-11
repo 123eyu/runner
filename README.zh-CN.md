@@ -125,27 +125,30 @@ runner mission stop "$mission"
 
 ## 支持的 Agent
 
-| | Codex | Claude Code | Antigravity CLI | pi | GitHub Copilot CLI | Cursor |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| 聊天、mission、重启后恢复会话 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 会话内切换对话后更新 Runner 的恢复 ID | ✓ | ✓ | ✓ | ✓ | — | 仅 macOS/Linux |
-| 在 Windows 上运行 | ✓ | ✓ | ✓ ¹ | ✓ ² | ✓ | — ³ |
-| 分叉聊天 | ✓ | ✓ | — | ✓ | — | — |
-| 由 agent 自身的 hook 驱动 Working / Idle 状态 | ✓ | ✓ | 仅 macOS | ✓ | ✓ | —（终端基线） |
-| Needs you：显示审批和提问对话框 | — | ✓ | — | 仅来自扩展 | ✓ | — |
-| 从 CLI 读取模型列表 | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-| 在 Settings → Agents 中更新 | ✓ | ✓ | — | ✓ | ✓ | — |
-| 侧边栏每周用量条与详细用量弹窗 | ✓ | ✓ | ✓ | — | — | — |
-| Mission 权限 | Bypass | Bypass | Bypass | 已信任工作目录 | Bypass | Bypass |
-| Skills 面板 | 目录 + 开关 | 目录 + 开关 | 目录 | 目录 | 目录 + 开关 | 目录 |
-| 已安装 Runner skill | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 终端渲染有夹具测试覆盖 | ✓ | ✓ | ✓ | — | — | — |
+| | Codex | Claude Code | Antigravity CLI | pi | GitHub Copilot CLI | Cursor | Grok |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 聊天、mission、重启后恢复会话 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | macOS ⁵ |
+| 会话内切换对话后更新 Runner 的恢复 ID | ✓ | ✓ | ✓ | ✓ | — | 仅 macOS/Linux | 仅 macOS/Linux ⁴ |
+| 在 Windows 上运行 | ✓ | ✓ | ✓ ¹ | ✓ ² | ✓ | — ³ | — ³ |
+| 分叉聊天 | ✓ | ✓ | — | ✓ | — | — | ✓ |
+| 由 agent 自身的 hook 驱动 Working / Idle 状态 | ✓ | ✓ | 仅 macOS | ✓ | ✓ | —（终端基线） | 仅 macOS/Linux |
+| Needs you：显示审批和提问对话框 | — | ✓ | — | 仅来自扩展 | ✓ | — | 仅审批（macOS/Linux） |
+| 从 CLI 读取模型列表 | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| 在 Settings → Agents 中更新 | ✓ | ✓ | — | ✓ | ✓ | — | — |
+| 侧边栏每周用量条与详细用量弹窗 | ✓ | ✓ | ✓ | — | — | — | — |
+| Mission 权限 | Bypass | Bypass | Bypass | 已信任工作目录 | Bypass | Bypass | Bypass |
+| Skills 面板 | 目录 + 开关 | 目录 + 开关 | 目录 | 目录 | 目录 + 开关 | 目录 | 目录 |
+| 已安装 Runner skill | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 终端渲染有夹具测试覆盖 | ✓ | ✓ | ✓ | — | — | — | ✓ |
 
 ¹ Antigravity CLI 尚未在 Windows 上做过冒烟测试。
 ² pi 在 Windows 上原生运行，但尚未在 Windows 上做过冒烟测试；它的 bash 工具需要 Git for Windows。
-³ Cursor 尚未在 Windows 上验证。
+³ Cursor 和 Grok Build 尚未在 Windows 上验证。
+⁴ 在 Grok dashboard 中切换已加载会话后，下次提交提示才会更新恢复 ID；空闲切换没有原生 hook。
 
-Claude Code、Codex 和 Antigravity CLI 是主要支持的 agent。Claude Code 和 Codex 的启动和催促时序做过调优。GitHub Copilot CLI 需要 Copilot 订阅。pi 使用你已经配置好的模型提供商。Antigravity CLI 使用 Google 账号登录，并在启动时自行更新，所以没有 **Update** 按钮。Cursor 默认关闭，当前能力详见 [Cursor 规格](./docs/features/723-cursor-agent-runtime.md)。欢迎提 [issue](https://github.com/yicheng47/runner/issues)。
+⁵ Grok 的聊天、mission 和停止后恢复通过了 macOS 原生验证；完整重启 app 后的会话恢复尚未验证。
+
+Claude Code、Codex 和 Antigravity CLI 是主要支持的 agent。Claude Code 和 Codex 的启动和催促时序做过调优。GitHub Copilot CLI 需要 Copilot 订阅。pi 使用你已经配置好的模型提供商。Antigravity CLI 使用 Google 账号登录，并在启动时自行更新，所以没有 **Update** 按钮。Cursor 默认启用，当前能力详见 [Cursor 规格](./docs/features/723-cursor-agent-runtime.md)。Grok Build 使用你已有的 grok.com 登录，自行更新，默认启用；各平台证据见 [Grok 规格](./docs/features/723-grok-build-runtime.md) 和 [验证记录](./docs/tests/723-grok-build-runtime.md)。TRAE CLI 可以在 Settings → Agents 中手动启用。欢迎提 [issue](https://github.com/yicheng47/runner/issues)。
 
 Runner 会在 `PATH` 上检测各个 CLI，也可以在 **Settings → Agents** 里为每个 agent 单独指定可执行文件；这里还会显示每个 CLI 的版本，有新版本发布时出现 **Update** 按钮，在终端里运行该 CLI 自带的更新命令。Windows 上 PowerShell 7 可选。agent 在 Windows 上原生运行，不需要 WSL。
 

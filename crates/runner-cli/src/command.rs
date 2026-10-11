@@ -2365,7 +2365,7 @@ fn crew_create_fields(fields: &CrewCreateFields) -> Result<Value, CliError> {
 
 fn runtime_command(runtime: &str) -> Result<&'static str, CliError> {
     runner_core::Runtime::parse(runtime).and_then(runner_core::Runtime::command).ok_or_else(|| CliError::usage(format!(
-        "unknown role runtime {runtime:?}; expected codex, claude-code, antigravity, pi, copilot, trae, or cursor"
+        "unknown role runtime {runtime:?}; expected codex, claude-code, antigravity, pi, copilot, trae, cursor, or grok"
     )))
 }
 

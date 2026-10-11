@@ -82,6 +82,9 @@ async fn native_command_reporters_preserve_utf8_and_provider_neutral_results() {
     .unwrap();
     let codex_args = runner_daemon::runtimes::adapter(Runtime::Codex).launch_args(
         &runner_daemon::runtimes::LaunchContext {
+            env: &Default::default(),
+            cwd: None,
+            default_model: None,
             role_args: &[],
             app_data_dir: &app_data,
             session_id: "runner",

@@ -307,6 +307,7 @@ fn native_defaults_catalog_golden() {
         if seeded {
             for (relative, contents) in [
                 (".codex/config.toml", "model = 'top'\nmodel_reasoning_effort = ' high '\nprofile = 'work'\n[profiles.work]\nmodel = ' profile-model '\n"),
+                (".grok/config.toml", "[models]\ndefault = ' grok-model '\ndefault_reasoning_effort = 'high'\n"),
                 (".trae/traecli.toml", "model = ' trae-model '\nmodel_reasoning_effort = 'max'\n"),
                 (".claude/settings.json", r#"{"model":" claude-model ","effortLevel":" high "}"#),
                 (".copilot/settings.json", "// comment\n{\"model\":\" copilot-model \",\"effortLevel\":\" medium \"}"),

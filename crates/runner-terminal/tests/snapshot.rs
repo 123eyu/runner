@@ -179,6 +179,7 @@ split_recordings! {
     fixture_645_m2_codex_alt_resize => "645-m2-codex-alt-resize.ndjson",
     fixture_645_m2_pi_shift_enter => "645-m2-pi-shift-enter.ndjson",
     fixture_645_m2_zsh_less_vim => "645-m2-zsh-less-vim.ndjson",
+    grok_first_turn => "grok-first-turn.ndjson",
     agy_first_turn => "agy-first-turn.ndjson",
     claude_session => "claude-session.ndjson",
     codex_title_working => "codex-title-working.ndjson",

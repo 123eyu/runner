@@ -106,7 +106,10 @@ mod tests {
                     matches!(
                         runtime,
                         Runtime::ClaudeCode | Runtime::Codex | Runtime::Copilot | Runtime::Pi
-                    ) || (matches!(runtime, Runtime::Antigravity | Runtime::Cursor) && !windows),
+                    ) || (matches!(
+                        runtime,
+                        Runtime::Antigravity | Runtime::Cursor | Runtime::Grok
+                    ) && !windows),
                     "{runtime:?} windows={windows}"
                 );
             }

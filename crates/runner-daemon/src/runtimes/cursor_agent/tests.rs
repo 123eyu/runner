@@ -20,6 +20,9 @@ fn fresh_prompt_and_explicit_model_preserve_the_body_without_effort() {
     let body = "角色: coder\nquote ' \" — 修复 tests";
     for (mission, resuming) in [(false, false), (false, true), (true, false), (true, true)] {
         let args = CursorAgent.launch_args(&LaunchContext {
+            default_model: None,
+            env: &Default::default(),
+            cwd: None,
             role_args: &[],
             app_data_dir: Path::new("unused"),
             session_id: "slot",
@@ -112,7 +115,7 @@ fn experimental_catalog_and_capability_boundaries_are_honest() {
     let entry = CursorAgent.catalog().unwrap();
     assert_eq!(entry.name.key(), "cursor");
     assert_eq!(entry.command, "cursor-agent");
-    assert!(!entry.default_enabled);
+    assert!(entry.default_enabled);
     assert_eq!(entry.description, "Cursor Agent CLI");
     assert_eq!(entry.models.len(), 1);
     assert!(entry.models[0].value.is_empty());

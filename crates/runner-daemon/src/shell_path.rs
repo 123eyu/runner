@@ -38,6 +38,8 @@ const CAPTURED_VARS: &[&str] = &[
     "https_proxy",
     "all_proxy",
     "no_proxy",
+    "GROK_HOME",
+    "GROK_DEFAULT_MODEL",
     "CURSOR_CONFIG_DIR",
     "XDG_CONFIG_HOME",
 ];
@@ -448,8 +450,10 @@ mod tests {
     }
 
     #[test]
-    fn captures_cursor_config_roots_from_login_shell() {
-        let stdout = block("CURSOR_CONFIG_DIR", "/profile/cursor")
+    fn captures_agent_config_roots_from_login_shell() {
+        let stdout = block("GROK_HOME", "/profile/grok")
+            + &block("GROK_DEFAULT_MODEL", "shell-model")
+            + &block("CURSOR_CONFIG_DIR", "/profile/cursor")
             + &block("XDG_CONFIG_HOME", "/profile/xdg");
         let parsed = parse_login_shell_env(&stdout);
         assert_eq!(
@@ -457,6 +461,11 @@ mod tests {
             "/profile/cursor"
         );
         assert_eq!(parsed.vars.get("XDG_CONFIG_HOME").unwrap(), "/profile/xdg");
+        assert_eq!(parsed.vars.get("GROK_HOME").unwrap(), "/profile/grok");
+        assert_eq!(
+            parsed.vars.get("GROK_DEFAULT_MODEL").unwrap(),
+            "shell-model"
+        );
     }
 
     #[test]

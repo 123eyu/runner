@@ -675,6 +675,7 @@ impl AgentModel {
             Runtime::ClaudeCode => "claude",
             Runtime::Copilot => "copilot",
             Runtime::Pi => "pi",
+            Runtime::Grok => "grok",
             _ => unreachable!(),
         };
         self.value.interactions.push(HumanInteraction {

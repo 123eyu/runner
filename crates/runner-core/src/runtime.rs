@@ -12,11 +12,12 @@ pub enum Runtime {
     Copilot,
     Trae,
     Cursor,
+    Grok,
     Shell,
 }
 
 impl Runtime {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Codex,
         Self::ClaudeCode,
         Self::Antigravity,
@@ -24,6 +25,7 @@ impl Runtime {
         Self::Copilot,
         Self::Trae,
         Self::Cursor,
+        Self::Grok,
         Self::Shell,
     ];
 
@@ -36,6 +38,7 @@ impl Runtime {
             Self::Pi => "pi",
             Self::Antigravity => "antigravity",
             Self::Cursor => "cursor",
+            Self::Grok => "grok",
             Self::Shell => "shell",
         }
     }
@@ -49,6 +52,7 @@ impl Runtime {
             Self::Copilot => "GitHub Copilot CLI",
             Self::Trae => "TRAE CLI",
             Self::Cursor => "Cursor",
+            Self::Grok => "Grok",
             Self::Shell => "Shell",
         }
     }
@@ -61,13 +65,16 @@ impl Runtime {
             Self::Copilot => Some("copilot"),
             Self::Trae => Some("traecli"),
             Self::Cursor => Some("cursor-agent"),
+            Self::Grok => Some("grok"),
             Self::Shell => None,
         }
     }
     pub fn managed_skill_root(self) -> Option<&'static str> {
         match self {
             Self::ClaudeCode => Some(".claude/skills"),
-            Self::Codex | Self::Pi | Self::Copilot | Self::Cursor => Some(".agents/skills"),
+            Self::Codex | Self::Pi | Self::Copilot | Self::Cursor | Self::Grok => {
+                Some(".agents/skills")
+            }
             Self::Trae => Some(".trae/skills"),
             Self::Antigravity => Some(".gemini/antigravity-cli/skills"),
             Self::Shell => None,
@@ -101,6 +108,7 @@ mod tests {
             (Runtime::Pi, "pi"),
             (Runtime::Antigravity, "antigravity"),
             (Runtime::Cursor, "cursor"),
+            (Runtime::Grok, "grok"),
             (Runtime::Shell, "shell"),
         ] {
             let json = format!("\"{key}\"");
