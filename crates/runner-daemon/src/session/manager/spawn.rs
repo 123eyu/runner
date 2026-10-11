@@ -2475,32 +2475,34 @@ impl SessionManager {
             mission_cwd: Option<String>,
             slot_handle: String,
             lead: bool,
+            roster: crate::ops::mission::roster::LoadedRoster,
         }
-        let mission_ctx: Option<MissionCtx> =
-            match (snap.mission_id.as_deref(), snap.slot_id.as_deref()) {
-                (Some(mid), Some(sid)) => {
-                    let conn = pool.get()?;
-                    let mission = crate::ops::mission::get(&conn, mid)?;
-                    if mission.archived_at.is_some()
-                        || mission.status != crate::model::MissionStatus::Running
-                    {
-                        return Err(Error::msg("mission is not running"));
-                    }
-                    let slot = crate::repo::slot::get(&conn, sid)?.ok_or_else(|| {
-                        Error::msg(format!(
-                            "slot {sid} referenced by session {session_id} no longer exists"
-                        ))
-                    })?;
-                    Some(MissionCtx {
-                        crew_id: mission.crew_id,
-                        mission_id: mission.id,
-                        mission_cwd: mission.cwd,
-                        slot_handle: slot.slot_handle,
-                        lead: slot.lead,
-                    })
+        let mission_ctx: Option<MissionCtx> = match (
+            snap.mission_id.as_deref(),
+            snap.slot_id.as_deref(),
+        ) {
+            (Some(mid), Some(sid)) => {
+                let conn = pool.get()?;
+                let mission = crate::ops::mission::get(&conn, mid)?;
+                if mission.archived_at.is_some()
+                    || mission.status != crate::model::MissionStatus::Running
+                {
+                    return Err(Error::msg("mission is not running"));
                 }
-                _ => None,
-            };
+                let roster = crate::ops::mission::roster::load(&conn, app_data_dir, &mission)?;
+                let slot = &roster.slots.iter().find(|member| member.slot.id == sid)
+                        .ok_or_else(|| Error::msg(format!("slot {sid} referenced by session {session_id} is not in the mission roster")))?.slot;
+                Some(MissionCtx {
+                    crew_id: mission.crew_id,
+                    mission_id: mission.id,
+                    mission_cwd: mission.cwd,
+                    slot_handle: slot.slot_handle.clone(),
+                    lead: slot.lead,
+                    roster,
+                })
+            }
+            _ => None,
+        };
 
         // Pull the role config fresh for role-backed rows; rebuild
         // the default runtime config for runtime-only direct chats.
@@ -2727,15 +2729,12 @@ impl SessionManager {
             || adapter.prompt_channels().system_prompt
         {
             if let Some(ctx) = mission_ctx.as_ref() {
-                let conn = pool.get()?;
-                let crew = crate::ops::crew::get(&conn, &ctx.crew_id)?;
                 if ctx.lead {
-                    let roster = crate::ops::slot::list(&conn, &ctx.crew_id)?;
                     let launch = router::LaunchInputs::new(
-                        crew.name,
-                        &roster,
+                        ctx.roster.file.crew_name.clone(),
+                        &ctx.roster.slots,
                         crate::ops::mission::all_known_signals(),
-                        crew.system_prompt_addendum,
+                        ctx.roster.file.crew_addendum.clone(),
                     )?;
                     let log = open_mission_event_log(app_data_dir, &ctx.crew_id, &ctx.mission_id)
                         .ok_or_else(|| Error::msg("mission event log unavailable"))?;
@@ -2745,7 +2744,7 @@ impl SessionManager {
                         router::prompt::SessionPromptKind::Worker,
                         Some(router::prompt::compose_worker_first_turn(
                             role.system_prompt.as_deref(),
-                            crew.system_prompt_addendum.as_deref(),
+                            ctx.roster.file.crew_addendum.as_deref(),
                         )),
                     )
                 }

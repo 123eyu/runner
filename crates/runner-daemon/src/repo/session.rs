@@ -861,6 +861,21 @@ pub fn list_for_mission(
     rows.collect()
 }
 
+pub fn roster_rows_for_mission(
+    conn: &Connection,
+    mission_id: &str,
+) -> rusqlite::Result<Vec<SessionRowDb>> {
+    // Resume replaces started_at; rowid retains the original registration order.
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM sessions WHERE mission_id = ?1 ORDER BY rowid",
+        select_list(COLUMNS)
+    ))?;
+    let rows = stmt.query_map([mission_id], |row| {
+        from_row::<SessionRowDb>(row).map_err(de_err)
+    })?;
+    rows.collect()
+}
+
 /// A direct-chat session row plus the role-template labels the sidebar
 /// needs. `role_*` fields are None for runtime-only chats (#195).
 /// Direct chats are exactly rows with no mission and no slot; legacy

@@ -148,7 +148,7 @@ impl Fixture {
         std::fs::create_dir_all(self.log.parent().unwrap()).unwrap();
         std::fs::write(
             self.log.parent().unwrap().join("roster.json"),
-            r#"[{"handle":"coder","lead":true},{"handle":"reviewer","lead":false}]"#,
+            r#"{"version":2,"crew_name":"Peer","crew_addendum":"Fixture crew conventions","slots":[{"id":"slot-coder","role_id":"role-coder","position":0,"handle":"coder","lead":true},{"id":"slot-reviewer","role_id":"role-reviewer","position":1,"handle":"reviewer","lead":false}]}"#,
         )
         .unwrap();
         let events = [

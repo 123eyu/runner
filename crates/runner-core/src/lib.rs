@@ -8,6 +8,7 @@ pub mod daemon_process;
 pub mod error;
 pub mod event_log;
 pub mod logging;
+pub mod mission_roster;
 pub mod model;
 pub mod runtime;
 pub use runtime::Runtime;

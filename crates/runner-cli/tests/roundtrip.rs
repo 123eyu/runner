@@ -44,11 +44,12 @@ impl Fixture {
     fn write_roster(&self, members: &[(&str, bool)]) {
         let entries: Vec<serde_json::Value> = members
             .iter()
-            .map(|(h, lead)| serde_json::json!({ "handle": h, "lead": lead }))
+            .enumerate()
+            .map(|(position, (h, lead))| serde_json::json!({ "id": h, "role_id": h, "position": position, "handle": h, "lead": lead }))
             .collect();
         std::fs::write(
             self.mission_dir.join("roster.json"),
-            serde_json::to_vec(&entries).unwrap(),
+            serde_json::to_vec(&serde_json::json!({"version": 2, "crew_name": "Pair", "crew_addendum": null, "slots": entries})).unwrap(),
         )
         .unwrap();
     }

@@ -152,7 +152,7 @@ Crews are composed of **slots**, not roles directly. A slot is the indirection t
 
 **Lead is also the default HITL gateway.** When a worker needs human input, it does not ask the human directly — it emits an `ask_lead` signal. The router wakes the lead, who decides whether to answer from their own context or escalate via `ask_human`. The human's answer flows back to the lead, who forwards it to the original worker as a directed message. See §8.3. Workers *may* emit `ask_human` directly as a fallback, but the worker preamble (§6) instructs them to go through the lead.
 
-### 3.4 Mission — *one activation of the crew, and the runtime container*
+### 3.4 Mission — *one live run of its own roster, seeded from a crew*
 
 A mission is the only runtime container in the system. Everything alive at runtime lives *inside* a mission and dies with it:
 
@@ -169,6 +169,10 @@ Lifecycle:
 - **Reset**: kills the slots and re-spawns them against the same mission row and log; forks read the persisted last size so they open at the width the pane had.
 
 **Mission cwd is authoritative.** Each mission carries its own `cwd` column. Spawned slots inherit `mission.cwd` regardless of what the role's `working_dir` says — that field is only used in direct chats. Starting from a project copies the project's cwd into the row.
+
+The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, lead flags, order, role ids and overrides. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Display surfaces keep reading the crew's current name and metadata. Roles remain linked by id, so role edits reach the next resume. A role cannot be deleted while an unarchived mission has a session for it. No database schema changes are needed.
+
+Before mounting routers at daemon startup, Runner converts every legacy version 1 roster, including archived missions. It preserves the file's handles, order and lead flags, matches current session-slot handles first and then unmatched session slots by first-start order, and uses the session's configuration when its slot was deleted. A handle without a session uses the crew's matching slot; one with neither is dropped with a warning. Version 2 files are left alone. A missing file or one that is not valid JSON falls back to the crew's current slots, writes version 2 and logs a warning. Other read errors, unsupported versions and invalid roster shapes return an error without rewriting the file; one mission's conversion failure does not block startup.
 
 Concurrent missions on the same crew are allowed — a crew is a reusable template, and per-mission state (sessions, the bus, the runner-CLI shim path, the roster sidecar) is fully namespaced by `mission_id`.
 
@@ -785,12 +789,13 @@ Migrations live in `crates/runner-daemon/migrations/` (`0001_init.sql` … `0023
 │   ├── zsh/.zshenv
 │   └── bash/runner.bash
 └── crews/{crew_id}/missions/{mission_id}/
-    └── events.ndjson                       # per-mission event log (+ roster sidecar)
+    ├── events.ndjson                       # per-mission event log
+    └── roster.json                         # version 2 mission roster
 
 ~/Library/Logs/com.wycstudios.runner/runner.log   # rotating app log + panic backtraces
 ```
 
-The data directory has been the same since the Tauri app, so every upgrade finds its roles, crews, missions and sessions in place. Startup removes the stale legacy bridge executable from `bin/` best-effort. Direct chats are off-disk beyond their row in `sessions`; mission sessions share their mission's directory and the only durable artifact is `events.ndjson`. Screen state lives in memory (§5.8).
+The data directory has been the same since the Tauri app, so every upgrade finds its roles, crews, missions and sessions in place. Startup removes the stale legacy bridge executable from `bin/` best-effort. Direct chats are off-disk beyond their row in `sessions`; mission sessions share their mission's directory, with `events.ndjson` and `roster.json` as durable artifacts. Screen state lives in memory (§5.8).
 
 ### 10.3 Deletion
 
@@ -798,7 +803,7 @@ What a delete takes with it is decided in code, not by the `REFERENCES` clauses 
 
 | Entity | Owning delete | Deletes first | Unbinds | Refused when |
 |---|---|---|---|---|
-| Role | `ops::role::delete` | its sessions | — | a crew has a slot for it; then, it has an unarchived direct chat |
+| Role | `ops::role::delete` | its sessions | — | a crew has a slot for it; it has an unarchived direct chat; an unarchived mission has a session for it |
 | Crew | `ops::crew::delete` | its missions, then its slots | — | it has a mission that is not archived |
 | Slot | `ops::slot::delete` | — | — | — |
 | Mission | `ops::mission::delete_rows` | its sessions | — | Settings delete: it is not archived |

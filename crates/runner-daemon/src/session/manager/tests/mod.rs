@@ -11,6 +11,8 @@ mod hook_status;
 mod input;
 mod launch_gate;
 mod mission_lifecycle;
+#[cfg(unix)]
+mod mission_roster;
 mod permissions;
 mod pi;
 mod replay;

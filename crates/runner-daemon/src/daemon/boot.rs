@@ -91,6 +91,14 @@ pub fn boot(
         eprintln!("Runner session watcher startup failed: {error}");
     }
 
+    match pool.get() {
+        Ok(conn) => {
+            if let Err(error) = ops::mission::roster::convert_all(&conn, &core.app_data_dir) {
+                log::warn!("mission roster conversion failed: {error}");
+            }
+        }
+        Err(error) => log::warn!("mission roster conversion database unavailable: {error}"),
+    }
     super::block_on(ops::mission::mount_all_running_mission_routers(&core));
     session::pty_runtime::cleanup_stale_running_rows_on_startup(&pool)
         .context("clean up stale PTY sessions")?;

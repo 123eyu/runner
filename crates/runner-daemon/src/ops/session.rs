@@ -30,14 +30,13 @@ use crate::{
 
 pub use runner_core::protocol::session::SessionRow;
 
-pub fn list_for_mission(conn: &rusqlite::Connection, mission_id: &str) -> Result<Vec<SessionRow>> {
-    // Sessions render in the same slot order as the Crew Detail roster;
-    // `handle` is the slot's in-crew handle with the template handle as
-    // fallback for legacy pre-slot rows, and archived rows are filtered
-    // out. The ordering, join, and filter semantics live in
-    // `repo::session::list_for_mission`.
+pub fn list_for_mission(
+    conn: &rusqlite::Connection,
+    app_data_dir: &std::path::Path,
+    mission_id: &str,
+) -> Result<Vec<SessionRow>> {
     let rows = repo::session::list_for_mission(conn, mission_id)?;
-    Ok(rows
+    let mut rows: Vec<_> = rows
         .into_iter()
         .map(|row| SessionRow {
             session: row.session,
@@ -47,12 +46,32 @@ pub fn list_for_mission(conn: &rusqlite::Connection, mission_id: &str) -> Result
             lead: row.lead,
             agent_session_key: row.agent_session_key,
         })
-        .collect())
+        .collect();
+    let mission = super::mission::get(conn, mission_id)?;
+    let roster = super::mission::roster::load(conn, app_data_dir, &mission)?;
+    for row in &mut rows {
+        if let Some(member) = roster
+            .slots
+            .iter()
+            .find(|member| row.session.slot_id.as_deref() == Some(&member.slot.id))
+        {
+            row.handle = member.slot.slot_handle.clone();
+            row.lead = member.slot.lead;
+        }
+    }
+    rows.sort_by_key(|row| {
+        roster
+            .slots
+            .iter()
+            .position(|member| row.session.slot_id.as_deref() == Some(&member.slot.id))
+            .unwrap_or(usize::MAX)
+    });
+    Ok(rows)
 }
 
 pub fn session_list(state: &AppCore, mission_id: &str) -> Result<Vec<SessionRow>> {
     let conn = state.db.get()?;
-    list_for_mission(&conn, mission_id)
+    list_for_mission(&conn, &state.app_data_dir, mission_id)
 }
 
 pub fn session_kill(state: &AppCore, session_id: &str) -> Result<()> {
@@ -2140,7 +2159,8 @@ mod tests {
         session.agent_session_key = Some(key.clone());
         repo::session::insert(&conn, &session).unwrap();
 
-        let rows = list_for_mission(&conn, &mission_id).unwrap();
+        let rows =
+            list_for_mission(&conn, tempfile::tempdir().unwrap().path(), &mission_id).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].session.id, session_id);
         assert_eq!(rows[0].handle, "coder");
@@ -2193,7 +2213,8 @@ mod tests {
         plain_session.slot_id = Some(slot_id.clone());
         repo::session::insert(&conn, &plain_session).unwrap();
 
-        let rows = list_for_mission(&conn, &mission_id).unwrap();
+        let rows =
+            list_for_mission(&conn, tempfile::tempdir().unwrap().path(), &mission_id).unwrap();
         let runtime_for = |id: &str| {
             rows.iter()
                 .find(|r| r.session.id == id)

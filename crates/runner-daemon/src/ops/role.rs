@@ -372,13 +372,19 @@ pub(crate) fn ensure_delete_allowed(conn: &Connection, id: &str) -> Result<()> {
             session_ids.join(", ")
         )));
     }
+    let missions = repo::role::unarchived_mission_names(conn, id)?;
+    if !missions.is_empty() {
+        return Err(Error::msg(format!(
+            "role @{handle} is used by unarchived missions; archive them before deleting this role: {}",
+            missions.join(", ")
+        )));
+    }
     Ok(())
 }
 
 // Global delete: refused while any crew has a slot for the role, so it
 // never reshapes a crew. The row takes its remaining sessions with it:
-// archived chats, and sessions of missions whose slot for it was removed
-// since.
+// archived chats and archived missions.
 pub fn delete(conn: &mut Connection, id: &str) -> Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     ensure_delete_allowed(&tx, id)?;
@@ -1030,6 +1036,12 @@ mod tests {
         archived_direct.archived_at = Some(chrono::Utc::now());
         repo::session::insert(&conn, &archived_direct).unwrap();
 
+        assert!(delete(&mut conn, &r.id)
+            .unwrap_err()
+            .to_string()
+            .contains("unarchived missions"));
+        repo::mission::complete_and_archive_if_running(&conn, "mission-1", chrono::Utc::now())
+            .unwrap();
         delete(&mut conn, &r.id).unwrap();
         let session_count = ["mission-session", "archived-direct"]
             .into_iter()
@@ -1080,6 +1092,12 @@ mod tests {
             repo::session_attention::record_completion(&conn, id, false, 100).unwrap();
         }
 
+        assert!(delete(&mut conn, &doomed.id)
+            .unwrap_err()
+            .to_string()
+            .contains("unarchived missions"));
+        repo::mission::complete_and_archive_if_running(&conn, "mission-a", chrono::Utc::now())
+            .unwrap();
         delete(&mut conn, &doomed.id).unwrap();
 
         assert_eq!(row_count(&conn, "SELECT COUNT(*) FROM roles"), 1);
