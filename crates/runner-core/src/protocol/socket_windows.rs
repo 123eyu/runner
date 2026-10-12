@@ -3,6 +3,8 @@ use std::io::{self, Read, Write};
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, WAIT_TIMEOUT};
@@ -11,25 +13,28 @@ use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject, I
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
 pub struct Stream {
-    file: std::sync::Arc<File>,
+    file: Arc<File>,
+    interrupted: Arc<AtomicBool>,
     timeout: Option<Duration>,
 }
 impl Stream {
     pub fn open(path: &Path) -> io::Result<Self> {
         Ok(Self {
-            file: std::sync::Arc::new(
+            file: Arc::new(
                 OpenOptions::new()
                     .read(true)
                     .write(true)
                     .custom_flags(FILE_FLAG_OVERLAPPED)
                     .open(path)?,
             ),
+            interrupted: Arc::new(AtomicBool::new(false)),
             timeout: None,
         })
     }
     pub fn try_clone(&self) -> io::Result<Self> {
         Ok(Self {
             file: self.file.clone(),
+            interrupted: self.interrupted.clone(),
             timeout: self.timeout,
         })
     }
@@ -40,10 +45,17 @@ impl Stream {
         self.timeout = Some(timeout);
         self
     }
+    /// Ends I/O on every clone for good. `CancelIoEx` only cancels I/O already
+    /// in flight, so a reader between two reads would start the next one and
+    /// block forever, keeping the pipe open; the flag stops that read.
     pub fn interrupt(&self) {
+        self.interrupted.store(true, Ordering::SeqCst);
         unsafe { CancelIoEx(self.file.as_raw_handle(), std::ptr::null()) };
     }
     fn transfer(&self, bytes: *mut u8, len: usize, write: bool) -> io::Result<usize> {
+        if self.interrupted.load(Ordering::SeqCst) {
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
         unsafe {
             let event = CreateEventW(std::ptr::null(), 1, 0, std::ptr::null());
             if event.is_null() {
@@ -75,6 +87,11 @@ impl Stream {
             {
                 Err(io::Error::last_os_error())
             } else {
+                // An interrupt that landed after the check above found no I/O to
+                // cancel, so cancel this one now that it has started.
+                if self.interrupted.load(Ordering::SeqCst) {
+                    CancelIoEx(file, &overlapped);
+                }
                 let wait = self
                     .timeout
                     .map(|timeout| timeout.as_millis().min((u32::MAX - 1) as u128) as u32)
