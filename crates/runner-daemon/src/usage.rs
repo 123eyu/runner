@@ -44,6 +44,7 @@ pub struct UsageService {
     transport_lifetime: std::sync::atomic::AtomicBool,
     discovery_started: std::sync::atomic::AtomicBool,
     isolated: std::sync::atomic::AtomicBool,
+    fetch: bool,
 }
 
 impl Default for UsageService {
@@ -57,11 +58,21 @@ impl Default for UsageService {
             transport_lifetime: std::sync::atomic::AtomicBool::new(false),
             discovery_started: std::sync::atomic::AtomicBool::new(false),
             isolated: std::sync::atomic::AtomicBool::new(false),
+            fetch: true,
         }
     }
 }
 
 impl UsageService {
+    /// For in-process test cores. A fetch runs the installed agent CLIs on its
+    /// own thread, whose events a deterministic UI test can neither await nor
+    /// order.
+    pub fn without_fetch() -> Self {
+        Self {
+            fetch: false,
+            ..Self::default()
+        }
+    }
     pub fn manage_client_lifetime(&self, isolated: bool) {
         self.transport_lifetime
             .store(true, std::sync::atomic::Ordering::Release);
@@ -146,7 +157,7 @@ impl UsageService {
     }
 
     pub fn request_refresh(self: &Arc<Self>, core: AppCore, reason: RefreshReason) {
-        if !self.begin_refresh(reason, Utc::now()) {
+        if !self.fetch || !self.begin_refresh(reason, Utc::now()) {
             return;
         }
         core.events.emit("usage/updated", &());
