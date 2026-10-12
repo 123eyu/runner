@@ -261,13 +261,18 @@ impl MissionWorkspace {
                 else {
                     return;
                 };
+                let runtime = self
+                    .sessions
+                    .iter()
+                    .find(|row| row.session.id == session_id)
+                    .and_then(|row| runner_core::Runtime::parse(&row.runtime));
                 let client = self.core(cx).clone();
                 let paste = cx.background_spawn(async move {
-                    client
-                        .session_paste_image(image.bytes, image.format.mime_type())
-                        .map_err(|error| error.to_string())?;
+                    let input =
+                        runner_app::terminal_paste::prepare_image_paste(&client, image, runtime)
+                            .map_err(|error| error.to_string())?;
                     terminal
-                        .write_user_bytes(b"\x16")
+                        .write_user_bytes(input)
                         .map_err(|error| error.to_string())
                 });
                 cx.spawn(async move |weak, cx| {
