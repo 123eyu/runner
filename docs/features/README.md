@@ -6,12 +6,10 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [723 — Cursor Agent CLI runtime](./723-cursor-agent-runtime.md) — `cursor` chats, crews, dynamic models and explicit resume; shipped in 0.15.0, off by default; macOS live tested, Windows unverified. Cursor only; Grok is in development under [its own spec](./723-grok-build-runtime.md).
-- [723 — Grok Build runtime](./723-grok-build-runtime.md) — `grok` chats and crews with an assigned session id, explicit resume, bypass missions with folder trust, dynamic models and per-model efforts, and global env-gated hooks for status and rekey on macOS; probed against grok 1.0.50 ([#723](https://github.com/yicheng47/runner/issues/723); in development).
 - [826 — Targeted crew messaging that scales past three agents](./826-targeted-messaging.md) — a message wakes only its recipients (repeatable `--to`, leading `@mentions`), the wake-up carries the message itself with a catch-up digest, the reconciliation tick re-delivers to idle slots, and `msg read` returns unread by default ([#826](https://github.com/yicheng47/runner/issues/826), P2, 0.16; draft).
 - [795 — Separate shell lifecycle from agent orchestration](./795-shell-agent-boundary.md) — shell sessions traverse agent launch and conversation policy through no-op adapters; keep shared process lifecycle while making the shell/agent boundary explicit ([#795](https://github.com/yicheng47/runner/issues/795), P1, 0.18 with remote machines; part of the [#645](https://github.com/yicheng47/runner/issues/645) session host design since 2026-10-04).
 - [748 — Mission updates reach the chat that started the mission](./748-mission-watch-delivery.md) — Runner types a one-line notice into the starting chat for messages to the person, broadcasts, questions, failures and the end, through the slot delivery gate, so Codex chats watch missions with no host facility ([#748](https://github.com/yicheng47/runner/issues/748), P1, 0.16, under #562; spec under review).
-- [562 — Missions as containers](./562-mission-spawn.md) — a mission starts from a crew or from roles, owns its roster, and gains or loses roles while it runs; with 748 it is how a chat delegates work to another agent; the lead's own verbs and outside seats follow later ([#562](https://github.com/yicheng47/runner/issues/562), P1, 0.16, parent of #863 and #748; Phase 1 merged; Phases 2 and 3 ship with their app UI, and Phase 3's interface is under discussion).
+- [562 — Missions as containers](./562-mission-spawn.md) — a mission starts from a crew or from roles, owns its roster, and gains or loses roles while it runs; with 748 it is how a chat delegates work to another agent; the lead's own verbs and outside seats follow later ([#562](https://github.com/yicheng47/runner/issues/562), P1, 0.16, parent of #863 and #748; Phase 1 shipped in 0.15.2; Phases 2 and 3 ship with their app UI, and Phase 3's interface is under discussion).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a Files panel with git status at the session's folder, read-only file and diff tabs in the side panel, a diff base picker, and line comments batched into a review that goes to the agent that made the change; no editing, staging or commits ([#634](https://github.com/yicheng47/runner/issues/634), P1, 0.16 headline; reopened 2026-10-08 and moved up on 2026-10-09, design first).
 - [764 — Support MCP management for Pi](./764-pi-mcp-management.md) — proposed catalog, editing, multi-client sync and conflict detection for pi's user MCP servers; verify native config support and reconcile Runner registration with the shipped CLI-only coordination contract ([#764](https://github.com/yicheng47/runner/issues/764), P2, 0.18; spec under review).
 - [559 — Command palette on ⌘⇧P](./559-command-palette.md) — the ⌘K overlay in command mode over the keymap ([#559](https://github.com/yicheng47/runner/issues/559), P2, 0.16).
@@ -23,7 +21,7 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Recently shipped
 
-Reconciled on 2026-10-09 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
+Reconciled on 2026-10-12 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
 
 | Spec | Shipped in |
 | --- | --- |
@@ -45,6 +43,8 @@ Reconciled on 2026-10-09 against closed issues and published releases. These spe
 | [645 — runnerd](./archive/645-session-host.md) | 0.13.0, 2026-10-06 ([#811](https://github.com/yicheng47/runner/pull/811)); the CLI moved to its client protocol on 2026-10-07 ([#822](https://github.com/yicheng47/runner/pull/822), #821), and remote machines over ssh continue as [#808](https://github.com/yicheng47/runner/issues/808) |
 | [797 — Hook status over local IPC](./archive/797-hook-status-ipc.md) | 0.13.1, 2026-10-08 |
 | [793 — Liquid glass appearance](./archive/793-liquid-glass.md) | 0.14.0, 2026-10-09 ([#852](https://github.com/yicheng47/runner/pull/852), follow-up [#854](https://github.com/yicheng47/runner/pull/854)). Menus and the usage popover stayed solid; Windows is Solid only |
+| [723 — Cursor Agent CLI runtime](./archive/723-cursor-agent-runtime.md) | 0.15.0, 2026-10-10 ([#827](https://github.com/yicheng47/runner/pull/827)); enabled by default since 0.15.2; native Windows unverified |
+| [723 — Grok Build runtime](./archive/723-grok-build-runtime.md) | 0.15.2, 2026-10-12 ([#871](https://github.com/yicheng47/runner/pull/871), follow-up [#872](https://github.com/yicheng47/runner/pull/872)), enabled by default; native Windows and Linux unverified |
 
 ## Dropped
 

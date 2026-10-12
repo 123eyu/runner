@@ -1,8 +1,8 @@
 # 723 — Cursor Agent CLI runtime
 
-> Tracking issue: [#723](https://github.com/yicheng47/runner/issues/723). Cursor only; Grok is in development under [its own spec](./723-grok-build-runtime.md).
-> Status: shipped in 0.15.0 on 2026-10-10 ([#827](https://github.com/yicheng47/runner/pull/827)), initially default-off. This branch enables Cursor by default under Jason's 2026-10-11 policy change. macOS live tested; native Windows unverified. The spec stays active while Grok Build is in development under [its own spec](./723-grok-build-runtime.md).
-> Contract: [Runtime integration](../arch/runtime-integration.md).
+> Tracking issue: [#723](https://github.com/yicheng47/runner/issues/723). Cursor only; Grok Build shipped in 0.15.2 under [its own spec](./723-grok-build-runtime.md).
+> Status: shipped in 0.15.0 on 2026-10-10 ([#827](https://github.com/yicheng47/runner/pull/827)), initially default-off; enabled by default since 0.15.2 on 2026-10-12 ([#871](https://github.com/yicheng47/runner/pull/871)) under Jason's 2026-10-11 policy change. macOS live tested; native Windows unverified.
+> Contract: [Runtime integration](../../arch/runtime-integration.md).
 
 ## Motivation
 
@@ -36,7 +36,7 @@ A small shared watcher callback supplies the spawned PID. Key persistence accept
 
 ## Verification
 
-Focused tests cover launch/model/prompt arguments, permissions, distinct fresh IDs, exact resume, cwd/config storage, rekey/debounced clear/ambiguity, output-forwarder survival after clearing, model cache behavior, executable discovery and skill ownership. See [the validation record](../tests/archive/723-cursor-agent-runtime.md).
+Focused tests cover launch/model/prompt arguments, permissions, distinct fresh IDs, exact resume, cwd/config storage, rekey/debounced clear/ambiguity, output-forwarder survival after clearing, model cache behavior, executable discovery and skill ownership. See [the validation record](../../tests/archive/723-cursor-agent-runtime.md).
 
 | Platform | Evidence | Remaining gaps |
 | --- | --- | --- |

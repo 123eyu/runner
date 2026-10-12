@@ -1,8 +1,8 @@
 # 723 — Grok Build runtime
 
 > Tracking issue: [#723](https://github.com/yicheng47/runner/issues/723). Grok only; Cursor shipped in 0.15.0 under [its own spec](./723-cursor-agent-runtime.md).
-> Status: in development on `feat/723-grok-build`. Probed against grok 1.0.50 (`c58f321264ba`, stable) on macOS with a grok.com (SuperGrok) sign-in, 2026-10-11.
-> Contract: [Runtime integration](../arch/runtime-integration.md). Every P0 row there applies; this spec records grok's native mechanism for each and the decisions Runner makes.
+> Status: shipped in 0.15.2 on 2026-10-12 ([#871](https://github.com/yicheng47/runner/pull/871), follow-up [#872](https://github.com/yicheng47/runner/pull/872)), enabled by default; macOS live tested, native Windows and Linux unverified ([validation record](../../tests/archive/723-grok-build-runtime.md)). Probed against grok 1.0.50 (`c58f321264ba`, stable) on macOS with a grok.com (SuperGrok) sign-in, 2026-10-11.
+> Contract: [Runtime integration](../../arch/runtime-integration.md). Every P0 row there applies; this spec records grok's native mechanism for each and the decisions Runner makes.
 
 ## Motivation
 
@@ -10,7 +10,7 @@ Run xAI's Grok Build CLI (`grok`) as a Runner runtime in role chats, runtime-onl
 
 ## What the CLI offers
 
-Evidence from `grok --help`, `grok models`, `grok inspect`, the user guide the CLI extracts to `~/.grok/docs/user-guide/` on launch, the on-disk session store, and bounded live CLI probes on 2026-10-11. Probe results and native-app evidence are recorded separately in [the validation record](../tests/723-grok-build-runtime.md).
+Evidence from `grok --help`, `grok models`, `grok inspect`, the user guide the CLI extracts to `~/.grok/docs/user-guide/` on launch, the on-disk session store, and bounded live CLI probes on 2026-10-11. Probe results and native-app evidence are recorded separately in [the validation record](../../tests/archive/723-grok-build-runtime.md).
 
 | Need | Native mechanism in 1.0.50 |
 | --- | --- |

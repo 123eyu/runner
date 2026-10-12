@@ -148,7 +148,7 @@ runner mission stop "$mission"
 
 ⁵ Grok 的聊天、mission 和停止后恢复通过了 macOS 原生验证；完整重启 app 后的会话恢复尚未验证。
 
-Claude Code、Codex 和 Antigravity CLI 是主要支持的 agent。Claude Code 和 Codex 的启动和催促时序做过调优。GitHub Copilot CLI 需要 Copilot 订阅。pi 使用你已经配置好的模型提供商。Antigravity CLI 使用 Google 账号登录，并在启动时自行更新，所以没有 **Update** 按钮。Cursor 默认启用，当前能力详见 [Cursor 规格](./docs/features/723-cursor-agent-runtime.md)。Grok Build 使用你已有的 grok.com 登录，自行更新，默认启用；各平台证据见 [Grok 规格](./docs/features/723-grok-build-runtime.md) 和 [验证记录](./docs/tests/723-grok-build-runtime.md)。TRAE CLI 可以在 Settings → Agents 中手动启用。欢迎提 [issue](https://github.com/yicheng47/runner/issues)。
+Claude Code、Codex 和 Antigravity CLI 是主要支持的 agent。Claude Code 和 Codex 的启动和催促时序做过调优。GitHub Copilot CLI 需要 Copilot 订阅。pi 使用你已经配置好的模型提供商。Antigravity CLI 使用 Google 账号登录，并在启动时自行更新，所以没有 **Update** 按钮。Cursor 默认启用，当前能力详见 [Cursor 规格](./docs/features/archive/723-cursor-agent-runtime.md)。Grok Build 使用你已有的 grok.com 登录，自行更新，默认启用；各平台证据见 [Grok 规格](./docs/features/archive/723-grok-build-runtime.md) 和 [验证记录](./docs/tests/archive/723-grok-build-runtime.md)。TRAE CLI 可以在 Settings → Agents 中手动启用。欢迎提 [issue](https://github.com/yicheng47/runner/issues)。
 
 Runner 会在 `PATH` 上检测各个 CLI，也可以在 **Settings → Agents** 里为每个 agent 单独指定可执行文件；这里还会显示每个 CLI 的版本，有新版本发布时出现 **Update** 按钮，在终端里运行该 CLI 自带的更新命令。Windows 上 PowerShell 7 可选。agent 在 Windows 上原生运行，不需要 WSL。
 

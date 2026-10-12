@@ -1,6 +1,6 @@
 # 723 — Cursor Agent integration validation
 
-Date: 2026-10-09. Branch: `feat/723-cursor-agent`. Scope: Cursor only, part of [#723](https://github.com/yicheng47/runner/issues/723); Grok stays separate. See the [spec](../../features/723-cursor-agent-runtime.md).
+Date: 2026-10-09. Branch: `feat/723-cursor-agent`. Scope: Cursor only, part of [#723](https://github.com/yicheng47/runner/issues/723); Grok stays separate. See the [spec](../../features/archive/723-cursor-agent-runtime.md).
 
 ## Candidate and environment
 
