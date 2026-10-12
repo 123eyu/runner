@@ -1,13 +1,13 @@
 # 562 — Missions as containers: missions without a crew, roles added and removed while they run
 
 > Tracking issue: [#562](https://github.com/yicheng47/runner/issues/562), "delegate work to other agents". Priority: P1, milestone 0.16 (moved from 0.17 on 2026-10-11, when #562 became the parent of [#863](https://github.com/yicheng47/runner/issues/863) and [#748](https://github.com/yicheng47/runner/issues/748) and [#704](https://github.com/yicheng47/runner/issues/704) closed into it). Delegation from a chat works end to end once Phase 1, Phase 3 and [748](./748-mission-watch-delivery.md) have landed.
-> Status: Phase 1, the mission roster, merged on 2026-10-11 as [#868](https://github.com/yicheng47/runner/pull/868) and fixes [#863](https://github.com/yicheng47/runner/issues/863); it is not released yet. Phases 2 and 3 each ship with their app UI, designed first. Phase 2 is refined in this spec before its work starts. Phase 3's interface is under discussion.
+> Status: Phase 1, the mission roster, merged on 2026-10-11 as [#868](https://github.com/yicheng47/runner/pull/868), fixing [#863](https://github.com/yicheng47/runner/issues/863), and shipped in 0.15.2. Phases 2 and 3 each ship with their app UI, designed first. Phase 2 is planned in `docs/impls/562-mission-spawn/` on the branch `feat/562-add-remove-roles`, and waits for [#878](https://github.com/yicheng47/runner/issues/878). Phase 3's interface is under discussion.
 > Design: `design/specs/562-mission-spawn.pen`, drawn on `main` phase by phase: Phase 2's frames before Phase 2 starts, Phase 3's before Phase 3, the latter together with the Start mission dialog of [849](./849-start-mission-modal.md).
 > Identity: a caller is the person at the app or a roster handle, never a location ([648](./archive/648-runner-cli.md) decision 7).
-> Related: [748](./748-mission-watch-delivery.md), which types a mission's updates into the chat that started it, the return path for delegation. Direct chats stay off the bus. [704](./archive/704-session-send.md), `runner session send` into a chat that is already open, closed into this issue on 2026-10-11 and not scheduled. [#863](https://github.com/yicheng47/runner/issues/863), the crew-edit roster bug that Phase 1 fixes.
+> Related: [748](./748-mission-watch-delivery.md), which types a mission's updates into the chat that started it, the return path for delegation. Direct chats stay off the bus. [704](./archive/704-session-send.md), `runner session send` into a chat that is already open, closed into this issue on 2026-10-11 and not scheduled. [#863](https://github.com/yicheng47/runner/issues/863), the crew-edit roster bug that Phase 1 fixes. [#878](https://github.com/yicheng47/runner/issues/878), sessions recording their launch definition at spawn, the prerequisite for Phase 2.
 > Rewritten 2026-10-10 against the `runnerd` code, after Jason set the direction: a crew is not a prerequisite for a mission, a mission can start from a single role, and roles can be added to or removed from a running mission when needed. The 2026-09-18 draft's lead verbs (`runner spawn`, `ps`, `stop`) and outside seats move to Follow-ups; they build on this.
 > Revised 2026-10-11: Jason replaced the 2026-10-10 choice of a crew row per mission (`crews.kind`, `template` or `mission`) with a roster file in the mission's directory. The database holds the definitions that are listed and searched (roles, crews and their slots); a mission's roster is the mission's own state, like its event log.
-> Revised 2026-10-12: Jason folded the app phase into Phases 2 and 3, so everything a phase adds can be done from the GUI as well as the CLI, and reopened Phase 3's interface for discussion: the drafted one is not good enough.
+> Revised 2026-10-12: Jason folded the app phase into Phases 2 and 3, so everything a phase adds can be done from the GUI as well as the CLI, and reopened Phase 3's interface for discussion: the drafted one is not good enough. Later that day he settled what is copied and when: roles and crews are templates, a session records its whole launch definition at spawn (#878, before Phase 2), and a roster never copies a role's configuration.
 
 ## Motivation
 
@@ -31,7 +31,23 @@ Crews stay. A repeatable shape, such as coder plus reviewer, needs a fixed templ
 
 **Why a file, not rows.** Nothing lists, searches or joins mission rosters across missions. The crew page, the pickers and `runner crew list` show crews, and "which missions use this role" is answered by `sessions`, which carries `role_id` and `mission_id`. Every reader of a roster reads one mission's. The file also exists already: `mission_start` writes `roster.json` for the CLI's `--to` check, and #863 is the daemon and the app reading the crew's current slots instead. A roster file needs no change to the `crews` or `slots` tables and no filter keeping per-mission copies out of crew lists. The 2026-10-10 draft gave each mission its own crew row instead; that put the same data in the database, needed a `kind` filter in every crew query, the role page's "Crews using this role", first-run seeding and the pickers, and needed an upgrade that moved every mission's directory.
 
-**What stays linked.** A roster slot names its role by id, so a role edit reaches a running mission at its next resume, as it does today. Copying the role's own configuration into the roster, so that role edits and deletions never reach a mission either, is a Follow-up.
+### What is copied, and when
+
+Settled by Jason on 2026-10-12. Roles and crews are templates. Each layer below them is copied from the layer above when it is created, and owns its copy from then on:
+
+| Layer | What it is | Holds | Changed by |
+| --- | --- | --- | --- |
+| Role | Template for one agent | Runtime, command, args, env, system prompt, model, effort, speed | The role page |
+| Crew | Template for a team | Slots (role, handle, lead, overrides), name, addendum | The crew page |
+| Mission roster | The mission's team | Slots copied from a crew or built from roles, with their overrides, and copies of the crew's name and addendum | Add role and Remove role |
+| Session | One run of one slot or chat | Its launch definition, recorded at spawn: runtime, model, effort, speed, command, args, env and the composed prompt, plus the agent's native session key | Spawn and Restart |
+
+1. **Copy at creation, then own it.** A mission copies its crew into `roster.json` when it starts. A session records its launch definition when it spawns, from its roster slot and the slot's role. Nothing re-reads the layer above afterwards unless asked to.
+2. **Resume replays a session exactly.** Restart is the one explicit way to take up later edits: it starts a fresh conversation rebuilt from the current role and, for a mission slot, its roster slot.
+3. **The machine stays live.** Resolving the command to an executable and applying the app-wide permission mode happen at every launch, because they describe the machine, not the agent.
+4. **Links upward record where a thing came from.** `missions.crew_id`, a roster slot's `role_id` and `sessions.role_id` are provenance and display, not configuration. Deleting a crew keeps the missions started from it: the link becomes empty, and the mission shows the crew name copied into its roster (Phase 3, which makes `missions.crew_id` nullable). Deleting a role stays refused while an unarchived mission uses it, since role deletion still deletes the role's sessions.
+
+Today a session records only its runtime, model, effort and speed (#870), and every resume reads the role's current command, args and env, and pi's prompt. [#878](https://github.com/yicheng47/runner/issues/878) records the rest at spawn. It is a session-layer change, for direct chats as well as mission slots, and it lands before Phase 2, so that Phases 2 and 3 build on rule 1 instead of adding code that reads the role at resume. A roster therefore never holds a role's own configuration: a slot carries the role's id and the mission's overrides, and the session carries what actually ran.
 
 UI copy keeps "Crew" for crews, the only thing a person picks or edits by that name. In code and docs the mission's slots are *the mission roster*. The vision's "Mission: one live activation of a crew" becomes "one live run of its own roster, seeded from a crew or from roles".
 
@@ -123,7 +139,7 @@ Each has a recommendation; the spec assumes it until Jason decides otherwise. Ph
 ### Out of scope
 
 - **The lead's verbs** (Follow-ups): `runner spawn`, `runner ps` and `runner stop` from the lead, idle and crash notices to the lead (`slot_exited`), and outside seats, where an agent outside Runner holds the lead seat. A separate issue once this lands.
-- **A copy of each role's configuration in the roster** (Follow-ups): the role's command, args, env, system prompt, runtime, model and effort as they were at start, read by resume instead of the role row, with the role link no longer cascading, so role edits and deletions never reach a mission. Today a resume reads the role fresh (`session/manager/spawn.rs`, "Pull the role config fresh").
+- **A copy of each role's configuration in the roster.** Replaced on 2026-10-12 by sessions recording their own launch definition ([#878](https://github.com/yicheng47/runner/issues/878), see What is copied, and when). Letting a role be deleted while missions that used it are unarchived, by making the sessions' role link become empty instead of deleting them, is a Follow-up once #878 has landed.
 - Saving a mission's roster as a crew.
 - A direct chat joining a mission as a slot. A chat's `RUNNER_*` environment is fixed at spawn; it drives a mission from outside instead.
 - Workers adding or removing roles.
@@ -155,6 +171,8 @@ One mission and one pull request against `main`, shipped as a 0.15.x patch that 
 
 ### Phase 2 — add and remove while running
 
+Starts after [#878](https://github.com/yicheng47/runner/issues/878) merges, so an added role's session records its launch definition like any other.
+
 - Design: **+ Add role** in the rail and its modal, a card added mid-mission, a worker card's **Remove from mission** and its confirmation, and the `role_joined` and `role_removed` feed rows, drawn and signed off before code.
 - `runner-daemon`: `ops::mission::{mission_add_role, mission_remove_role}`, the shared handle rule in `runner-core`, the router's mutable roster, the bus's add-handle and remove-handle, the serialized roster file rewrite, and the `role_joined` and `role_removed` events.
 - Client protocol operations and the `runner mission add-role` and `remove-role` commands.
@@ -176,7 +194,7 @@ Questions to settle:
 1. **A roster or a lead.** Whether a start names every role or only the lead, the rest joining through Phase 2's add-role. A several-role start repeats add-role's per-role options in a second shape.
 2. **The CLI.** How a start gives each role a handle, runtime, model and effort, and which entry is the lead when one role appears twice; a repeated `--role` with `--lead <role>` can express neither. This is the call a chat agent makes to delegate work, the case that motivates the phase.
 3. **The dialog.** What the Start mission dialog shows for a start without a crew beside 849's crew card, without becoming a crew editor that cannot save.
-4. **A mission without a crew.** Where its directory lives (recommended `missions/<mission_id>/`, where its `runner` shims already live), what an event's `crew_id` and the session's `RUNNER_CREW_ID` carry, whether deleting a crew keeps the missions started from it, and what the rail's Crew row shows.
+4. **A mission without a crew.** Where its directory lives (recommended `missions/<mission_id>/`, where its `runner` shims already live), what an event's `crew_id` and the session's `RUNNER_CREW_ID` carry, and what the rail's Crew row shows. Deleting a crew keeps the missions started from it (What is copied, and when, rule 4).
 5. **Where a delegated mission shows up** for the person without taking focus: a new tab, a pane in the mission's tab, or the sidebar until it is opened ([agent environment](../product/agent-environment.md), open question 1).
 
 Once they are settled:
