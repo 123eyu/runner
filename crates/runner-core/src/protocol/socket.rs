@@ -357,6 +357,9 @@ impl SocketTransport {
         if self.is_closed() {
             return Err(ClientError::msg("runnerd connection closed"));
         }
+        frame
+            .check_size()
+            .map_err(|error| ClientError::msg(format!("request too large for runnerd: {error}")))?;
         self.write
             .try_send(frame)
             .map_err(|error| ClientError::msg(format!("runnerd writer: {error}")))
@@ -662,6 +665,71 @@ impl EventSubscription for Events {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[test]
+    fn oversized_request_fails_without_disconnecting_or_queueing() {
+        let root = tempfile::tempdir().unwrap();
+        let endpoint = IpcEndpoint(root.path().join("runnerd.sock"));
+        let listener = std::os::unix::net::UnixListener::bind(&endpoint.0).unwrap();
+        let (close, closing) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            assert_eq!(Frame::read(&mut stream).unwrap().kind, wire::HELLO);
+            Frame::json(
+                wire::WELCOME,
+                &wire::Welcome {
+                    exe_sha256: "hash".into(),
+                    pid: 1,
+                    started_at: "now".into(),
+                },
+            )
+            .unwrap()
+            .write(&mut stream)
+            .unwrap();
+            let call: wire::Call = Frame::read(&mut stream).unwrap().decode().unwrap();
+            assert!(matches!(call.request, Request::app_version {}));
+            Frame::json(
+                wire::RESPONSE,
+                &wire::Reply {
+                    id: call.id,
+                    response: Response::app_version(Ok("fixture".into())),
+                },
+            )
+            .unwrap()
+            .write(&mut stream)
+            .unwrap();
+            closing.recv_timeout(REQUEST_TIMEOUT).unwrap();
+        });
+        let socket = SocketTransport::connect(
+            &endpoint,
+            wire::Hello {
+                exe_sha256: "hash".into(),
+                client: "test".into(),
+            },
+        )
+        .unwrap();
+        let mut events = socket.event_stream();
+        let request = Request::node_rename {
+            id: "node".into(),
+            name: "x".repeat(wire::MAX_FRAME),
+        };
+        let started = Instant::now();
+        let error = socket.call(request).unwrap_err();
+        assert!(started.elapsed() < REQUEST_TIMEOUT / 2);
+        assert_eq!(
+            error.message,
+            "request too large for runnerd: frame too large (64.0 MB, limit 64 MB)"
+        );
+        assert!(socket.pending.lock().unwrap().is_empty());
+        assert!(!socket.is_closed());
+        assert_eq!(socket.client().app_version().unwrap(), "fixture");
+        assert!(!socket.is_closed());
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+        close.send(()).unwrap();
+        server.join().unwrap();
+    }
     #[test]
     fn protocol_errors_reach_pending_calls_as_restart_messages() {
         for kind in [wire::REQUEST_ERROR, wire::RESPONSE] {

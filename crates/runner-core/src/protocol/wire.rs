@@ -82,11 +82,19 @@ impl Frame {
     pub fn decode<T: serde::de::DeserializeOwned>(&self) -> io::Result<T> {
         Ok(serde_json::from_slice(&self.payload)?)
     }
-    pub fn encode(&self) -> io::Result<Vec<u8>> {
+    pub fn check_size(&self) -> io::Result<usize> {
         let len = self.payload.len() + 1;
         if len > MAX_FRAME {
-            return Err(invalid("frame too large"));
+            return Err(invalid(&format!(
+                "frame too large ({:.1} MB, limit {} MB)",
+                len as f64 / (1024 * 1024) as f64,
+                MAX_FRAME / (1024 * 1024)
+            )));
         }
+        Ok(len)
+    }
+    pub fn encode(&self) -> io::Result<Vec<u8>> {
+        let len = self.check_size()?;
         let mut bytes = Vec::with_capacity(len + 4);
         bytes.extend_from_slice(&(len as u32).to_le_bytes());
         bytes.push(self.kind);
@@ -177,6 +185,21 @@ pub fn snapshot_header(id: u64, subscriber: u64, snapshot: &TerminalSnapshot) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn frame_size_limit_includes_kind_and_excludes_length_prefix() {
+        let mut frame = Frame {
+            kind: REQUEST,
+            payload: vec![0; MAX_FRAME],
+        };
+        frame.payload.pop();
+        assert_eq!(frame.check_size().unwrap(), MAX_FRAME);
+        assert_eq!(frame.encode().unwrap().len(), MAX_FRAME + 4);
+        frame.payload.push(0);
+        let error = frame.check_size().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "frame too large (64.0 MB, limit 64 MB)");
+        assert_eq!(frame.encode().unwrap_err().to_string(), error.to_string());
+    }
     #[test]
     fn stable_handshake_ignores_new_fields_and_frames_round_trip() {
         let hello: Hello =
