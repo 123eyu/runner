@@ -894,6 +894,7 @@ mod tests {
                 Runtime::Copilot,
                 Runtime::Cursor,
                 Runtime::Grok,
+                Runtime::OpenCode,
             ]
         );
         settings.disabled_agents.extend([
@@ -901,6 +902,7 @@ mod tests {
             "copilot".into(),
             "cursor".into(),
             "grok".into(),
+            "opencode".into(),
         ]);
         settings.enabled_agents.insert("trae".into());
         let settings: AppSettings =
@@ -910,6 +912,7 @@ mod tests {
             Runtime::Copilot,
             Runtime::Cursor,
             Runtime::Grok,
+            Runtime::OpenCode,
         ] {
             assert!(!settings.is_agent_enabled(runtime, default_enabled(runtime)));
         }
@@ -918,7 +921,7 @@ mod tests {
 
     #[test]
     fn cursor_and_grok_model_discovery_follow_defaults_and_explicit_disablement() {
-        for runtime in [Runtime::Cursor, Runtime::Grok] {
+        for runtime in [Runtime::Cursor, Runtime::Grok, Runtime::OpenCode] {
             let mut settings = AppSettings::default();
             assert!(settings.model_runtimes().contains(&runtime));
             settings.disabled_agents.insert(runtime.key().into());

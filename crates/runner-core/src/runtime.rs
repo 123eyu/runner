@@ -13,11 +13,13 @@ pub enum Runtime {
     Trae,
     Cursor,
     Grok,
+    #[serde(rename = "opencode")]
+    OpenCode,
     Shell,
 }
 
 impl Runtime {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Codex,
         Self::ClaudeCode,
         Self::Antigravity,
@@ -26,6 +28,7 @@ impl Runtime {
         Self::Trae,
         Self::Cursor,
         Self::Grok,
+        Self::OpenCode,
         Self::Shell,
     ];
 
@@ -39,6 +42,7 @@ impl Runtime {
             Self::Antigravity => "antigravity",
             Self::Cursor => "cursor",
             Self::Grok => "grok",
+            Self::OpenCode => "opencode",
             Self::Shell => "shell",
         }
     }
@@ -53,6 +57,7 @@ impl Runtime {
             Self::Trae => "TRAE CLI",
             Self::Cursor => "Cursor",
             Self::Grok => "Grok",
+            Self::OpenCode => "OpenCode",
             Self::Shell => "Shell",
         }
     }
@@ -66,13 +71,14 @@ impl Runtime {
             Self::Trae => Some("traecli"),
             Self::Cursor => Some("cursor-agent"),
             Self::Grok => Some("grok"),
+            Self::OpenCode => Some("opencode"),
             Self::Shell => None,
         }
     }
     pub fn managed_skill_root(self) -> Option<&'static str> {
         match self {
             Self::ClaudeCode => Some(".claude/skills"),
-            Self::Codex | Self::Pi | Self::Copilot | Self::Cursor | Self::Grok => {
+            Self::Codex | Self::Pi | Self::Copilot | Self::Cursor | Self::Grok | Self::OpenCode => {
                 Some(".agents/skills")
             }
             Self::Trae => Some(".trae/skills"),
@@ -109,6 +115,7 @@ mod tests {
             (Runtime::Antigravity, "antigravity"),
             (Runtime::Cursor, "cursor"),
             (Runtime::Grok, "grok"),
+            (Runtime::OpenCode, "opencode"),
             (Runtime::Shell, "shell"),
         ] {
             let json = format!("\"{key}\"");

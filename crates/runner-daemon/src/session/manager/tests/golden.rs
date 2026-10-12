@@ -27,7 +27,12 @@ impl Normalizer {
             let rest = &text[offset..];
             let id = rest
                 .get(..36)
-                .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+                .filter(|id| {
+                    uuid::Uuid::parse_str(id).is_ok()
+                        || id
+                            .strip_prefix("ses_")
+                            .is_some_and(|id| id.len() == 32 && uuid::Uuid::parse_str(id).is_ok())
+                })
                 .or_else(|| {
                     rest.get(..26).filter(|id| {
                         ulid::Ulid::from_string(id).is_ok()
@@ -142,6 +147,8 @@ fn configured_role(key: &str, root: &Path) -> Role {
     configured.model = Some(
         if key == "antigravity" {
             "gemini-3.8-flash"
+        } else if key == "opencode" {
+            "fixture/model"
         } else {
             "fixture-model"
         }
@@ -152,6 +159,16 @@ fn configured_role(key: &str, root: &Path) -> Role {
         "CODEX_HOME".into(),
         root.join(".codex").to_string_lossy().into_owned(),
     );
+    if key == "opencode" {
+        configured.env.insert(
+            "XDG_CONFIG_HOME".into(),
+            root.join(".config").display().to_string(),
+        );
+        configured.env.insert(
+            "XDG_DATA_HOME".into(),
+            root.join(".local/share").display().to_string(),
+        );
+    }
     configured.env.insert(
         "COPILOT_HOME".into(),
         root.join(".copilot").to_string_lossy().into_owned(),
@@ -164,6 +181,15 @@ fn configured_role(key: &str, root: &Path) -> Role {
 }
 
 fn history(root: &Path, cwd: &str, key: &str) {
+    if key.starts_with("ses_") {
+        let path = root.join(".local/share/opencode/opencode.db");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let db = rusqlite::Connection::open(path).unwrap();
+        db.execute_batch("CREATE TABLE IF NOT EXISTS session_v2(id TEXT PRIMARY KEY)")
+            .unwrap();
+        db.execute("INSERT INTO session_v2 VALUES (?1)", [key])
+            .unwrap();
+    }
     let claude_project: String = cwd
         .chars()
         .map(|c| if c == '/' || c == '.' { '-' } else { c })
@@ -264,7 +290,11 @@ fn spawn_goldens() {
                     .unwrap();
                 if matches!(shape, "resume" | "missing") {
                     mgr.kill(&spawned.id).unwrap();
-                    let prior = uuid::Uuid::new_v4().to_string();
+                    let prior = if key == "opencode" {
+                        format!("ses_{}", uuid::Uuid::new_v4().simple())
+                    } else {
+                        uuid::Uuid::new_v4().to_string()
+                    };
                     pool.get()
                         .unwrap()
                         .execute(

@@ -8,6 +8,7 @@ pub(crate) mod copilot;
 pub(crate) mod cursor_agent;
 pub(crate) mod grok;
 mod helpers;
+pub(crate) mod opencode;
 pub(crate) mod pi;
 #[cfg(test)]
 mod test_support;
@@ -229,6 +230,8 @@ pub enum McpFormat {
     Toml,
 }
 
+pub type McpJsonParser = fn(&serde_json::Value) -> Option<crate::ops::mcp::McpServerDefinition>;
+
 pub struct McpConfig {
     pub wire_name: &'static str,
     pub serialized_name: &'static str,
@@ -287,10 +290,38 @@ pub trait RuntimeAdapter: Send + Sync {
     fn mcp(&self) -> Option<&'static McpConfig> {
         None
     }
+    fn mcp_json_parser(&self) -> Option<McpJsonParser> {
+        None
+    }
+    fn read_mcp_entries(
+        &self,
+        _path: &Path,
+    ) -> Option<
+        crate::error::Result<std::collections::BTreeMap<String, crate::ops::mcp::NativeEntry>>,
+    > {
+        None
+    }
+    fn write_mcp_entry(
+        &self,
+        _path: &Path,
+        _name: &str,
+        _entry: Option<crate::ops::mcp::NativeEntry>,
+        _merge: bool,
+    ) -> Option<crate::error::Result<()>> {
+        None
+    }
     fn skills(&self) -> SkillSupport {
         SkillSupport::default()
     }
     fn permissions(&self) -> &'static Permissions;
+    fn skill_roots_with_env(
+        &self,
+        _home: &Path,
+        _codex_home: Option<&Path>,
+        _env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<Vec<PathBuf>> {
+        None
+    }
     fn launch_role_args(&self, args: &[String]) -> Vec<String> {
         args.to_vec()
     }
@@ -307,6 +338,12 @@ pub trait RuntimeAdapter: Send + Sync {
     }
     fn launch_env(&self) -> &'static [(&'static str, &'static str)] {
         &[]
+    }
+    fn launch_context_env(
+        &self,
+        _ctx: &LaunchContext<'_>,
+    ) -> std::collections::BTreeMap<String, String> {
+        Default::default()
     }
     fn launch_gate(&self) -> Option<Duration> {
         None
@@ -382,6 +419,7 @@ pub fn adapter(runtime: Runtime) -> &'static dyn RuntimeAdapter {
         Runtime::Trae => &trae::Trae,
         Runtime::Cursor => &cursor_agent::CursorAgent,
         Runtime::Grok => &grok::Grok,
+        Runtime::OpenCode => &opencode::OpenCode,
         Runtime::Shell => &NoAgent,
     }
 }

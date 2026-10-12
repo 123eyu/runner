@@ -149,6 +149,31 @@
       "written": "[mcp_servers.runner]\ncommand = \"/golden/runner-mcp\"\nargs = []\nenv = {}\ntype = \"stdio\"\n",
       "removed": true,
       "after": ""
+    },
+    {
+      "client": "OpenCode",
+      "key": "opencode",
+      "runtime": "opencode",
+      "label": "OpenCode",
+      "config_file": "~/.config/opencode/opencode.jsonc",
+      "path": "<HOME>/.config/opencode/opencode.jsonc",
+      "json": true,
+      "entry_key": "mcp.servers.runner",
+      "empty": {
+        "registered": false,
+        "matches_current": false,
+        "command": null,
+        "args": []
+      },
+      "registered": {
+        "registered": true,
+        "matches_current": true,
+        "command": "/golden/runner-mcp",
+        "args": []
+      },
+      "written": "{\"mcp\": {\n  \"servers\": {\n    \"runner\": {\n      \"type\": \"local\",\n      \"command\": [\n        \"/golden/runner-mcp\"\n      ],\n      \"environment\": {}\n    }\n  }\n}}",
+      "removed": true,
+      "after": "{\"mcp\": {\n  \"servers\": {\n    \n  }\n}}"
     }
   ],
   "parse": [
@@ -165,12 +190,12 @@
     {
       "raw": "claude-code",
       "value": null,
-      "error": "unknown MCP client: \"claude-code\" (expected codex, claude_code, antigravity, copilot, trae, or grok)"
+      "error": "unknown MCP client: \"claude-code\" (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)"
     },
     {
       "raw": "ClaudeCode",
       "value": null,
-      "error": "unknown MCP client: \"ClaudeCode\" (expected codex, claude_code, antigravity, copilot, trae, or grok)"
+      "error": "unknown MCP client: \"ClaudeCode\" (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)"
     },
     {
       "raw": "antigravity",
@@ -190,22 +215,22 @@
     {
       "raw": "pi",
       "value": null,
-      "error": "unknown MCP client: \"pi\" (expected codex, claude_code, antigravity, copilot, trae, or grok)"
+      "error": "unknown MCP client: \"pi\" (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)"
     },
     {
       "raw": "shell",
       "value": null,
-      "error": "unknown MCP client: \"shell\" (expected codex, claude_code, antigravity, copilot, trae, or grok)"
+      "error": "unknown MCP client: \"shell\" (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)"
     },
     {
       "raw": "unknown",
       "value": null,
-      "error": "unknown MCP client: \"unknown\" (expected codex, claude_code, antigravity, copilot, trae, or grok)"
+      "error": "unknown MCP client: \"unknown\" (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)"
     },
     {
       "raw": "",
       "value": null,
-      "error": "unknown MCP client: \"\" (expected codex, claude_code, antigravity, copilot, trae, or grok)"
+      "error": "unknown MCP client: \"\" (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)"
     }
   ],
   "deserialize": [
@@ -237,12 +262,12 @@
     {
       "raw": "\"claude_code\"",
       "value": null,
-      "error": "unknown variant `claude_code`, expected one of `ClaudeCode`, `Codex`, `Trae`, `Copilot`, `Antigravity`, `Grok` at line 1 column 13"
+      "error": "unknown variant `claude_code`, expected one of `ClaudeCode`, `Codex`, `Trae`, `Copilot`, `Antigravity`, `Grok`, `OpenCode` at line 1 column 13"
     },
     {
       "raw": "\"unknown\"",
       "value": null,
-      "error": "unknown variant `unknown`, expected one of `ClaudeCode`, `Codex`, `Trae`, `Copilot`, `Antigravity`, `Grok` at line 1 column 9"
+      "error": "unknown variant `unknown`, expected one of `ClaudeCode`, `Codex`, `Trae`, `Copilot`, `Antigravity`, `Grok`, `OpenCode` at line 1 column 9"
     },
     {
       "raw": "{\"Codex\":null}",
@@ -276,7 +301,8 @@
     "Trae",
     "Copilot",
     "Antigravity",
-    "Grok"
+    "Grok",
+    "OpenCode"
   ],
   "for_runtime": [
     {
@@ -310,6 +336,10 @@
     {
       "runtime": "grok",
       "client": "Grok"
+    },
+    {
+      "runtime": "opencode",
+      "client": "OpenCode"
     },
     {
       "runtime": "shell",

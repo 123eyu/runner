@@ -293,7 +293,8 @@ fn slot_runtime_select_restores_role_and_override_in_selector_order() {
             "copilot",
             "trae",
             "cursor",
-            "grok"
+            "grok",
+            "opencode"
         ]
     );
 }

@@ -32,7 +32,7 @@ pub(super) fn ensure_utf8_locale(env: &mut BTreeMap<String, String>, process_has
 }
 
 /// The environment an agent process starts from. Login-shell vars (the
-/// proxy quartet, both cases) are the bottom layer; a role row can override
+/// captured configuration and proxy variables) are the bottom layer; a role row can override
 /// any of them, being the most specific configuration surface. System vars
 /// layer on top so the user can't accidentally shadow them — PATH comes from
 /// the composed path and a role.env PATH is filtered by
@@ -635,6 +635,22 @@ impl SessionManager {
             spec.env.extend(env);
         }
         spec.args = adapter.launch_role_args(&spec.args);
+        spec.env
+            .extend(adapter.launch_context_env(&crate::runtimes::LaunchContext {
+                default_model: default_model.as_deref(),
+                env: &spec.env,
+                cwd: spec.cwd.as_deref(),
+                role_args: &role.args,
+                app_data_dir,
+                session_id: &spec.session_id,
+                resuming: plan.resuming,
+                mission: spec.mission,
+                model: role.model.as_deref(),
+                effort: role.effort.as_deref(),
+                codex_speed: role.codex_speed,
+                system_prompt: None,
+                first_turn,
+            }));
         let mut composed: Vec<String> = Vec::new();
         if plan.prepend {
             composed.extend(plan.args.iter().cloned());
@@ -2511,7 +2527,7 @@ impl SessionManager {
         let mut probe_env = role.env.clone();
         if matches!(
             Runtime::parse(&role.runtime),
-            Some(Runtime::Cursor | Runtime::Grok)
+            Some(Runtime::Cursor | Runtime::Grok | Runtime::OpenCode)
         ) {
             probe_env = self
                 .shell_env

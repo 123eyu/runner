@@ -758,6 +758,54 @@ pub mod grok {
         })
     }
 }
+pub mod opencode {
+    use super::super::runtime_options::*;
+    use super::*;
+    pub const SKILL_DIRS: &[&str] = &[
+        ".config/opencode/skills",
+        ".agents/skills",
+        ".claude/skills",
+    ];
+    pub static PERMISSIONS: Permissions = Permissions {
+        offered: &[PermissionMode::Default, PermissionMode::Bypass],
+        strip_flags: &[("--auto", false)],
+        equals_on_bool: true,
+        variadic_flag: None,
+        args: |mode| {
+            if mode == PermissionMode::Bypass {
+                strings(&["--auto"])
+            } else {
+                Vec::new()
+            }
+        },
+        matches: |args, mode| {
+            mode == PermissionMode::Bypass
+                && args.iter().any(|arg| go_bool_flag_is_set(arg, "auto"))
+        },
+        mission_bypass: Some(&["--auto"]),
+        strip_on_mission_resume: false,
+    };
+    pub fn catalog() -> Option<RuntimeCatalog> {
+        Some(RuntimeCatalog {
+            name: Runtime::OpenCode,
+            display_name: "OpenCode",
+            command: "opencode",
+            capabilities: RuntimeCapabilities {
+                effort_needs_launch_model: true,
+                ..RuntimeCapabilities::default()
+            },
+            native_fork: false,
+            description: "OpenCode v2 CLI (native smoke pending)",
+            install_url: "https://opencode.ai",
+            default_enabled: true,
+            models: vec![default_model_option()],
+            efforts: vec![default_effort()],
+            skills_dirs: SKILL_DIRS,
+            update_args: &[],
+            npm_package: None,
+        })
+    }
+}
 pub fn catalog_for(runtime: Runtime) -> Option<RuntimeCatalog> {
     match runtime {
         Runtime::Codex => codex::catalog(),
@@ -768,6 +816,7 @@ pub fn catalog_for(runtime: Runtime) -> Option<RuntimeCatalog> {
         Runtime::Trae => trae::catalog(),
         Runtime::Cursor => cursor_agent::catalog(),
         Runtime::Grok => grok::catalog(),
+        Runtime::OpenCode => opencode::catalog(),
         Runtime::Shell => None,
     }
 }
@@ -796,6 +845,7 @@ impl RuntimeMetadata {
             Runtime::Trae => &trae::PERMISSIONS,
             Runtime::Cursor => &cursor_agent::PERMISSIONS,
             Runtime::Grok => &grok::PERMISSIONS,
+            Runtime::OpenCode => &opencode::PERMISSIONS,
             Runtime::Shell => &NO_PERMISSIONS,
         }
     }
@@ -826,5 +876,6 @@ pub fn model_discovery_runtimes() -> Vec<Runtime> {
         Runtime::Antigravity,
         Runtime::Cursor,
         Runtime::Grok,
+        Runtime::OpenCode,
     ]
 }

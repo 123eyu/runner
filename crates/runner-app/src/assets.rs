@@ -27,6 +27,8 @@ const CIRCLE_QUESTION_MARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" 
 const APP_ICON: &[u8] = include_bytes!("../../../assets/icon.png");
 // Source: https://www.antigravity.google/press (Icon - Full Color)
 const ANTIGRAVITY_ICON: &[u8] = include_bytes!("../../../assets/antigravity-icon.png");
+// Source: https://opencode.ai/favicon-v3.ico (lossless ICO frame conversion).
+const OPENCODE_ICON: &[u8] = include_bytes!("../../../assets/opencode-icon.png");
 
 const BRAND_MARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 72 72"><path d="M14 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".28"/><path d="M29 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/><path d="M44 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="9.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
 const PANEL_LEFT_HIDDEN: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9v6"/></svg>"#;
@@ -156,6 +158,7 @@ const GROK: &[u8] = br#"<svg fill="currentColor" fill-rule="evenodd" viewBox="-2
 const ASSETS: &[(&str, &[u8])] = &[
     ("app-icon.png", APP_ICON),
     ("antigravity-icon.png", ANTIGRAVITY_ICON),
+    ("opencode-icon.png", OPENCODE_ICON),
     ("brand-mark.svg", BRAND_MARK),
     ("panel-left-hidden.svg", PANEL_LEFT_HIDDEN),
     ("panel-left-open.svg", PANEL_LEFT_OPEN),
@@ -450,6 +453,11 @@ mod tests {
     #[test]
     fn antigravity_color_icon_is_bundled() {
         let icon = Assets.load("antigravity-icon.png").unwrap().unwrap();
+        assert!(icon.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+    #[test]
+    fn opencode_brand_icon_is_bundled() {
+        let icon = Assets.load("opencode-icon.png").unwrap().unwrap();
         assert!(icon.starts_with(b"\x89PNG\r\n\x1a\n"));
     }
 

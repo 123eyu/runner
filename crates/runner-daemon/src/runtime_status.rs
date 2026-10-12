@@ -457,6 +457,7 @@ mod tests {
                 (Runtime::Trae, "TRAE CLI", "traecli"),
                 (Runtime::Cursor, "Cursor", "cursor-agent"),
                 (Runtime::Grok, "Grok", "grok"),
+                (Runtime::OpenCode, "OpenCode", "opencode"),
             ],
         );
     }

@@ -2,6 +2,61 @@ use super::*;
 use crate::runtimes::test_support::*;
 
 #[test]
+fn opencode_optional_extensions_keep_existing_agents_on_baseline() {
+    let directory = tempfile::tempdir().unwrap();
+    let env = std::collections::BTreeMap::from([
+        ("XDG_DATA_HOME".into(), "alternate-data".into()),
+        ("XDG_CONFIG_HOME".into(), "alternate-config".into()),
+        ("OPENCODE_CONFIG_CONTENT".into(), "{}".into()),
+    ]);
+    for runtime in Runtime::ALL
+        .into_iter()
+        .filter(|runtime| *runtime != Runtime::OpenCode)
+    {
+        let adapter = adapter(runtime);
+        assert!(adapter.mcp_json_parser().is_none(), "{runtime:?}");
+        assert!(
+            adapter.read_mcp_entries(directory.path()).is_none(),
+            "{runtime:?}"
+        );
+        assert!(
+            adapter
+                .write_mcp_entry(directory.path(), "server", None, false)
+                .is_none(),
+            "{runtime:?}"
+        );
+        assert!(
+            adapter
+                .skill_roots_with_env(directory.path(), None, &env)
+                .is_none(),
+            "{runtime:?}"
+        );
+        for resuming in [false, true] {
+            assert!(
+                adapter
+                    .launch_context_env(&LaunchContext {
+                        env: &env,
+                        cwd: Some(directory.path()),
+                        default_model: Some("provider/default"),
+                        role_args: &[],
+                        app_data_dir: directory.path(),
+                        session_id: "fixture",
+                        resuming,
+                        mission: !resuming,
+                        model: Some("provider/override"),
+                        effort: Some("high"),
+                        codex_speed: None,
+                        system_prompt: None,
+                        first_turn: Some("fixture prompt"),
+                    })
+                    .is_empty(),
+                "{runtime:?} resuming={resuming}"
+            );
+        }
+    }
+}
+
+#[test]
 fn shell_runtime_omits_flag() {
     assert!(system_prompt_args(Runtime::Shell.key(), Some("ignored")).is_empty());
 }
