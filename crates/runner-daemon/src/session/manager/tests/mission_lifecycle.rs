@@ -294,158 +294,115 @@ fn concurrent_missions_on_same_crew_keep_session_state_isolated() {
 }
 
 #[test]
-fn mission_slot_exit_reaps_live_siblings_and_keeps_mission_running() {
-    let pool = pool_with_schema();
-    let mission_id = ulid::Ulid::new().to_string();
-    let role_id = ulid::Ulid::new().to_string();
-    let slot_id = insert_crew_role(&pool, &mission_id, &role_id);
-    let mission = Mission {
-        id: mission_id.clone(),
-        crew_id: "c".into(),
-        ..mission()
-    };
-    let mut role = role("/bin/cat", &[]);
-    role.id = role_id;
-    let mut slot = slot_for(&role);
-    slot.id = slot_id;
-    slot.crew_id = "c".into();
-
-    let fake = fake_runtime();
-    let mgr = mgr_with_fake(None, Arc::clone(&fake));
-    let first = mgr
-        .spawn(
-            &mission,
-            &role,
-            &slot,
-            fixture_tmp_dir(),
-            PathBuf::from("/dev/null"),
-            Arc::clone(&pool),
-            capture(),
-            None,
-        )
-        .unwrap();
-    let sibling = mgr
-        .spawn(
-            &mission,
-            &role,
-            &slot,
-            fixture_tmp_dir(),
-            PathBuf::from("/dev/null"),
-            Arc::clone(&pool),
-            capture(),
-            None,
-        )
-        .unwrap();
-
-    fake.close_spawn(0);
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    loop {
-        let conn = pool.get().unwrap();
-        let live_sessions: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sessions
-                  WHERE mission_id = ?1 AND status = 'running'",
-                params![mission_id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        if live_sessions == 0 {
-            break;
-        }
-        if Instant::now() > deadline {
-            panic!("mission siblings were not reaped");
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-
-    assert!(
-        fake.stops.lock().unwrap().contains(&sibling.id),
-        "the surviving sibling must be stopped",
-    );
-    for session_id in [&first.id, &sibling.id] {
-        assert!(
-            mgr.session_state(session_id).is_none_or(|state| state
-                .lock()
+fn mission_slot_exit_leaves_siblings_live_and_keeps_mission_running() {
+    for (exit_code, expected_status) in [
+        (0, crate::model::SessionStatus::Stopped),
+        (1, crate::model::SessionStatus::Crashed),
+    ] {
+        let pool = pool_with_schema();
+        let (mission, role, slot) = single_slot_mission(&pool);
+        let fake = fake_runtime();
+        fake.set_status_exit_code(Some(exit_code));
+        let mgr = mgr_with_fake(None, Arc::clone(&fake));
+        let cap = capture();
+        let sessions: Vec<_> = (0..3)
+            .map(|_| {
+                mgr.spawn(
+                    &mission,
+                    &role,
+                    &slot,
+                    fixture_tmp_dir(),
+                    PathBuf::from("/dev/null"),
+                    Arc::clone(&pool),
+                    cap.clone(),
+                    None,
+                )
                 .unwrap()
-                .handle
-                .is_none()),
-            "session {session_id} must not retain a live handle",
+            })
+            .collect();
+
+        let forwarder = mgr
+            .session_state(&sessions[0].id)
+            .unwrap()
+            .lock()
+            .unwrap()
+            .handle
+            .as_mut()
+            .unwrap()
+            .forwarder
+            .take()
+            .unwrap();
+        fake.close_spawn(0);
+        forwarder.join().unwrap();
+        assert!(mgr.session_state(&sessions[0].id).is_none_or(|state| state
+            .lock()
+            .unwrap()
+            .handle
+            .is_none()));
+
+        let conn = pool.get().unwrap();
+        assert_eq!(
+            crate::repo::session::get_row(&conn, &sessions[0].id)
+                .unwrap()
+                .unwrap()
+                .status,
+            expected_status
         );
-    }
-    let mission_status: String = pool
-        .get()
-        .unwrap()
-        .query_row(
-            "SELECT status FROM missions WHERE id = ?1",
-            params![mission_id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(mission_status, "running");
-}
-
-#[test]
-fn mission_slot_exit_cancels_pending_sibling_spawns() {
-    let pool = pool_with_schema();
-    let mission_id = ulid::Ulid::new().to_string();
-    let role_id = ulid::Ulid::new().to_string();
-    let slot_id = insert_crew_role(&pool, &mission_id, &role_id);
-    let mission = Mission {
-        id: mission_id.clone(),
-        crew_id: "c".into(),
-        ..mission()
-    };
-    let mut role = role("/bin/cat", &[]);
-    role.id = role_id;
-    let mut slot = slot_for(&role);
-    slot.id = slot_id;
-    slot.crew_id = "c".into();
-
-    let fake = fake_runtime();
-    let mgr = mgr_with_fake(None, Arc::clone(&fake));
-    mgr.spawn(
-        &mission,
-        &role,
-        &slot,
-        fixture_tmp_dir(),
-        PathBuf::from("/dev/null"),
-        Arc::clone(&pool),
-        capture(),
-        None,
-    )
-    .unwrap();
-    let cancel = mgr.register_pending_mission_cancel(&mission_id);
-
-    fake.close_spawn(0);
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !cancel.load(std::sync::atomic::Ordering::Acquire) {
-        if Instant::now() > deadline {
-            panic!("pending sibling spawns were not cancelled");
+        let exits = cap.exit.lock().unwrap();
+        assert_eq!(exits.len(), 1);
+        assert_eq!(exits[0].session_id, sessions[0].id);
+        assert_eq!(exits[0].exit_code, Some(exit_code));
+        assert_eq!(exits[0].success, exit_code == 0);
+        drop(exits);
+        for sibling in &sessions[1..] {
+            assert!(
+                mgr.session_state(&sibling.id).is_some_and(|state| state
+                    .lock()
+                    .unwrap()
+                    .handle
+                    .is_some()),
+                "the sibling must retain its live handle",
+            );
+            assert!(
+                !fake.stops.lock().unwrap().contains(&sibling.id),
+                "the exiting slot must not stop its sibling",
+            );
+            assert_eq!(
+                crate::repo::session::get_row(&conn, &sibling.id)
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                crate::model::SessionStatus::Running
+            );
         }
-        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(
+            crate::repo::mission::get(&conn, &mission.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            MissionStatus::Running
+        );
+        drop(conn);
+
+        mgr.kill_all_for_mission(&mission.id).unwrap();
+        for sibling in &sessions[1..] {
+            assert_eq!(
+                crate::repo::session::get_row(&pool.get().unwrap(), &sibling.id)
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                crate::model::SessionStatus::Stopped,
+                "intentional mission stop still stops every sibling",
+            );
+        }
     }
-    mgr.drop_pending_mission_cancel(&mission_id, &cancel);
 }
 
 #[test]
-fn intentional_mission_kill_does_not_reap_siblings_from_exit_epilogue() {
+fn mission_slot_exit_leaves_pending_sibling_spawns_running() {
     let pool = pool_with_schema();
-    let mission_id = ulid::Ulid::new().to_string();
-    let role_id = ulid::Ulid::new().to_string();
-    let slot_id = insert_crew_role(&pool, &mission_id, &role_id);
-    let mission = Mission {
-        id: mission_id.clone(),
-        crew_id: "c".into(),
-        ..mission()
-    };
-    let mut role = role("/bin/cat", &[]);
-    role.id = role_id;
-    let mut slot = slot_for(&role);
-    slot.id = slot_id;
-    slot.crew_id = "c".into();
-
+    let (mission, role, slot) = single_slot_mission(&pool);
+    let data = tempfile::tempdir().unwrap();
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let first = mgr
@@ -453,61 +410,172 @@ fn intentional_mission_kill_does_not_reap_siblings_from_exit_epilogue() {
             &mission,
             &role,
             &slot,
-            fixture_tmp_dir(),
-            PathBuf::from("/dev/null"),
+            data.path(),
+            data.path().join("events.ndjson"),
             Arc::clone(&pool),
             capture(),
             None,
         )
         .unwrap();
-    let sibling = mgr
-        .spawn(
+    let pending = mgr
+        .register_mission_session(
             &mission,
             &role,
             &slot,
-            fixture_tmp_dir(),
-            PathBuf::from("/dev/null"),
+            data.path(),
+            data.path().join("events.ndjson"),
             Arc::clone(&pool),
-            capture(),
             None,
+            None,
+            None,
+            "test",
         )
         .unwrap();
+    let sibling_id = pending.session_id.clone();
+    let cancel = mgr.register_pending_mission_cancel(&mission.id);
 
-    // mission_stop kills sessions one at a time through this path. The
-    // first intentional exit must not recursively start another sweep.
-    mgr.kill(&first.id).unwrap();
-
-    assert!(
-        mgr.session_state(&sibling.id)
-            .is_some_and(|state| state.lock().unwrap().handle.is_some()),
-        "the sibling must stay live until mission_stop reaches it",
-    );
-    assert!(
-        !fake.stops.lock().unwrap().contains(&sibling.id),
-        "the first intentional exit must not stop its sibling",
-    );
-    let sibling_status: String = pool
-        .get()
+    let forwarder = mgr
+        .session_state(&first.id)
         .unwrap()
-        .query_row(
-            "SELECT status FROM sessions WHERE id = ?1",
-            params![sibling.id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(sibling_status, "running");
-    let first_status: String = pool
-        .get()
+        .lock()
         .unwrap()
-        .query_row(
-            "SELECT status FROM sessions WHERE id = ?1",
-            params![first.id],
-            |row| row.get(0),
+        .handle
+        .as_mut()
+        .unwrap()
+        .forwarder
+        .take()
+        .unwrap();
+    fake.close_spawn(0);
+    forwarder.join().unwrap();
+
+    assert!(!cancel.load(Ordering::Acquire));
+    assert_eq!(
+        mgr.complete_mission_session_spawn(pending, capture(), Arc::clone(&cancel))
+            .unwrap(),
+        CompleteSpawnOutcome::Spawned
+    );
+    assert_eq!(fake.spawn_count(), 2);
+    assert!(mgr.session_state(&sibling_id).is_some_and(|state| state
+        .lock()
+        .unwrap()
+        .handle
+        .is_some()));
+    assert_eq!(
+        crate::repo::session::get_row(&pool.get().unwrap(), &sibling_id)
+            .unwrap()
+            .unwrap()
+            .status,
+        crate::model::SessionStatus::Running
+    );
+    mgr.drop_pending_mission_cancel(&mission.id, &cancel);
+    mgr.kill_all_for_mission(&mission.id).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn mission_start_spawn_failure_leaves_live_siblings_and_spawns_later_slots() {
+    let data = tempfile::tempdir().unwrap();
+    let mut state = crate::test_support::test_core_in(data.path().into());
+    let fake = fake_runtime();
+    *fake.spawn_failure_handle.lock().unwrap() = Some("broken".into());
+    state.sessions = mgr_with_fake(Some("/bin/sh".into()), fake.clone());
+    let crew_id = {
+        let mut conn = state.db.get().unwrap();
+        let crew = crate::ops::crew::create(
+            &conn,
+            crate::ops::crew::CreateCrewInput {
+                name: "Independent slots".into(),
+                system_prompt_addendum: None,
+            },
         )
         .unwrap();
-    assert_eq!(first_status, "stopped");
+        for handle in ["lead", "broken", "later"] {
+            let mut role = role("/bin/sh", &[]);
+            role.handle = handle.into();
+            insert_role_row(&conn, &role);
+            crate::ops::slot::create(&mut conn, &crew.id, &role.id, handle, None, None).unwrap();
+        }
+        crew.id
+    };
+    let mut events = state.events.subscribe();
+    let out = crate::ops::mission::mission_start_impl(
+        &state,
+        runner_core::protocol::mission::StartMissionInput {
+            crew_id,
+            project_id: None,
+            title: "Independent slots".into(),
+            goal_override: None,
+            cwd: Some(data.path().to_string_lossy().into_owned()),
+        },
+    )
+    .await
+    .unwrap();
 
-    mgr.kill_all_for_mission(&mission_id).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while state
+        .sessions
+        .pending_mission_cancels
+        .lock()
+        .unwrap()
+        .contains_key(&out.mission.id)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "mission spawn queue did not drain"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let spawns = fake.spawns.lock().unwrap();
+    let handles: Vec<_> = spawns
+        .iter()
+        .map(|spawn| spawn.spec.env["RUNNER_HANDLE"].as_str())
+        .collect();
+    assert_eq!(handles, vec!["lead", "later"]);
+    drop(spawns);
+    let sessions = crate::ops::session::session_list(&state, &out.mission.id).unwrap();
+    assert_eq!(sessions.len(), 3);
+    let conn = state.db.get().unwrap();
+    for session in &sessions {
+        let row = crate::repo::session::get_row(&conn, &session.session.id)
+            .unwrap()
+            .unwrap();
+        if session.handle == "broken" {
+            assert_eq!(row.status, crate::model::SessionStatus::Crashed);
+            let exit = loop {
+                let event = events
+                    .try_recv()
+                    .expect("failed slot must emit session/exit");
+                if event.name == "session/exit" {
+                    break event;
+                }
+            };
+            assert_eq!(exit.payload["session_id"], session.session.id);
+            assert_eq!(exit.payload["mission_id"], out.mission.id);
+            assert_eq!(exit.payload["success"], false);
+            assert!(exit.payload["exit_code"].is_null());
+        } else {
+            assert_eq!(row.status, crate::model::SessionStatus::Running);
+            assert!(state
+                .sessions
+                .session_state(&session.session.id)
+                .is_some_and(|state| state.lock().unwrap().handle.is_some()));
+            assert!(!fake.stops.lock().unwrap().contains(&session.session.id));
+        }
+    }
+    assert_eq!(
+        crate::repo::mission::get(&conn, &out.mission.id)
+            .unwrap()
+            .unwrap()
+            .status,
+        MissionStatus::Running
+    );
+    drop(conn);
+    state
+        .sessions
+        .kill_all_for_mission(&out.mission.id)
+        .unwrap();
+    state.routers.unregister(&out.mission.id);
+    state.buses.unmount(&out.mission.id);
 }
 
 #[test]

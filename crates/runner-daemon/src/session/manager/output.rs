@@ -379,11 +379,6 @@ impl SessionManager {
                 success,
             });
             let _ = manager_t.forget_runtime_handle(&session_id, &rt_session);
-            if !was_killed {
-                if let Some(mission_id) = mission_id.as_deref() {
-                    manager_t.reap_live_mission_siblings(mission_id, &session_id, &pool);
-                }
-            }
         })
     }
 
