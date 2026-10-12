@@ -9,13 +9,13 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 | Area | File | Cases | Smoke | Additional full |
 | --- | --- | ---: | ---: | ---: |
 | Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 41 | 10 | 31 |
-| Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 23 | 5 | 18 |
+| Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 24 | 5 | 19 |
 | Windows, tabs, panes, sidebar, cwd and drawers | [workspace.md](workspace.md) | 31 | 6 | 25 |
-| Crews, missions, delivery, asks, feed and watches | [missions.md](missions.md) | 21 | 4 | 17 |
+| Crews, missions, delivery, asks, feed and watches | [missions.md](missions.md) | 26 | 4 | 22 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
 | Agents, settings, skills, MCP, installation and updates | [settings.md](settings.md) | 23 | 4 | 19 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| **Total** | | **174** | **37** | **137** |
+| **Total** | | **180** | **37** | **143** |
 
 `regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 

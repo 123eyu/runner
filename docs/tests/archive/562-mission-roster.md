@@ -1,5 +1,7 @@
 # 562 Phase 1 — mission roster validation (#863)
 
+Archived in the 0.15.3 docs sweep on 2026-10-12. Lasting live checks are maintained as MIS-ROSTER-01/02 in [Missions](../regression/missions.md); historical verdicts and platform gaps below are preserved.
+
 Scope: the version 2 mission roster, startup conversion from 0.15.1, frozen routing/identity after crew edits, and the role-deletion guard. This is feature validation, not a full live regression pass. The crew uses temporary data and fake shell runtimes; it does not run the app, use accounts, start real agents or touch production/development app data. The live checks below remain pending for subsequent authorized validation of the final head.
 
 ## Selected checks and reasons
@@ -45,7 +47,7 @@ After Jason's fixes, the reviewer again posted `NO REMAINING MUST-FIX ISSUES` th
 
 ## Jason's live checks
 
-The macOS results below are from Jason's authorized Codex QA on 2026-10-11 against `544867b99aa58795b71a4b1f64dc3965ffa45fc7`; on Windows only the upgrade conversion, which replaces an existing `roster.json` by rename, gets a live check (Jason, 2026-10-11). The [run record](runs/2026-10-11-macos.md) preserves the failed initial message probes separately from successful checks using the matching development CLI. Evidence root: `/private/tmp/runner-roster-qa-20261011.mmdohcmp/evidence/`. Use the development candidate and disposable configurations, preserve existing sessions, and record the candidate SHA, platform, mission/session IDs and evidence following the [full-smoke setup/evidence rules](full-smoke-test.md). The selected regression rows are in [Missions](regression/missions.md). The setup rules do not expand this feature's test scope.
+The macOS results below are from Jason's authorized Codex QA on 2026-10-11 against `544867b99aa58795b71a4b1f64dc3965ffa45fc7`; on Windows only the upgrade conversion, which replaces an existing `roster.json` by rename, gets a live check (Jason, 2026-10-11). The [run record](../runs/2026-10-11-macos.md) preserves the failed initial message probes separately from successful checks using the matching development CLI. Evidence root: `/private/tmp/runner-roster-qa-20261011.mmdohcmp/evidence/`. Use the development candidate and disposable configurations, preserve existing sessions, and record the candidate SHA, platform, mission/session IDs and evidence following the [full-smoke setup/evidence rules](../full-smoke-test.md). The selected regression rows are in [Missions](../regression/missions.md). The setup rules do not expand this feature's test scope.
 
 | Check | Steps and expected result | macOS | Windows |
 | --- | --- | --- | --- |

@@ -1,5 +1,7 @@
 # #562 — independent mission sessions
 
+Archived in the 0.15.3 docs sweep on 2026-10-12. Lasting live checks are maintained as MIS-INDEP-01/02/03 in [Missions](../regression/missions.md); historical verdicts and platform gaps below are preserved.
+
 Final QA verdict: **Passed for the selected native macOS checks**. IND-1, IND-2, IND-3, MIS-CREW-01 and MIS-LIFE-01 passed on the reviewed candidate. Optional IND-4 is Skipped / Not run in the native app; its automated spawn-loop check passed. Native Windows is Blocked / Unverified because no Windows host is available. This is a scoped feature pass, not a full regression pass. Final evidence, exceptions and cleanup appear below the historical setup record.
 
 ## Changed behaviors and scope
@@ -24,7 +26,7 @@ Worktree: `/Users/jason/repos/yicheng47/runner/.worktrees/fix-562-independent-se
 | MIS-CREW-01 | Mission-start loop changed: native disposable role/crew config, lead selection, form start, correct runtimes/cwd and opening feed/terminals. |
 | MIS-LIFE-01 | Slot exit path changed: slot and mission stop/resume retain keys/context, no duplicate live slot, final Archive removes all live sessions and Recents row. |
 
-QA follows [the full smoke-test procedure](full-smoke-test.md) for setup, candidate identity, agent configuration isolation, evidence and cleanup, selecting only the mission checks authorized in the [brief](../impls/briefs/562-m2-independent-sessions.md). Coder and reviewer do not launch the app. QA creates and archives only its bounded disposable roles, crew and missions in the development app under a fresh `/tmp` project; another person's development app or daemon blocks the pass. Production Runner is outside QA scope.
+QA follows [the full smoke-test procedure](../full-smoke-test.md) for setup, candidate identity, agent configuration isolation, evidence and cleanup, selecting only the mission checks authorized in the [brief](https://github.com/yicheng47/runner/blob/v0.15.3/docs/impls/briefs/562-m2-independent-sessions.md). Coder and reviewer do not launch the app. QA creates and archives only its bounded disposable roles, crew and missions in the development app under a fresh `/tmp` project; another person's development app or daemon blocks the pass. Production Runner is outside QA scope.
 
 ## Automated results — macOS, 2026-10-12
 
