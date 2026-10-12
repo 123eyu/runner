@@ -183,7 +183,7 @@ The runtime instance of a slot inside a mission, a role-backed direct chat, or a
 Two flavors, distinguished by whether `mission_id` is set on the session row:
 
 - **Mission session** — spawned when a mission starts; one session per slot. It participates in the crew's bus, sees broadcasts, can receive stdin injection from the router. `RUNNER_HANDLE` carries the *slot* handle, not the role's global handle.
-- **Direct-chat session** — spawned ad-hoc without a parent mission, backed by a role or a bare runtime selection. `mission_id` is null and the working directory lives on the session row. The agent is **not on any coordination bus**. Role-backed chats keep `role_id`; runtime-only chats store `role_id = NULL` plus `agent_runtime` / `agent_command`.
+- **Direct-chat session** — spawned ad-hoc without a parent mission, backed by a role or a bare runtime selection. `mission_id` is null and the working directory lives on the session row. The agent is **not on any coordination bus**. Role-backed chats keep `role_id`; runtime-only chats store `role_id = NULL`. Both record the runtime they spawned with in `agent_runtime` / `agent_command`, so a later edit to the role's runtime neither relabels nor re-engines an existing session.
 
 A session owns, in the core:
 

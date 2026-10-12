@@ -802,20 +802,18 @@ impl SessionManager {
         // runtime is `slot.runtime_override ?? role.runtime`. On a
         // differing override the spawn uses registry command, default
         // args, model, and effort; persona fields carry over. Slot
-        // model/effort overrides apply last and do not themselves pin
-        // the engine. A matching runtime override still pins.
-        let resolution = resolve_runtime_override(
+        // model/effort overrides apply last.
+        let effective = resolve_runtime_override(
             role,
             slot.runtime_override.as_deref(),
             slot.model_override.as_deref(),
             slot.effort_override.as_deref(),
         )?;
-        let pinned = resolution.pinned;
-        let agent_options_overridden = resolution.effective.is_some();
+        let agent_options_overridden = effective.is_some();
         // Mission slots follow the app-wide permission mode (feature
         // 527): converge the row's permission flags to the setting,
         // leaving every other arg alone. Direct chats never pass here.
-        let mut role = resolution.effective.unwrap_or_else(|| role.clone());
+        let mut role = effective.unwrap_or_else(|| role.clone());
         if crate::runtimes::for_key(&role.runtime)
             .capabilities()
             .codex_speed
@@ -930,14 +928,11 @@ impl SessionManager {
                 row.agent_session_key = effect.key.clone();
                 row.last_cols = initial_size.map(|(cols, _)| cols);
                 row.last_rows = initial_size.map(|(_, rows)| rows);
-                if pinned {
-                    // Record the effective runtime so respawn/resume
-                    // keeps this session's engine even if the slot's
-                    // override — or the role template's runtime — is
-                    // edited later. No-override rows stay NULL.
-                    row.agent_runtime = Some(role.runtime.clone());
-                    row.agent_command = Some(role.command.clone());
-                }
+                // Record the spawned engine so the session keeps its
+                // identity and its resume engine even if the slot's
+                // override or the role template's runtime is edited later.
+                row.agent_runtime = Some(role.runtime.clone());
+                row.agent_command = Some(role.command.clone());
                 if agent_options_overridden {
                     row.agent_model = role.model.clone();
                     row.agent_effort = role.effort.clone();
@@ -1534,12 +1529,10 @@ impl SessionManager {
     ) -> Result<SpawnedSession> {
         // Chat-level runtime override (feature 41) — same resolution
         // rule as mission spawns.
-        let resolution =
+        let effective =
             resolve_runtime_override(role, runtime_override, model_override, effort_override)?;
-        let pinned = resolution.pinned;
-        let agent_options_overridden = resolution.effective.is_some();
-        let mut role =
-            self.resolve_role_executable(resolution.effective.as_ref().unwrap_or(role), &pool)?;
+        let agent_options_overridden = effective.is_some();
+        let mut role = self.resolve_role_executable(effective.as_ref().unwrap_or(role), &pool)?;
         let speed_override = (crate::runtimes::for_key(&role.runtime)
             .capabilities()
             .codex_speed)
@@ -1618,12 +1611,11 @@ impl SessionManager {
         );
 
         // Insert the row first so a fast-failing spawn doesn't leave
-        // a half-row. Runtime-only chats (no persisted role template)
-        // carry their agent identity on the row via agent_runtime /
-        // agent_command; role-backed chats leave those NULL unless a
-        // runtime override was explicitly requested — then the row
-        // records the effective runtime so resume respawns the same
-        // engine even if the role template is edited later.
+        // a half-row. Every chat carries its spawned engine on the row
+        // via agent_runtime / agent_command: runtime-only chats have no
+        // role template to rebuild from, and role-backed chats keep
+        // their identity and resume engine even if the role template's
+        // runtime is edited later.
         let insert_result = self.report_key(
             &session_id,
             PersistKey {
@@ -1641,10 +1633,8 @@ impl SessionManager {
                 row.agent_session_key = effect.key.clone();
                 row.last_cols = initial_size.map(|(cols, _)| cols);
                 row.last_rows = initial_size.map(|(_, rows)| rows);
-                if persisted_role_id.is_none() || pinned {
-                    row.agent_runtime = Some(role.runtime.clone());
-                    row.agent_command = Some(role.command.clone());
-                }
+                row.agent_runtime = Some(role.runtime.clone());
+                row.agent_command = Some(role.command.clone());
                 if persisted_role_id.is_none() || agent_options_overridden {
                     row.agent_model = role.model.clone();
                     row.agent_effort = role.effort.clone();
@@ -1941,9 +1931,7 @@ impl SessionManager {
                 source.agent_runtime.as_deref(),
                 source.agent_model.as_deref(),
                 source.agent_effort.as_deref(),
-            )?
-            .effective
-            {
+            )? {
                 Some(effective) => effective,
                 None => role,
             };
@@ -2528,10 +2516,10 @@ impl SessionManager {
 
         // Pull the role config fresh for role-backed rows; rebuild
         // the default runtime config for runtime-only direct chats.
-        // Role-backed rows that recorded an effective runtime at
-        // spawn (runtime override, feature 41) re-apply it here so the
-        // respawn keeps this session's engine regardless of later
-        // slot/override edits.
+        // Role-backed rows re-apply the runtime recorded at spawn so
+        // the respawn keeps this session's engine, and the native key
+        // that belongs to it, regardless of later role or slot edits.
+        // Rows spawned before that runtime was recorded follow the role.
         let mut role = if let Some(role_id) = snap.role_id.as_deref() {
             let conn = pool.get()?;
             let role = crate::ops::role::get(&conn, role_id)?;
@@ -2540,9 +2528,7 @@ impl SessionManager {
                 snap.agent_runtime.as_deref(),
                 snap.agent_model.as_deref(),
                 snap.agent_effort.as_deref(),
-            )?
-            .effective
-            {
+            )? {
                 Some(effective) => effective,
                 None => role,
             };

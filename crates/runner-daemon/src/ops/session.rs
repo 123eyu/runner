@@ -464,7 +464,6 @@ fn get_direct(conn: &rusqlite::Connection, session_id: &str) -> Result<Option<Di
                     d.row.agent_model.as_deref(),
                     d.row.agent_effort.as_deref(),
                 )?
-                .effective
                 .unwrap_or(role);
                 d.row.agent_runtime = Some(effective.runtime);
                 d.row.agent_command = Some(effective.command);

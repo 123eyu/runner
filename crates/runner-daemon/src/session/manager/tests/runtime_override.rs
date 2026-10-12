@@ -18,21 +18,17 @@ fn runtime_override_helper_distinguishes_absent_matching_and_differing() {
     let mut r = role("codex-custom", &["--custom"]);
     r.runtime = "codex".into();
 
-    // Absent / blank: no rebuild, no pin.
+    // Absent / blank: no rebuild.
     for value in [None, Some("  ")] {
         let res = resolve_runtime_override(&r, value, None, None).unwrap();
-        assert!(res.effective.is_none());
-        assert!(!res.pinned, "absent/blank override must not pin");
+        assert!(res.is_none());
     }
 
-    // Matching: no rebuild (spawn stays byte-identical), but pinned —
-    // the session row must record the engine so a later role-
-    // template edit can't re-engine its resume.
+    // Matching: no rebuild, so the spawn stays byte-identical.
     let matching = resolve_runtime_override(&r, Some("codex"), None, None).unwrap();
-    assert!(matching.effective.is_none());
-    assert!(matching.pinned, "explicit matching override must pin");
+    assert!(matching.is_none());
 
-    // Differing: rebuild + pin for every other catalog runtime.
+    // Differing: rebuild for every other catalog runtime.
     for runtime in [
         "claude-code",
         "trae",
@@ -43,10 +39,9 @@ fn runtime_override_helper_distinguishes_absent_matching_and_differing() {
     ] {
         let differing = resolve_runtime_override(&r, Some(runtime), None, None).unwrap();
         assert_eq!(
-            differing.effective.as_ref().map(|r| r.runtime.as_str()),
+            differing.as_ref().map(|r| r.runtime.as_str()),
             Some(runtime),
         );
-        assert!(differing.pinned);
     }
 }
 
@@ -62,7 +57,6 @@ fn runtime_override_helper_resets_engine_fields_and_keeps_persona() {
 
     let effective = resolve_runtime_override(&r, Some("claude-code"), None, None)
         .unwrap()
-        .effective
         .expect("differing runtime must produce an effective role");
     // Engine fields reset to registry defaults.
     assert_eq!(effective.runtime, "claude-code");
@@ -93,27 +87,23 @@ fn runtime_override_helper_applies_slot_model_to_selected_runtime() {
 
     let differing = resolve_runtime_override(&r, Some("trae"), Some("trae-slot-model"), None)
         .unwrap()
-        .effective
         .expect("differing runtime must produce an effective role");
     assert_eq!(differing.runtime, "trae");
     assert_eq!(differing.model.as_deref(), Some("trae-slot-model"));
 
     let matching = resolve_runtime_override(&r, Some("codex"), Some("codex-slot-model"), None)
         .unwrap()
-        .effective
         .expect("a model override must rebuild even for a matching runtime");
     assert_eq!(matching.runtime, "codex");
     assert_eq!(matching.model.as_deref(), Some("codex-slot-model"));
     assert_eq!(matching.args, r.args);
 
-    let unpinned = resolve_runtime_override(&r, None, Some("codex-slot-model"), None).unwrap();
-    let effective = unpinned
-        .effective
+    let effective = resolve_runtime_override(&r, None, Some("codex-slot-model"), None)
+        .unwrap()
         .expect("a model-only override must rebuild the role config");
     assert_eq!(effective.runtime, "codex");
     assert_eq!(effective.model.as_deref(), Some("codex-slot-model"));
     assert_eq!(effective.effort, r.effort);
-    assert!(!unpinned.pinned, "model-only overrides must not pin");
 }
 
 #[test]
@@ -125,7 +115,6 @@ fn runtime_override_helper_applies_effort_to_selected_runtime() {
 
     let differing = resolve_runtime_override(&r, Some("claude-code"), Some("fable"), Some("max"))
         .unwrap()
-        .effective
         .expect("differing runtime must produce an effective role");
     assert_eq!(differing.runtime, "claude-code");
     assert_eq!(differing.model.as_deref(), Some("fable"));
@@ -133,30 +122,25 @@ fn runtime_override_helper_applies_effort_to_selected_runtime() {
 
     let cleared = resolve_runtime_override(&r, Some("claude-code"), None, None)
         .unwrap()
-        .effective
         .expect("differing runtime must produce an effective role");
     assert_eq!(cleared.model, None);
     assert_eq!(cleared.effort, None);
 
     let matching = resolve_runtime_override(&r, Some("codex"), None, Some("xhigh"))
         .unwrap()
-        .effective
         .expect("an effort override must rebuild even for a matching runtime");
     assert_eq!(matching.model.as_deref(), Some("role-model"));
     assert_eq!(matching.effort.as_deref(), Some("xhigh"));
 
-    let unpinned = resolve_runtime_override(&r, None, None, Some("high")).unwrap();
-    let effective = unpinned
-        .effective
+    let effective = resolve_runtime_override(&r, None, None, Some("high"))
+        .unwrap()
         .expect("an effort-only override must rebuild the role config");
     assert_eq!(effective.runtime, "codex");
     assert_eq!(effective.model.as_deref(), Some("role-model"));
     assert_eq!(effective.effort.as_deref(), Some("high"));
-    assert!(!unpinned.pinned, "effort-only overrides must not pin");
 
     let blank = resolve_runtime_override(&r, Some("codex"), Some("  "), Some("")).unwrap();
-    assert!(blank.effective.is_none());
-    assert!(blank.pinned);
+    assert!(blank.is_none());
 }
 
 #[test]
@@ -400,7 +384,7 @@ fn mission_slot_speed_applies_when_slot_switches_to_codex() {
 }
 
 #[test]
-fn mission_spawn_with_model_only_slot_override_uses_role_runtime_without_pinning() {
+fn mission_spawn_with_model_only_slot_override_uses_role_runtime() {
     let pool = pool_with_schema();
     let mission_row = mission();
     let role_id = ulid::Ulid::new().to_string();
@@ -457,7 +441,7 @@ fn mission_spawn_with_model_only_slot_override_uses_role_runtime_without_pinning
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
-    assert_eq!(agent_runtime, None, "model-only overrides must not pin");
+    assert_eq!(agent_runtime.as_deref(), Some("codex"));
     assert_eq!(agent_model.as_deref(), Some("slot-model"));
     assert_eq!(agent_effort.as_deref(), Some("high"));
 
@@ -485,12 +469,11 @@ fn mission_spawn_with_model_only_slot_override_uses_role_runtime_without_pinning
 }
 
 #[test]
-fn mission_spawn_with_matching_override_keeps_args_and_pins_runtime() {
+fn mission_spawn_with_matching_override_keeps_args_and_records_runtime() {
     // An override naming the role's own runtime must spawn
-    // byte-identically to no override (same command, same args) but
-    // still record the effective runtime on the row: the slot is
-    // explicitly pinned, so a later edit to the role template's
-    // runtime must not re-engine this session's resume.
+    // byte-identically to no override (same command, same args), and
+    // both rows record the spawned runtime so a later edit to the role
+    // template's runtime cannot relabel or re-engine either session.
     let pool = pool_with_schema();
     let mission_row = mission();
     let role_id = ulid::Ulid::new().to_string();
@@ -525,7 +508,7 @@ fn mission_spawn_with_matching_override_keeps_args_and_pins_runtime() {
 
     // Matching override.
     slot.runtime_override = Some("codex".into());
-    let pinned = mgr
+    let matching = mgr
         .spawn(
             &mission_row,
             &role,
@@ -537,14 +520,14 @@ fn mission_spawn_with_matching_override_keeps_args_and_pins_runtime() {
             None,
         )
         .unwrap();
-    let pinned_spec = fake.last_spawn_spec().expect("pinned spawn");
+    let matching_spec = fake.last_spawn_spec().expect("matching spawn");
 
-    assert_eq!(pinned_spec.command, baseline_spec.command);
+    assert_eq!(matching_spec.command, baseline_spec.command);
     assert_eq!(
-        pinned_spec
+        matching_spec
             .args
             .iter()
-            .map(|arg| arg.replace(&pinned_spec.session_id, "SESSION"))
+            .map(|arg| arg.replace(&matching_spec.session_id, "SESSION"))
             .collect::<Vec<_>>(),
         baseline_spec
             .args
@@ -553,7 +536,7 @@ fn mission_spawn_with_matching_override_keeps_args_and_pins_runtime() {
             .collect::<Vec<_>>(),
         "matching override must preserve args apart from the owning status path",
     );
-    assert_eq!(pinned_spec.command, "codex-custom");
+    assert_eq!(matching_spec.command, "codex-custom");
 
     let runtime_for = |id: &str| -> (Option<String>, Option<String>) {
         pool.get()
@@ -565,27 +548,22 @@ fn mission_spawn_with_matching_override_keeps_args_and_pins_runtime() {
             )
             .unwrap()
     };
-    assert_eq!(
-        runtime_for(&baseline.id),
-        (None, None),
-        "no override must not record agent_runtime",
-    );
-    assert_eq!(
-        runtime_for(&pinned.id),
-        (Some("codex".into()), Some("codex-custom".into())),
-        "matching override must pin the effective runtime on the row",
-    );
+    for id in [&baseline.id, &matching.id] {
+        assert_eq!(
+            runtime_for(id),
+            (Some("codex".into()), Some("codex-custom".into())),
+        );
+    }
 
     mgr.kill(&baseline.id).unwrap();
-    mgr.kill(&pinned.id).unwrap();
+    mgr.kill(&matching.id).unwrap();
 }
 
 #[test]
-fn resume_keeps_pinned_runtime_after_role_template_edit() {
-    // The scenario the pin exists for: a session spawned with an
-    // explicit override matching the role's then-runtime ("codex"),
-    // recorded on the row. The user later edits the role template
-    // to claude-code. Resume must respawn this session on codex —
+fn resume_keeps_recorded_runtime_after_role_template_edit() {
+    // A session spawned on the role's then-runtime ("codex") records
+    // it on the row. The user later edits the role template to
+    // claude-code. Resume must respawn this session on codex —
     // registry defaults — not on the template's new runtime, which
     // would hand the codex-native session key to the wrong CLI.
     let pool = pool_with_schema();
@@ -674,6 +652,53 @@ fn direct_spawn_with_override_uses_registry_engine_and_records_runtime() {
     );
     assert_eq!(stored.agent_runtime.as_deref(), Some("claude-code"));
     assert_effective_command(stored.agent_command.as_deref().unwrap(), "claude");
+
+    mgr.kill(&spawned.id).unwrap();
+}
+
+#[test]
+fn direct_spawn_keeps_its_runtime_after_role_template_edit() {
+    let pool = pool_with_schema();
+    let mut role = role("codex-custom", &["--custom-flag"]);
+    role.runtime = "codex".into();
+    insert_role_row(&pool.get().unwrap(), &role);
+
+    let fake = fake_runtime();
+    let mgr = mgr_with_fake(None, Arc::clone(&fake));
+    let spawned = mgr
+        .spawn_direct(
+            &role,
+            None,
+            None,
+            None,
+            None,
+            Some(fixture_tmp_dir().to_str().unwrap()),
+            None,
+            None,
+            fixture_tmp_dir(),
+            Arc::clone(&pool),
+            capture(),
+            None,
+        )
+        .unwrap();
+
+    let conn = pool.get().unwrap();
+    let stored = crate::repo::session::get_row(&conn, &spawned.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.agent_runtime.as_deref(), Some("codex"));
+    assert_eq!(stored.agent_command.as_deref(), Some("codex-custom"));
+
+    role.runtime = "claude-code".into();
+    role.command = "claude".into();
+    update_role_row(&conn, &role);
+    assert_eq!(
+        crate::repo::session::effective_runtime(&conn, &spawned.id)
+            .unwrap()
+            .as_deref(),
+        Some("codex"),
+        "a role edit must not relabel a session already spawned from it",
+    );
 
     mgr.kill(&spawned.id).unwrap();
 }
