@@ -126,7 +126,7 @@ fn grok_automatic_resume_rejects_missing_history_and_manual_resume_starts_fresh(
     row.agent_command = Some("custom-grok-wrapper".into());
     row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
     row.status = crate::model::SessionStatus::Stopped;
-    crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+    crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
     mgr.shell_env.write().unwrap().vars.insert(
         "GROK_HOME".into(),
         data.path().join("grok").display().to_string(),

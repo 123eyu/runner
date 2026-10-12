@@ -373,40 +373,6 @@ impl SessionManager {
         Ok(resolved)
     }
 
-    fn resolve_runtime_only_resume_role(
-        &self,
-        runtime: &str,
-        recorded_command: Option<&str>,
-        model: Option<&str>,
-        effort: Option<&str>,
-        pool: &DbPool,
-    ) -> Result<Role> {
-        if Runtime::parse(runtime).is_some_and(Runtime::is_shell) {
-            let command = recorded_command
-                .map(str::trim)
-                .filter(|command| !command.is_empty())
-                .ok_or_else(|| Error::msg("shell session missing agent_command"))?;
-            return runtime_direct_role(Runtime::Shell.key(), Some(command), None, None);
-        }
-        let definition = crate::runtimes::for_key(runtime)
-            .catalog()
-            .ok_or_else(|| Error::msg(format!("unknown runtime: {runtime}")))?;
-        let recorded = recorded_command
-            .map(str::trim)
-            .filter(|command| !command.is_empty());
-        if let Some(command) = recorded {
-            let path = Path::new(command);
-            if path.is_absolute() && crate::runtime_status::executable_path_is_valid(path) {
-                return runtime_direct_role(runtime, Some(command), model, effort);
-            }
-            if !path.is_absolute() && command != definition.command {
-                return runtime_direct_role(runtime, Some(command), model, effort);
-            }
-        }
-        let role = runtime_direct_role(runtime, None, model, effort)?;
-        self.resolve_role_executable(&role, pool)
-    }
-
     /// Gate a fresh `claude-code` spawn before calling
     /// `runtime.spawn()`. No-op for any other runtime — those
     /// bypass the gate.
@@ -809,7 +775,6 @@ impl SessionManager {
             slot.model_override.as_deref(),
             slot.effort_override.as_deref(),
         )?;
-        let agent_options_overridden = effective.is_some();
         // Mission slots follow the app-wide permission mode (feature
         // 527): converge the row's permission flags to the setting,
         // leaving every other arg alone. Direct chats never pass here.
@@ -820,6 +785,7 @@ impl SessionManager {
         {
             role.codex_speed = slot.codex_speed_override.or(role.codex_speed);
         }
+        let launch_definition = crate::session::launch_definition::from_effective(&role);
         role.args = crate::runtimes::for_key(&role.runtime)
             .permissions()
             .apply_mission(&role.args, self.mission_permission_mode());
@@ -933,15 +899,7 @@ impl SessionManager {
                 // override or the role template's runtime is edited later.
                 row.agent_runtime = Some(role.runtime.clone());
                 row.agent_command = Some(role.command.clone());
-                if agent_options_overridden {
-                    row.agent_model = role.model.clone();
-                    row.agent_effort = role.effort.clone();
-                }
-                row.agent_speed = (crate::runtimes::for_key(&role.runtime)
-                    .capabilities()
-                    .codex_speed)
-                    .then_some(slot.codex_speed_override)
-                    .flatten();
+                row.launch_definition = Some(launch_definition.clone());
                 crate::repo::session::insert(&conn, &row)?;
                 Ok(true)
             },
@@ -1141,13 +1099,8 @@ impl SessionManager {
         // Persist the runtime-side identity for diagnostics and for
         // the current runtime session row.
         if let Ok(conn) = pool.get() {
-            let _ = crate::repo::session::update_runtime_metadata(
-                &conn,
-                &session_id,
-                &rt_session.runtime,
-                &rt_session.session_id,
-                spawn_pid,
-            );
+            let _ =
+                crate::repo::session::record_process(&conn, &session_id, spawn_pid, &role.command);
         }
 
         let codex_capture = if plan.assigned_key.is_none() {
@@ -1531,14 +1484,15 @@ impl SessionManager {
         // rule as mission spawns.
         let effective =
             resolve_runtime_override(role, runtime_override, model_override, effort_override)?;
-        let agent_options_overridden = effective.is_some();
-        let mut role = self.resolve_role_executable(effective.as_ref().unwrap_or(role), &pool)?;
+        let mut role = effective.unwrap_or_else(|| role.clone());
         let speed_override = (crate::runtimes::for_key(&role.runtime)
             .capabilities()
             .codex_speed)
             .then_some(speed_override)
             .flatten();
         role.codex_speed = speed_override.or(role.codex_speed);
+        let launch_definition = crate::session::launch_definition::from_effective(&role);
+        let mut role = self.resolve_role_executable(&role, &pool)?;
         // Permission posture belongs to MissionPermissionMode (feature
         // 596): attended chats strip the row's permission flags and
         // append nothing, leaving every other arg alone.
@@ -1635,15 +1589,7 @@ impl SessionManager {
                 row.last_rows = initial_size.map(|(_, rows)| rows);
                 row.agent_runtime = Some(role.runtime.clone());
                 row.agent_command = Some(role.command.clone());
-                if persisted_role_id.is_none() || agent_options_overridden {
-                    row.agent_model = role.model.clone();
-                    row.agent_effort = role.effort.clone();
-                }
-                row.agent_speed = if persisted_role_id.is_none() {
-                    role.codex_speed
-                } else {
-                    speed_override
-                };
+                row.launch_definition = Some(launch_definition.clone());
                 crate::repo::session::insert(&conn, &row)?;
                 Ok(true)
             },
@@ -1717,13 +1663,8 @@ impl SessionManager {
         let spawn_pid = self.runtime_pid(&rt_session);
 
         if let Ok(conn) = pool.get() {
-            let _ = crate::repo::session::update_runtime_metadata(
-                &conn,
-                &session_id,
-                &rt_session.runtime,
-                &rt_session.session_id,
-                spawn_pid,
-            );
+            let _ =
+                crate::repo::session::record_process(&conn, &session_id, spawn_pid, &role.command);
         }
 
         let codex_capture = if plan.assigned_key.is_none() {
@@ -1907,16 +1848,15 @@ impl SessionManager {
         } else {
             None
         };
-        let effective_runtime = source
-            .agent_runtime
-            .clone()
-            .or_else(|| role_template.as_ref().map(|role| role.runtime.clone()))
-            .ok_or_else(|| {
-                Error::msg(format!(
-                    "runtime-only session {source_session_id} missing agent_runtime"
-                ))
-            })?;
-        if !crate::runtimes::for_key(&effective_runtime)
+        let definition = source.launch_definition.as_ref().ok_or_else(|| {
+            Error::msg(format!(
+                "session {source_session_id} has no launch definition"
+            ))
+        })?;
+        let effective_runtime = source.agent_runtime.as_deref().ok_or_else(|| {
+            Error::msg(format!("session {source_session_id} has no agent_runtime"))
+        })?;
+        if !crate::runtimes::for_key(effective_runtime)
             .catalog()
             .is_some_and(|catalog| catalog.native_fork)
         {
@@ -1924,28 +1864,13 @@ impl SessionManager {
                 "runtime {effective_runtime} does not support native fork"
             )));
         }
-
-        let mut role = if let Some(role) = role_template {
-            let role = match resolve_runtime_override(
-                &role,
-                source.agent_runtime.as_deref(),
-                source.agent_model.as_deref(),
-                source.agent_effort.as_deref(),
-            )? {
-                Some(effective) => effective,
-                None => role,
-            };
-            self.resolve_role_executable(&role, &pool)?
-        } else {
-            self.resolve_runtime_only_resume_role(
-                &effective_runtime,
-                source.agent_command.as_deref(),
-                source.agent_model.as_deref(),
-                source.agent_effort.as_deref(),
-                &pool,
-            )?
+        let identity = match role_template {
+            Some(role) => role,
+            None => runtime_direct_role(effective_runtime, Some(&definition.command), None, None)?,
         };
-        role.codex_speed = source.agent_speed.or(role.codex_speed);
+        let role =
+            crate::session::launch_definition::to_role(definition, effective_runtime, identity);
+        let mut role = self.resolve_role_executable(&role, &pool)?;
 
         // Permission posture belongs to MissionPermissionMode (feature
         // 596): a fork is still an attended chat, so strip permission
@@ -2035,9 +1960,7 @@ impl SessionManager {
                 });
                 row.agent_runtime.clone_from(&source.agent_runtime);
                 row.agent_command.clone_from(&source.agent_command);
-                row.agent_model.clone_from(&source.agent_model);
-                row.agent_effort.clone_from(&source.agent_effort);
-                row.agent_speed = source.agent_speed;
+                row.launch_definition.clone_from(&source.launch_definition);
                 row.last_cols = initial_size.map(|(cols, _)| cols);
                 row.last_rows = initial_size.map(|(_, rows)| rows);
                 crate::repo::session::insert(&conn, &row)?;
@@ -2150,12 +2073,11 @@ impl SessionManager {
 
                 let spawn_pid = self.runtime_pid(&rt_session);
                 if let Ok(conn) = pool.get() {
-                    let _ = crate::repo::session::update_runtime_metadata(
+                    let _ = crate::repo::session::record_process(
                         &conn,
                         &session_id,
-                        &rt_session.runtime,
-                        &rt_session.session_id,
                         spawn_pid,
+                        &role.command,
                     );
                 }
 
@@ -2514,48 +2436,53 @@ impl SessionManager {
             _ => None,
         };
 
-        // Pull the role config fresh for role-backed rows; rebuild
-        // the default runtime config for runtime-only direct chats.
-        // Role-backed rows re-apply the runtime recorded at spawn so
-        // the respawn keeps this session's engine, and the native key
-        // that belongs to it, regardless of later role or slot edits.
-        // Rows spawned before that runtime was recorded follow the role.
-        let mut role = if let Some(role_id) = snap.role_id.as_deref() {
-            let conn = pool.get()?;
-            let role = crate::ops::role::get(&conn, role_id)?;
-            let mut role = match resolve_runtime_override(
-                &role,
-                snap.agent_runtime.as_deref(),
-                snap.agent_model.as_deref(),
-                snap.agent_effort.as_deref(),
-            )? {
-                Some(effective) => effective,
-                None => role,
-            };
-            // Mission slots re-read the app-wide permission mode on
-            // resume (feature 527), so a setting changed while the
-            // slot was down applies to the respawn.
-            if snap.mission_id.is_some() {
-                role.args = crate::runtimes::for_key(&role.runtime)
-                    .permissions()
-                    .apply_mission(&role.args, self.mission_permission_mode());
-            }
-            self.resolve_role_executable(&role, &pool)?
-        } else {
-            let runtime = snap.agent_runtime.as_deref().ok_or_else(|| {
-                Error::msg(format!(
-                    "runtime-only session {session_id} missing agent_runtime"
-                ))
-            })?;
-            self.resolve_runtime_only_resume_role(
-                runtime,
-                snap.agent_command.as_deref(),
-                snap.agent_model.as_deref(),
-                snap.agent_effort.as_deref(),
-                &pool,
+        let mut role = if fresh {
+            let ctx = mission_ctx
+                .as_ref()
+                .ok_or_else(|| Error::msg("only mission slots can be restarted"))?;
+            let member = ctx
+                .roster
+                .slots
+                .iter()
+                .find(|member| Some(&member.slot.id) == snap.slot_id.as_ref())
+                .ok_or_else(|| Error::msg("mission slot is missing from roster"))?;
+            let mut role = resolve_runtime_override(
+                &member.role,
+                member.slot.runtime_override.as_deref(),
+                member.slot.model_override.as_deref(),
+                member.slot.effort_override.as_deref(),
             )?
+            .unwrap_or_else(|| member.role.clone());
+            if crate::runtimes::for_key(&role.runtime)
+                .capabilities()
+                .codex_speed
+            {
+                role.codex_speed = member.slot.codex_speed_override.or(role.codex_speed);
+            }
+            role
+        } else {
+            let definition = snap.launch_definition.as_ref().ok_or_else(|| {
+                Error::msg(format!("session {session_id} has no launch definition"))
+            })?;
+            let runtime = snap
+                .agent_runtime
+                .as_deref()
+                .ok_or_else(|| Error::msg(format!("session {session_id} has no agent_runtime")))?;
+            let identity = if let Some(role_id) = snap.role_id.as_deref() {
+                crate::ops::role::get(&*pool.get()?, role_id)?
+            } else {
+                runtime_direct_role(runtime, Some(&definition.command), None, None)?
+            };
+            crate::session::launch_definition::to_role(definition, runtime, identity)
         };
-        role.codex_speed = snap.agent_speed.or(role.codex_speed);
+        let new_definition =
+            fresh.then(|| crate::session::launch_definition::from_effective(&role));
+        if mission_ctx.is_some() {
+            role.args = crate::runtimes::for_key(&role.runtime)
+                .permissions()
+                .apply_mission(&role.args, self.mission_permission_mode());
+        }
+        role = self.resolve_role_executable(&role, &pool)?;
 
         // Permission posture belongs to MissionPermissionMode (feature
         // 596): resumed chats are attended, including runtime-only
@@ -2741,9 +2668,13 @@ impl SessionManager {
         {
             if let Some(ctx) = mission_ctx.as_ref() {
                 if ctx.lead {
+                    let mut roster = ctx.roster.slots.clone();
+                    if let Some(lead) = roster.iter_mut().find(|member| member.slot.lead) {
+                        lead.role.system_prompt.clone_from(&role.system_prompt);
+                    }
                     let launch = router::LaunchInputs::new(
                         ctx.roster.file.crew_name.clone(),
-                        &ctx.roster.slots,
+                        &roster,
                         crate::ops::mission::all_known_signals(),
                         ctx.roster.file.crew_addendum.clone(),
                     )?;
@@ -2821,8 +2752,10 @@ impl SessionManager {
                     started_at_dt,
                     effect.key.as_deref(),
                     !plan.resuming,
-                    initial_size.0,
-                    initial_size.1,
+                    initial_size,
+                    new_definition
+                        .as_ref()
+                        .map(|definition| (role.runtime.as_str(), definition)),
                 )?;
                 Ok(true)
             },
@@ -2889,13 +2822,8 @@ impl SessionManager {
         let spawn_pid = self.runtime_pid(&rt_session);
 
         if let Ok(conn) = pool.get() {
-            let _ = crate::repo::session::update_runtime_metadata(
-                &conn,
-                session_id,
-                &rt_session.runtime,
-                &rt_session.session_id,
-                spawn_pid,
-            );
+            let _ =
+                crate::repo::session::record_process(&conn, session_id, spawn_pid, &role.command);
         }
 
         let codex_capture = if plan.assigned_key.is_none() {

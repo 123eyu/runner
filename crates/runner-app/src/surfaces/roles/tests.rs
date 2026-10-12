@@ -388,8 +388,24 @@ fn create_test_role_with_args(
     .unwrap()
 }
 
+fn chat_launch_definition(role: &Role) -> runner_daemon::model::LaunchDefinition {
+    runner_daemon::model::LaunchDefinition {
+        command: role.command.clone(),
+        args: role.args.clone(),
+        env: role
+            .env
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+        model: role.model.clone(),
+        effort: role.effort.clone(),
+        codex_speed: role.codex_speed,
+        system_prompt: role.system_prompt.clone(),
+    }
+}
+
 #[test]
-fn selected_chat_panel_refreshes_after_a_shared_role_edit() {
+fn selected_chat_panel_keeps_recorded_values_after_a_shared_role_edit() {
     use crate::surfaces::AppRoute;
     use runner_daemon::ops::role::{role_list, role_update, UpdateRoleInput};
 
@@ -399,6 +415,13 @@ fn selected_chat_panel_refreshes_after_a_shared_role_edit() {
     conn.execute(
         "INSERT INTO sessions (id, role_id, status) VALUES ('panel-chat', ?1, 'stopped')",
         [&role.id],
+    )
+    .unwrap();
+    runner_daemon::repo::session::set_launch(
+        &conn,
+        "panel-chat",
+        &role.runtime,
+        &chat_launch_definition(&role),
     )
     .unwrap();
     runner_daemon::repo::node::create_tab(
@@ -458,8 +481,10 @@ fn selected_chat_panel_refreshes_after_a_shared_role_edit() {
             .as_deref(),
         Some("panel-chat")
     );
-    assert!(page.visual.debug_bounds("COLUMN_TEXT sonnet").is_some());
-    assert!(page.visual.debug_bounds("COLUMN_TEXT high").is_some());
+    assert!(page.visual.debug_bounds("COLUMN_TEXT opus").is_some());
+    assert!(page.visual.debug_bounds("COLUMN_TEXT default").is_some());
+    assert!(page.visual.debug_bounds("COLUMN_TEXT sonnet").is_none());
+    assert!(page.visual.debug_bounds("COLUMN_TEXT high").is_none());
 }
 
 impl RolePageHarness {
@@ -1691,6 +1716,13 @@ fn chat_panel_opens_role_clamps_toggles_and_resets_on_another_chat() {
             ],
         )
         .unwrap();
+        runner_daemon::repo::session::set_launch(
+            &conn,
+            id,
+            &role.runtime,
+            &chat_launch_definition(&role),
+        )
+        .unwrap();
         runner_daemon::repo::node::create_tab(
             &conn,
             None,
@@ -1706,6 +1738,15 @@ fn chat_panel_opens_role_clamps_toggles_and_resets_on_another_chat() {
         conn.execute(
             "INSERT INTO sessions (id, role_id, status, archived_at) VALUES (?1, ?2, 'stopped', '2026-09-30T00:00:00Z')",
             [id, role.id.as_str()],
+        )
+        .unwrap();
+    }
+    for id in ["first-archived-panel-chat", "second-archived-panel-chat"] {
+        runner_daemon::repo::session::set_launch(
+            &conn,
+            id,
+            &role.runtime,
+            &chat_launch_definition(&role),
         )
         .unwrap();
     }

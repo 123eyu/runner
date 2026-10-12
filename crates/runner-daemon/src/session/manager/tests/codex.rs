@@ -362,7 +362,7 @@ fn codex_pre_hook_startup_ignores_continuing_idle_redraw() {
             row.role_id = Some(role.id.clone());
             row.cwd = Some(app_data.path().to_string_lossy().into());
             row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
-            crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+            crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
             manager
                 .resume(
                     &row.id,

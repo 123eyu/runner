@@ -193,6 +193,13 @@ fn shell_resume_uses_nearest_existing_cwd_and_feeds_notice_first() {
         .unwrap();
     }
 
+    crate::repo::session::set_launch(
+        &pool.get().unwrap(),
+        "shell-missing-cwd",
+        "shell",
+        &crate::test_support::session_definition("shell", "/bin/sh"),
+    )
+    .unwrap();
     let fake = fake_runtime();
     let fake_for_hook = Arc::clone(&fake);
     *fake.spawn_hook.lock().unwrap() = Some(Box::new(move || {
@@ -316,16 +323,13 @@ fn runtime_direct_spawn_persists_model_and_effort() {
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = pool
-        .get()
-        .unwrap()
-        .query_row(
-            "SELECT agent_runtime, agent_command, agent_model, agent_effort
-               FROM sessions WHERE id = ?1",
-            params![spawned.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .unwrap();
+    ) = {
+        let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
+            .unwrap()
+            .unwrap();
+        let def = row.launch_definition.unwrap();
+        (row.agent_runtime, row.agent_command, def.model, def.effort)
+    };
     assert_eq!(stored.0.as_deref(), Some("codex"));
     assert_eq!(stored.1.as_deref(), Some("/bin/sh"));
     assert_eq!(stored.2.as_deref(), Some("gpt-5.6-sol"));
@@ -361,7 +365,10 @@ fn runtime_direct_speed_survives_resume() {
     let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
         .unwrap()
         .unwrap();
-    assert_eq!(row.agent_speed, Some(CodexSpeed::Fast));
+    assert_eq!(
+        row.launch_definition.as_ref().unwrap().codex_speed,
+        Some(CodexSpeed::Fast)
+    );
 
     mgr.kill(&spawned.id).unwrap();
     pool.get()
@@ -436,7 +443,10 @@ fn role_direct_speed_override_wins_over_role_args_and_survives_resume() {
     let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
         .unwrap()
         .unwrap();
-    assert_eq!(row.agent_speed, Some(CodexSpeed::Standard));
+    assert_eq!(
+        row.launch_definition.as_ref().unwrap().codex_speed,
+        Some(CodexSpeed::Standard)
+    );
 
     mgr.kill(&spawned.id).unwrap();
     pool.get()
@@ -505,7 +515,7 @@ fn direct_speed_override_is_ignored_for_other_runtimes() {
     let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
         .unwrap()
         .unwrap();
-    assert_eq!(row.agent_speed, None);
+    assert_eq!(row.launch_definition.as_ref().unwrap().codex_speed, None);
     mgr.kill(&spawned.id).unwrap();
 }
 
@@ -543,16 +553,13 @@ fn pinned_direct_spawn_records_override_model_and_effort() {
         )
         .unwrap();
 
-    let stored: (Option<String>, Option<String>, Option<String>) = pool
-        .get()
-        .unwrap()
-        .query_row(
-            "SELECT agent_runtime, agent_model, agent_effort
-               FROM sessions WHERE id = ?1",
-            params![spawned.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
+    let stored: (Option<String>, Option<String>, Option<String>) = {
+        let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
+            .unwrap()
+            .unwrap();
+        let def = row.launch_definition.unwrap();
+        (row.agent_runtime, def.model, def.effort)
+    };
     assert_eq!(stored.0.as_deref(), Some("codex"));
     assert_eq!(stored.1.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(stored.2.as_deref(), Some("ultra"));
@@ -593,16 +600,13 @@ fn options_only_direct_spawn_persists_options_and_role_runtime() {
         )
         .unwrap();
 
-    let stored: (Option<String>, Option<String>, Option<String>) = pool
-        .get()
-        .unwrap()
-        .query_row(
-            "SELECT agent_runtime, agent_model, agent_effort
-               FROM sessions WHERE id = ?1",
-            params![spawned.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
+    let stored: (Option<String>, Option<String>, Option<String>) = {
+        let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
+            .unwrap()
+            .unwrap();
+        let def = row.launch_definition.unwrap();
+        (row.agent_runtime, def.model, def.effort)
+    };
     assert_eq!(stored.0.as_deref(), Some("codex"));
     assert_eq!(stored.1.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(stored.2.as_deref(), Some("ultra"));
@@ -725,6 +729,35 @@ fn catalog_default_role_uses_detected_command_while_custom_command_stays_untouch
         Some("/swapped/bin")
     );
 
+    let row = crate::repo::session::get_row(&pool.get().unwrap(), &default_session.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.launch_definition.unwrap().command, "codex");
+    let overridden = bin.path().join("codex-new-override");
+    std::fs::write(&overridden, "#!/bin/sh\n").unwrap();
+    let mut permissions = std::fs::metadata(&overridden).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&overridden, permissions).unwrap();
+    crate::db::set_runtime_override(&pool, "codex", Some(overridden.to_str().unwrap())).unwrap();
+    mgr.kill(&default_session.id).unwrap();
+    mgr.resume(
+        &default_session.id,
+        None,
+        None,
+        Path::new("/tmp"),
+        pool.clone(),
+        capture(),
+    )
+    .unwrap();
+    assert_eq!(
+        fake.last_spawn_spec().unwrap().command,
+        overridden.to_str().unwrap()
+    );
+    let row = crate::repo::session::get_row(&pool.get().unwrap(), &default_session.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.agent_command.as_deref(), overridden.to_str());
+    assert_eq!(row.launch_definition.unwrap().command, "codex");
     mgr.kill(&default_session.id).unwrap();
     mgr.kill(&custom_session.id).unwrap();
     mgr.kill(&swapped_session.id).unwrap();
@@ -732,7 +765,7 @@ fn catalog_default_role_uses_detected_command_while_custom_command_stays_untouch
 
 #[test]
 #[cfg(unix)]
-fn runtime_only_resume_keeps_live_recorded_path_and_reresolves_dead_path() {
+fn runtime_only_resume_resolves_recorded_catalog_command_live() {
     use std::os::unix::fs::PermissionsExt;
 
     let pool = pool_with_schema();
@@ -749,22 +782,21 @@ fn runtime_only_resume_keeps_live_recorded_path_and_reresolves_dead_path() {
     make_executable(&recorded);
     make_executable(&detected);
 
-    let now = Utc::now().to_rfc3339();
     {
         let conn = pool.get().unwrap();
         for (id, command) in [
             ("runtime-live-path", recorded.display().to_string()),
             ("runtime-dead-path", "/definitely/missing/codex".to_string()),
         ] {
-            conn.execute(
-                "INSERT INTO sessions
-                    (id, status, started_at, agent_runtime, agent_command,
-                     agent_model, agent_effort)
-                 VALUES (?1, 'stopped', ?2, 'codex', ?3,
-                         'gpt-5.6-sol', 'max')",
-                params![id, now, command],
-            )
-            .unwrap();
+            let mut row =
+                crate::test_support::test_session_row(id, crate::model::SessionStatus::Stopped);
+            row.agent_runtime = Some("codex".into());
+            row.agent_command = Some(command);
+            let mut definition = crate::test_support::session_definition("codex", "codex");
+            definition.model = Some("gpt-5.6-sol".into());
+            definition.effort = Some("max".into());
+            row.launch_definition = Some(definition);
+            crate::repo::session::insert(&conn, &row).unwrap();
         }
     }
 
@@ -784,7 +816,7 @@ fn runtime_only_resume_keeps_live_recorded_path_and_reresolves_dead_path() {
     .unwrap();
     assert_eq!(
         fake.last_spawn_spec().unwrap().command,
-        recorded.display().to_string()
+        detected.display().to_string()
     );
     assert!(fake
         .last_spawn_spec()

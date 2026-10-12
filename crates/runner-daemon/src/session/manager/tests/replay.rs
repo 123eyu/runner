@@ -333,7 +333,7 @@ fn replay(path: &Path) -> Value {
             .unwrap()
             .with_timezone(&Utc),
     );
-    crate::repo::session::insert(&conn, &row).unwrap();
+    crate::test_support::insert_session_row(&conn, &row).unwrap();
     let start = Instant::now();
     let mut detector = IdleDetector::with_adapter_at(
         Duration::from_secs(2),

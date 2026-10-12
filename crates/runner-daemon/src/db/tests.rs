@@ -1389,7 +1389,7 @@ fn stored_runtime_names_remain_readable_and_unchanged_without_a_migration() {
         assert_eq!(slot.runtime_override.as_deref(), Some(runtime));
         let session = crate::repo::session::get_row(&conn, &id).unwrap().unwrap();
         assert_eq!(session.agent_runtime.as_deref(), Some(runtime));
-        assert_eq!(session.runtime.as_deref(), Some("native-pty"));
+        assert_eq!(session.launch_definition.is_some(), runtime == "shell");
         assert_eq!(
             crate::repo::session::effective_runtime(&conn, &id)
                 .unwrap()
@@ -1417,7 +1417,7 @@ fn migration_0024_adds_runtime_options_columns() {
         [],
     )
     .unwrap();
-    run_migrations(&mut conn).unwrap();
+    run_migrations_up_to(&mut conn, 24).unwrap();
     assert_eq!(
         crate::repo::role::get(&conn, "speed-role")
             .unwrap()
@@ -1576,10 +1576,6 @@ fn migration_0025_drops_only_unused_crew_fields() {
 
 #[test]
 fn sessions_has_runtime_size_and_resume_columns_after_migration() {
-    // Defensive: keep the legacy runtime columns present for
-    // existing databases. New PTY-runtime writes use only
-    // `runtime` + `runtime_session`; socket/window/pane are
-    // legacy and unused since the PTY migration.
     use tempfile::tempdir;
     let dir = tempdir().unwrap();
     let path = dir.path().join("runner.db");
@@ -1593,14 +1589,9 @@ fn sessions_has_runtime_size_and_resume_columns_after_migration() {
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     for required in [
-        "runtime",
-        "runtime_socket",
-        "runtime_session",
-        "runtime_window",
-        "runtime_pane",
-        "runtime_cursor",
-        "agent_model",
-        "agent_effort",
+        "launch_definition_json",
+        "agent_runtime",
+        "agent_command",
         "last_cols",
         "last_rows",
         "resume_on_launch",
@@ -1610,4 +1601,163 @@ fn sessions_has_runtime_size_and_resume_columns_after_migration() {
             "sessions.{required} missing; columns = {columns:?}"
         );
     }
+}
+
+#[test]
+fn migration_0026_converts_all_launches_before_0027_drops_columns() {
+    use crate::model::CodexSpeed;
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+    run_migrations_up_to(&mut conn, 25).unwrap();
+    crate::test_support::insert_test_role(&conn, "role", "coder", "codex", "codex-wrapper");
+    conn.execute(
+        "UPDATE roles SET args_json = '[\"--search\",\"--sandbox\",\"workspace-write\"]',
+            env_json = '{\"MARKER\":\"before\"}', model = 'role-model', effort = 'high',
+            system_prompt = 'ROLE_PERSONA', runtime_options_json = '{\"codex\":{\"speed\":\"fast\"}}'
+         WHERE id = 'role'", [],
+    ).unwrap();
+    conn.execute_batch(
+        "INSERT INTO sessions (id, role_id, status, agent_runtime, agent_command, agent_model, agent_effort, runtime_options_json, archived_at)
+         VALUES ('role-defaults', 'role', 'stopped', 'codex', '/resolved/wrapper', NULL, NULL, NULL, NULL),
+                ('overrides', 'role', 'stopped', 'codex', '/resolved/wrapper', 'session-model', 'xhigh', '{\"codex\":{\"speed\":\"standard\"}}', NULL),
+                ('empty-runtime', 'role', 'stopped', NULL, '/resolved/wrapper', NULL, NULL, NULL, NULL),
+                ('runtime-override', 'role', 'stopped', 'pi', '/resolved/pi', NULL, NULL, NULL, NULL),
+                ('absolute', NULL, 'stopped', 'codex', '/old/codex', 'model', 'max', NULL, NULL),
+                ('custom', NULL, 'stopped', 'codex', 'codex-custom', NULL, NULL, NULL, NULL),
+                ('shell', NULL, 'stopped', 'shell', '/bin/zsh', NULL, NULL, NULL, NULL),
+                ('archived', 'role', 'stopped', 'codex', '/resolved/wrapper', NULL, NULL, NULL, '2026-10-01T00:00:00Z'),
+                ('unknown', NULL, 'stopped', 'unknown-runtime', 'unknown-command', NULL, NULL, NULL, NULL),
+                ('missing-runtime', NULL, 'stopped', NULL, NULL, NULL, NULL, NULL, NULL);
+         UPDATE sessions SET runtime = 'tmux', runtime_session = 'legacy-session', runtime_socket = 'socket',
+            runtime_window = '@1', runtime_pane = '%1', runtime_cursor = 42;
+         INSERT INTO session_attention (session_id, unread_since) VALUES ('role-defaults', 1234);"
+    ).unwrap();
+    let absolute_command = if cfg!(windows) {
+        r"C:\old\codex.exe"
+    } else {
+        "/old/codex"
+    };
+    assert!(std::path::Path::new(absolute_command).is_absolute());
+    conn.execute(
+        "UPDATE sessions SET agent_command = ?1 WHERE id = 'absolute'",
+        [absolute_command],
+    )
+    .unwrap();
+    let shell_command = if cfg!(windows) {
+        r"C:\Windows\System32\cmd.exe"
+    } else {
+        "/bin/zsh"
+    };
+    conn.execute(
+        "UPDATE sessions SET agent_command = ?1 WHERE id = 'shell'",
+        [shell_command],
+    )
+    .unwrap();
+    run_migrations(&mut conn).unwrap();
+    for id in ["role-defaults", "empty-runtime", "archived"] {
+        let row = crate::repo::session::get_row(&conn, id).unwrap().unwrap();
+        assert_eq!(row.agent_runtime.as_deref(), Some("codex"));
+        let def = row.launch_definition.unwrap();
+        assert_eq!(def.command, "codex-wrapper");
+        assert_eq!(def.args, ["--search", "--sandbox", "workspace-write"]);
+        assert_eq!(def.model.as_deref(), Some("role-model"));
+        assert_eq!(def.effort.as_deref(), Some("high"));
+        assert_eq!(def.codex_speed, Some(CodexSpeed::Fast));
+        assert_eq!(def.env.get("MARKER").map(String::as_str), Some("before"));
+        assert_eq!(def.system_prompt.as_deref(), Some("ROLE_PERSONA"));
+        assert_eq!(row.archived_at.is_some(), id == "archived");
+    }
+    let def = crate::repo::session::get_row(&conn, "overrides")
+        .unwrap()
+        .unwrap()
+        .launch_definition
+        .unwrap();
+    assert_eq!(def.model.as_deref(), Some("session-model"));
+    assert_eq!(def.effort.as_deref(), Some("xhigh"));
+    assert_eq!(def.codex_speed, Some(CodexSpeed::Standard));
+    let row = crate::repo::session::get_row(&conn, "runtime-override")
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.agent_runtime.as_deref(), Some("pi"));
+    let def = row.launch_definition.unwrap();
+    assert_eq!(def.command, "pi");
+    assert_eq!(def.model, None);
+    assert_eq!(def.effort, None);
+    assert_eq!(def.codex_speed, None);
+    assert_eq!(def.system_prompt.as_deref(), Some("ROLE_PERSONA"));
+    for (id, command, model, effort) in [
+        ("absolute", "codex", Some("model"), Some("max")),
+        ("custom", "codex-custom", None, None),
+        ("shell", shell_command, None, None),
+    ] {
+        let def = crate::repo::session::get_row(&conn, id)
+            .unwrap()
+            .unwrap()
+            .launch_definition
+            .unwrap();
+        assert_eq!(def.command, command);
+        assert_eq!(def.model.as_deref(), model);
+        assert_eq!(def.effort.as_deref(), effort);
+        assert_eq!(def.system_prompt, None);
+        assert!(def.env.is_empty());
+        if id == "shell" {
+            if cfg!(unix) {
+                assert_eq!(def.args, ["-l"]);
+            } else {
+                assert!(def.args.is_empty());
+            }
+        } else {
+            let expected =
+                crate::session::manager::runtime_direct_role("codex", Some(command), model, effort)
+                    .unwrap();
+            assert_eq!(def.args, expected.args);
+        }
+    }
+    for id in ["unknown", "missing-runtime"] {
+        assert!(crate::repo::session::get_row(&conn, id)
+            .unwrap()
+            .unwrap()
+            .launch_definition
+            .is_none());
+    }
+    let columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(sessions)")
+        .unwrap()
+        .query_map([], |row| row.get("name"))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    for column in [
+        "runtime",
+        "runtime_session",
+        "runtime_socket",
+        "runtime_window",
+        "runtime_pane",
+        "runtime_cursor",
+        "agent_model",
+        "agent_effort",
+        "runtime_options_json",
+    ] {
+        assert!(
+            !columns.iter().any(|name| name == column),
+            "{column} remains"
+        );
+    }
+    assert_eq!(
+        conn.query_row(
+            "SELECT unread_since FROM session_attention WHERE session_id = 'role-defaults'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1234
+    );
+    assert!(!conn
+        .prepare("PRAGMA foreign_key_check")
+        .unwrap()
+        .query([])
+        .unwrap()
+        .next()
+        .unwrap()
+        .is_some());
 }

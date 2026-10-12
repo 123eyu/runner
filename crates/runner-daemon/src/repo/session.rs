@@ -1,23 +1,110 @@
 // `sessions` table — one PTY run (mission slot or direct chat).
 //
 // Named `SessionRowDb` to stay clear of the `ops::session::SessionRow`
-// IPC DTO. Covers every column including `agent_session_key` and the
-// legacy `runtime_*` metadata columns exactly as written today.
+// IPC DTO. The launch definition is mapped to versioned JSON only here.
 //
 // The write functions mirror the legacy statements one-for-one — status
 // flips, pid/stopped_at updates, key capture — because several run on the
 // PTY hot path where statement shape and timing are load-bearing. Do not
 // consolidate them.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_rusqlite::{from_row, to_params_named};
 
-use crate::model::{Session, SessionStatus, Timestamp};
+use crate::model::{CodexSpeed, LaunchDefinition, Session, SessionStatus, Timestamp};
 
 use super::{de_err, insert_sql, qualified_select_list, select_list, ser_err};
+
+#[derive(Serialize, Deserialize)]
+struct LaunchDefinitionRow {
+    version: u32,
+    command: String,
+    args: Vec<String>,
+    env: BTreeMap<String, String>,
+    model: Option<String>,
+    effort: Option<String>,
+    runtime_options: serde_json::Value,
+    system_prompt: Option<String>,
+}
+
+impl From<&LaunchDefinition> for LaunchDefinitionRow {
+    fn from(definition: &LaunchDefinition) -> Self {
+        Self {
+            version: 1,
+            command: definition.command.clone(),
+            args: definition.args.clone(),
+            env: definition.env.clone(),
+            model: definition.model.clone(),
+            effort: definition.effort.clone(),
+            runtime_options: super::serde::runtime_speed_json::value(definition.codex_speed)
+                .map(|json| serde_json::from_str(&json).expect("runtime options serialize"))
+                .unwrap_or_else(|| serde_json::json!({})),
+            system_prompt: definition.system_prompt.clone(),
+        }
+    }
+}
+
+impl TryFrom<LaunchDefinitionRow> for LaunchDefinition {
+    type Error = String;
+
+    fn try_from(row: LaunchDefinitionRow) -> Result<Self, Self::Error> {
+        if row.version != 1 {
+            return Err(format!(
+                "unsupported launch definition version: {}",
+                row.version
+            ));
+        }
+        let codex_speed: Option<CodexSpeed> = serde_json::from_value(
+            row.runtime_options
+                .get("codex")
+                .and_then(|codex| codex.get("speed"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(Self {
+            command: row.command,
+            args: row.args,
+            env: row.env,
+            model: row.model,
+            effort: row.effort,
+            codex_speed,
+            system_prompt: row.system_prompt,
+        })
+    }
+}
+
+mod launch_definition_json {
+    use super::{LaunchDefinition, LaunchDefinitionRow};
+    use serde::{de, ser, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<LaunchDefinition>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let json = value
+            .as_ref()
+            .map(|definition| serde_json::to_string(&LaunchDefinitionRow::from(definition)))
+            .transpose()
+            .map_err(ser::Error::custom)?;
+        serde::Serialize::serialize(&json, serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<LaunchDefinition>, D::Error> {
+        let json = Option::<String>::deserialize(deserializer)?;
+        json.map(|json| {
+            let row: LaunchDefinitionRow =
+                serde_json::from_str(&json).map_err(de::Error::custom)?;
+            LaunchDefinition::try_from(row).map_err(de::Error::custom)
+        })
+        .transpose()
+    }
+}
 
 const RESUME_ON_LAUNCH_PENDING: i64 = 1;
 const RESUME_ON_LAUNCH_CLAIMED: i64 = 2;
@@ -63,23 +150,10 @@ pub struct SessionRowDb {
     pub live_title: Option<String>,
     #[serde(with = "crate::repo::serde::rfc3339_opt")]
     pub pinned_at: Option<Timestamp>,
-    /// PTY-runtime metadata (`pty`, legacy tmux) — not the agent kind;
-    /// that is `agent_runtime`.
-    pub runtime: Option<String>,
-    pub runtime_socket: Option<String>,
-    pub runtime_session: Option<String>,
-    pub runtime_window: Option<String>,
-    pub runtime_pane: Option<String>,
-    pub runtime_cursor: Option<i64>,
     pub agent_runtime: Option<String>,
     pub agent_command: Option<String>,
-    pub agent_model: Option<String>,
-    pub agent_effort: Option<String>,
-    #[serde(
-        rename = "runtime_options_json",
-        with = "crate::repo::serde::runtime_speed_json"
-    )]
-    pub agent_speed: Option<crate::model::CodexSpeed>,
+    #[serde(rename = "launch_definition_json", with = "launch_definition_json")]
+    pub launch_definition: Option<LaunchDefinition>,
     pub last_cols: Option<u16>,
     pub last_rows: Option<u16>,
     /// Nonzero for both pending and in-flight launch-resume work.
@@ -106,17 +180,9 @@ impl SessionRowDb {
             title: None,
             live_title: None,
             pinned_at: None,
-            runtime: None,
-            runtime_socket: None,
-            runtime_session: None,
-            runtime_window: None,
-            runtime_pane: None,
-            runtime_cursor: None,
             agent_runtime: None,
             agent_command: None,
-            agent_model: None,
-            agent_effort: None,
-            agent_speed: None,
+            launch_definition: None,
             last_cols: None,
             last_rows: None,
             resume_on_launch: false,
@@ -140,17 +206,9 @@ pub const COLUMNS: &[&str] = &[
     "title",
     "live_title",
     "pinned_at",
-    "runtime",
-    "runtime_socket",
-    "runtime_session",
-    "runtime_window",
-    "runtime_pane",
-    "runtime_cursor",
     "agent_runtime",
     "agent_command",
-    "agent_model",
-    "agent_effort",
-    "runtime_options_json",
+    "launch_definition_json",
     "last_cols",
     "last_rows",
     "resume_on_launch",
@@ -183,11 +241,10 @@ pub fn get_row(conn: &Connection, id: &str) -> rusqlite::Result<Option<SessionRo
     .optional()
 }
 
-/// Runtime identity stored directly on an overridden/runtime-only session,
-/// falling back to its role template for ordinary chat rows.
+/// Runtime identity recorded when the session was launched.
 pub fn effective_runtime(conn: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
     conn.query_row(
-        "SELECT COALESCE(s.agent_runtime, r.runtime)
+        "SELECT s.agent_runtime
            FROM sessions s
            LEFT JOIN roles r ON r.id = s.role_id
           WHERE s.id = ?1",
@@ -299,21 +356,29 @@ pub fn status_rows(conn: &Connection) -> rusqlite::Result<Vec<StatusRow>> {
     rows.collect()
 }
 
-/// Persist the runtime-side identity after the PTY forks.
-pub fn update_runtime_metadata(
+pub fn set_launch(
     conn: &Connection,
     id: &str,
     runtime: &str,
-    runtime_session: &str,
+    definition: &LaunchDefinition,
+) -> rusqlite::Result<usize> {
+    let json = serde_json::to_string(&LaunchDefinitionRow::from(definition))
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    conn.execute(
+        "UPDATE sessions SET agent_runtime = ?2, launch_definition_json = ?3 WHERE id = ?1",
+        rusqlite::params![id, runtime, json],
+    )
+}
+
+pub fn record_process(
+    conn: &Connection,
+    id: &str,
     pid: Option<i32>,
+    executable: &str,
 ) -> rusqlite::Result<usize> {
     conn.execute(
-        "UPDATE sessions
-            SET runtime = ?2,
-                runtime_session = ?3,
-                pid = ?4
-          WHERE id = ?1",
-        rusqlite::params![id, runtime, runtime_session, pid],
+        "UPDATE sessions SET pid = ?2, agent_command = ?3 WHERE id = ?1",
+        rusqlite::params![id, pid, executable],
     )
 }
 
@@ -334,16 +399,18 @@ pub fn update_last_size(
 
 /// Resume an existing row in place: same id, same conversation thread.
 /// A key the resume plan assigned wins; otherwise the stored key is kept.
+/// A replacement launch is committed with its key and generation before spawn.
 pub fn resume_in_place(
     conn: &Connection,
     id: &str,
     started_at: Timestamp,
     assigned_key: Option<&str>,
     fresh: bool,
-    cols: u16,
-    rows: u16,
+    size: (u16, u16),
+    launch: Option<(&str, &LaunchDefinition)>,
 ) -> rusqlite::Result<usize> {
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    let updated = tx.execute(
         "UPDATE sessions
             SET status = 'running',
                 pid = NULL,
@@ -354,8 +421,20 @@ pub fn resume_in_place(
                 last_cols = ?4,
                 last_rows = ?5
           WHERE id = ?1",
-        rusqlite::params![id, started_at.to_rfc3339(), assigned_key, cols, rows, fresh],
-    )
+        rusqlite::params![
+            id,
+            started_at.to_rfc3339(),
+            assigned_key,
+            size.0,
+            size.1,
+            fresh
+        ],
+    )?;
+    if let Some((runtime, definition)) = launch {
+        set_launch(&tx, id, runtime, definition)?;
+    }
+    tx.commit()?;
+    Ok(updated)
 }
 
 /// Terminal status flip after a PTY exits (or a pending spawn is
@@ -831,7 +910,7 @@ pub fn list_for_mission(
     let sql = format!(
         "SELECT {},
                 COALESCE(sl.slot_handle, r.handle) AS handle,
-                COALESCE(s.agent_runtime, r.runtime) AS role_runtime,
+                COALESCE(s.agent_runtime, '') AS role_runtime,
                 COALESCE(sl.lead, 0) AS lead
            FROM sessions s
            JOIN roles r ON r.id = s.role_id
@@ -886,22 +965,16 @@ pub struct DirectSessionRow {
     pub row: SessionRowDb,
     pub role_handle: Option<String>,
     pub role_display_name: Option<String>,
-    pub role_runtime: Option<String>,
-    pub role_command: Option<String>,
 }
 
 const DIRECT_EXTRAS: &str = "r.handle    AS role_handle,
-                r.display_name AS role_display_name,
-                r.runtime   AS role_runtime,
-                r.command   AS role_command";
+                r.display_name AS role_display_name";
 
 fn direct_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DirectSessionRow> {
     Ok(DirectSessionRow {
         row: from_row::<SessionRowDb>(row).map_err(de_err)?,
         role_handle: row.get("role_handle")?,
         role_display_name: row.get("role_display_name")?,
-        role_runtime: row.get("role_runtime")?,
-        role_command: row.get("role_command")?,
     })
 }
 
@@ -994,7 +1067,7 @@ pub fn codex_capture_cwd(
             AND s.started_at = ?2
             AND s.status = 'running'
             AND s.agent_session_key IS NULL
-            AND COALESCE(s.agent_runtime, r.runtime) = 'codex'",
+            AND s.agent_runtime = 'codex'",
         rusqlite::params![session_id, expected_started_at],
         |row| row.get(0),
     )
@@ -1011,7 +1084,7 @@ pub fn count_codex_capture_siblings(
            LEFT JOIN roles r ON r.id = s.role_id
           WHERE s.status = 'running'
             AND s.agent_session_key IS NULL
-            AND COALESCE(s.agent_runtime, r.runtime) = 'codex'
+            AND s.agent_runtime = 'codex'
             AND s.id <> ?1
             AND (s.cwd = ?2 OR s.cwd IS NULL)",
         rusqlite::params![session_id, spawn_cwd],
@@ -1121,17 +1194,17 @@ mod tests {
             title: Some("my chat".into()),
             live_title: Some("Fixing the parser".into()),
             pinned_at: Some(now),
-            runtime: Some("pty".into()),
-            runtime_socket: Some("sock".into()),
-            runtime_session: Some("rt-sess".into()),
-            runtime_window: Some("w0".into()),
-            runtime_pane: Some("p0".into()),
-            runtime_cursor: Some(7),
             agent_runtime: Some("codex".into()),
             agent_command: Some("codex".into()),
-            agent_model: Some("gpt-5.6-sol".into()),
-            agent_effort: Some("max".into()),
-            agent_speed: Some(crate::model::CodexSpeed::Fast),
+            launch_definition: Some(LaunchDefinition {
+                command: "codex".into(),
+                args: vec!["--search".into()],
+                env: BTreeMap::from([("MARKER".into(), "before".into())]),
+                model: Some("gpt-5.6-sol".into()),
+                effort: Some("max".into()),
+                codex_speed: Some(CodexSpeed::Fast),
+                system_prompt: Some("Persona".into()),
+            }),
             last_cols: Some(132),
             last_rows: Some(41),
             resume_on_launch: true,
@@ -1174,7 +1247,7 @@ mod tests {
         assert_eq!(row.live_title.as_deref(), Some("Cars"));
         assert_eq!(row.title.as_deref(), Some("Manual name"));
         let resumed = started + chrono::Duration::seconds(1);
-        resume_in_place(&conn, &row.id, resumed, None, false, 80, 24).unwrap();
+        resume_in_place(&conn, &row.id, resumed, None, false, (80, 24), None).unwrap();
         assert_eq!(
             get_row(&conn, &row.id)
                 .unwrap()
@@ -1184,7 +1257,7 @@ mod tests {
             Some("Cars")
         );
         let fresh = resumed + chrono::Duration::seconds(1);
-        resume_in_place(&conn, &row.id, fresh, None, true, 80, 24).unwrap();
+        resume_in_place(&conn, &row.id, fresh, None, true, (80, 24), None).unwrap();
         assert_eq!(
             set_live_title(&conn, &row.id, Some("Stale title"), Some(&stamp)).unwrap(),
             0
@@ -1246,12 +1319,18 @@ mod tests {
         }
         let stored: String = conn
             .query_row(
-                "SELECT runtime_options_json FROM sessions WHERE id = 'sess-full'",
+                "SELECT launch_definition_json FROM sessions WHERE id = 'sess-full'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(stored, r#"{"codex":{"speed":"fast"}}"#);
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(stored["version"], 1);
+        assert_eq!(
+            stored["runtime_options"],
+            serde_json::json!({"codex":{"speed":"fast"}})
+        );
+        assert!(stored.get("runtime").is_none());
     }
 
     #[test]
@@ -1264,11 +1343,10 @@ mod tests {
         conn.execute(
             "INSERT INTO sessions
                 (id, mission_id, role_id, cwd, status, pid, started_at, stopped_at,
-                 agent_session_key, runtime, runtime_socket, runtime_session,
-                 runtime_window, runtime_pane, runtime_cursor)
+                 agent_session_key)
              VALUES ('sess-legacy', NULL, 'r1', '/tmp', 'crashed', 123,
                      '2026-04-22T01:02:03.456789+00:00', '2026-04-22T02:00:00Z',
-                     'abcd-uuid', 'tmux', '/tmp/sock', 'tmux-0', '@1', '%1', 42)",
+                     'abcd-uuid')",
             [],
         )
         .unwrap();
@@ -1276,8 +1354,7 @@ mod tests {
         assert_eq!(row.status, SessionStatus::Crashed);
         assert_eq!(row.pid, Some(123));
         assert_eq!(row.agent_session_key.as_deref(), Some("abcd-uuid"));
-        assert_eq!(row.runtime.as_deref(), Some("tmux"));
-        assert_eq!(row.runtime_cursor, Some(42));
+        assert_eq!(row.launch_definition, None);
         assert_eq!(
             row.started_at.unwrap(),
             "2026-04-22T01:02:03.456789Z".parse::<Timestamp>().unwrap()
@@ -1674,8 +1751,8 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO sessions
-                (id, mission_id, role_id, slot_id, status, started_at, agent_session_key)
-             VALUES ('se1', 'm1', 'r1', 'sl1', 'running', ?1, 'key-1')",
+                (id, mission_id, role_id, slot_id, status, started_at, agent_session_key, agent_runtime)
+             VALUES ('se1', 'm1', 'r1', 'sl1', 'running', ?1, 'key-1', 'alpha')",
             rusqlite::params![now],
         )
         .unwrap();
@@ -1852,7 +1929,6 @@ mod tests {
         assert_eq!(ids, vec!["d2", "d1"], "running first, archived hidden");
         let d1 = listed.iter().find(|d| d.row.id == "d1").unwrap();
         assert_eq!(d1.role_handle.as_deref(), Some("alpha"));
-        assert_eq!(d1.role_runtime.as_deref(), Some("alpha"));
         let d2 = listed.iter().find(|d| d.row.id == "d2").unwrap();
         assert_eq!(d2.role_handle, None);
         assert_eq!(d2.row.agent_runtime.as_deref(), Some("codex"));
@@ -1863,5 +1939,104 @@ mod tests {
             get_direct(&conn, "orphan-slot").unwrap().is_none(),
             "slot-bound orphaned mission sessions must stay off direct-chat surfaces"
         );
+    }
+}
+
+#[cfg(test)]
+mod launch_definition_tests {
+    use super::*;
+
+    #[test]
+    fn set_launch_round_trips_defaults_and_rejects_unknown_version() {
+        let pool = crate::db::open_in_memory().unwrap();
+        let conn = pool.get().unwrap();
+        let row = SessionRowDb::new_running("definition".into());
+        insert(&conn, &row).unwrap();
+        let definition = LaunchDefinition {
+            command: "codex".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+            model: None,
+            effort: None,
+            codex_speed: None,
+            system_prompt: None,
+        };
+        set_launch(&conn, &row.id, "codex", &definition).unwrap();
+        let stored = get_row(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(stored.agent_runtime.as_deref(), Some("codex"));
+        assert_eq!(stored.launch_definition.as_ref(), Some(&definition));
+        let json: String = conn
+            .query_row(
+                "SELECT launch_definition_json FROM sessions WHERE id = 'definition'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(json["runtime_options"], serde_json::json!({}));
+        assert_eq!(json["env"], serde_json::json!({}));
+        assert_eq!(json["model"], serde_json::Value::Null);
+        assert!(json.get("runtime").is_none());
+        json["version"] = serde_json::json!(99);
+        conn.execute(
+            "UPDATE sessions SET launch_definition_json = ?1 WHERE id = 'definition'",
+            [json.to_string()],
+        )
+        .unwrap();
+        let error = get_row(&conn, &row.id).unwrap_err().to_string();
+        assert!(
+            error.contains("unsupported launch definition version: 99"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn resume_rolls_back_key_and_generation_when_launch_write_fails() {
+        let pool = crate::db::open_in_memory().unwrap();
+        let conn = pool.get().unwrap();
+        let mut row = SessionRowDb::new_running("restart-write-failure".into());
+        row.status = SessionStatus::Stopped;
+        row.agent_session_key = Some("codex-key".into());
+        row.agent_runtime = Some("codex".into());
+        row.launch_definition = Some(crate::test_support::session_definition("codex", "codex"));
+        insert(&conn, &row).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_launch_write BEFORE UPDATE OF launch_definition_json ON sessions
+             BEGIN SELECT RAISE(ABORT, 'injected launch write failure'); END;",
+        )
+        .unwrap();
+        let definition = crate::test_support::session_definition("claude-code", "claude");
+        let error = resume_in_place(
+            &conn,
+            &row.id,
+            chrono::Utc::now(),
+            Some("claude-key"),
+            true,
+            (120, 40),
+            Some(("claude-code", &definition)),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("injected launch write failure"));
+        let stored = get_row(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(stored.status, row.status);
+        assert_eq!(stored.started_at, row.started_at);
+        assert_eq!(stored.agent_session_key, row.agent_session_key);
+        assert_eq!(stored.agent_runtime, row.agent_runtime);
+        assert_eq!(stored.launch_definition, row.launch_definition);
+        assert_eq!(stored.last_cols, row.last_cols);
+        assert_eq!(stored.last_rows, row.last_rows);
+    }
+
+    #[test]
+    fn record_process_replaces_pid_and_executable_together() {
+        let pool = crate::db::open_in_memory().unwrap();
+        let conn = pool.get().unwrap();
+        insert(&conn, &SessionRowDb::new_running("process".into())).unwrap();
+        for (pid, executable) in [(100, "/old/codex"), (200, "/new/codex")] {
+            record_process(&conn, "process", Some(pid), executable).unwrap();
+            let row = get_row(&conn, "process").unwrap().unwrap();
+            assert_eq!(row.pid, Some(i64::from(pid)));
+            assert_eq!(row.agent_command.as_deref(), Some(executable));
+        }
     }
 }

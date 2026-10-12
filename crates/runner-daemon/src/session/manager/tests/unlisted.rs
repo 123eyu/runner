@@ -89,7 +89,7 @@ fn runtime_update_spec_allows_live_sessions_without_stopping_or_restarting_them(
                     crate::model::SessionStatus::Running,
                 );
                 row.agent_runtime = Some(definition.name.to_string());
-                crate::repo::session::insert(&state.db.get().unwrap(), &row).unwrap();
+                crate::test_support::insert_session_row(&state.db.get().unwrap(), &row).unwrap();
                 install_test_session_handle(&state.sessions, &id);
             }
             let live = state.sessions.live_session_ids();

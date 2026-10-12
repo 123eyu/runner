@@ -233,16 +233,13 @@ fn mission_spawn_with_slot_override_uses_registry_engine_and_records_runtime() {
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = pool
-        .get()
-        .unwrap()
-        .query_row(
-            "SELECT agent_runtime, agent_command, agent_model, agent_effort
-               FROM sessions WHERE id = ?1",
-            params![spawned.id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        )
-        .unwrap();
+    ) = {
+        let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
+            .unwrap()
+            .unwrap();
+        let def = row.launch_definition.unwrap();
+        (row.agent_runtime, row.agent_command, def.model, def.effort)
+    };
     assert_eq!(agent_runtime.as_deref(), Some("claude-code"));
     assert_effective_command(agent_command.as_deref().unwrap(), "claude");
     assert_eq!(agent_model.as_deref(), Some("opus"));
@@ -251,7 +248,10 @@ fn mission_spawn_with_slot_override_uses_registry_engine_and_records_runtime() {
         crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
             .unwrap()
             .unwrap()
-            .agent_speed,
+            .launch_definition
+            .as_ref()
+            .unwrap()
+            .codex_speed,
         None
     );
 
@@ -304,7 +304,10 @@ fn mission_slot_speed_overrides_role_and_manual_args_on_spawn_and_resume() {
         crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
             .unwrap()
             .unwrap()
-            .agent_speed,
+            .launch_definition
+            .as_ref()
+            .unwrap()
+            .codex_speed,
         Some(CodexSpeed::Standard)
     );
 
@@ -379,7 +382,10 @@ fn mission_slot_speed_applies_when_slot_switches_to_codex() {
         .unwrap()
         .unwrap();
     assert_eq!(row.agent_runtime.as_deref(), Some("codex"));
-    assert_eq!(row.agent_speed, Some(CodexSpeed::Fast));
+    assert_eq!(
+        row.launch_definition.as_ref().unwrap().codex_speed,
+        Some(CodexSpeed::Fast)
+    );
     mgr.kill(&spawned.id).unwrap();
 }
 
@@ -431,16 +437,13 @@ fn mission_spawn_with_model_only_slot_override_uses_role_runtime() {
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = pool
-        .get()
-        .unwrap()
-        .query_row(
-            "SELECT agent_runtime, agent_model, agent_effort
-               FROM sessions WHERE id = ?1",
-            params![spawned.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
+    ) = {
+        let row = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
+            .unwrap()
+            .unwrap();
+        let def = row.launch_definition.unwrap();
+        (row.agent_runtime, def.model, def.effort)
+    };
     assert_eq!(agent_runtime.as_deref(), Some("codex"));
     assert_eq!(agent_model.as_deref(), Some("slot-model"));
     assert_eq!(agent_effort.as_deref(), Some("high"));
@@ -564,7 +567,7 @@ fn resume_keeps_recorded_runtime_after_role_template_edit() {
     // A session spawned on the role's then-runtime ("codex") records
     // it on the row. The user later edits the role template to
     // claude-code. Resume must respawn this session on codex —
-    // registry defaults — not on the template's new runtime, which
+    // its recorded command and args, rather than the new runtime, which
     // would hand the codex-native session key to the wrong CLI.
     let pool = pool_with_schema();
     let role_id = ulid::Ulid::new().to_string();
@@ -581,7 +584,7 @@ fn resume_keeps_recorded_runtime_after_role_template_edit() {
         row.cwd = Some(fixture_tmp_dir().to_string_lossy().into_owned());
         row.agent_runtime = Some("codex".into());
         row.agent_command = Some("codex-custom".into());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
         // The role template moves on to a different engine.
         persisted_role.runtime = "claude-code".into();
         persisted_role.command = "claude-custom".into();
@@ -602,12 +605,9 @@ fn resume_keeps_recorded_runtime_after_role_template_edit() {
     .unwrap();
 
     let spec = fake.last_spawn_spec().expect("resume should have spawned");
-    assert_effective_command(&spec.command, "codex");
-    assert!(
-        !spec.args.contains(&"--custom-flag".to_string()) && spec.command != "claude-custom",
-        "neither the template's new engine nor its old flags may leak in: {:?}",
-        spec.args,
-    );
+    assert_eq!(spec.command, "codex-custom");
+    assert!(spec.args.contains(&"--custom-flag".into()));
+    assert_ne!(spec.command, "claude-custom");
 
     mgr.kill("pin-sid").unwrap();
 }
@@ -725,7 +725,7 @@ fn resume_respawns_recorded_override_runtime() {
         row.agent_session_key = Some(key.clone());
         row.agent_runtime = Some("claude-code".into());
         row.agent_command = Some("claude".into());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
     }
 
     let fake = fake_runtime();

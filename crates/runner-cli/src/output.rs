@@ -575,17 +575,17 @@ fn render_session_show(value: &Value) -> Vec<String> {
         .unwrap_or_else(|| "0".into());
     let waits = Value::String(waits);
     let speed = Value::String(match value.get("agent_speed").and_then(Value::as_str) {
-        Some(speed) => format!("{speed} (session)"),
-        None if value.get("role_id").and_then(Value::as_str).is_some() => {
-            "inherit (role or slot)".to_owned()
-        }
-        None => "inherit (Codex config)".to_owned(),
+        Some(speed) => speed.to_owned(),
+        None => "default (Codex config)".to_owned(),
     });
     let mut fields = vec![
         ("ID", value.get("session_id").or_else(|| value.get("id"))),
         ("MISSION", value.get("mission_id")),
         ("RUNTIME", value.get("agent_runtime")),
         ("ROLE", value.get("handle").or_else(|| value.get("role_id"))),
+        ("COMMAND", value.get("agent_command")),
+        ("MODEL", value.get("agent_model")),
+        ("EFFORT", value.get("agent_effort")),
     ];
     if value
         .get("agent_runtime")
@@ -971,11 +971,11 @@ mod tests {
         assert!(lines.contains("inherit (Codex config)"));
 
         let session = json!({"session_id": "s1", "agent_runtime": "codex", "agent_speed": "fast", "role_id": "role"});
-        assert!(render_session_show(&session).contains(&"SPEED         fast (session)".to_owned()));
+        assert!(render_session_show(&session).contains(&"SPEED         fast".to_owned()));
         let inherited = json!({"id": "s2", "mission_id": "mission", "agent_runtime": "codex", "agent_speed": null, "role_id": "role"});
         assert!(render_session_show(&inherited)
             .iter()
-            .any(|line| line.contains("inherit (role or slot)")));
+            .any(|line| line.contains("default (Codex config)")));
         let response = ToolResponse {
             value: session.clone(),
             raw_json: serde_json::to_string(&session).unwrap(),

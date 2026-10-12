@@ -183,7 +183,11 @@ The runtime instance of a slot inside a mission, a role-backed direct chat, or a
 Two flavors, distinguished by whether `mission_id` is set on the session row:
 
 - **Mission session** — spawned when a mission starts; one session per slot. It participates in the crew's bus, sees broadcasts, can receive stdin injection from the router. `RUNNER_HANDLE` carries the *slot* handle, not the role's global handle.
-- **Direct-chat session** — spawned ad-hoc without a parent mission, backed by a role or a bare runtime selection. `mission_id` is null and the working directory lives on the session row. The agent is **not on any coordination bus**. Role-backed chats keep `role_id`; runtime-only chats store `role_id = NULL`. Both record the runtime they spawned with in `agent_runtime` / `agent_command`, so a later edit to the role's runtime neither relabels nor re-engines an existing session.
+- **Direct-chat session** — spawned ad-hoc without a parent mission, backed by a role or a bare runtime selection. `mission_id` is null and the working directory lives on the session row. The agent is **not on any coordination bus**. Role-backed chats keep `role_id`; runtime-only chats store `role_id = NULL`. Both record their runtime in `agent_runtime` and their configured launch inputs in a versioned launch definition, so later role edits never change an existing session.
+
+At spawn, each session records its configured command, args (including permission flags), env, effective model, effort and Codex speed, and the role's own prompt text. Resume and fork replay that definition; null model, effort or speed means the agent's default. Mission-slot Restart is the explicit way to use the current role and the mission roster slot's overrides, and records a new definition. A direct chat uses role edits by starting a new chat. The chat header, side panel and `runner session show` show the recorded command, model, effort and speed; CLI JSON omits the definition because env can hold keys.
+
+Executable resolution and Settings → Agents overrides remain live at every launch, as does the app-wide mission permission mode: Auto/Bypass replace recorded permission args and RoleDefault retains them. Direct chats strip permission flags every time. Mission prompts still compose the recorded role text with the roster's crew addendum and the latest goal and team. Cursor and Grok conversation probes still use the current shell environment.
 
 A session owns, in the core:
 
@@ -361,9 +365,9 @@ The hook prints `ESC ] 7 ; file://<percent-encoded $PWD> ST` at each prompt, wit
 
 On the terminal side, The terminal model and mirror scan the raw output of `shell`-runtime sessions for OSC 7 before `vte` parses it, since `vte` drops the sequence. The scan carries a cut-off introducer or report across chunks and ends a report at BEL or ST. It keeps the last report whose host is this machine and whose path is absolute as the session's live cwd. `live_cwd()` offers that cwd only while it is a directory. A terminal split and New terminal start from it (§3.6), and relative file links try it before the spawn cwd. The terminal drawer is unchanged: its source is the tab's chat.
 
-The composed prompt is split into the runtime's system-prompt and first-turn channels in `router/prompt.rs`, then delivered by the adapter in `runtimes/<name>/`. Claude Code, Codex, TRAE and Copilot preserve their existing byte-identical first turns: a positional argument where accepted, `-i <body>` for Copilot and Antigravity, or a verified paste after a Windows batch wrapper is ready; genuine resumes suppress that first turn. Pi instead receives `--append-system-prompt <app data>/session-prompts/<Runner session id>.md` on every fresh spawn and resume. Runner rewrites that file from the current role, crew and roster rows before each spawn, removes it when the session ends, and sweeps leftovers at startup. A Pi direct chat and worker have no first turn; only the lead's `== Mission ==` section follows `--` as its first turn.
+The composed prompt is split into the runtime's system-prompt and first-turn channels in `router/prompt.rs`, then delivered by the adapter in `runtimes/<name>/`. Claude Code, Codex, TRAE and Copilot preserve their existing byte-identical first turns: a positional argument where accepted, `-i <body>` for Copilot and Antigravity, or a verified paste after a Windows batch wrapper is ready; genuine resumes suppress that first turn. Pi instead receives `--append-system-prompt <app data>/session-prompts/<Runner session id>.md` on every fresh spawn and resume. Runner rewrites that file from the recorded role text on Resume, or the current role on spawn and Restart, together with the crew and roster rows, removes it when the session ends, and sweeps leftovers at startup. A Pi direct chat and worker have no first turn; only the lead's `== Mission ==` section follows `--` as its first turn.
 
-Every fresh mission-slot spawn carries the cold-start composed prompt: `compose_launch_prompt` for the lead (brief, crew conventions, roster, and latest mission goal), or `compose_worker_first_turn` for a worker (coordination preamble, crew conventions, and brief). This includes Restart and a manual Resume that falls back to fresh because a Claude, Copilot, Pi or Antigravity conversation file is missing or Codex/TRAE/Antigravity has no captured key. A genuine conversation resume sends no first turn; Pi still refreshes its system-prompt file so role edits take effect. Fresh Codex/TRAE respawns receive a new capture marker; Windows batch wrappers queue the same body through the existing first-turn delivery fallback.
+Every fresh mission-slot spawn carries the cold-start composed prompt: `compose_launch_prompt` for the lead (brief, crew conventions, roster, and latest mission goal), or `compose_worker_first_turn` for a worker (coordination preamble, crew conventions, and brief). This includes Restart and a manual Resume that falls back to fresh because a Claude, Copilot, Pi or Antigravity conversation file is missing or Codex/TRAE/Antigravity has no captured key. A genuine conversation resume sends no first turn; Pi still refreshes its system-prompt file from the recorded role text. Fresh Codex/TRAE respawns receive a new capture marker; Windows batch wrappers queue the same body through the existing first-turn delivery fallback.
 
 Each mission session is independent: one session's exit or failed spawn never stops another. A clean exit marks only that session stopped; a crash or failed spawn marks only that session crashed and emits `session/exit`. Live siblings continue running, queued slots continue spawning, and the mission stays `running`. Stop all, mission stop and Archive still kill every session and cancel queued spawns; role deletion still kills every session for that role. Mission start's synchronous registration phase remains all-or-nothing.
 
@@ -678,6 +682,8 @@ On Windows, release builds add exactly the sidecar directory to `HKCU\Environmen
 
 ### 10.1 SQLite (config + session lifecycle)
 
+Migration 0026 records each existing session's next-resume launch definition inside the migration transaction, including archived rows and runtime-only chats and shells. Migration 0027 then drops the six process-host fields and the three override fields it replaces. Resume refuses a row without a definition with `session … has no launch definition`; it never falls back to the current role. Each successful launch records `pid` and its resolved `agent_command` together for the startup orphan sweep.
+
 Migration `0025` removes the unused crew purpose and default goal columns. Older Runner versions still select those columns, so they cannot use a database after this migration. Downgrading requires a database backup made before migration; the column drop cannot be reversed to recover their contents.
 
 ```sql
@@ -759,10 +765,10 @@ sessions (
   status TEXT NOT NULL,               -- running | stopped | crashed
   pid INTEGER,
   started_at TEXT, stopped_at TEXT,
-  runtime TEXT, runtime_socket TEXT, runtime_session TEXT,      -- live handle metadata
-  runtime_window TEXT, runtime_pane TEXT, runtime_cursor INTEGER, -- (legacy tmux columns, unused)
   agent_session_key TEXT,             -- the agent CLI's own conversation id, for Resume
-  agent_runtime TEXT, agent_command TEXT, agent_model TEXT, agent_effort TEXT,
+  agent_runtime TEXT,                -- recorded runtime; SQL filters use this column
+  agent_command TEXT,                -- resolved executable for the recorded pid
+  launch_definition_json TEXT,       -- versioned configured inputs; NULL = unconvertible legacy row
   live_title TEXT,                    -- the agent's own conversation title, when it reports one
   last_cols INTEGER, last_rows INTEGER,   -- last applied PTY size (§5.8)
   resume_on_launch INTEGER NOT NULL DEFAULT 0,

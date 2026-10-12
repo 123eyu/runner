@@ -129,18 +129,23 @@ fn claude_direct_chat_fork_spawns_tui_directly_with_copied_row() {
         row.cwd = Some("/tmp".into());
         row.started_at = Some(now);
         row.agent_session_key = Some(source_key.clone());
-        row.agent_model = Some("opus".into());
-        row.agent_effort = Some("max".into());
+        row.agent_runtime = Some(persisted_role.runtime.clone());
+        row.launch_definition = Some(crate::session::launch_definition::from_effective(
+            &persisted_role,
+        ));
+        row.launch_definition.as_mut().unwrap().model = Some("opus".into());
+        row.launch_definition.as_mut().unwrap().effort = Some("max".into());
         row.title = Some("Source".into());
         row.last_cols = Some(90);
         row.last_rows = Some(30);
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
         project.id
     };
     let source_before = crate::repo::session::get_row(&pool.get().unwrap(), &source_id)
         .unwrap()
         .unwrap();
 
+    pool.get().unwrap().execute("UPDATE roles SET command = 'edited-command', args_json = '[\"edited-arg\"]', env_json = '{\"FORK_TEST_ENV\":\"edited-env\"}', model = 'edited-model', effort = 'high', system_prompt = 'Edited persona', runtime = 'codex' WHERE id = ?1", [&role_id]).unwrap();
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let events = capture();
@@ -171,9 +176,8 @@ fn claude_direct_chat_fork_spawns_tui_directly_with_copied_row() {
     assert_eq!(fork.role_id.as_deref(), Some(role_id.as_str()));
     assert_eq!(fork.cwd.as_deref(), Some("/tmp"));
     assert_eq!(fork.agent_runtime, source_before.agent_runtime);
-    assert_eq!(fork.agent_command, source_before.agent_command);
-    assert_eq!(fork.agent_model, source_before.agent_model);
-    assert_eq!(fork.agent_effort, source_before.agent_effort);
+    assert_eq!(fork.agent_command.as_deref(), Some(command.as_str()));
+    assert_eq!(fork.launch_definition, source_before.launch_definition);
     assert_eq!(fork.title.as_deref(), Some("Source (fork)"));
     assert_eq!(fork.last_cols, Some(120));
     assert_eq!(fork.last_rows, Some(40));
@@ -269,10 +273,13 @@ fn codex_direct_chat_fork_captures_headless_key_then_resumes_without_watcher() {
         row.agent_session_key = Some(source_key.clone());
         row.agent_runtime = Some("codex".into());
         row.agent_command = Some(command.clone());
-        row.agent_model = Some("gpt-5.6-sol".into());
-        row.agent_effort = Some("xhigh".into());
+        row.launch_definition = Some(crate::session::launch_definition::from_effective(
+            &persisted_role,
+        ));
+        row.launch_definition.as_mut().unwrap().model = Some("gpt-5.6-sol".into());
+        row.launch_definition.as_mut().unwrap().effort = Some("xhigh".into());
         row.title = Some("Codex".into());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
     }
 
     let fake = fake_runtime();
@@ -320,8 +327,14 @@ fn codex_direct_chat_fork_captures_headless_key_then_resumes_without_watcher() {
         .unwrap();
     assert_eq!(fork.agent_runtime.as_deref(), Some("codex"));
     assert_eq!(fork.agent_command.as_deref(), Some(command.as_str()));
-    assert_eq!(fork.agent_model.as_deref(), Some("gpt-5.6-sol"));
-    assert_eq!(fork.agent_effort.as_deref(), Some("xhigh"));
+    assert_eq!(
+        fork.launch_definition.as_ref().unwrap().model.as_deref(),
+        Some("gpt-5.6-sol")
+    );
+    assert_eq!(
+        fork.launch_definition.as_ref().unwrap().effort.as_deref(),
+        Some("xhigh")
+    );
     assert_eq!(fork.agent_session_key.as_deref(), Some(fork_key.as_str()));
     mgr.kill(&spawned.id).unwrap();
 }
@@ -342,8 +355,10 @@ fn fork_materialization_missing_thread_event_removes_row_and_tab() {
         row.agent_session_key = Some(source_key);
         row.agent_runtime = Some("codex".into());
         row.agent_command = Some(command);
-        crate::repo::session::insert(&conn, &row).unwrap();
-        row
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
+        crate::repo::session::get_row(&conn, &source_id)
+            .unwrap()
+            .unwrap()
     };
     let events = Arc::new(RepairingCapture {
         pool: Arc::clone(&pool),
@@ -511,7 +526,7 @@ fn fork_refuses_ineligible_source_rows() {
             if id == "fork-archived-source" {
                 row.archived_at = Some(now);
             }
-            crate::repo::session::insert(&conn, &row).unwrap();
+            crate::test_support::insert_session_row(&conn, &row).unwrap();
         }
     }
 

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn pi_direct_spawn_and_relocated_agent_dir_resume_use_live_prompt_file_and_never_approve() {
+fn pi_direct_spawn_and_relocated_agent_dir_resume_use_recorded_prompt_file_and_never_approve() {
     let pool = pool_with_schema();
     let app_data = tempfile::tempdir().unwrap();
     crate::runtimes::pi::pi_status::install_extension(app_data.path()).unwrap();
@@ -154,7 +154,7 @@ fn pi_direct_spawn_and_relocated_agent_dir_resume_use_live_prompt_file_and_never
     assert!(stale_rekey.exists());
     assert!(!resumed.args.iter().any(|arg| arg == "--"));
     assert!(!resumed.args.iter().any(|arg| arg == "--approve"));
-    assert_eq!(std::fs::read_to_string(&prompt_path).unwrap(), "PERSONA_V2");
+    assert_eq!(std::fs::read_to_string(&prompt_path).unwrap(), "PERSONA_V1");
     assert_eq!(
         crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
             .unwrap()
@@ -466,7 +466,7 @@ fn pi_direct_fork_uses_native_args_and_gets_its_own_prompt_file() {
     source.cwd = Some(app_data.path().to_string_lossy().into_owned());
     source.agent_session_key = Some(source_key.clone());
     source.status = crate::model::SessionStatus::Stopped;
-    crate::repo::session::insert(&pool.get().unwrap(), &source).unwrap();
+    crate::test_support::insert_session_row(&pool.get().unwrap(), &source).unwrap();
 
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));

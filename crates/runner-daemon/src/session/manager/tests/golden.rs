@@ -441,7 +441,7 @@ fn fork_goldens() {
         source.status = crate::model::SessionStatus::Stopped;
         source.agent_session_key = Some(source_key.clone());
         source.title = Some("Golden source".into());
-        crate::repo::session::insert(&pool.get().unwrap(), &source).unwrap();
+        crate::test_support::insert_session_row(&pool.get().unwrap(), &source).unwrap();
         let fake = fake_runtime();
         let mgr = mgr_with_fake(None, Arc::clone(&fake));
         let (snapshot, effects) = with_conversation_home(root, || {
@@ -662,7 +662,7 @@ fn catalog_speed_golden() {
                         .into_iter()
                         .filter(|arg| arg == "-c" || arg.starts_with("service_tier="))
                         .collect();
-                    rows.push(json!({"runtime":runtime,"role_input":speed,"slot_input":slot_speed,"role_stored":crate::ops::role::get(&pool.get().unwrap(),&configured.id).unwrap().codex_speed,"slot_stored":updated.slot.codex_speed_override,"session_stored":stored.agent_speed,"speed_args":args}));
+                    rows.push(json!({"runtime":runtime,"role_input":speed,"slot_input":slot_speed,"role_stored":crate::ops::role::get(&pool.get().unwrap(),&configured.id).unwrap().codex_speed,"slot_stored":updated.slot.codex_speed_override,"session_stored":stored.launch_definition.as_ref().unwrap().codex_speed,"speed_args":args}));
                     mgr.kill(&spawned.id).unwrap();
                 });
             }

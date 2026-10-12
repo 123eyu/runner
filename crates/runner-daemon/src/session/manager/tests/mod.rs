@@ -10,6 +10,7 @@ mod golden;
 mod grok;
 mod hook_status;
 mod input;
+mod launch_definition;
 mod launch_gate;
 mod mission_lifecycle;
 #[cfg(unix)]
@@ -131,7 +132,6 @@ fn manager_with_runtime(
 #[derive(Default)]
 struct FakeRuntime {
     spawns: std::sync::Mutex<Vec<FakeSpawn>>,
-    #[cfg(unix)]
     spawn_failure_handle: std::sync::Mutex<Option<String>>,
     inputs: std::sync::Mutex<Vec<FakeInput>>,
     stops: std::sync::Mutex<Vec<String>>,
@@ -280,7 +280,6 @@ impl FakeRuntime {
 
 impl SessionRuntime for FakeRuntime {
     fn spawn(&self, spec: SpawnSpec) -> RuntimeResult<(RuntimeSession, OutputStream)> {
-        #[cfg(unix)]
         if self
             .spawn_failure_handle
             .lock()
@@ -793,7 +792,7 @@ fn slot_respawn_fixture(runtime: &str, lead: bool) -> (Arc<DbPool>, tempfile::Te
     row.status = crate::model::SessionStatus::Stopped;
     row.cwd = Some(app_data.path().to_string_lossy().into_owned());
     row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
-    crate::repo::session::insert(&conn, &row).unwrap();
+    crate::test_support::insert_session_row(&conn, &row).unwrap();
     let log = open_mission_event_log(app_data.path(), &mission.crew_id, &mission.id).unwrap();
     log.append(runner_core::model::EventDraft::signal(
         mission.crew_id,

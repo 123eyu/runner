@@ -141,6 +141,18 @@ impl Fixture {
         conn.execute("INSERT INTO missions (id,crew_id,title,status,started_at,stopped_at,archived_at) VALUES (?1,?2,'Archived mission','completed',?3,?3,?3)", [ARCHIVED,CREW,STAMP]).unwrap();
         conn.execute("INSERT INTO sessions (id,role_id,project_id,cwd,status,started_at,stopped_at,title,agent_runtime,agent_command) VALUES (?1,'role-coder','project-fixture',?2,'stopped',?3,?3,'Fixture chat','codex','missing-fixture-agent')", [SESSION,self.directory.join("not-a-directory").to_str().unwrap(),STAMP]).unwrap();
         conn.execute("INSERT INTO sessions (id,mission_id,role_id,slot_id,cwd,status,started_at,stopped_at,agent_runtime,agent_command) VALUES ('session-mission',?1,'role-coder','slot-coder',?2,'stopped',?3,?3,'codex','missing-fixture-agent')", [MISSION,self.directory.as_path().to_str().unwrap(),STAMP]).unwrap();
+        let definition = runner_daemon::model::LaunchDefinition {
+            command: "missing-fixture-agent".into(),
+            args: vec![],
+            env: Default::default(),
+            model: Some("fixture-model".into()),
+            effort: Some("high".into()),
+            codex_speed: Some(runner_daemon::model::CodexSpeed::Fast),
+            system_prompt: Some("Fixture prompt".into()),
+        };
+        for id in [SESSION, "session-mission"] {
+            runner_daemon::repo::session::set_launch(&conn, id, "codex", &definition).unwrap();
+        }
         conn.execute("INSERT INTO nodes (id,parent_id,position,type,ref_id,created_at) VALUES ('node-project',NULL,0,'project','project-fixture',?1)", [STAMP]).unwrap();
         conn.execute("INSERT INTO nodes (id,parent_id,position,type,ref_id,created_at) VALUES ('node-mission','node-project',0,'mission',?1,?2)", [MISSION,STAMP]).unwrap();
         conn.execute("INSERT INTO nodes (id,parent_id,position,type,ref_id,created_at) VALUES ('node-active',NULL,1,'mission','mission-running',?1)", [STAMP]).unwrap();
@@ -976,4 +988,70 @@ fn built_follower_receives_appends_and_reports_disconnect_with_its_last_cursor()
         lines.try_iter().next().is_none(),
         "duplicate event after the initial drain"
     );
+}
+
+#[test]
+fn session_show_text_and_json_keep_launch_values_after_role_edit() {
+    const MISSION_SESSION: &str = "01M4R000000000000000000000";
+    let mut fixture = Fixture::new();
+    {
+        let pool = runner_daemon::db::open_pool(&fixture.data.join("runner.db")).unwrap();
+        let conn = pool.get().unwrap();
+        conn.execute("UPDATE roles SET runtime = 'pi', command = 'edited-command', model = 'edited-model', effort = 'max', runtime_options_json = NULL WHERE id = 'role-coder'", []).unwrap();
+        conn.execute(
+            "UPDATE sessions SET id = ?1 WHERE id = 'session-mission'",
+            [MISSION_SESSION],
+        )
+        .unwrap();
+        for id in [SESSION, MISSION_SESSION] {
+            let mut definition = runner_daemon::repo::session::get_row(&conn, id)
+                .unwrap()
+                .unwrap()
+                .launch_definition
+                .unwrap();
+            definition
+                .env
+                .insert("API_KEY".into(), "SECRET_878_SENTINEL".into());
+            runner_daemon::repo::session::set_launch(&conn, id, "codex", &definition).unwrap();
+        }
+    }
+    fixture.start();
+    for id in [SESSION, MISSION_SESSION] {
+        let text = fixture
+            .command(false)
+            .args(["session", "show", id])
+            .output()
+            .unwrap();
+        assert!(
+            text.status.success(),
+            "{id}: {}",
+            String::from_utf8_lossy(&text.stderr)
+        );
+        let text = String::from_utf8(text.stdout).unwrap();
+        for expected in ["missing-fixture-agent", "fixture-model", "high", "fast"] {
+            assert!(text.contains(expected), "{text}");
+        }
+        assert!(!text.contains("edited"));
+        let output = fixture
+            .command(false)
+            .args(["session", "show", id, "--json"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{id}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(json["agent_runtime"], "codex");
+        assert_eq!(json["agent_command"], "missing-fixture-agent");
+        assert_eq!(json["agent_model"], "fixture-model");
+        assert_eq!(json["agent_effort"], "high");
+        assert_eq!(json["agent_speed"], "fast");
+        assert!(json.get("launch_definition").is_none());
+        assert!(json.get("launch_definition_json").is_none());
+        assert!(!String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("SECRET_878_SENTINEL"));
+    }
 }
