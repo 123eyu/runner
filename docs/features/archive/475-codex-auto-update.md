@@ -4,7 +4,7 @@ Tracking issue: [#475](https://github.com/yicheng47/runner/issues/475). Status: 
 
 ## Problem
 
-Codex can display an interactive update prompt before starting a conversation. Accepting the update installs the new version and exits the process, leaving a direct chat on **Chat paused**. In a running mission, the normal exit cleanup can also stop sibling sessions.
+Codex can display an interactive update prompt before starting a conversation. Accepting the update installs the new version and exits the process, leaving a direct chat on **Chat paused**. At the time of this fix, mission exit cleanup could also stop sibling sessions; #562 later made each mission session independent, so only the exiting slot pauses.
 
 ## Decision
 

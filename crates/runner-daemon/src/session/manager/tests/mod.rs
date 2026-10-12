@@ -131,6 +131,8 @@ fn manager_with_runtime(
 #[derive(Default)]
 struct FakeRuntime {
     spawns: std::sync::Mutex<Vec<FakeSpawn>>,
+    #[cfg(unix)]
+    spawn_failure_handle: std::sync::Mutex<Option<String>>,
     inputs: std::sync::Mutex<Vec<FakeInput>>,
     stops: std::sync::Mutex<Vec<String>>,
     stop_failures: std::sync::Mutex<HashSet<String>>,
@@ -278,6 +280,16 @@ impl FakeRuntime {
 
 impl SessionRuntime for FakeRuntime {
     fn spawn(&self, spec: SpawnSpec) -> RuntimeResult<(RuntimeSession, OutputStream)> {
+        #[cfg(unix)]
+        if self
+            .spawn_failure_handle
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|handle| spec.env.get("RUNNER_HANDLE") == Some(handle))
+        {
+            return Err(RuntimeError::Msg("injected spawn failure".into()));
+        }
         let (tx, rx) = std::sync::mpsc::channel::<RuntimeOutput>();
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let rt_session = RuntimeSession {
