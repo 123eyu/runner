@@ -168,6 +168,7 @@ The crew's team conventions — feature branch first, review before any commit, 
 For weirder, more fun crew shapes, peek at [`examples/`](./examples/):
 
 - [`pair-coding/`](./examples/pair-coding/) — the default coder / reviewer pair above
+- [`codex-trio/`](./examples/codex-trio/) — the pair above plus a QA slot that builds the reviewed revision and tests it in the live app
 - [`dev-crew/`](./examples/dev-crew/) — an architect / impl / reviewer trio: one decomposes, one builds, one audits
 - [`docs-crew/`](./examples/docs-crew/) — architect partitions a complex repo, 2+ writers draft per-module docs in parallel, editor harmonizes
 - [`tic-tac-toe/`](./examples/tic-tac-toe/) — 2 agents + 1 referee actually playing a game against each other

@@ -168,6 +168,7 @@ Runner 会在 `PATH` 上检测各个 CLI，也可以在 **Settings → Agents** 
 想看更奇特、更有趣的 crew 形态，去 [`examples/`](./examples/) 逛逛：
 
 - [`pair-coding/`](./examples/pair-coding/) — 上面默认的 coder / reviewer 搭档
+- [`codex-trio/`](./examples/codex-trio/) — 在上面的搭档基础上加一个 QA 槽位，构建审查通过的版本并在真实应用里测试
 - [`dev-crew/`](./examples/dev-crew/) — 架构师 / 实现者 / 审查者三人组：一个拆解，一个构建，一个审计
 - [`docs-crew/`](./examples/docs-crew/) — 架构师划分一个复杂仓库，两个以上的写手并行起草各模块文档，编辑统一风格
 - [`tic-tac-toe/`](./examples/tic-tac-toe/) — 两个 agent 加一个裁判，真的在互相下棋
