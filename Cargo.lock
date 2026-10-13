@@ -5202,7 +5202,7 @@ dependencies = [
 
 [[package]]
 name = "runner-app"
-version = "0.15.3"
+version = "0.16.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -5235,7 +5235,7 @@ dependencies = [
 
 [[package]]
 name = "runner-cli"
-version = "0.15.3"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "clap",
@@ -5255,7 +5255,7 @@ dependencies = [
 
 [[package]]
 name = "runner-core"
-version = "0.15.3"
+version = "0.16.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5278,7 +5278,7 @@ dependencies = [
 
 [[package]]
 name = "runner-daemon"
-version = "0.15.3"
+version = "0.16.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -5316,7 +5316,7 @@ dependencies = [
 
 [[package]]
 name = "runner-terminal"
-version = "0.15.3"
+version = "0.16.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
