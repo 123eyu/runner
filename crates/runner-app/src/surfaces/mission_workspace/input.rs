@@ -74,6 +74,16 @@ impl MissionWorkspace {
         self.cache_active_terminal_size(window, cx);
         self.schedule_mission_grid_hint(window, cx);
         self.clear_feed_selection();
+        if !self.secondary {
+            if let Some(mission_id) = self.mission_id.clone() {
+                self.update_app_settings(cx, true, move |settings| {
+                    settings
+                        .last_mission_terminal_ids
+                        .remove(&mission_id)
+                        .is_some()
+                });
+            }
+        }
         self.active_tab = MissionTab::Feed;
         if self.feed_was_near_bottom {
             self.feed_scroll.scroll_to_bottom();

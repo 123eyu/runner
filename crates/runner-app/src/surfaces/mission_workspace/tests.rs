@@ -596,6 +596,67 @@ fn mission_tab_shortcuts_cycle_feed_and_open_slots() {
         Some(MissionTab::Feed)
     );
 }
+
+#[test]
+fn selecting_feed_forgets_the_remembered_session_so_reopening_restores_feed() {
+    use gpui::{TestAppContext, WeakEntity};
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    store.update(&mut cx, |store, cx| {
+        store.update_settings(
+            |settings| {
+                settings
+                    .last_mission_terminal_ids
+                    .insert("mission".into(), "coder".into());
+                settings
+                    .last_mission_terminal_ids
+                    .insert("other".into(), "reviewer".into());
+                true
+            },
+            false,
+            cx,
+        );
+    });
+    let visual = cx.add_empty_window();
+    let workspace = visual.update(|window, cx| {
+        cx.new(|cx| {
+            let mut workspace = MissionWorkspace::new(
+                "feed-memory".into(),
+                WeakEntity::new_invalid(),
+                store.clone(),
+                window,
+                cx,
+            );
+            workspace.mission_id = Some("mission".into());
+            workspace.secondary = true;
+            workspace
+        })
+    });
+    let remembered = |visual: &mut gpui::VisualTestContext| {
+        workspace.read_with(visual, |workspace, cx| {
+            workspace.settings(cx).last_mission_terminal_ids.clone()
+        })
+    };
+
+    workspace.update_in(visual, |workspace, window, cx| {
+        workspace.select_mission_feed(window, cx)
+    });
+    assert_eq!(
+        remembered(visual).get("mission").map(String::as_str),
+        Some("coder"),
+        "a secondary window's feed does not change the primary's memory"
+    );
+
+    workspace.update_in(visual, |workspace, window, cx| {
+        workspace.secondary = false;
+        workspace.select_mission_feed(window, cx)
+    });
+    assert_eq!(
+        remembered(visual),
+        [("other".to_owned(), "reviewer".to_owned())].into()
+    );
+}
 #[test]
 fn slot_rail_actions_match_status() {
     assert_eq!(
