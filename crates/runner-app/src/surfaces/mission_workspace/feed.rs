@@ -54,13 +54,16 @@ impl MissionWorkspace {
         let root = cx.entity();
         let feed_root = root.clone();
         let mut strip = div()
+            .id("mission-tabs")
             .debug_selector(|| "MISSION_TABS".into())
             .h(rems(WORKSPACE_TABS_HEIGHT / 16.))
+            .w_full()
             .flex_none()
             .px_4()
             .flex()
             .items_center()
             .gap_1()
+            .overflow_x_scroll()
             .border_b_1()
             .border_color(theme::border())
             .map(|element| {
@@ -93,14 +96,18 @@ impl MissionWorkspace {
                 let close_id = session_id.clone();
                 let select_root = root.clone();
                 let close_root = root.clone();
-                strip = strip.child(Tooltip::new(
+                let tab = Tooltip::new(
                     SharedString::from(format!("mission-tab-tooltip-{session_id}")),
                     self.session_title_tooltip(session, cx),
                     div()
                         .id(SharedString::from(format!("mission-tab-{session_id}")))
+                        .debug_selector({
+                            let session_id = session_id.clone();
+                            move || format!("MISSION_TAB {session_id}")
+                        })
                         .relative()
                         .h(rems(28. / 16.))
-                        .flex_none()
+                        .min_w(px(0.))
                         .px(rems(12. / 16.))
                         .flex()
                         .items_center()
@@ -150,6 +157,7 @@ impl MissionWorkspace {
                                 )))
                                 .group("mission-tab-close")
                                 .size_4()
+                                .flex_none()
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -180,7 +188,13 @@ impl MissionWorkspace {
                                 this.select_mission_session(&select_id, window, cx)
                             });
                         }),
-                ));
+                );
+                strip = strip.child(
+                    div()
+                        .min_w(rems(MISSION_TAB_MIN_WIDTH / 16.))
+                        .overflow_hidden()
+                        .child(tab),
+                );
             }
         }
         strip.into_any_element()

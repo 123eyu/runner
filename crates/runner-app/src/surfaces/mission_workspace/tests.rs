@@ -757,6 +757,59 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
             );
         }
     }
+
+    let handles = [
+        "coder",
+        "reviewer-with-a-long-handle",
+        "qa-with-a-long-handle",
+    ];
+    host.update(&mut visual, |root, _, cx| {
+        root.mission_workspace.update(cx, |workspace, cx| {
+            workspace.sessions = handles
+                .iter()
+                .map(|handle| SessionRow {
+                    session: runner_core::protocol::model::Session {
+                        id: format!("slot-{handle}"),
+                        mission_id: Some("mission".into()),
+                        role_id: "role".into(),
+                        slot_id: None,
+                        cwd: None,
+                        status: SessionStatus::Running,
+                        pid: None,
+                        started_at: None,
+                        stopped_at: None,
+                    },
+                    handle: (*handle).into(),
+                    lead: *handle == "coder",
+                    runtime: "codex".into(),
+                    live_title: None,
+                    agent_session_key: None,
+                })
+                .collect();
+            workspace.open_tabs = handles
+                .iter()
+                .map(|handle| format!("slot-{handle}"))
+                .collect();
+            cx.notify();
+        });
+    })
+    .unwrap();
+    visual.simulate_resize(size(px(1100.), px(900.)));
+    cx.run_until_parked();
+    let strip = visual.debug_bounds("MISSION_TABS").unwrap();
+    for selector in [
+        "MISSION_TAB slot-coder",
+        "MISSION_TAB slot-reviewer-with-a-long-handle",
+        "MISSION_TAB slot-qa-with-a-long-handle",
+    ] {
+        let tab = visual
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("missing {selector}"));
+        assert!(
+            tab.left() >= strip.left() && tab.right() <= strip.right(),
+            "{selector} {tab:?} escapes the tab strip {strip:?}"
+        );
+    }
 }
 
 struct MissionRailLayoutTest {
