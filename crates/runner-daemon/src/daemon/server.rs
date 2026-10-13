@@ -586,6 +586,19 @@ async fn write_frame(write: &mut (impl tokio::io::AsyncWrite + Unpin), frame: Fr
     tokio::time::timeout(Duration::from_secs(10), write.write_all(&frame.encode()?)).await??;
     Ok(())
 }
+fn response_frame(id: u64, response: Response) -> std::io::Result<Frame> {
+    let frame = Frame::json(wire::RESPONSE, &wire::Reply { id, response })?;
+    match frame.check_size() {
+        Ok(_) => Ok(frame),
+        Err(error) => Frame::json(
+            wire::REQUEST_ERROR,
+            &wire::RequestError {
+                id,
+                message: format!("response too large from runnerd: {error}"),
+            },
+        ),
+    }
+}
 async fn connection(
     stream: IpcStream,
     core: AppCore,
@@ -758,7 +771,7 @@ async fn connection(
                             tokio::task::spawn_blocking(move || {
                                 if cancel.is_cancelled() { return; }
                                 let Some(response) = windows.dispatch(call.request) else { return; };
-                                if let Ok(frame) = Frame::json(wire::RESPONSE, &wire::Reply { id: call.id, response }) { let _ = tx.blocking_send(frame); }
+                                if let Ok(frame) = response_frame(call.id, response) { let _ = tx.blocking_send(frame); }
                             });
                         }
                         wire::ATTACH => {
@@ -908,6 +921,87 @@ pub(super) async fn os_shutdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn oversized_response_fails_only_its_call_and_connection_serves_next_request() {
+        let root = tempfile::tempdir().unwrap();
+        let core = crate::test_support::test_core_in(root.path().to_owned());
+        core.windows.set_subjects(
+            "fixture",
+            vec![crate::windows::Subject::DirectChat(
+                "x".repeat(wire::MAX_FRAME),
+            )],
+        );
+        #[cfg(unix)]
+        let endpoint = IpcEndpoint(root.path().join("runnerd.sock"));
+        #[cfg(windows)]
+        let endpoint = IpcEndpoint(std::path::PathBuf::from(format!(
+            r"\\.\pipe\runner-oversized-response-test-{}",
+            root.path().file_name().unwrap().to_string_lossy()
+        )));
+        let mut listener = IpcListener::bind(&endpoint).unwrap();
+        let shutdown = CancellationToken::new();
+        let server_shutdown = shutdown.clone();
+        let server_core = core.clone();
+        let server = tokio::spawn(async move {
+            let stream = listener.accept().await.unwrap();
+            let windows = Arc::new(ConnectionWindows {
+                core: server_core.clone(),
+                owners: Arc::new(Mutex::default()),
+                id: 1,
+                closed: AtomicBool::new(false),
+            });
+            let (_report, resume_report) = tokio::sync::watch::channel(None);
+            connection(
+                stream,
+                server_core,
+                wire::Welcome {
+                    exe_sha256: "hash".into(),
+                    pid: 1,
+                    started_at: "now".into(),
+                },
+                server_shutdown,
+                true,
+                windows,
+                resume_report,
+            )
+            .await
+        });
+        let client_core = core.clone();
+        let client_shutdown = shutdown.clone();
+        tokio::task::spawn_blocking(move || {
+            let socket = runner_core::protocol::socket::SocketTransport::connect(
+                &endpoint,
+                wire::Hello {
+                    exe_sha256: "hash".into(),
+                    client: "test".into(),
+                },
+            )
+            .unwrap();
+            let mut events = socket.event_stream();
+            let error = socket.client().window_snapshot().unwrap_err();
+            assert_eq!(
+                error.message,
+                "response too large from runnerd: frame too large (64.0 MB, limit 64 MB)"
+            );
+            assert!(!socket.is_closed());
+            assert_eq!(socket.client().app_version().unwrap(), "0.0.0-test");
+            assert!(!socket.is_closed());
+            assert!(matches!(
+                events.try_recv(),
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+            ));
+            client_core.windows.unregister("fixture");
+            client_shutdown.cancel();
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn client_accept_errors_back_off_and_preserve_live_sessions() {
