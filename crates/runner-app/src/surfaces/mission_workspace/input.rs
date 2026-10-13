@@ -263,39 +263,19 @@ impl MissionWorkspace {
             return;
         };
         match paste {
-            runner_app::terminal_paste::TerminalPaste::Image(image) => {
-                let Some(terminal) = self
-                    .attached
-                    .get(session_id)
-                    .map(|chat| Arc::clone(&chat.terminal))
-                else {
-                    return;
-                };
+            runner_app::terminal_paste::TerminalPaste::Image => {
                 let runtime = self
                     .sessions
                     .iter()
                     .find(|row| row.session.id == session_id)
                     .and_then(|row| runner_core::Runtime::parse(&row.runtime));
-                let client = self.core(cx).clone();
-                let paste = cx.background_spawn(async move {
-                    let input =
-                        runner_app::terminal_paste::prepare_image_paste(&client, image, runtime)
-                            .map_err(|error| error.to_string())?;
-                    terminal
-                        .write_user_bytes(input)
-                        .map_err(|error| error.to_string())
-                });
-                cx.spawn(async move |weak, cx| {
-                    let result = paste.await;
-                    let _ = weak.update(cx, |this, cx| {
-                        match result {
-                            Ok(()) => this.error = None,
-                            Err(error) => this.error = Some(error.to_string()),
-                        }
-                        cx.notify();
-                    });
-                })
-                .detach();
+                let Some(chat) = self.attached.get(session_id) else {
+                    return;
+                };
+                let input = runner_app::terminal_paste::image_paste_shortcut(runtime);
+                if let Err(error) = chat.terminal.write_user_bytes(input) {
+                    self.error = Some(error.to_string());
+                }
             }
             runner_app::terminal_paste::TerminalPaste::Text(text) => {
                 let Some(chat) = self.attached.get(session_id) else {

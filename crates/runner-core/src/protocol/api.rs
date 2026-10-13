@@ -162,7 +162,6 @@ macro_rules! daemon_api {
         file_link_environment() -> (String, HashMap<String, bool>) [false] => |core: &crate::AppCore| { let snapshot = crate::daemon::discovery_snapshot(core)?; let path = crate::runtime_status::direct_chat_path(&snapshot.shell_env); let found = ["zed", "code", "cursor"].into_iter().map(|command| (command.to_owned(), crate::runtime_status::find_executable(command, &path).is_some())).collect(); Ok((path, found)) };
 
         session_clipboard_file_paths() -> Vec<String> [false] => |_core: &crate::AppCore| { Ok(crate::ops::session::session_clipboard_file_paths()) };
-        session_paste_image(bytes: Vec<u8> => Vec<u8> = { bytes }, mime_type: &str => String = { mime_type.to_owned() }) -> () [false] => |_core: &crate::AppCore, bytes: Vec<u8>, mime_type: String| { crate::ops::session::session_paste_image(bytes, &mime_type) };
         session_details() -> BTreeMap<String, DirectSessionEntry> [false] =>
         |core: &crate::AppCore| { crate::ops::session::session_list_recent_direct(core)?.into_iter().filter_map(|entry| match crate::ops::session::session_get(core, &entry.session_id) { Ok(Some(detail)) => Some(Ok((entry.session_id, detail))), Ok(None) => None, Err(error) => Some(Err(error)) }).collect::<crate::error::Result<BTreeMap<String, DirectSessionEntry>>>() };
     } };

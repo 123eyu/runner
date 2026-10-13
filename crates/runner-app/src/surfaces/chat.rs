@@ -1497,37 +1497,17 @@ impl NativeRoot {
             return;
         };
         match paste {
-            runner_app::terminal_paste::TerminalPaste::Image(image) => {
-                let Some(terminal) = self
-                    .attached
-                    .get(session_id)
-                    .map(|chat| Arc::clone(&chat.terminal))
-                else {
-                    return;
-                };
+            runner_app::terminal_paste::TerminalPaste::Image => {
                 let runtime = self
                     .session_entry(session_id, cx)
                     .and_then(|entry| Runtime::parse(&entry.agent_runtime));
-                let client = self.core(cx).clone();
-                let paste = cx.background_spawn(async move {
-                    let input =
-                        runner_app::terminal_paste::prepare_image_paste(&client, image, runtime)
-                            .map_err(|error| error.to_string())?;
-                    terminal
-                        .write_user_bytes(input)
-                        .map_err(|error| error.to_string())
-                });
-                cx.spawn(async move |weak, cx| {
-                    let result = paste.await;
-                    let _ = weak.update(cx, |this, cx| {
-                        match result {
-                            Ok(()) => this.chat_error = None,
-                            Err(error) => this.chat_error = Some(error.to_string()),
-                        }
-                        cx.notify();
-                    });
-                })
-                .detach();
+                let Some(chat) = self.attached.get(session_id) else {
+                    return;
+                };
+                let input = runner_app::terminal_paste::image_paste_shortcut(runtime);
+                if let Err(error) = chat.terminal.write_user_bytes(input) {
+                    self.chat_error = Some(error.to_string());
+                }
             }
             runner_app::terminal_paste::TerminalPaste::Text(text) => {
                 let Some(chat) = self.attached.get(session_id) else {

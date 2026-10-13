@@ -158,93 +158,6 @@ pub fn session_resize(state: &AppCore, session_id: &str, cols: u16, rows: u16) -
     state.sessions.resize(session_id, cols, rows, &state.db)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PasteImageFormat {
-    extension: &'static str,
-    pasteboard_class: &'static str,
-}
-
-fn paste_image_format(mime_type: &str) -> Result<PasteImageFormat> {
-    let normalized = mime_type.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "image/png" => Ok(PasteImageFormat {
-            extension: "png",
-            pasteboard_class: "PNGf",
-        }),
-        "image/jpeg" | "image/jpg" => Ok(PasteImageFormat {
-            extension: "jpg",
-            pasteboard_class: "JPEG",
-        }),
-        _ => Err(Error::msg(format!(
-            "unsupported clipboard image type {mime_type:?}"
-        ))),
-    }
-}
-
-/// Restore NSPasteboard from the image bytes the GPUI clipboard API returned,
-/// so the agent CLI reads the original image and renders its native
-/// `[Image x]` placeholder in the prompt.
-///
-/// The frontend sends the bytes and MIME type here before injecting Ctrl-V
-/// (`\x16`). We write them to a `NamedTempFile` and use `osascript` to set the
-/// matching NSPasteboard image flavor; the agent's paste-attach flow then runs
-/// unchanged. This restoration is macOS-only; other platforms are a no-op.
-pub fn session_paste_image(bytes: Vec<u8>, mime_type: &str) -> Result<()> {
-    let format = paste_image_format(mime_type)?;
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = bytes;
-        let _ = format;
-        Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        use std::io::Write;
-        // NamedTempFile so the file is removed on drop — pasted
-        // screenshots can be sensitive and shouldn't accumulate in
-        // $TMPDIR. The OS would eventually reap them, but explicit
-        // cleanup is cheaper and matches the value's lifetime:
-        // osascript reads the bytes into NSPasteboard synchronously,
-        // and after that we don't need the file.
-        let suffix = format!(".{}", format.extension);
-        let mut tmp = tempfile::Builder::new()
-            .prefix("runner-paste-")
-            .suffix(&suffix)
-            .tempfile_in(std::env::temp_dir())?;
-        tmp.write_all(&bytes)?;
-        tmp.flush()?;
-
-        let path_str = tmp.path().to_string_lossy();
-        // AppleScript: read the temp file's bytes and write them to
-        // NSPasteboard's matching image representation. The
-        // `pasteboard_class` values are fixed OSType codes selected
-        // from the MIME allowlist above. The `{:?}` debug format
-        // quotes the path with `\\` / `\"` escapes that AppleScript
-        // also accepts, so paths with spaces or quotes pass through
-        // safely.
-        let script = format!(
-            "set the clipboard to (read POSIX file {:?} as «class {}»)",
-            path_str, format.pasteboard_class
-        );
-        let status = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .status()
-            .map_err(|e| Error::msg(format!("osascript spawn failed: {e}")))?;
-        // tmp drops here either way — file is removed regardless of
-        // osascript's success.
-        if !status.success() {
-            return Err(Error::msg(format!(
-                "osascript exited with status {:?}",
-                status.code()
-            )));
-        }
-        Ok(())
-    }
-}
-
 /// Paths of files referenced by the platform clipboard, in clipboard order.
 pub fn session_clipboard_file_paths() -> Vec<String> {
     #[cfg(windows)]
@@ -1368,41 +1281,6 @@ mod tests {
         assert_eq!(counts.get(&Runtime::Shell), Some(&1));
         assert_eq!(counts.get(&Runtime::Copilot), None);
         assert_eq!(counts.values().sum::<usize>(), 5);
-    }
-
-    #[test]
-    fn paste_image_format_maps_png_and_jpeg_to_pasteboard_classes() {
-        assert_eq!(
-            paste_image_format("image/png").unwrap(),
-            PasteImageFormat {
-                extension: "png",
-                pasteboard_class: "PNGf",
-            }
-        );
-        assert_eq!(
-            paste_image_format("image/jpeg").unwrap(),
-            PasteImageFormat {
-                extension: "jpg",
-                pasteboard_class: "JPEG",
-            }
-        );
-    }
-
-    #[test]
-    fn paste_image_format_normalizes_case_and_jpg_alias() {
-        assert_eq!(
-            paste_image_format(" IMAGE/JPG ").unwrap(),
-            PasteImageFormat {
-                extension: "jpg",
-                pasteboard_class: "JPEG",
-            }
-        );
-    }
-
-    #[test]
-    fn paste_image_format_rejects_unsupported_image_types() {
-        let err = paste_image_format("image/gif").unwrap_err().to_string();
-        assert!(err.contains("unsupported clipboard image type"));
     }
 
     #[cfg(unix)]
