@@ -141,6 +141,16 @@ pub fn next_position(conn: &Connection, parent_id: Option<&str>) -> rusqlite::Re
     )
 }
 
+/// Position for a newly created tab or mission: the top of its scope, so
+/// the newest come first in a project and in RECENTS (#884).
+pub fn new_node_position(conn: &Connection, parent_id: Option<&str>) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(MIN(position) - 1, 0) FROM nodes WHERE parent_id IS ?1",
+        [parent_id],
+        |row| row.get(0),
+    )
+}
+
 pub fn create_tab(
     conn: &Connection,
     parent_id: Option<&str>,
@@ -170,11 +180,12 @@ fn create_ref_node(
     node_type: NodeType,
     ref_id: &str,
     parent_id: Option<&str>,
+    position: i64,
 ) -> rusqlite::Result<NodeRow> {
     let row = NodeRow {
         id: ulid::Ulid::new().to_string(),
         parent_id: parent_id.map(str::to_owned),
-        position: next_position(conn, parent_id)?,
+        position,
         node_type,
         name: None,
         ref_id: Some(ref_id.to_owned()),
@@ -207,12 +218,18 @@ pub fn find_by_ref(
 pub fn ensure_project_node(conn: &Connection, project_id: &str) -> rusqlite::Result<NodeRow> {
     match find_by_ref(conn, NodeType::Project, project_id)? {
         Some(row) => Ok(row),
-        None => create_ref_node(conn, NodeType::Project, project_id, None),
+        None => create_ref_node(
+            conn,
+            NodeType::Project,
+            project_id,
+            None,
+            next_position(conn, None)?,
+        ),
     }
 }
 
 /// Mission node, parented under the mission's project node when
-/// `project_id` is set, appended at the parent's end. Idempotent.
+/// `project_id` is set, first in its scope. Idempotent.
 pub fn ensure_mission_node(
     conn: &Connection,
     mission_id: &str,
@@ -225,7 +242,14 @@ pub fn ensure_mission_node(
         Some(project_id) => Some(ensure_project_node(conn, project_id)?.id),
         None => None,
     };
-    create_ref_node(conn, NodeType::Mission, mission_id, parent.as_deref())
+    let position = new_node_position(conn, parent.as_deref())?;
+    create_ref_node(
+        conn,
+        NodeType::Mission,
+        mission_id,
+        parent.as_deref(),
+        position,
+    )
 }
 
 /// Refused while the node has children, with the error the self-reference's
@@ -654,7 +678,7 @@ pub fn clear_unread_on_startup(
 ///   - every active direct session is covered by a tab or mission drawer
 ///     layout; uncovered sessions get a fresh single-slot tab node,
 ///     parented under their project's node when `project_id` is set,
-///     appended at the parent's end (original position not
+///     placed by `new_node_position` (original position not
 ///     remembered, matching pre-node archive/restore behavior).
 pub fn ensure_active_sessions(conn: &Connection) -> rusqlite::Result<()> {
     // Projects.
@@ -728,7 +752,7 @@ pub fn ensure_active_sessions(conn: &Connection) -> rusqlite::Result<()> {
             "sizes": {},
         })
         .to_string();
-        let position = next_position(conn, parent.as_deref())?;
+        let position = new_node_position(conn, parent.as_deref())?;
         create_tab(conn, parent.as_deref(), "", position, &layout)?;
     }
     Ok(())
@@ -1095,6 +1119,48 @@ mod tests {
             .find(|row| super::session_ids(row) == ["s2"])
             .unwrap();
         assert_eq!(loose.parent_id, None);
+    }
+
+    #[test]
+    fn new_tabs_and_missions_open_first_and_projects_join_the_end() {
+        let pool = db::open_in_memory().unwrap();
+        let conn = pool.get().unwrap();
+        let project = crate::repo::project::create(&conn, "A", "/tmp/a").unwrap();
+        let project_node = super::ensure_project_node(&conn, &project.id).unwrap();
+        for (session_id, mission_id) in [("s1", "m1"), ("s2", "m2")] {
+            insert_session(&conn, session_id, Some(&project.id));
+            insert_session(&conn, &format!("root-{session_id}"), None);
+            super::ensure_active_sessions(&conn).unwrap();
+            insert_mission(&conn, mission_id, Some(&project.id), false);
+            insert_mission(&conn, &format!("root-{mission_id}"), None, false);
+            super::ensure_active_sessions(&conn).unwrap();
+        }
+        let second = crate::repo::project::create(&conn, "B", "/tmp/b").unwrap();
+        let second_node = super::ensure_project_node(&conn, &second.id).unwrap();
+
+        let rows = super::list(&conn).unwrap();
+        let label = |row: &super::NodeRow| match row.node_type {
+            NodeType::Tab => super::session_ids(row)[0].clone(),
+            _ => row.ref_id.clone().unwrap(),
+        };
+        let scope = |parent_id: Option<&str>| {
+            rows.iter()
+                .filter(|row| row.parent_id.as_deref() == parent_id)
+                .filter(|row| row.node_type != NodeType::Project)
+                .map(label)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(scope(Some(&project_node.id)), ["m2", "s2", "m1", "s1"]);
+        assert_eq!(scope(None), ["root-m2", "root-s2", "root-m1", "root-s1"]);
+        let projects = rows
+            .iter()
+            .filter(|row| row.node_type == NodeType::Project)
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            projects,
+            [project_node.id.as_str(), second_node.id.as_str()]
+        );
     }
 
     #[test]
