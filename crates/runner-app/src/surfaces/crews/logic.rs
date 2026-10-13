@@ -51,15 +51,7 @@ pub(super) fn role_matches(role: &RoleWithActivity, query: &str) -> bool {
         || role.role.runtime.to_lowercase().contains(query)
 }
 
-pub(super) fn suggest_slot_handle(base: &str, taken: &HashSet<String>) -> String {
-    if !taken.contains(base) {
-        return base.to_owned();
-    }
-    (2..100)
-        .map(|index| format!("{base}-{index}"))
-        .find(|candidate| !taken.contains(candidate))
-        .unwrap_or_else(|| base.to_owned())
-}
+pub(super) use runner_core::slot_handle::suggest_slot_handle;
 
 pub(super) fn add_slot_runtime_options(
     runtimes: &[RuntimeCatalogEntry],
@@ -88,34 +80,14 @@ pub(super) fn runtime_models<'a>(
         .unwrap_or_default()
 }
 
-pub(super) fn validate_slot_handle(handle: &str) -> Option<&'static str> {
-    if handle.is_empty() {
-        return None;
-    }
-    let bytes = handle.as_bytes();
-    let valid = bytes.len() <= 32
-        && bytes
-            .first()
-            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        && bytes.iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
-        });
-    (!valid).then_some(
-        "Lowercase letters, digits, '-' or '_'; must start with a letter or digit; up to 32 chars.",
-    )
-}
+#[cfg(test)]
+pub(super) use runner_core::slot_handle::validate_slot_handle;
 
 pub(super) fn slot_handle_error(
     handle: &str,
     existing_handles: &HashSet<String>,
 ) -> Option<String> {
-    validate_slot_handle(handle)
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            existing_handles
-                .contains(handle)
-                .then(|| format!("'{handle}' is already used in this crew."))
-        })
+    runner_core::slot_handle::slot_handle_error(handle, existing_handles, &HashSet::new(), "crew")
 }
 
 pub(super) fn add_slot_can_submit(form: &AddSlotForm) -> bool {

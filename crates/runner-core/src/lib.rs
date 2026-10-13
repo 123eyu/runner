@@ -11,6 +11,7 @@ pub mod logging;
 pub mod mission_roster;
 pub mod model;
 pub mod runtime;
+pub mod slot_handle;
 pub use runtime::Runtime;
 
 pub use error::{Error, Result};
