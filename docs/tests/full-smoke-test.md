@@ -21,6 +21,8 @@ Private Runner app data and conversation directories do not isolate an agent's c
 
 For pi, set child-only `PI_CODING_AGENT_DIR` to a canonical private directory beneath the smoke scratch root, and keep `PI_CODING_AGENT_SESSION_DIR` private as well. Verify both resolved paths before launch and on resume. Never point `PI_CODING_AGENT_DIR` at the real `~/.pi/agent` merely to reuse authentication: pi 0.87.1 can save `lastChangelogVersion` in that directory's `settings.json` during interactive startup, and migrations can write before the first-time setup guard. An explicit model/thinking choice, `--approve`, a private session directory or suppressing setup does not prevent those writes. Do not copy credentials or change global authentication to bypass this prerequisite; use an already authorized private account or leave account-backed pi checks Blocked. Keep native startup results separate from configuration-preservation results. See the [2026-10-06 Windows regression record](archive/2026-10-06-pc-full-regression.md) for the failed global-state canary that established this boundary.
 
+Codex trust entries for the run's own folders are pre-approved (Jason, 2026-10-13). When Runner starts Codex in a folder, it writes `projects.<folder>.trust_level = "trusted"` to `~/.codex/config.toml`. In an authorized live run, that entry is approved in advance for every disposable folder under the run's scratch root, so do not stop to ask before it is written. Capture the config file before the first launch, keep each folder's canonical path in the ledger, and at cleanup remove only those entries and record a before-and-after diff showing nothing else changed. Any other change to an agent's global configuration still needs Jason's approval.
+
 Example macOS setup, after verifying the development app:
 
 ```sh
@@ -118,7 +120,7 @@ Stop all processes created by this run, then archive its direct chats and missio
 "$smoke_cli" mission archive <test-mission-id> --json
 ```
 
-Verify chats are stopped/archived, missions have zero live sessions and a non-empty archive timestamp, and test rows disappear from Recents. Stop any feed followers. Preserve conversation history and evidence for review. List temporary roles/crews and scratch artifacts retained; do not delete them, branch/worktree data or agent conversation files without the applicable authorization. Leave pre-existing sessions untouched.
+Verify chats are stopped/archived, missions have zero live sessions and a non-empty archive timestamp, and test rows disappear from Recents. Stop any feed followers. Remove the run's Codex trust entries and keep the config diff, as [Agent configuration isolation](#agent-configuration-isolation) says. Preserve conversation history and evidence for review. List temporary roles/crews and scratch artifacts retained; do not delete them, branch/worktree data or agent conversation files without the applicable authorization. Leave pre-existing sessions untouched.
 
 Deleting a crew also removes its mission and session metadata, including archived missions. Retain the test crew when preserving those records; archiving its missions is sufficient cleanup. If crew deletion is explicitly authorized, capture final stopped/archived status before deleting it and disclose the resulting loss of Runner metadata in the run record.
 
