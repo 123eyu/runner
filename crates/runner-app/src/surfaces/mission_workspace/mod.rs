@@ -368,6 +368,10 @@ fn mission_notice(
     )
 }
 
+/// Session tabs truncate their handle down to this width before the strip
+/// starts scrolling, so a crowded strip stays inside the content column.
+const MISSION_TAB_MIN_WIDTH: f32 = 112.;
+
 fn mission_tab(
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
