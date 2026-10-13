@@ -15,6 +15,7 @@ pub mod codex_capture;
 pub(crate) mod hook_feed;
 pub mod hook_queue;
 pub mod launch;
+pub(crate) mod launch_definition;
 pub mod manager;
 pub(crate) mod process;
 pub mod pty_runtime;

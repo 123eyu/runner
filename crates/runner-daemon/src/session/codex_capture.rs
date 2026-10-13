@@ -620,7 +620,7 @@ mod tests {
         row.role_id = Some(role_id.into());
         row.cwd = cwd.map(str::to_string);
         row.started_at = Some(started_at.parse().unwrap());
-        crate::repo::session::insert(conn, &row).unwrap();
+        crate::test_support::insert_session_row(conn, &row).unwrap();
     }
 
     fn write_meta(

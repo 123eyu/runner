@@ -156,3 +156,45 @@ pub(crate) fn test_session_row(
     row.started_at = Some(Utc::now());
     row
 }
+
+pub(crate) fn insert_session_row(
+    conn: &Connection,
+    row: &crate::repo::session::SessionRowDb,
+) -> rusqlite::Result<()> {
+    let mut row = row.clone();
+    if row.launch_definition.is_none() {
+        let role = row
+            .role_id
+            .as_deref()
+            .and_then(|id| crate::repo::role::get(conn, id).unwrap());
+        let effective = if let Some(role) = role {
+            crate::session::manager::resolve_runtime_override(
+                &role,
+                row.agent_runtime.as_deref(),
+                None,
+                None,
+            )
+            .unwrap()
+            .unwrap_or(role)
+        } else {
+            crate::session::manager::runtime_direct_role(
+                row.agent_runtime.as_deref().unwrap_or("test"),
+                row.agent_command.as_deref().or(Some("test-agent")),
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        row.agent_runtime = Some(effective.runtime.clone());
+        row.launch_definition = Some(crate::session::launch_definition::from_effective(
+            &effective,
+        ));
+    }
+    crate::repo::session::insert(conn, &row)
+}
+
+pub(crate) fn session_definition(runtime: &str, command: &str) -> crate::model::LaunchDefinition {
+    crate::session::launch_definition::from_effective(
+        &crate::session::manager::runtime_direct_role(runtime, Some(command), None, None).unwrap(),
+    )
+}

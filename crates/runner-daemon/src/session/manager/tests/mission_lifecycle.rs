@@ -1001,14 +1001,14 @@ fn role_activity_event_direct_session_id_ignores_slot_bound_orphans() {
         orphan.role_id = Some(role_id.clone());
         orphan.slot_id = Some("slot-old".into());
         orphan.started_at = Some(now + chrono::Duration::seconds(10));
-        crate::repo::session::insert(&conn, &orphan).unwrap();
+        crate::test_support::insert_session_row(&conn, &orphan).unwrap();
         let mut direct = crate::test_support::test_session_row(
             "direct-valid-older",
             crate::model::SessionStatus::Running,
         );
         direct.role_id = Some(role_id.clone());
         direct.started_at = Some(now);
-        crate::repo::session::insert(&conn, &direct).unwrap();
+        crate::test_support::insert_session_row(&conn, &direct).unwrap();
     }
 
     let mut r = role("/bin/cat", &[]);

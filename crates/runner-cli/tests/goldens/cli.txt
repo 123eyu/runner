@@ -478,7 +478,7 @@ session-fixture  codex    coder  Fixture chat  stopped  unavailable  <ROOT>/not-
 
 $ runner session list --json
 exit 0
-[{"session_id":"session-fixture","project_id":"project-fixture","role_id":"role-coder","handle":"coder","agent_runtime":"codex","agent_command":"missing-fixture-agent","agent_model":null,"agent_effort":null,"display_name":"Coder","status":"stopped","title":"Fixture chat","live_title":null,"cwd":"<ROOT>/not-a-directory","started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","resumable":false,"native_fork":true,"forkable":false,"agent_session_key":null,"pinned":false,"archived_at":null,"activity":"unavailable"}]
+[{"session_id":"session-fixture","project_id":"project-fixture","role_id":"role-coder","handle":"coder","agent_runtime":"codex","agent_command":"missing-fixture-agent","agent_model":"fixture-model","agent_effort":"high","display_name":"Coder","status":"stopped","title":"Fixture chat","live_title":null,"cwd":"<ROOT>/not-a-directory","started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","resumable":false,"native_fork":true,"forkable":false,"agent_session_key":null,"pinned":false,"archived_at":null,"activity":"unavailable"}]
 
 $ runner session show session-fixture
 exit 0
@@ -486,7 +486,10 @@ ID            session-fixture
 MISSION       -
 RUNTIME       codex
 ROLE          coder
-SPEED         inherit (role or slot)
+COMMAND       missing-fixture-agent
+MODEL         fixture-model
+EFFORT        high
+SPEED         fast
 ROW STATUS    stopped
 LIFECYCLE     starting
 ACTIVITY      unavailable
@@ -499,7 +502,7 @@ CWD           <ROOT>/not-a-directory
 
 $ runner session show session-fixture --json
 exit 0
-{"session_id":"session-fixture","project_id":"project-fixture","role_id":"role-coder","handle":"coder","agent_runtime":"codex","agent_command":"missing-fixture-agent","agent_model":"fixture-model","agent_effort":"high","display_name":"Coder","status":"stopped","title":"Fixture chat","live_title":null,"cwd":"<ROOT>/not-a-directory","started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","resumable":false,"native_fork":true,"forkable":false,"agent_session_key":null,"pinned":false,"archived_at":null,"agent_speed":null,"agent_status":{"lifecycle":"starting","observation":{"activity":"unavailable","source":"unavailable","outcome":null,"interactions":[],"detail":null},"exit_code":null,"error_since":null,"failed_since":null,"unread_since":null},"activity":null}
+{"session_id":"session-fixture","project_id":"project-fixture","role_id":"role-coder","handle":"coder","agent_runtime":"codex","agent_command":"missing-fixture-agent","agent_model":"fixture-model","agent_effort":"high","display_name":"Coder","status":"stopped","title":"Fixture chat","live_title":null,"cwd":"<ROOT>/not-a-directory","started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","resumable":false,"native_fork":true,"forkable":false,"agent_session_key":null,"pinned":false,"archived_at":null,"agent_speed":"fast","agent_status":{"lifecycle":"starting","observation":{"activity":"unavailable","source":"unavailable","outcome":null,"interactions":[],"detail":null},"exit_code":null,"error_since":null,"failed_since":null,"unread_since":null},"activity":null}
 
 $ runner session stop session-fixture
 exit 0

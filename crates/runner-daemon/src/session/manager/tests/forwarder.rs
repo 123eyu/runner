@@ -105,7 +105,7 @@ fn codex_session_starts_rekey_current_running_row_for_direct_and_mission() {
             row.mission_id = mission_id.clone();
             row.started_at = Some(Utc::now());
             let started_at = row.started_at.unwrap().to_rfc3339();
-            crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+            crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
 
             let fake = fake_runtime();
             let mgr = mgr_with_fake(None, Arc::clone(&fake));
@@ -178,7 +178,7 @@ fn codex_session_starts_cannot_rekey_older_or_stopped_rows() {
         row.agent_session_key = Some(old.clone());
         row.started_at = Some(Utc::now());
         let started_at = row.started_at.unwrap().to_rfc3339();
-        crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+        crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
         {
             let conn = pool.get().unwrap();
             if stale {

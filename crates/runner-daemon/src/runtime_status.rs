@@ -248,10 +248,6 @@ pub fn validate_override(
 
 use runner_core::protocol::runtime_paths::validate_executable_path;
 
-pub(crate) fn executable_path_is_valid(path: &Path) -> bool {
-    validate_executable_path(path).is_ok()
-}
-
 use runner_core::protocol::runtime_paths::validation_error;
 
 pub fn direct_chat_path(shell_env: &LoginShellEnv) -> String {

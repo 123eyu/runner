@@ -103,6 +103,7 @@ Updates stay explicit because writable fields often differ from the full row. `t
 | `Option<Timestamp>` | RFC3339 `TEXT` or `NULL` | `rfc3339_opt` |
 | Collections/objects | JSON serialized into `TEXT` | `json_text` |
 | Optional collections/objects | JSON `TEXT` or `NULL` | `json_text_opt` |
+| `LaunchDefinition` | Versioned JSON `TEXT` or `NULL` | `session::launch_definition_json`, private storage row |
 
 The mapping contract tests in `repo::mod` verify the raw SQLite types and bytes, including historical timestamp spellings and legacy JSON rows. Changing an adapter is a database compatibility change even when the Rust types remain the same.
 

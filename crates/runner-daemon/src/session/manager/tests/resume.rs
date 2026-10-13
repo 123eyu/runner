@@ -115,7 +115,7 @@ fn codex_resume_skips_first_prompt_injection() {
             row.role_id = Some(role_id.clone());
             row.cwd = Some("/tmp".into());
             row.agent_session_key = Some(key.clone());
-            crate::repo::session::insert(&conn, &row).unwrap();
+            crate::test_support::insert_session_row(&conn, &row).unwrap();
         }
     }
 
@@ -305,7 +305,7 @@ fn resume_refuses_running_and_archived_rows() {
             crate::model::SessionStatus::Running,
         );
         running.role_id = Some(role_id.clone());
-        crate::repo::session::insert(&conn, &running).unwrap();
+        crate::test_support::insert_session_row(&conn, &running).unwrap();
         // Archived direct session.
         let mut archived = crate::test_support::test_session_row(
             "archived-sid",
@@ -313,7 +313,7 @@ fn resume_refuses_running_and_archived_rows() {
         );
         archived.role_id = Some(role_id.clone());
         archived.archived_at = archived.started_at;
-        crate::repo::session::insert(&conn, &archived).unwrap();
+        crate::test_support::insert_session_row(&conn, &archived).unwrap();
     }
     let mgr = manager_with_runtime(crate::shell_path::LoginShellEnv::default(), inert_runtime());
     for (sid, needle) in [
@@ -350,7 +350,7 @@ fn launch_resume_never_falls_back_to_a_fresh_chat_spawn() {
             crate::model::SessionStatus::Stopped,
         );
         row.role_id = Some(role_id.clone());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
     }
     let mgr = manager_with_runtime(crate::shell_path::LoginShellEnv::default(), inert_runtime());
 
@@ -394,7 +394,7 @@ fn launch_resume_keeps_missing_cwd_as_a_chat_error() {
         row.role_id = Some(role_id.clone());
         row.cwd = Some(missing_cwd.to_string_lossy().into_owned());
         row.agent_session_key = Some("00000000-0000-0000-0000-000000000001".into());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
     }
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
@@ -466,7 +466,7 @@ fn resume_mission_session_stamps_slot_handle_env() {
         row.mission_id = Some(mission_id.clone());
         row.role_id = Some(role_id.clone());
         row.slot_id = Some(slot_id.clone());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
     }
 
     let fake = fake_runtime();
@@ -572,7 +572,7 @@ fn codex_mission_resume_grants_event_log_dir_to_sandbox() {
         row.role_id = Some(role_id.clone());
         row.slot_id = Some(slot_id.clone());
         row.cwd = Some(missing_cwd.to_string_lossy().into_owned());
-        crate::repo::session::insert(&conn, &row).unwrap();
+        crate::test_support::insert_session_row(&conn, &row).unwrap();
     }
 
     let app_data = tempfile::tempdir().unwrap();

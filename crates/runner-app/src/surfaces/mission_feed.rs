@@ -157,7 +157,9 @@ pub(crate) fn group_feed_blocks(events: &[Event]) -> Vec<FeedBlock> {
             continue;
         }
         match event.signal_type.as_ref().map(SignalType::as_str) {
-            Some("mission_start") => blocks.push(FeedBlock::Divider(event.clone())),
+            Some("mission_start" | "mission_stopped") => {
+                blocks.push(FeedBlock::Divider(event.clone()))
+            }
             Some("human_question") => blocks.push(FeedBlock::AskCard(event.clone())),
             _ => blocks.push(FeedBlock::Signal(event.clone())),
         }
@@ -274,6 +276,38 @@ mod tests {
         assert!(matches!(blocks[3], FeedBlock::MessageGroup { .. }));
         assert!(matches!(blocks[4], FeedBlock::MessageGroup { .. }));
         assert!(matches!(blocks[5], FeedBlock::AskCard(_)));
+    }
+
+    #[test]
+    fn mission_stopped_is_a_divider() {
+        let mut stopped = event(
+            "stopped",
+            2,
+            "system",
+            EventKind::Signal,
+            Some("mission_stopped"),
+        );
+        stopped.payload = serde_json::json!({});
+        let blocks = group_feed_blocks(&[
+            event(
+                "start",
+                0,
+                "system",
+                EventKind::Signal,
+                Some("mission_start"),
+            ),
+            event("message", 1, "coder", EventKind::Message, None),
+            stopped,
+        ]);
+        assert_eq!(blocks.len(), 3);
+        assert!(matches!(blocks[0], FeedBlock::Divider(_)));
+        assert!(matches!(blocks[1], FeedBlock::MessageGroup { .. }));
+        assert!(matches!(
+            &blocks[2],
+            FeedBlock::Divider(event) if event.id == "stopped"
+                && event.signal_type.as_ref().map(SignalType::as_str) == Some("mission_stopped")
+                && event.payload == serde_json::json!({})
+        ));
     }
 
     #[test]

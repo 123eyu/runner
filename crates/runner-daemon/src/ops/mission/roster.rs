@@ -151,9 +151,18 @@ pub fn convert_all(conn: &Connection, app_data_dir: &Path) -> Result<()> {
                     position: 0,
                     role_id,
                     runtime_override: session.agent_runtime,
-                    model_override: session.agent_model,
-                    effort_override: session.agent_effort,
-                    codex_speed_override: session.agent_speed,
+                    model_override: session
+                        .launch_definition
+                        .as_ref()
+                        .and_then(|definition| definition.model.clone()),
+                    effort_override: session
+                        .launch_definition
+                        .as_ref()
+                        .and_then(|definition| definition.effort.clone()),
+                    codex_speed_override: session
+                        .launch_definition
+                        .as_ref()
+                        .and_then(|definition| definition.codex_speed),
                 }
             };
             candidates.push(entry);
@@ -263,9 +272,10 @@ mod tests {
                 .into(),
         );
         row.agent_runtime = Some("codex".into());
-        row.agent_model = Some("session-model".into());
-        row.agent_effort = Some("high".into());
-        row.agent_speed = Some(CodexSpeed::Fast);
+        row.launch_definition = Some(crate::test_support::session_definition("codex", "codex"));
+        row.launch_definition.as_mut().unwrap().model = Some("session-model".into());
+        row.launch_definition.as_mut().unwrap().effort = Some("high".into());
+        row.launch_definition.as_mut().unwrap().codex_speed = Some(CodexSpeed::Fast);
         // Archived session rows must participate in the upgrade as well.
         row.archived_at = mission::get(conn, "m").unwrap().archived_at;
         repo::session::insert(conn, &row).unwrap();
@@ -373,8 +383,8 @@ mod tests {
                             .into(),
                         None,
                         false,
-                        80,
-                        24,
+                        (80, 24),
+                        None,
                     )
                     .unwrap();
                     repo::slot::delete(&conn, "s1").unwrap();

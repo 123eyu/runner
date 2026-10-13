@@ -22,8 +22,8 @@ use crate::{
     },
     repo,
     session::manager::{
-        resolve_runtime_override, runtime_direct_role, SessionActivityState, SessionEvents,
-        SessionUpdatedEvent, SpawnedSession,
+        runtime_direct_role, SessionActivityState, SessionEvents, SessionUpdatedEvent,
+        SpawnedSession,
     },
     AppCore,
 };
@@ -326,12 +326,13 @@ fn direct_entry_from_repo(
     let agent_runtime = d
         .row
         .agent_runtime
-        .or(d.role_runtime)
         .ok_or_else(|| Error::msg(format!("session {} has no agent_runtime", d.row.id)))?;
     let agent_command = d
         .row
-        .agent_command
-        .or(d.role_command)
+        .launch_definition
+        .as_ref()
+        .map(|definition| definition.command.clone())
+        .or(d.row.agent_command)
         .ok_or_else(|| Error::msg(format!("session {} has no agent_command", d.row.id)))?;
     let display_name = d
         .role_display_name
@@ -352,8 +353,16 @@ fn direct_entry_from_repo(
         handle,
         agent_runtime,
         agent_command,
-        agent_model: None,
-        agent_effort: None,
+        agent_model: d
+            .row
+            .launch_definition
+            .as_ref()
+            .and_then(|definition| definition.model.clone()),
+        agent_effort: d
+            .row
+            .launch_definition
+            .as_ref()
+            .and_then(|definition| definition.effort.clone()),
         display_name,
         status: d.row.status,
         title: d.row.title,
@@ -419,20 +428,34 @@ pub fn session_get_with_status(state: &AppCore, session_id: &str) -> Result<serd
     let object = row
         .as_object_mut()
         .ok_or_else(|| Error::msg("session row did not serialize as an object"))?;
-    let (speed, runtime) = {
-        let conn = state.db.get()?;
-        (
-            repo::session::get_row(&conn, session_id)?.and_then(|session| session.agent_speed),
-            repo::session::effective_runtime(&conn, session_id)?,
-        )
-    };
-    object.insert("agent_speed".into(), serde_json::to_value(speed)?);
-    if object
-        .get("agent_runtime")
-        .is_none_or(serde_json::Value::is_null)
-    {
-        object.insert("agent_runtime".into(), serde_json::to_value(runtime)?);
-    }
+    object.remove("launch_definition_json");
+    let session = repo::session::get_row(&*state.db.get()?, session_id)?
+        .ok_or_else(|| Error::msg(format!("session not found: {session_id}")))?;
+    let definition = session.launch_definition.as_ref();
+    object.insert(
+        "agent_model".into(),
+        serde_json::to_value(definition.and_then(|definition| definition.model.as_ref()))?,
+    );
+    object.insert(
+        "agent_effort".into(),
+        serde_json::to_value(definition.and_then(|definition| definition.effort.as_ref()))?,
+    );
+    object.insert(
+        "agent_speed".into(),
+        serde_json::to_value(definition.and_then(|definition| definition.codex_speed))?,
+    );
+    object.insert(
+        "agent_runtime".into(),
+        serde_json::to_value(session.agent_runtime)?,
+    );
+    object.insert(
+        "agent_command".into(),
+        serde_json::to_value(
+            definition
+                .map(|definition| &definition.command)
+                .or(session.agent_command.as_ref()),
+        )?,
+    );
     object.insert(
         "agent_status".into(),
         serde_json::to_value(state.sessions.agent_status(session_id))?,
@@ -455,32 +478,7 @@ pub fn session_last_size(state: &AppCore, session_id: &str) -> Result<Option<(u1
 
 fn get_direct(conn: &rusqlite::Connection, session_id: &str) -> Result<Option<DirectSessionEntry>> {
     repo::session::get_direct(conn, session_id)?
-        .map(|mut d| {
-            let (model, effort) = if let Some(role_id) = d.row.role_id.as_deref() {
-                let role = role::get(conn, role_id)?;
-                let effective = resolve_runtime_override(
-                    &role,
-                    d.row.agent_runtime.as_deref(),
-                    d.row.agent_model.as_deref(),
-                    d.row.agent_effort.as_deref(),
-                )?
-                .unwrap_or(role);
-                d.row.agent_runtime = Some(effective.runtime);
-                d.row.agent_command = Some(effective.command);
-                (effective.model, effective.effort)
-            } else {
-                (d.row.agent_model.take(), d.row.agent_effort.take())
-            };
-            let normalize = |value: Option<String>| {
-                value
-                    .map(|value| value.trim().to_owned())
-                    .filter(|value| !value.is_empty())
-            };
-            let mut entry = direct_entry_from_repo(d, /*ship_key*/ true)?;
-            entry.agent_model = normalize(model);
-            entry.agent_effort = normalize(effort);
-            Ok(entry)
-        })
+        .map(|d| direct_entry_from_repo(d, /*ship_key*/ true))
         .transpose()
 }
 
@@ -1348,7 +1346,7 @@ mod tests {
                 row.agent_runtime = runtime.map(str::to_owned);
                 row.role_id = role.map(str::to_owned);
                 row.mission_id = mission.map(str::to_owned);
-                repo::session::insert(&conn, &row).unwrap();
+                crate::test_support::insert_session_row(&conn, &row).unwrap();
             };
         insert("direct", Some("codex"), None, None);
         insert("slot", None, Some("r-codex"), Some("m1"));
@@ -1563,7 +1561,7 @@ mod tests {
                 row.started_at = Some(now - chrono::Duration::seconds(started_offset_secs));
                 row.pinned_at = pinned.then_some(now);
                 row.archived_at = archived.then_some(now);
-                repo::session::insert(&conn, &row).unwrap();
+                crate::test_support::insert_session_row(&conn, &row).unwrap();
             };
 
         // newest running, but not pinned
@@ -1703,7 +1701,7 @@ mod tests {
         row.role_id = Some(role_id.into());
         row.started_at = Some(now);
         row.archived_at = archived.then_some(now);
-        repo::session::insert(conn, &row).unwrap();
+        crate::test_support::insert_session_row(conn, &row).unwrap();
         id
     }
 
@@ -1746,7 +1744,7 @@ mod tests {
             row.role_id = Some(role_id.clone());
             row.slot_id = Some("slot-1".into());
             row.archived_at = row.started_at;
-            repo::session::insert(&conn, &row).unwrap();
+            crate::test_support::insert_session_row(&conn, &row).unwrap();
             (active, archived, slot_bound)
         };
 
@@ -1904,7 +1902,7 @@ mod tests {
         let mut session = crate::test_support::test_session_row(&id, SessionStatus::Stopped);
         session.role_id = Some(role_id);
         session.archived_at = Some(archived_at.parse().unwrap());
-        repo::session::insert(&conn, &session).unwrap();
+        crate::test_support::insert_session_row(&conn, &session).unwrap();
 
         let row = get_direct(&conn, &id).unwrap().unwrap();
         let got = row.archived_at.expect("archived_at populated").to_rfc3339();
@@ -1921,7 +1919,7 @@ mod tests {
         let mut session = crate::test_support::test_session_row(&id, SessionStatus::Stopped);
         session.role_id = Some(role_id);
         session.agent_session_key = Some(key.clone());
-        repo::session::insert(&conn, &session).unwrap();
+        crate::test_support::insert_session_row(&conn, &session).unwrap();
 
         let row = get_direct(&conn, &id).unwrap().unwrap();
         assert_eq!(row.agent_session_key.as_deref(), Some(key.as_str()));
@@ -1946,40 +1944,45 @@ mod tests {
             let mut session = crate::test_support::test_session_row(id, SessionStatus::Stopped);
             session.agent_runtime = Some("codex".into());
             session.agent_command = Some("codex".into());
-            session.agent_model = model.map(str::to_owned);
-            session.agent_effort = effort.map(str::to_owned);
-            repo::session::insert(&conn, &session).unwrap();
+            session.launch_definition =
+                Some(crate::test_support::session_definition("codex", "codex"));
+            session.launch_definition.as_mut().unwrap().model = model
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned);
+            session.launch_definition.as_mut().unwrap().effort = effort
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned);
+            crate::test_support::insert_session_row(&conn, &session).unwrap();
             let entry = get_direct(&conn, id).unwrap().unwrap();
             assert_eq!(entry.agent_model.as_deref(), expected_model);
             assert_eq!(entry.agent_effort.as_deref(), expected_effort);
         }
         for row in repo::session::list_recent_direct(&conn).unwrap() {
             let entry = direct_entry_from_repo(row, false).unwrap();
-            assert_eq!(entry.agent_model, None);
-            assert_eq!(entry.agent_effort, None);
+            let detail = get_direct(&conn, &entry.session_id).unwrap().unwrap();
+            assert_eq!(entry.agent_model, detail.agent_model);
+            assert_eq!(entry.agent_effort, detail.agent_effort);
         }
     }
 
     #[test]
-    fn session_get_role_chat_follows_current_role_settings() {
+    fn session_get_role_chat_keeps_recorded_settings() {
         let pool = db::open_in_memory().unwrap();
         let conn = pool.get().unwrap();
         let role_id = seed_role(&conn);
+        conn.execute(
+            "UPDATE roles SET model = 'fable', effort = 'high' WHERE id = ?1",
+            [&role_id],
+        )
+        .unwrap();
         let id = insert_direct_session(&conn, &role_id, false);
-        for (model, effort, expected_model, expected_effort) in [
-            ("fable", "xhigh", Some("fable"), Some("xhigh")),
-            ("sonnet", "high", Some("sonnet"), Some("high")),
-            ("  ", "\t", None, None),
-        ] {
-            conn.execute(
-                "UPDATE roles SET model = ?2, effort = ?3 WHERE id = ?1",
-                params![role_id, model, effort],
-            )
-            .unwrap();
-            let entry = get_direct(&conn, &id).unwrap().unwrap();
-            assert_eq!(entry.agent_model.as_deref(), expected_model);
-            assert_eq!(entry.agent_effort.as_deref(), expected_effort);
-        }
+        conn.execute("UPDATE roles SET model = 'sonnet', effort = 'xhigh', command = 'changed' WHERE id = ?1", [&role_id]).unwrap();
+        let entry = get_direct(&conn, &id).unwrap().unwrap();
+        assert_eq!(entry.agent_model.as_deref(), Some("fable"));
+        assert_eq!(entry.agent_effort.as_deref(), Some("high"));
+        assert_eq!(entry.agent_command, "/bin/sh");
     }
 
     #[test]
@@ -1995,9 +1998,14 @@ mod tests {
         let mut session =
             crate::test_support::test_session_row("model-override", SessionStatus::Stopped);
         session.role_id = Some(role_id.clone());
-        session.agent_model = Some("sonnet".into());
-        session.agent_effort = Some("high".into());
-        repo::session::insert(&conn, &session).unwrap();
+        session.agent_runtime = Some("claude-code".into());
+        session.launch_definition = Some(crate::test_support::session_definition(
+            "claude-code",
+            "claude",
+        ));
+        session.launch_definition.as_mut().unwrap().model = Some("sonnet".into());
+        session.launch_definition.as_mut().unwrap().effort = Some("high".into());
+        crate::test_support::insert_session_row(&conn, &session).unwrap();
         conn.execute(
             "UPDATE roles SET model = 'opus', effort = 'xhigh' WHERE id = ?1",
             [&role_id],
@@ -2022,9 +2030,17 @@ mod tests {
             session.role_id = Some(role_id.clone());
             session.agent_runtime = Some("codex".into());
             session.agent_command = Some("old-command".into());
-            session.agent_model = model.map(str::to_owned);
-            session.agent_effort = effort.map(str::to_owned);
-            repo::session::insert(&conn, &session).unwrap();
+            session.launch_definition =
+                Some(crate::test_support::session_definition("codex", "codex"));
+            session.launch_definition.as_mut().unwrap().model = model
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned);
+            session.launch_definition.as_mut().unwrap().effort = effort
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned);
+            crate::test_support::insert_session_row(&conn, &session).unwrap();
             let entry = get_direct(&conn, id).unwrap().unwrap();
             assert_eq!(entry.agent_runtime, "codex");
             assert_eq!(entry.agent_command, "codex");
@@ -2045,8 +2061,6 @@ mod tests {
                     row,
                     role_handle: handle.map(str::to_owned),
                     role_display_name: handle.map(|_| "Housekeeper".to_owned()),
-                    role_runtime: None,
-                    role_command: None,
                 },
                 false,
             )
@@ -2098,8 +2112,6 @@ mod tests {
                     row,
                     role_handle: None,
                     role_display_name: None,
-                    role_runtime: None,
-                    role_command: None,
                 },
                 false,
             )
@@ -2156,7 +2168,7 @@ mod tests {
         session.role_id = Some(role_id.clone());
         session.slot_id = Some(slot_id.clone());
         session.agent_session_key = Some(key.clone());
-        repo::session::insert(&conn, &session).unwrap();
+        crate::test_support::insert_session_row(&conn, &session).unwrap();
 
         let rows =
             list_for_mission(&conn, tempfile::tempdir().unwrap().path(), &mission_id).unwrap();
@@ -2204,13 +2216,13 @@ mod tests {
         overridden_session.role_id = Some(role_id.clone());
         overridden_session.slot_id = Some(slot_id.clone());
         overridden_session.agent_runtime = Some("claude-code".into());
-        repo::session::insert(&conn, &overridden_session).unwrap();
+        crate::test_support::insert_session_row(&conn, &overridden_session).unwrap();
         let mut plain_session =
             crate::test_support::test_session_row(&plain, SessionStatus::Running);
         plain_session.mission_id = Some(mission_id.clone());
         plain_session.role_id = Some(role_id.clone());
         plain_session.slot_id = Some(slot_id.clone());
-        repo::session::insert(&conn, &plain_session).unwrap();
+        crate::test_support::insert_session_row(&conn, &plain_session).unwrap();
 
         let rows =
             list_for_mission(&conn, tempfile::tempdir().unwrap().path(), &mission_id).unwrap();
@@ -2267,7 +2279,7 @@ mod tests {
             crate::test_support::test_session_row(&session_id, SessionStatus::Stopped);
         session.mission_id = Some(mission_id);
         session.role_id = Some(role_id);
-        repo::session::insert(&conn, &session).unwrap();
+        crate::test_support::insert_session_row(&conn, &session).unwrap();
 
         let row = get_direct(&conn, &session_id).unwrap();
         assert!(
@@ -2530,7 +2542,7 @@ mod client_tests {
             .unwrap();
         }
         for (role_id, speed, expected) in [
-            (Some("role"), None, None),
+            (Some("role"), None, Some(crate::model::CodexSpeed::Fast)),
             (
                 Some("role"),
                 Some(crate::model::CodexSpeed::Standard),
@@ -2582,7 +2594,10 @@ mod client_tests {
                     .unwrap()
                     .unwrap()
             };
-            assert_eq!(row.agent_speed, expected);
+            assert_eq!(
+                row.launch_definition.as_ref().unwrap().codex_speed,
+                expected
+            );
         }
 
         let output = result_json(
@@ -2606,7 +2621,10 @@ mod client_tests {
             crate::repo::session::get_row(&conn, session_id)
                 .unwrap()
                 .unwrap()
-                .agent_speed,
+                .launch_definition
+                .as_ref()
+                .unwrap()
+                .codex_speed,
             None
         );
         drop(conn);
@@ -2690,8 +2708,11 @@ mod client_tests {
                 row.mission_id = Some("mission".into());
                 row.role_id = Some("role".into());
                 row.slot_id = Some(format!("{id}-slot"));
-                row.agent_speed = speed;
-                crate::repo::session::insert(&conn, &row).unwrap();
+                row.agent_runtime = Some("codex".into());
+                row.launch_definition =
+                    Some(crate::test_support::session_definition("codex", "codex"));
+                row.launch_definition.as_mut().unwrap().codex_speed = speed;
+                crate::test_support::insert_session_row(&conn, &row).unwrap();
             }
         }
         for (id, speed) in [
@@ -2857,8 +2878,8 @@ mod client_tests {
             )
             .unwrap();
             conn.execute(
-                "INSERT INTO sessions (id, role_id, status, started_at)
-                 VALUES ('direct', 'role', 'stopped', '2026-09-18T00:00:00Z')",
+                "INSERT INTO sessions (id, role_id, status, started_at, agent_runtime, agent_command)
+                 VALUES ('direct', 'role', 'stopped', '2026-09-18T00:00:00Z', 'codex', 'codex')",
                 [],
             )
             .unwrap();
@@ -2887,7 +2908,7 @@ mod client_tests {
                 crate::model::SessionStatus::Running,
             );
             row.role_id = Some("role".into());
-            crate::repo::session::insert(&conn, &row).unwrap();
+            crate::test_support::insert_session_row(&conn, &row).unwrap();
         }
 
         assert!(handler.sessions.note_forwarder_transition(
@@ -2924,7 +2945,7 @@ mod client_tests {
             );
             row.role_id = Some("role".into());
             row.agent_session_key = Some("conversation".into());
-            crate::repo::session::insert(&conn, &row).unwrap();
+            crate::test_support::insert_session_row(&conn, &row).unwrap();
         }
         session::session_stop(&handler, "direct").unwrap();
         let row = crate::repo::session::get_row(&handler.db.get().unwrap(), "direct")
@@ -2960,7 +2981,7 @@ mod client_tests {
                     crate::test_support::test_session_row(id, crate::model::SessionStatus::Stopped);
                 row.role_id = Some("role".into());
                 row.mission_id = mission_id.map(str::to_owned);
-                crate::repo::session::insert(&conn, &row).unwrap();
+                crate::test_support::insert_session_row(&conn, &row).unwrap();
             }
         }
         session::session_archive_direct(&handler, "direct").unwrap();
@@ -3012,5 +3033,55 @@ mod client_tests {
         );
 
         session::session_kill(&handler, &spawned.id).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod launch_definition_output_tests {
+    use super::*;
+
+    #[test]
+    fn direct_and_mission_detail_show_recorded_launch_fields_without_env() {
+        let state = crate::test_support::test_core();
+        let conn = state.db.get().unwrap();
+        crate::test_support::insert_test_role(&conn, "recorded-role", "coder", "codex", "codex");
+        conn.execute_batch(
+            "INSERT INTO crews (id, name, created_at, updated_at) VALUES ('crew', 'Crew', '2026-10-12T00:00:00Z', '2026-10-12T00:00:00Z');
+             INSERT INTO missions (id, crew_id, title, status, started_at) VALUES ('mission', 'crew', 'Mission', 'running', '2026-10-12T00:00:00Z');"
+        ).unwrap();
+        let mut definition = crate::test_support::session_definition("codex", "configured-command");
+        definition
+            .env
+            .insert("API_KEY".into(), "SECRET_878_SENTINEL".into());
+        definition.model = Some("recorded-model".into());
+        definition.effort = Some("xhigh".into());
+        definition.codex_speed = Some(crate::model::CodexSpeed::Fast);
+        for (id, mission) in [("direct", None), ("mission-slot", Some("mission"))] {
+            let mut row =
+                crate::test_support::test_session_row(id, crate::model::SessionStatus::Stopped);
+            row.role_id = Some("recorded-role".into());
+            row.mission_id = mission.map(str::to_owned);
+            row.agent_runtime = Some("codex".into());
+            row.agent_command = Some("/resolved/command".into());
+            row.launch_definition = Some(definition.clone());
+            repo::session::insert(&conn, &row).unwrap();
+        }
+        conn.execute("UPDATE roles SET model = 'edited-model', effort = 'high', command = 'edited-command', runtime = 'pi' WHERE id = 'recorded-role'", []).unwrap();
+        drop(conn);
+        for id in ["direct", "mission-slot"] {
+            let detail = session_get_with_status(&state, id).unwrap();
+            assert_eq!(detail["agent_runtime"], "codex");
+            assert_eq!(detail["agent_command"], "configured-command");
+            assert_eq!(detail["agent_model"], "recorded-model");
+            assert_eq!(detail["agent_effort"], "xhigh");
+            assert_eq!(detail["agent_speed"], "fast");
+            assert!(detail.get("launch_definition_json").is_none());
+            assert!(detail.get("launch_definition").is_none());
+            assert!(!detail.to_string().contains("SECRET_878_SENTINEL"));
+        }
+        let direct = session_get(&state, "direct").unwrap().unwrap();
+        assert_eq!(direct.agent_model.as_deref(), Some("recorded-model"));
+        assert_eq!(direct.agent_effort.as_deref(), Some("xhigh"));
+        assert_eq!(direct.agent_command, "configured-command");
     }
 }

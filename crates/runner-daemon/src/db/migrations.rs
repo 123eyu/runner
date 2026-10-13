@@ -11,10 +11,7 @@ use crate::error::Result;
 // — the freed 0002 slot used to hold the default-crew SQL seed,
 // which now lives in `seed::seed_default_crew`.)
 // 0003: nullable runtime_* columns on `sessions` from the old
-// runtime migration. `runtime` + `runtime_session` still identify
-// the live PTY runtime session while the app is running;
-// `runtime_socket`, `runtime_window`, and `runtime_pane` are legacy
-// and unused by new PTY-runtime writes.
+// runtime migration. All six process-host columns are dropped by 0027.
 // 0004: adds `archived_at` to missions so the workspace can filter
 // archived missions out of search/list surfaces without conflating
 // them with `status = 'completed'`. Backfills existing completed
@@ -62,13 +59,16 @@ use crate::error::Result;
 // different runtime can pin that runtime's model without mutating the
 // reusable role template.
 // 0019: persists model/effort on runtime-only direct chats so resume
-// keeps the session's selected agent configuration.
+// keeps the session's selected agent configuration; replaced by 0026/0027.
 // 0020: adds nullable `slots.effort_override` so a crew slot can
 // override thinking effort independently of its runtime and model.
 // 0023: renames the stored runner entity and its foreign-key columns to
 // `roles` / `role_id`; direct sessions have referenced it since 0007.
 // 0025: removes unused crew purpose and default goal. Mission goals and
 // crew conventions remain in their own columns.
+// 0024: runtime_options_json on roles, slots and sessions; sessions drops it in 0027.
+// 0026: records launch definitions, with a Rust conversion in the same transaction.
+// 0027: drops six process-host columns and three session override columns.
 pub(super) const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("../../migrations/0001_init.sql")),
     (
@@ -143,6 +143,14 @@ pub(super) const MIGRATIONS: &[(i64, &str)] = &[
         25,
         include_str!("../../migrations/0025_drop_crew_purpose_goal.sql"),
     ),
+    (
+        26,
+        include_str!("../../migrations/0026_session_launch_definition.sql"),
+    ),
+    (
+        27,
+        include_str!("../../migrations/0027_drop_unused_session_columns.sql"),
+    ),
 ];
 
 pub(super) fn run_migrations(conn: &mut Connection) -> Result<()> {
@@ -178,6 +186,9 @@ pub(super) fn run_migrations_up_to(conn: &mut Connection, max_version: i64) -> R
             }
             if *version == 15 {
                 backfill_0015_retire_folders(&tx)?;
+            }
+            if *version == 26 {
+                backfill_0026_launch_definitions(&tx)?;
             }
             tx.execute(
                 "INSERT INTO _migrations (version, applied_at) VALUES (?1, ?2)",
@@ -428,6 +439,56 @@ fn backfill_0014_nodes(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
                 params![id, pinned_position],
             )?;
             pinned_position += 1;
+        }
+    }
+    Ok(())
+}
+
+fn backfill_0026_launch_definitions(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
+    #[derive(serde::Deserialize)]
+    struct LegacySession {
+        id: String,
+        role_id: Option<String>,
+        agent_runtime: Option<String>,
+        agent_command: Option<String>,
+        agent_model: Option<String>,
+        agent_effort: Option<String>,
+        #[serde(
+            rename = "runtime_options_json",
+            with = "crate::repo::serde::runtime_speed_json"
+        )]
+        speed: Option<crate::model::CodexSpeed>,
+    }
+    let rows: Vec<LegacySession> = tx.prepare(
+        "SELECT id, role_id, agent_runtime, agent_command, agent_model, agent_effort, runtime_options_json FROM sessions",
+    )?.query_map([], |row| serde_rusqlite::from_row(row).map_err(crate::repo::de_err))?
+        .collect::<rusqlite::Result<_>>()?;
+    for row in rows {
+        let role = row
+            .role_id
+            .as_deref()
+            .map(|id| crate::repo::role::get(tx, id))
+            .transpose()?
+            .flatten();
+        if row.role_id.is_some() && role.is_none() {
+            log::warn!(
+                "session {} launch definition conversion: missing role",
+                row.id
+            );
+            continue;
+        }
+        match crate::session::launch_definition::convert_legacy(
+            role.as_ref(),
+            row.agent_runtime.as_deref(),
+            row.agent_command.as_deref(),
+            row.agent_model.as_deref(),
+            row.agent_effort.as_deref(),
+            row.speed,
+        ) {
+            Ok((runtime, definition)) => {
+                crate::repo::session::set_launch(tx, &row.id, &runtime, &definition)?;
+            }
+            Err(error) => log::warn!("session {} launch definition conversion: {error}", row.id),
         }
     }
     Ok(())

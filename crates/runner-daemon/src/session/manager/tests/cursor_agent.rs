@@ -129,7 +129,7 @@ fn cursor_automatic_resume_rejects_missing_history_and_manual_resume_starts_fres
     row.agent_command = Some("custom-cursor-wrapper".into());
     row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
     row.status = crate::model::SessionStatus::Stopped;
-    crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+    crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
     let error = mgr
         .resume_on_launch(&row.id, None, None, data.path(), pool.clone(), capture())
         .err()
@@ -161,7 +161,7 @@ fn cursor_closed_conversation_clears_key_without_stopping_output_forwarder() {
     let mut row = crate::repo::session::SessionRowDb::new_running("cursor-rekey".into());
     row.started_at = Some(Utc::now());
     row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
-    crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+    crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, fake.clone());
     let (rt_session, output) = fake
@@ -229,7 +229,7 @@ fn cursor_resume_uses_the_same_login_shell_config_root_as_spawn() {
         row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
         row.cwd = Some(cwd.display().to_string());
         row.status = crate::model::SessionStatus::Stopped;
-        crate::repo::session::insert(&pool.get().unwrap(), &row).unwrap();
+        crate::test_support::insert_session_row(&pool.get().unwrap(), &row).unwrap();
         let root = if variable == "XDG_CONFIG_HOME" {
             config.join("cursor")
         } else {
