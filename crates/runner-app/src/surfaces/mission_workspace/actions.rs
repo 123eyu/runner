@@ -174,6 +174,101 @@ impl MissionWorkspace {
         .into_any_element()
     }
 
+    pub(super) fn request_remove_role(
+        &mut self,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .sessions
+            .iter()
+            .any(|session| session.session.id == session_id && !session.lead)
+            && !self.slot_actions.contains(session_id)
+        {
+            self.remove_confirm = Some(session_id.to_owned());
+            self.root_focus.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    pub(super) fn render_remove_confirm(&self, cx: &mut Context<Self>) -> AnyElement {
+        let session_id = self.remove_confirm.clone().unwrap_or_default();
+        let handle = self
+            .sessions
+            .iter()
+            .find(|session| session.session.id == session_id)
+            .map(|session| session.handle.clone())
+            .unwrap_or_default();
+        let confirm = cx.entity();
+        let cancel = confirm.clone();
+        runner_app::ui::ConfirmDialog::new(
+            format!("Remove @{handle} from the mission?"),
+            format!("Its session stops and it leaves the team. Its messages stay in the feed, messages to @{handle} are refused from now on, and the handle isn't reused in this mission."),
+            "Remove", "Removing…", false,
+            Rc::new(move |window, cx| confirm.update(cx, |this, cx| {
+                this.remove_confirm = None;
+                this.remove_role(&session_id, &handle, window, cx);
+            })),
+            Rc::new(move |window, cx| cancel.update(cx, |this, cx| {
+                this.remove_confirm = None;
+                this.focus_active_mission_terminal(window, cx);
+                cx.notify();
+            })),
+        ).icon("log-out.svg").into_any_element()
+    }
+
+    fn remove_role(
+        &mut self,
+        session_id: &str,
+        handle: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.stopping
+            || self.resuming
+            || self.archiving
+            || self.slot_actions.contains(session_id)
+            || self.transitions.contains_key(session_id)
+            || !mission_slot_actions_available(
+                self.mission.as_ref().map(|mission| mission.status),
+                self.archived(),
+                self.secondary_state(cx).secondary,
+            )
+        {
+            return;
+        }
+        let Some(mission_id) = self.mission_id.clone() else {
+            return;
+        };
+        let session_id = session_id.to_owned();
+        self.slot_actions.insert(session_id.clone());
+        let generation = self.generation;
+        let core = self.core(cx).clone();
+        let remove_id = mission_id.clone();
+        let handle = handle.to_owned();
+        let remove = cx.background_spawn(async move {
+            core.mission_remove_role(&remove_id, &handle)
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn_in(window, async move |weak, cx| {
+            let result = remove.await;
+            let _ = weak.update_in(cx, |this, window, cx| {
+                if !this.is_current(&mission_id, generation) {
+                    return;
+                }
+                this.slot_actions.remove(&session_id);
+                if let Err(error) = result {
+                    this.warning = Some(action_failure("remove the role", error));
+                }
+                this.refresh_open_mission(window, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(super) fn act_on_slot(
         &mut self,
         session_id: &str,

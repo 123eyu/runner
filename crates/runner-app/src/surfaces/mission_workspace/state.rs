@@ -215,6 +215,7 @@ impl MissionWorkspace {
             slot_exit_codes: HashMap::new(),
             stop_all_confirm: false,
             restart_confirm: None,
+            remove_confirm: None,
             stopping: false,
             resuming: false,
             archiving: false,
@@ -283,6 +284,7 @@ impl MissionWorkspace {
         self.slot_exit_codes.clear();
         self.stop_all_confirm = false;
         self.restart_confirm = None;
+        self.remove_confirm = None;
         self.stopping = false;
         self.resuming = false;
         self.archiving = false;

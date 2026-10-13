@@ -157,7 +157,7 @@ pub(crate) fn group_feed_blocks(events: &[Event]) -> Vec<FeedBlock> {
             continue;
         }
         match event.signal_type.as_ref().map(SignalType::as_str) {
-            Some("mission_start" | "mission_stopped") => {
+            Some("mission_start" | "mission_stopped" | "role_joined" | "role_removed") => {
                 blocks.push(FeedBlock::Divider(event.clone()))
             }
             Some("human_question") => blocks.push(FeedBlock::AskCard(event.clone())),

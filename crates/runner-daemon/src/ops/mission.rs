@@ -1,4 +1,5 @@
 pub mod feed;
+pub mod roles;
 pub mod roster;
 
 pub fn mission_set_project(
@@ -463,7 +464,13 @@ fn post_message(
             .any(|member| member.slot.slot_handle == target)
         {
             return Err(Error::msg(format!(
-                "@{target} is not in the mission roster"
+                "@{target} is not in the mission roster; the team is {}.",
+                roles::join_handles(
+                    roster
+                        .iter()
+                        .map(|member| format!("@{}", member.slot.slot_handle))
+                        .collect()
+                )
             )));
         }
     }

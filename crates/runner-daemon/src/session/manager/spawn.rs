@@ -915,6 +915,7 @@ impl SessionManager {
                 session_id: session_id.clone(),
             },
             session_id,
+            launch_definition,
             spec,
             mission: mission.clone(),
             role: role.clone(),
@@ -961,6 +962,7 @@ impl SessionManager {
     ) -> Result<CompleteSpawnOutcome> {
         let PendingMissionSpawn {
             session_id,
+            launch_definition: _,
             pre_attachment: _pre_attachment,
             mut spec,
             mission,
@@ -2352,25 +2354,9 @@ impl SessionManager {
         allow_fresh_fallback: bool,
         fresh: bool,
     ) -> Result<SpawnedSession> {
-        // Atomically claim this session id for the resume. If another
-        // resume is already in flight (e.g. two fast clicks, two
-        // windows), refuse rather than racing two PTY spawns against
-        // the same row. The claim guard releases on every exit path
-        // via Drop.
-        let _claim = {
-            let state = self.session_state_or_insert(session_id);
-            let mut state = state.lock().unwrap();
-            if state.resuming {
-                return Err(Error::msg(format!(
-                    "session {session_id} is already being resumed"
-                )));
-            }
-            state.resuming = true;
-            ResumeClaim {
-                mgr: Arc::clone(self),
-                session_id: session_id.to_string(),
-            }
-        };
+        let _claim = self
+            .try_claim_resume(session_id)
+            .ok_or_else(|| Error::msg(format!("session {session_id} is already being resumed")))?;
 
         // Validate the row + collect everything we need under a single
         // short-lived connection. We deliberately don't hold the conn
@@ -2423,7 +2409,20 @@ impl SessionManager {
                 }
                 let roster = crate::ops::mission::roster::load(&conn, app_data_dir, &mission)?;
                 let slot = &roster.slots.iter().find(|member| member.slot.id == sid)
-                        .ok_or_else(|| Error::msg(format!("slot {sid} referenced by session {session_id} is not in the mission roster")))?.slot;
+                    .ok_or_else(|| {
+                        let dir = runner_core::event_log::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
+                        let removed = runner_core::EventLog::open(&dir).and_then(|log| log.read_from_lossy(0)).ok()
+                            .and_then(|(entries, _)| entries.into_iter().find(|entry| {
+                                let event = &entry.event;
+                                event.kind == runner_core::EventKind::Signal && event.from == "human"
+                                    && event.signal_type.as_ref().is_some_and(|kind| kind.as_str() == "role_removed")
+                                    && event.payload["slot_id"] == sid
+                            }));
+                        match removed.and_then(|entry| entry.event.payload["handle"].as_str().map(str::to_owned)) {
+                            Some(handle) => Error::msg(format!("@{handle} was removed from this mission")),
+                            None => Error::msg(format!("slot {sid} referenced by session {session_id} is not in the mission roster")),
+                        }
+                    })?.slot;
                 Some(MissionCtx {
                     crew_id: mission.crew_id,
                     mission_id: mission.id,

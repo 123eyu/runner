@@ -216,3 +216,22 @@ pub struct MissionWarningSnapshot {
     pub message: Option<String>,
     pub payload: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionAddRoleInput {
+    pub mission_id: String,
+    pub role_id: String,
+    pub handle: Option<String>,
+    pub runtime: Option<Runtime>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub speed: Option<CodexSpeed>,
+    pub task: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionRoleChange {
+    pub mission_id: String,
+    pub handle: String,
+    pub session_id: String,
+}

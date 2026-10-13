@@ -20,6 +20,7 @@ pub(crate) fn core(
         usage: Arc::new(runner_daemon::usage::UsageService::without_fetch()),
         buses: event_bus::BusRegistry::new(),
         routers: router::RouterRegistry::new(),
+        mission_roster_locks: Default::default(),
         mission_grid_hint: Arc::new(Mutex::new(None)),
         windows: Arc::new(windows::WindowRegistry::new()),
         events: events::EventChannel::new(),

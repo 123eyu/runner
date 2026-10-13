@@ -437,6 +437,12 @@ cli_cases! {
     mission_list => vec!["mission", "list", "--crew", "Peer"],
     mission_show => vec!["mission", "show", MISSION],
     mission_start => vec!["mission", "start", "--crew", "Peer", "--goal", "ship", "--cwd", "not-a-directory"],
+    mission_add_role => vec!["mission", "add-role", "mission-running", "reviewer", "--handle", "reviewer-2", "--task", "Review the change"],
+    mission_remove_role => vec!["mission", "remove-role", "mission-running", "reviewer"],
+    mission_add_role_stopped => vec!["mission", "add-role", MISSION, "reviewer"],
+    mission_remove_role_lead => vec!["mission", "remove-role", "mission-running", "coder"],
+    mission_add_role_as => vec!["mission", "add-role", "mission-running", "reviewer", "--as", "coder"],
+    mission_remove_role_as => vec!["mission", "remove-role", "mission-running", "reviewer", "--as", "coder"],
     mission_stop => vec!["mission", "stop", MISSION],
     mission_resume => vec!["mission", "resume", MISSION],
     mission_archive => vec!["mission", "archive", MISSION],
@@ -617,6 +623,8 @@ fn variants(args: Vec<&'static str>, inside: bool, running: bool) -> Vec<Case> {
 
 fn inside_cases() -> Vec<Case> {
     let args = [
+        vec!["mission", "add-role", "mission-running", "reviewer"],
+        vec!["mission", "remove-role", "mission-running", "reviewer"],
         vec!["msg", "read"],
         vec!["msg", "post", "Direct message", "--to", "reviewer"],
         vec![
@@ -657,8 +665,14 @@ fn help_cases() -> Vec<Case> {
         vec!["help"],
         vec!["help", "agents"],
         vec!["help", "mission"],
+        vec!["mission", "add-role", "--help"],
+        vec!["mission", "remove-role", "--help"],
     ];
-    for args in cases().into_iter().take(50) {
+    for args in cases()
+        .into_iter()
+        .filter(|args| !matches!(args.get(1), Some(&"add-role" | &"remove-role")))
+        .take(50)
+    {
         let count = if matches!(args.first(), Some(&"status" | &"signal" | &"ask" | &"call")) {
             1
         } else {
@@ -741,6 +755,11 @@ fn assert_manifest(expected: &str, cases: &[Case]) {
 
 fn render_case(case: &Case) -> String {
     let mut fixture = Fixture::new();
+    if case.args.starts_with(&["mission", "remove-role"]) {
+        let pool = runner_daemon::db::open_pool(&fixture.data.join("runner.db")).unwrap();
+        let conn = pool.get().unwrap();
+        conn.execute("INSERT INTO sessions (id,mission_id,role_id,slot_id,status,started_at) VALUES ('session-remove','mission-running','role-reviewer','slot-reviewer','stopped',?1)", [STAMP]).unwrap();
+    }
     if case.running {
         fixture.start();
     }

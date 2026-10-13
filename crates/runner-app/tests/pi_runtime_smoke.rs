@@ -45,6 +45,7 @@ fn core_at(app_data_dir: PathBuf, db: Arc<runner_daemon::db::DbPool>) -> AppCore
         usage: Arc::new(runner_daemon::usage::UsageService::default()),
         buses: runner_daemon::event_bus::BusRegistry::new(),
         routers: runner_daemon::router::RouterRegistry::new(),
+        mission_roster_locks: Default::default(),
         mission_grid_hint: Arc::new(Mutex::new(None)),
         windows: Arc::new(runner_daemon::windows::WindowRegistry::new()),
         events: runner_daemon::events::EventChannel::new(),

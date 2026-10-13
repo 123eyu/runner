@@ -296,6 +296,11 @@ pub fn call_daemon(
             parse::<runner_core::protocol::StartMissionInput>(args)?.into(),
             None,
         )),
+        "mission_add_role" => response(client.mission_add_role(parse(args)?)),
+        "mission_remove_role" => response(client.mission_remove_role(
+            &argument::<String>(&args, "mission_id")?,
+            &argument::<String>(&args, "handle")?,
+        )),
         "mission_resume" => response(client.mission_resume(&argument::<String>(&args, "id")?)),
         "mission_set_project" => response(client.mission_set_project(
             argument(&args, "mission_id")?,

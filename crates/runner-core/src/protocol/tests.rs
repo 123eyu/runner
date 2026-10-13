@@ -577,6 +577,30 @@ fn round_trip<T: Serialize + DeserializeOwned + std::fmt::Debug>(value: T) {
     assert_eq!(format!("{value:?}"), format!("{decoded:?}"));
 }
 
+impl Sample for MissionAddRoleInput {
+    fn sample() -> Self {
+        Self {
+            mission_id: "mission".into(),
+            role_id: "role".into(),
+            handle: Some("worker-2".into()),
+            runtime: Some(Runtime::Codex),
+            model: Some("model".into()),
+            effort: Some("high".into()),
+            speed: Some(CodexSpeed::Fast),
+            task: Some("tiny task".into()),
+        }
+    }
+}
+impl Sample for MissionRoleChange {
+    fn sample() -> Self {
+        Self {
+            mission_id: "mission".into(),
+            handle: "worker-2".into(),
+            session_id: "session".into(),
+        }
+    }
+}
+
 macro_rules! round_trip_api {
     ($( $name:ident($( $arg:ident: $client_ty:ty => $wire_ty:ty = $convert:block ),*) -> $out:ty [$fast:literal] => $handler:expr; )*) => {
         #[test]

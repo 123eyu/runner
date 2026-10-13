@@ -323,6 +323,86 @@ $ runner mission start --crew Peer --goal ship --cwd not-a-directory --json
 exit 0
 {"mission":{"id":"<ULID_1>","crew_id":"crew-fixture","project_id":"project-fixture","title":"ship","status":"running","goal_override":"ship","cwd":"<ROOT>/not-a-directory","started_at":"<TIMESTAMP>","stopped_at":null,"pinned_at":null,"archived_at":null},"goal":"ship"}
 
+$ runner mission add-role mission-running reviewer --handle reviewer-2 --task 'Review the change'
+exit 0
+Added role reviewer-2
+
+$ runner mission add-role mission-running reviewer --handle reviewer-2 --task 'Review the change' --json
+exit 0
+{"mission_id":"mission-running","handle":"reviewer-2","session_id":"<ULID_1>"}
+
+$ runner mission remove-role mission-running reviewer
+exit 0
+Removed role reviewer
+
+$ runner mission remove-role mission-running reviewer --json
+exit 0
+{"mission_id":"mission-running","handle":"reviewer","session_id":"session-remove"}
+
+$ runner mission add-role mission-fixture reviewer
+exit 1
+[stderr]
+mission “Fixture mission” is not running
+
+$ runner mission add-role mission-fixture reviewer --json
+exit 1
+[stderr]
+mission “Fixture mission” is not running
+
+$ runner mission remove-role mission-running coder
+exit 1
+[stderr]
+@coder is the lead and cannot be removed
+
+$ runner mission remove-role mission-running coder --json
+exit 1
+[stderr]
+@coder is the lead and cannot be removed
+
+$ runner mission add-role mission-running reviewer --as coder
+exit 2
+[stderr]
+error: unexpected argument '--as' found
+
+  tip: a similar argument exists: '--task'
+
+Usage: runner mission add-role --task <TASK> <MISSION> <ROLE>
+
+For more information, try '--help'.
+
+$ runner mission add-role mission-running reviewer --as coder --json
+exit 2
+[stderr]
+error: unexpected argument '--as' found
+
+  tip: a similar argument exists: '--task'
+
+Usage: runner mission add-role --task <TASK> <MISSION> <ROLE>
+
+For more information, try '--help'.
+
+$ runner mission remove-role mission-running reviewer --as coder
+exit 2
+[stderr]
+error: unexpected argument '--as' found
+
+  tip: to pass '--as' as a value, use '-- --as'
+
+Usage: runner mission remove-role <MISSION> <HANDLE>
+
+For more information, try '--help'.
+
+$ runner mission remove-role mission-running reviewer --as coder --json
+exit 2
+[stderr]
+error: unexpected argument '--as' found
+
+  tip: to pass '--as' as a value, use '-- --as'
+
+Usage: runner mission remove-role <MISSION> <HANDLE>
+
+For more information, try '--help'.
+
 $ runner mission stop mission-fixture
 exit 0
 ID       mission-fixture
@@ -793,6 +873,30 @@ exit 2
 runner signal: unknown type "unknown"
 
 # context: inside mission
+$ runner mission add-role mission-running reviewer
+exit 2
+[stderr]
+runner mission add-role is for the person; ask the person to add a role
+
+# context: inside mission
+$ runner mission add-role mission-running reviewer --json
+exit 2
+[stderr]
+runner mission add-role is for the person; ask the person to add a role
+
+# context: inside mission
+$ runner mission remove-role mission-running reviewer
+exit 2
+[stderr]
+runner mission remove-role is for the person; ask the person to remove a role
+
+# context: inside mission
+$ runner mission remove-role mission-running reviewer --json
+exit 2
+[stderr]
+runner mission remove-role is for the person; ask the person to remove a role
+
+# context: inside mission
 $ runner msg read
 exit 0
 [2026-09-18T10:20:30+00:00] @reviewer -> @coder: Ready for review
@@ -953,6 +1057,8 @@ COMMON FLOW
   runner crew list --json
   mission=$(runner mission start --crew <crew> --goal-file - -q < brief.md)
   runner mission feed "$mission" --follow --json
+  runner mission add-role "$mission" <role> --task-file - < task.md
+  runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
   # Use the HANDLE from the LEAD row in mission show.
@@ -1003,6 +1109,45 @@ IDENTITY
 $ runner help mission
 exit 0
 runner help mission: use `runner mission --help` for the command reference.
+
+# context: not running
+$ runner mission add-role --help
+exit 0
+Add a configured worker role to a running mission (person only)
+
+Usage: runner mission add-role [OPTIONS] <MISSION> <ROLE>
+
+Arguments:
+  <MISSION>  
+  <ROLE>     
+
+Options:
+      --handle <HANDLE>        
+      --json                   Print the tool result as exact JSON
+  -q                           Print only result IDs
+      --runtime <RUNTIME>      
+      --model <MODEL>          
+      --effort <EFFORT>        
+      --speed <SPEED>          [possible values: inherit, standard, fast]
+      --task <TASK>            
+      --task-file <TASK_FILE>  
+  -h, --help                   Print help
+
+# context: not running
+$ runner mission remove-role --help
+exit 0
+Remove a worker from a running mission (person only)
+
+Usage: runner mission remove-role [OPTIONS] <MISSION> <HANDLE>
+
+Arguments:
+  <MISSION>  
+  <HANDLE>   
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
 
 # context: not running
 $ runner status --help

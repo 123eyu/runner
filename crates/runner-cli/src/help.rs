@@ -79,6 +79,8 @@ COMMON FLOW
   runner crew list --json
   mission=$(runner mission start --crew <crew> --goal-file - -q < brief.md)
   runner mission feed "$mission" --follow --json
+  runner mission add-role "$mission" <role> --task-file - < task.md
+  runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
   # Use the HANDLE from the LEAD row in mission show.

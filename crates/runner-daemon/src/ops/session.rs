@@ -59,6 +59,13 @@ pub fn list_for_mission(
             row.lead = member.slot.lead;
         }
     }
+    rows.retain(|row| {
+        roster
+            .file
+            .slots
+            .iter()
+            .any(|slot| row.session.slot_id.as_deref() == Some(&slot.id))
+    });
     rows.sort_by_key(|row| {
         roster
             .slots

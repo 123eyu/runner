@@ -34,6 +34,7 @@ pub mod usage;
 pub mod wake;
 pub mod windows;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -70,6 +71,7 @@ pub struct AppCore {
     pub routers: Arc<router::RouterRegistry>,
     /// Most recent mission-pane grid measured by the frontend. Backend-only
     /// mission starts use it when their caller cannot provide a size.
+    pub mission_roster_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     pub mission_grid_hint: Arc<Mutex<Option<(u16, u16)>>>,
     /// Cross-window coordination map (impl 0018). Tracks which subject
     /// (mission / direct chat) each window is looking at + when it

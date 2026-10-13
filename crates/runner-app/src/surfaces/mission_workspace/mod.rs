@@ -116,6 +116,28 @@ fn mission_slot_actions_available(
     status == Some(MissionStatus::Running) && !archived && !secondary
 }
 
+fn mission_divider_label(event: &Event) -> String {
+    let kind = event
+        .signal_type
+        .as_ref()
+        .map(|kind| kind.as_str())
+        .unwrap_or_default();
+    let time = format_event_time(event);
+    match kind {
+        "role_joined" | "role_removed" => {
+            let handle = event.payload["handle"].as_str().unwrap_or_default();
+            let (verb, action) = if kind == "role_joined" {
+                ("joined", "added")
+            } else {
+                ("left", "removed")
+            };
+            format!("@{handle} {verb} · {action} by you · {time}")
+        }
+        "mission_stopped" => format!("MISSION STOPPED · {time}"),
+        _ => format!("MISSION STARTED · {time}"),
+    }
+}
+
 fn stopped_slot_description(handle: &str, others: usize) -> String {
     let others = if others == 1 {
         "1 other slot is".into()
@@ -292,6 +314,7 @@ pub(crate) struct MissionWorkspace {
     slot_exit_codes: HashMap<String, Option<i32>>,
     stop_all_confirm: bool,
     restart_confirm: Option<String>,
+    remove_confirm: Option<String>,
     stopping: bool,
     resuming: bool,
     archiving: bool,

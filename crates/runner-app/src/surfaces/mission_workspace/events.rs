@@ -63,6 +63,13 @@ impl MissionWorkspace {
                     .iter()
                     .any(|existing| existing.id == appended.id)
                 {
+                    if appended.from == "human"
+                        && appended.signal_type.as_ref().is_some_and(|kind| {
+                            matches!(kind.as_str(), "role_joined" | "role_removed")
+                        })
+                    {
+                        self.refresh_open_mission(window, cx);
+                    }
                     self.handle_feed_append(&appended);
                     self.events.push(appended);
                     self.events.sort_by(|a, b| a.id.cmp(&b.id));
@@ -337,7 +344,10 @@ impl MissionWorkspace {
             let sessions = core
                 .session_list(&refresh_id)
                 .map_err(|error| error.to_string())?;
-            Ok::<_, String>((mission, sessions))
+            let roster = core
+                .mission_roster(&refresh_id)
+                .map_err(|error| error.to_string())?;
+            Ok::<_, String>((mission, sessions, roster))
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = refresh.await;
@@ -349,7 +359,7 @@ impl MissionWorkspace {
                     return;
                 }
                 match result {
-                    Ok((mission, sessions)) => {
+                    Ok((mission, sessions, roster)) => {
                         let was_archived = this
                             .mission
                             .as_ref()
@@ -359,8 +369,20 @@ impl MissionWorkspace {
                             .iter()
                             .map(|session| session.session.id.clone())
                             .collect::<HashSet<_>>();
+                        let previous_ids = this
+                            .sessions
+                            .iter()
+                            .map(|session| session.session.id.clone())
+                            .collect::<HashSet<_>>();
+                        this.open_tabs.extend(
+                            sessions
+                                .iter()
+                                .filter(|session| !previous_ids.contains(&session.session.id))
+                                .map(|session| session.session.id.clone()),
+                        );
                         this.mission = Some(mission);
                         this.sessions = sessions;
+                        this.roster = roster;
                         this.delivery_blocked
                             .retain(|session_id, _| valid_ids.contains(session_id));
                         let drawer_ids = this

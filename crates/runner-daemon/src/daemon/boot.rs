@@ -76,6 +76,7 @@ pub fn boot(
         usage: Arc::new(crate::usage::UsageService::default()),
         buses: event_bus::BusRegistry::new(),
         routers: crate::router::RouterRegistry::new(),
+        mission_roster_locks: Default::default(),
         mission_grid_hint: Arc::new(std::sync::Mutex::new(None)),
         windows: window_registry,
         events: event_channel.clone(),

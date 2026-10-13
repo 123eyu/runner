@@ -31,7 +31,24 @@ pub fn load(event_log: &Path) -> Option<Vec<RosterSlot>> {
 /// the message through. Stderr warning surfaces the gap.
 pub fn is_known(event_log: &Path, handle: &str) -> bool {
     match load(event_log) {
-        Some(list) => list.iter().any(|r| r.handle == handle),
+        Some(list) => {
+            let known = list.iter().any(|row| row.handle == handle);
+            if !known {
+                let handles = list
+                    .iter()
+                    .map(|row| format!("@{}", row.handle))
+                    .collect::<Vec<_>>();
+                let team = match handles.split_last() {
+                    Some((last, rest)) if !rest.is_empty() => {
+                        format!("{} and {last}", rest.join(", "))
+                    }
+                    Some((last, _)) => last.clone(),
+                    None => String::new(),
+                };
+                eprintln!("@{handle} is not in the mission roster; the team is {team}.");
+            }
+            known
+        }
         None => {
             eprintln!(
                 "runner: roster sidecar missing/unreadable; allowing --to @{handle} permissively. \
