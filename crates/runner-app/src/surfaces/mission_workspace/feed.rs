@@ -408,7 +408,17 @@ impl MissionWorkspace {
                         .text_size(theme::text_caption())
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::faint())
-                        .child(format!("MISSION STARTED · {}", format_event_time(&event))),
+                        .child(format!(
+                            "MISSION {} · {}",
+                            if event.signal_type.as_ref().map(|kind| kind.as_str())
+                                == Some("mission_stopped")
+                            {
+                                "STOPPED"
+                            } else {
+                                "STARTED"
+                            },
+                            format_event_time(&event)
+                        )),
                 )
                 .child(
                     div()
