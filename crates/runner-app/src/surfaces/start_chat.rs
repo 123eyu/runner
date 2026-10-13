@@ -34,6 +34,7 @@ use crate::chat_icon::runtime_mark;
 use crate::*;
 
 const START_CHAT_MODE_FILE: &str = "start-chat-mode";
+const START_CHAT_RECENT_RUNTIMES_FILE: &str = "start-chat-recent-runtimes";
 const MODAL_WIDTH: f32 = 560.;
 const CARD_PADDING: f32 = 12.;
 const COLUMN_GAP: f32 = 12.;
@@ -116,6 +117,8 @@ pub(crate) struct StartChatModal {
     mode: ChatMode,
     roles: Vec<Role>,
     runtimes: Vec<RuntimeCatalogEntry>,
+    /// The agents Direct chats last started on, most recent first.
+    recent_runtimes: Vec<String>,
     role_id: Option<String>,
     runtime_name: Option<String>,
     /// The agent a role chat runs on when it is not the role's own; picking
@@ -915,6 +918,7 @@ impl NativeRoot {
         let (runtimes, agents_checking, agents_error) =
             load_selectable_runtimes(self.core(cx), self.settings(cx));
         let persisted_mode = read_start_chat_mode(&self.app_store.read(cx).app_data_dir);
+        let recent_runtimes = read_recent_runtimes(&self.app_store.read(cx).app_data_dir);
         let mode = if default_role_id.is_some() {
             ChatMode::Role
         } else {
@@ -935,11 +939,11 @@ impl NativeRoot {
                     .first()
                     .map(|role| role.id.clone())
             });
-        let runtime_name = runtimes
-            .iter()
-            .find(|runtime| runtime.name.key() == self.settings(cx).default_runtime)
-            .or_else(|| runtimes.first())
-            .map(|runtime| runtime.name.to_string());
+        let runtime_name = initial_direct_runtime(
+            &runtimes,
+            &recent_runtimes,
+            &self.settings(cx).default_runtime,
+        );
         let title = match mode {
             ChatMode::Role => role_id
                 .as_deref()
@@ -1021,7 +1025,7 @@ impl NativeRoot {
                 "start-chat-runtime",
                 select_cx.focus_handle(),
                 runtime_name.clone().unwrap_or_default(),
-                runtime_options(&runtimes),
+                runtime_options(direct_runtime_order(&runtimes, &recent_runtimes)),
                 runtime_handler,
                 select_cx,
             )
@@ -1083,6 +1087,7 @@ impl NativeRoot {
             mode,
             roles: self.app_store.read(cx).roles.clone(),
             runtimes,
+            recent_runtimes,
             role_id,
             runtime_name,
             role_runtime_override: None,
@@ -1165,8 +1170,7 @@ impl NativeRoot {
                     .iter()
                     .any(|runtime| runtime.name.key() == name.as_str())
             }) {
-                modal.runtime_name = modal
-                    .runtimes
+                modal.runtime_name = direct_runtime_order(&modal.runtimes, &modal.recent_runtimes)
                     .first()
                     .map(|runtime| runtime.name.to_string());
             }
@@ -1178,7 +1182,13 @@ impl NativeRoot {
                 update_auto_title(&modal.title, derived, cx);
             }
             modal.runtime_select.update(cx, |select, select_cx| {
-                select.set_options(runtime_options(&modal.runtimes), select_cx);
+                select.set_options(
+                    runtime_options(direct_runtime_order(
+                        &modal.runtimes,
+                        &modal.recent_runtimes,
+                    )),
+                    select_cx,
+                );
                 select.set_value(modal.runtime_name.clone().unwrap_or_default(), select_cx);
             });
             sync_role_runtime_select(modal, cx);
@@ -1201,12 +1211,8 @@ impl NativeRoot {
         let Some(modal) = self.start_chat_modal.as_mut() else {
             return;
         };
-        let runtime_name = modal
-            .runtimes
-            .iter()
-            .find(|runtime| runtime.name.key() == default_runtime)
-            .or_else(|| modal.runtimes.first())
-            .map(|runtime| runtime.name.to_string());
+        let runtime_name =
+            initial_direct_runtime(&modal.runtimes, &modal.recent_runtimes, &default_runtime);
         if modal.runtime_name == runtime_name {
             return;
         }
@@ -1512,7 +1518,8 @@ impl NativeRoot {
                     speed,
                     cwd,
                 } => {
-                    self.core(cx)
+                    let spawned = self
+                        .core(cx)
                         .session_start_runtime_with_speed(
                             &runtime,
                             scope,
@@ -1523,7 +1530,9 @@ impl NativeRoot {
                             effort,
                             speed,
                         )?
-                        .session
+                        .session;
+                    let _ = record_recent_runtime(&self.app_store.read(cx).app_data_dir, &runtime);
+                    spawned
                 }
             };
             spawned_id = Some(spawned.id.clone());
@@ -2102,9 +2111,11 @@ fn runtime_leading(runtime: &str) -> SelectLeading {
 
 /// The agents a picker offers: the name, the command in monospace under it,
 /// and the provider's mark.
-fn runtime_options(runtimes: &[RuntimeCatalogEntry]) -> Vec<SelectOption> {
+fn runtime_options<'a>(
+    runtimes: impl IntoIterator<Item = &'a RuntimeCatalogEntry>,
+) -> Vec<SelectOption> {
     runtimes
-        .iter()
+        .into_iter()
         .map(|runtime| {
             SelectOption::new(runtime.name.to_string(), runtime.display_name.clone())
                 .description(runtime.command.clone())
@@ -2777,6 +2788,61 @@ fn build_start_request(
             cwd,
         }),
     }
+}
+
+/// Direct's agents, the most recently started first; the ones never started
+/// follow in catalog order.
+fn direct_runtime_order<'a>(
+    runtimes: &'a [RuntimeCatalogEntry],
+    recent: &[String],
+) -> Vec<&'a RuntimeCatalogEntry> {
+    let mut ordered = runtimes.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|runtime| {
+        recent
+            .iter()
+            .position(|name| name == runtime.name.key())
+            .unwrap_or(usize::MAX)
+    });
+    ordered
+}
+
+/// The agent Direct opens on: the most recently started one, otherwise the
+/// default from Settings, otherwise the first.
+fn initial_direct_runtime(
+    runtimes: &[RuntimeCatalogEntry],
+    recent: &[String],
+    default_runtime: &str,
+) -> Option<String> {
+    recent
+        .iter()
+        .map(String::as_str)
+        .chain([default_runtime])
+        .find_map(|name| runtimes.iter().find(|runtime| runtime.name.key() == name))
+        .or_else(|| runtimes.first())
+        .map(|runtime| runtime.name.to_string())
+}
+
+fn recent_runtimes_path(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join(START_CHAT_RECENT_RUNTIMES_FILE)
+}
+
+fn read_recent_runtimes(app_data_dir: &Path) -> Vec<String> {
+    fs::read_to_string(recent_runtimes_path(app_data_dir))
+        .map(|text| {
+            text.lines()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn record_recent_runtime(app_data_dir: &Path, runtime: &str) -> std::io::Result<()> {
+    let mut recent = read_recent_runtimes(app_data_dir);
+    recent.retain(|name| name != runtime);
+    recent.insert(0, runtime.to_owned());
+    fs::write(recent_runtimes_path(app_data_dir), recent.join("\n"))
 }
 
 fn start_chat_mode_path(app_data_dir: &Path) -> PathBuf {
@@ -4951,6 +5017,75 @@ pub(super) mod tests {
         );
         assert!(effort_options_for_runtime(&runtimes, "trae").is_empty());
         assert!(effort_options_for_runtime(&runtimes, "missing").is_empty());
+    }
+
+    #[test]
+    fn direct_lists_recently_started_agents_first_then_the_catalog_order() {
+        let runtimes = ["claude-code", "codex", "pi", "trae"].map(|name| runtime(name, &[]));
+        let recent = ["pi", "gone", "codex"].map(String::from);
+        assert_eq!(
+            runtime_options(direct_runtime_order(&runtimes, &recent))
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>(),
+            ["pi", "codex", "claude-code", "trae"]
+        );
+        assert_eq!(
+            direct_runtime_order(&runtimes, &[])
+                .iter()
+                .map(|runtime| runtime.name.key())
+                .collect::<Vec<_>>(),
+            ["claude-code", "codex", "pi", "trae"]
+        );
+    }
+
+    #[test]
+    fn direct_opens_on_the_most_recent_agent_then_the_settings_default() {
+        let runtimes = ["claude-code", "codex", "pi", "trae"].map(|name| runtime(name, &[]));
+        let recent = ["gone", "pi", "codex"].map(String::from);
+        assert_eq!(
+            initial_direct_runtime(&runtimes, &recent, "trae").as_deref(),
+            Some("pi")
+        );
+        assert_eq!(
+            initial_direct_runtime(&runtimes, &["gone".into()], "trae").as_deref(),
+            Some("trae")
+        );
+        assert_eq!(
+            initial_direct_runtime(&runtimes, &[], "trae").as_deref(),
+            Some("trae")
+        );
+        assert_eq!(
+            initial_direct_runtime(&runtimes, &[], "copilot").as_deref(),
+            Some("claude-code")
+        );
+        assert_eq!(
+            initial_direct_runtime(&runtimes, &[], "").as_deref(),
+            Some("claude-code")
+        );
+        assert_eq!(initial_direct_runtime(&[], &recent, "trae"), None);
+    }
+
+    #[test]
+    fn recording_a_direct_start_moves_its_agent_to_the_front() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(read_recent_runtimes(temp.path()).is_empty());
+
+        record_recent_runtime(temp.path(), "codex").unwrap();
+        record_recent_runtime(temp.path(), "claude-code").unwrap();
+        record_recent_runtime(temp.path(), "pi").unwrap();
+        record_recent_runtime(temp.path(), "codex").unwrap();
+        assert_eq!(
+            read_recent_runtimes(temp.path()),
+            ["codex", "pi", "claude-code"]
+        );
+        assert_eq!(
+            fs::read_to_string(recent_runtimes_path(temp.path())).unwrap(),
+            "codex\npi\nclaude-code"
+        );
+
+        fs::write(recent_runtimes_path(temp.path()), " trae \n\ncodex\n").unwrap();
+        assert_eq!(read_recent_runtimes(temp.path()), ["trae", "codex"]);
     }
 
     #[test]
