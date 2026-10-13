@@ -178,6 +178,7 @@ fn test_core_with_runtime(root: &std::path::Path, runtime: Arc<dyn SessionRuntim
         usage: Arc::new(crate::usage::UsageService::default()),
         buses: crate::event_bus::BusRegistry::new(),
         routers: crate::router::RouterRegistry::new(),
+        mission_roster_locks: Default::default(),
         mission_grid_hint: Arc::new(std::sync::Mutex::new(None)),
         windows,
         events: crate::events::EventChannel::new(),

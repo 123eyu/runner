@@ -1320,11 +1320,14 @@ pub(crate) fn seed_mixed_working_sessions(store: &mut AppStore) {
          VALUES ('test-shell-role', 'test-shell-role', 'Shell', 'shell', 'shell', '2026-10-06T00:00:00Z', '2026-10-06T00:00:00Z');
          INSERT INTO crews (id, name, created_at, updated_at) VALUES ('test-crew', 'Test', '2026-10-06T00:00:00Z', '2026-10-06T00:00:00Z');
          INSERT INTO missions (id, crew_id, title, status, started_at) VALUES ('test-mission', 'test-crew', 'Test', 'running', '2026-10-06T00:00:00Z');
-         INSERT INTO sessions (id, role_id, mission_id, status, agent_runtime, agent_command)
-         VALUES ('direct-agent', 'test-shell-role', NULL, 'running', 'codex', 'codex'),
-                ('busy-shell', 'test-shell-role', NULL, 'running', 'shell', 'shell'),
-                ('mission-agent', 'test-shell-role', 'test-mission', 'running', 'codex', 'codex'),
-                ('mission-shell', 'test-shell-role', 'test-mission', 'running', 'shell', 'shell');"
+         INSERT INTO slots (id,crew_id,role_id,slot_handle,position,lead,added_at)
+         VALUES ('agent-slot','test-crew','test-shell-role','agent',0,1,'2026-10-06T00:00:00Z'),
+                ('shell-slot','test-crew','test-shell-role','shell',1,0,'2026-10-06T00:00:00Z');
+         INSERT INTO sessions (id, role_id, mission_id, slot_id, status, agent_runtime, agent_command)
+         VALUES ('direct-agent', 'test-shell-role', NULL, NULL, 'running', 'codex', 'codex'),
+                ('busy-shell', 'test-shell-role', NULL, NULL, 'running', 'shell', 'shell'),
+                ('mission-agent', 'test-shell-role', 'test-mission', 'agent-slot', 'running', 'codex', 'codex'),
+                ('mission-shell', 'test-shell-role', 'test-mission', 'shell-slot', 'running', 'shell', 'shell');"
     ).unwrap();
     store.refresh_sessions_inner();
     store.refresh_missions_blocking_inner();

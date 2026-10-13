@@ -63,6 +63,7 @@ pub(crate) fn test_core_in(app_data_dir: PathBuf) -> AppCore {
         usage: Arc::new(crate::usage::UsageService::default()),
         buses: BusRegistry::new(),
         routers: RouterRegistry::new(),
+        mission_roster_locks: Default::default(),
         mission_grid_hint: Arc::new(std::sync::Mutex::new(None)),
         windows: Arc::new(WindowRegistry::new()),
         events: EventChannel::new(),

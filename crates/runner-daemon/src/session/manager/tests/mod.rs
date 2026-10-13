@@ -13,6 +13,7 @@ mod input;
 mod launch_definition;
 mod launch_gate;
 mod mission_lifecycle;
+mod mission_roles;
 #[cfg(unix)]
 mod mission_roster;
 mod permissions;

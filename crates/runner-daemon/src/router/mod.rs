@@ -165,7 +165,7 @@ pub use crate::session::runtime::SessionActivityState;
 pub(crate) struct LaunchInputs {
     crew_name: String,
     lead: LeadRow,
-    roster: Vec<RosterRow>,
+    roster: Mutex<Vec<RosterRow>>,
     allowed_signals: Vec<SignalType>,
     /// `crew.system_prompt_addendum` snapshot at mount/resume time
     /// (Layer 2 of the system-prompt stack, #54). Used by
@@ -187,6 +187,7 @@ pub(crate) struct LeadRow {
     system_prompt: Option<String>,
 }
 
+#[derive(Clone)]
 pub(crate) struct RosterRow {
     handle: String,
     display_name: String,
@@ -369,6 +370,33 @@ impl Router {
             reconciliation_clock: Mutex::new(None),
             weak_self: weak_self.clone(),
         }))
+    }
+
+    pub fn add_roster_member(&self, member: &SlotWithRole) {
+        self.launch.roster.lock().unwrap().push(RosterRow {
+            handle: member.slot.slot_handle.clone(),
+            display_name: member.role.display_name.clone(),
+            lead: member.slot.lead,
+        });
+    }
+
+    pub fn remove_roster_member(&self, handle: &str) {
+        self.launch
+            .roster
+            .lock()
+            .unwrap()
+            .retain(|slot| slot.handle != handle);
+        let mut state = self.state.lock().unwrap();
+        if let Some(session_id) = state.session_by_handle.remove(handle) {
+            state.outbox_by_session.remove(&session_id);
+            state.pending_sessions.remove(&session_id);
+            state.live_sessions.remove(&session_id);
+            state.blocked_unread_by_session.remove(&session_id);
+            state.last_reconciliation_nudge.remove(&session_id);
+        }
+        state.unread_by_handle.remove(handle);
+        state.watermark_by_handle.remove(handle);
+        state.latest_inbox_id.remove(handle);
     }
 
     /// Register existing session ids so handlers can find which PTY owns
@@ -1337,16 +1365,21 @@ impl Router {
                 "prior_agent_session_key": prior_agent_session_key}),
         ))?;
         let text = format!("@{handle} was restarted by the human and starts over with only its brief. Nothing it was told in this mission survives; re-send the task, branch, and anything else it needs.");
-        let recipients: Vec<&str> = if handle == self.launch.lead().handle() {
-            self.launch
-                .roster()
-                .iter()
-                .map(|slot| slot.handle())
-                .filter(|other| *other != handle)
-                .collect()
-        } else {
-            vec![self.launch.lead().handle()]
-        };
+        let rows = self.launch.roster();
+        let restarting_lead = rows
+            .iter()
+            .any(|slot| slot.handle() == handle && slot.is_lead());
+        let recipients: Vec<String> = rows
+            .iter()
+            .filter(|slot| {
+                if restarting_lead {
+                    slot.handle() != handle
+                } else {
+                    slot.is_lead()
+                }
+            })
+            .map(|slot| slot.handle().to_owned())
+            .collect();
         for recipient in recipients {
             self.log.append(EventDraft::message(
                 &self.crew_id,
@@ -1536,7 +1569,7 @@ impl LaunchInputs {
         Ok(Self {
             crew_name,
             lead,
-            roster: roster_rows,
+            roster: Mutex::new(roster_rows),
             allowed_signals,
             crew_addendum,
         })
@@ -1548,8 +1581,8 @@ impl LaunchInputs {
         runtime_key: &str,
     ) -> (Option<String>, Option<String>) {
         let goal = Self::latest_mission_goal_text(log);
-        let roster: Vec<crate::router::prompt::RosterEntry> = self
-            .roster()
+        let rows = self.roster();
+        let roster: Vec<crate::router::prompt::RosterEntry> = rows
             .iter()
             .map(|slot| crate::router::prompt::RosterEntry {
                 handle: slot.handle(),
@@ -1604,8 +1637,8 @@ impl LaunchInputs {
     pub(crate) fn lead(&self) -> &LeadRow {
         &self.lead
     }
-    pub(crate) fn roster(&self) -> &[RosterRow] {
-        &self.roster
+    pub(crate) fn roster(&self) -> Vec<RosterRow> {
+        self.roster.lock().unwrap().clone()
     }
     pub(crate) fn allowed_signals(&self) -> &[SignalType] {
         &self.allowed_signals

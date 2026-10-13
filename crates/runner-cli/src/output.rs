@@ -21,11 +21,12 @@ pub enum View {
     MissionFeed,
     SessionList,
     SessionShow,
+    RoleChange(&'static str),
     Confirmation(&'static str),
 }
 
 pub fn print(response: &ToolResponse, json: bool, quiet: bool, view: View) {
-    if let Some(lines) = machine_lines(response, json, quiet) {
+    if let Some(lines) = machine_lines(response, json, quiet, view) {
         for line in lines {
             println!("{line}");
         }
@@ -36,11 +37,23 @@ pub fn print(response: &ToolResponse, json: bool, quiet: bool, view: View) {
     }
 }
 
-fn machine_lines(response: &ToolResponse, json: bool, quiet: bool) -> Option<Vec<String>> {
+fn machine_lines(
+    response: &ToolResponse,
+    json: bool,
+    quiet: bool,
+    view: View,
+) -> Option<Vec<String>> {
     if json {
         Some(vec![response.raw_json.clone()])
     } else if quiet {
-        Some(ids(&response.value))
+        Some(if matches!(view, View::RoleChange(_)) {
+            vec![response.value["handle"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()]
+        } else {
+            ids(&response.value)
+        })
     } else {
         None
     }
@@ -81,6 +94,7 @@ fn render_default(view: View, value: &Value) -> Vec<String> {
         View::MissionFeed => render_mission_feed(value),
         View::SessionList => render_session_list(value),
         View::SessionShow => render_session_show(value),
+        View::RoleChange(action) => vec![format!("{action} {}", cell(value.get("handle")))],
         View::Confirmation(action) => render_confirmation(action, value),
     }
 }
@@ -862,11 +876,14 @@ mod tests {
             raw_json: r#"{"id":"01","name":"Runner"}"#.into(),
         };
         assert_eq!(
-            machine_lines(&response, true, false).unwrap(),
+            machine_lines(&response, true, false, View::Generic).unwrap(),
             [r#"{"id":"01","name":"Runner"}"#]
         );
-        assert_eq!(machine_lines(&response, false, true).unwrap(), ["01"]);
-        assert!(machine_lines(&response, false, false).is_none());
+        assert_eq!(
+            machine_lines(&response, false, true, View::Generic).unwrap(),
+            ["01"]
+        );
+        assert!(machine_lines(&response, false, false, View::Generic).is_none());
     }
 
     #[test]
@@ -981,7 +998,7 @@ mod tests {
             raw_json: serde_json::to_string(&session).unwrap(),
         };
         assert_eq!(
-            machine_lines(&response, true, false).unwrap(),
+            machine_lines(&response, true, false, View::Generic).unwrap(),
             [serde_json::to_string(&session).unwrap()]
         );
     }
@@ -1179,5 +1196,30 @@ mod tests {
         assert!(rendered[1].contains("one two"));
         assert!(rendered[1].contains('…'));
         assert!(rendered[1].ends_with('-'));
+    }
+}
+
+#[cfg(test)]
+mod role_change_tests {
+    use super::*;
+    #[test]
+    fn quiet_role_change_prints_the_handle_without_changing_session_ids() {
+        let value = serde_json::json!({"mission_id":"mission", "session_id":"session", "handle":"worker-2"});
+        let response = ToolResponse {
+            raw_json: value.to_string(),
+            value,
+        };
+        assert_eq!(
+            machine_lines(&response, false, true, View::RoleChange("Added role")).unwrap(),
+            vec!["worker-2"]
+        );
+        assert_eq!(
+            render_default(View::RoleChange("Added role"), &response.value),
+            vec!["Added role worker-2"]
+        );
+        assert_eq!(
+            machine_lines(&response, false, true, View::SessionShow).unwrap(),
+            vec!["session"]
+        );
     }
 }

@@ -90,7 +90,7 @@ impl EventSubscription for InProcessEvents {
     }
 }
 
-fn block_on<F: std::future::Future>(future: F) -> F::Output {
+pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
     struct ThreadWake(std::thread::Thread);
     impl std::task::Wake for ThreadWake {
         fn wake(self: Arc<Self>) {

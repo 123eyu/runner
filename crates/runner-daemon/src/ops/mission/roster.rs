@@ -35,8 +35,22 @@ pub fn write(mission_dir: &Path, roster: &MissionRoster) -> Result<()> {
     let mut tmp = tempfile::NamedTempFile::new_in(mission_dir)?;
     tmp.write_all(&serde_json::to_vec(roster)?)?;
     tmp.flush()?;
-    tmp.persist(mission_dir.join("roster.json"))
-        .map_err(|e| Error::Io(e.error))?;
+    let destination = mission_dir.join("roster.json");
+    let mut attempts = 0;
+    loop {
+        match tmp.persist(&destination) {
+            Ok(_) => break,
+            Err(error) => {
+                if cfg!(windows) && attempts < 4 {
+                    tmp = error.file;
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                } else {
+                    return Err(Error::Io(error.error));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -765,7 +779,7 @@ mod tests {
                     .launch()
                     .roster()
                     .iter()
-                    .map(|s| s.handle())
+                    .map(|s| s.handle().to_owned())
                     .collect::<Vec<_>>(),
                 vec!["lead", "worker", "other"]
             );

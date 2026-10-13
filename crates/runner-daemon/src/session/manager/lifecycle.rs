@@ -165,6 +165,13 @@ impl SessionManager {
     /// A prior flag for the same mission_id is replaced defensively.
     /// The new spawn batch supersedes any stale background task, and
     /// the old task's flag remains reachable only from its own closure.
+    pub fn has_pending_mission_spawns(&self, mission_id: &str) -> bool {
+        self.pending_mission_cancels
+            .lock()
+            .unwrap()
+            .contains_key(mission_id)
+    }
+
     pub fn register_pending_mission_cancel(&self, mission_id: &str) -> Arc<AtomicBool> {
         let flag = Arc::new(AtomicBool::new(false));
         self.pending_mission_cancels

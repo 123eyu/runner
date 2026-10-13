@@ -170,7 +170,11 @@ Lifecycle:
 
 **Mission cwd is authoritative.** Each mission carries its own `cwd` column. Spawned slots inherit `mission.cwd` regardless of what the role's `working_dir` says — that field is only used in direct chats. Starting from a project copies the project's cwd into the row.
 
-The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, lead flags, order, role ids and overrides. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Display surfaces keep reading the crew's current name and metadata. Roles remain linked by id, so role edits reach the next resume. A role cannot be deleted while an unarchived mission has a session for it. No database schema changes are needed.
+The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, lead flags, order, role ids and overrides. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Display surfaces keep reading the crew's current name and metadata. Roles remain linked by id; Resume replays the recorded launch definition, and Restart uses the current role and roster overrides. A role cannot be deleted while an unarchived mission has a session for it. No database schema changes are needed.
+
+While a mission runs, the person can add a configured worker or remove a worker from the rail or CLI. One mutex per mission serializes these operations. Both refuse any pending mission spawn; add registers cancellation immediately after its checks. Added slots persist their overrides in the roster and record a launch definition as at cold start. Removal stops the session and drops its roster slot without archiving or deleting its historical session row; session lists and Resume all keep only roster slots. A worker's exit or failed spawn leaves the rest of the mission running.
+
+The bus replays the log from offset zero and learns broadcast membership from human `role_joined` and `role_removed` signals. Its initial team is the file's handles minus mid-mission joins; a newcomer's unread count starts at its join. Directed messages always project to their addressee, including before a join. `runner msg read` still scans the entire log and includes earlier broadcasts. The router's mutable roster is changed directly by the operations; broadcasts and Restart prompts read that current roster.
 
 Before mounting routers at daemon startup, Runner converts every legacy version 1 roster, including archived missions. It preserves the file's handles, order and lead flags, matches current session-slot handles first and then unmatched session slots by first-start order, and uses the session's configuration when its slot was deleted. A handle without a session uses the crew's matching slot; one with neither is dropped with a warning. Version 2 files are left alone. A missing file or one that is not valid JSON falls back to the crew's current slots, writes version 2 and logs a warning. Other read errors, unsupported versions and invalid roster shapes return an error without rewriting the file; one mission's conversion failure does not block startup.
 
@@ -462,6 +466,9 @@ Before registering mission sessions, MissionManager composes the lead's launch-p
 
 ## 7. Coordination bus
 
+
+Human roster changes append two signals outside the agent signal whitelist: `role_joined` carries `{handle, slot_id, session_id, role_id, lead, runtime, model, effort, speed}` (`lead: false`, effective settings with null for unset); `role_removed` carries `{handle, slot_id, session_id}`. Both have `from: human` and `to: null`. Each is followed by a `runner` system broadcast announcing the change and current team; add can also append a directed task from `human`. The feed shows join/leave dividers attributed to the person and labels `runner` message groups `system`.
+
 ### 7.1 Transport
 
 ```
@@ -501,6 +508,9 @@ On router boot: open the mission's file, fold `human_question` / `human_response
 The router is a flat dispatcher, not a policy engine. There is no per-crew `{when, do}` rule list. The lead owns coordination judgment; the router owns parent-process plumbing that a child PTY cannot do itself.
 
 Stdin pushes are deliberately silent: the router writes bytes into the target PTY but does not synthesize `stdin_injected` audit events. The event log records the signal or message that caused the push, plus `human_question` / `human_response` for HITL cards and `mission_warning` when a delivery cannot happen.
+
+
+Add records `role_joined` before publishing `roster.json`, then updates the router and pending session map before the introduction and task, so the newcomer receives their nudges. A failed publication records `role_removed`, restores the old roster, removes routing and deletes the unspawned row. Remove takes the session's existing Resume/Restart claim before stopping, refuses with its handle if that claim is held, and keeps it through publication and rollback. It stops first, writes the smaller roster, drops routing and pending deliveries, then records the leave and notice. Removed handles stay taken for the mission's life. A remount rebuilds routing from the file and unread membership from the log. The person-only CLI uses `runner mission add-role <mission> <role> --handle <handle>` and `remove-role <mission> <handle>`; both refuse mission-session callers and `--as`.
 
 ### 8.1 Fixed handler table
 

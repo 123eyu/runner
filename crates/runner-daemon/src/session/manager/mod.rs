@@ -668,11 +668,8 @@ pub struct SessionManager {
 }
 
 /// RAII guard that releases a session state's `resuming` flag on drop. The
-/// entry is inserted at the start of `resume()`; the guard's Drop
-/// removes it on every exit path (Ok, Err, panic), so a failed
-/// resume doesn't leave the session permanently locked out from
-/// future retries.
-struct ResumeClaim {
+/// claim excludes Resume, Restart and removal until the guard drops.
+pub(crate) struct ResumeClaim {
     mgr: Arc<SessionManager>,
     session_id: String,
 }
@@ -729,6 +726,7 @@ pub enum CompleteSpawnOutcome {
 /// across thread boundaries into a `spawn_blocking` task.
 pub struct PendingMissionSpawn {
     pub session_id: String,
+    pub(crate) launch_definition: crate::model::LaunchDefinition,
     pre_attachment: PreAttachmentState,
     spec: SpawnSpec,
     mission: Mission,
@@ -1727,6 +1725,19 @@ impl SessionManager {
             .map(|h| h.runtime_session.clone())
             .ok_or_else(|| Error::msg(format!("session not found: {session_id}")))?;
         Ok(rt_session)
+    }
+
+    pub(crate) fn try_claim_resume(self: &Arc<Self>, session_id: &str) -> Option<ResumeClaim> {
+        let state = self.session_state_or_insert(session_id);
+        let mut state = state.lock().unwrap();
+        if state.resuming {
+            return None;
+        }
+        state.resuming = true;
+        Some(ResumeClaim {
+            mgr: Arc::clone(self),
+            session_id: session_id.to_owned(),
+        })
     }
 
     fn release_resume_claim(&self, session_id: &str) {

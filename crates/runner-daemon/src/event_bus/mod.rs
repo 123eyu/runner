@@ -133,8 +133,7 @@ impl EventBus {
     /// that's already on disk through the emitter, then keep tailing.
     ///
     /// `roster` is the list of runner handles whose inboxes we'll project.
-    /// Adding handles after mount is not supported in MVP — crews can't grow
-    /// mid-mission.
+    /// Human join and leave signals change broadcast membership in log order.
     pub fn for_mission(
         mission_id: String,
         mission_dir: &Path,
@@ -255,8 +254,7 @@ enum WatchPing {
 struct BusState {
     mission_id: String,
     next_offset: u64,
-    /// Roster of runner handles whose inboxes we project. Stable for the
-    /// mission's lifetime.
+    /// Current team reached by broadcasts, projected from human join and leave signals.
     handles: Vec<String>,
     inbox: BTreeMap<String, RoleInbox>,
 }
@@ -312,6 +310,15 @@ impl BusState {
         let max_skip_next = skipped.iter().map(|s| s.next_offset).max().unwrap_or(0);
         let max_entry_next = entries.iter().map(|e| e.next_offset).max().unwrap_or(0);
         let new_offset = self.next_offset.max(max_skip_next).max(max_entry_next);
+        if self.next_offset == 0 {
+            for entry in &entries {
+                if membership_signal(&entry.event, "role_joined") {
+                    if let Some(handle) = entry.event.payload["handle"].as_str() {
+                        self.handles.retain(|existing| existing != handle);
+                    }
+                }
+            }
+        }
         for entry in entries {
             let event = entry.event;
 
@@ -320,6 +327,19 @@ impl BusState {
                 next_offset: entry.next_offset,
                 event: event.clone(),
             });
+
+            if membership_signal(&event, "role_joined") {
+                if let Some(handle) = event.payload["handle"].as_str() {
+                    if !self.handles.iter().any(|existing| existing == handle) {
+                        self.handles.push(handle.to_owned());
+                    }
+                    self.inbox.entry(handle.to_owned()).or_default();
+                }
+            } else if membership_signal(&event, "role_removed") {
+                if let Some(handle) = event.payload["handle"].as_str() {
+                    self.handles.retain(|existing| existing != handle);
+                }
+            }
 
             // inbox_read signals advance watermarks; handle them and move on.
             // Other signals (mission_start, mission_goal, ask_lead, …) never
@@ -336,7 +356,12 @@ impl BusState {
             // Project into matching inboxes. Broadcasts (`to == null`) land in
             // every roster member's inbox except the sender; directs land in
             // the addressee's inbox unless they sent the message to themself.
-            for handle in self.handles.clone() {
+            let recipients = match event.to.as_deref() {
+                Some("human") => Vec::new(),
+                Some(handle) => vec![handle.to_owned()],
+                None => self.handles.clone(),
+            };
+            for handle in recipients {
                 if event_targets(&event, &handle) {
                     let inbox = self.inbox.entry(handle.clone()).or_default();
                     inbox.matched.push(event.id.clone());
@@ -429,6 +454,15 @@ impl BusState {
             unread_count: unread,
         });
     }
+}
+
+fn membership_signal(event: &Event, signal: &str) -> bool {
+    event.kind == EventKind::Signal
+        && event.from == "human"
+        && event
+            .signal_type
+            .as_ref()
+            .is_some_and(|kind| kind.as_str() == signal)
 }
 
 /// Returns true when `event` should appear in `handle`'s inbox.
@@ -1013,5 +1047,108 @@ mod tests {
                 .map(|a| a.event.signal_type.as_ref().map(|t| t.as_str().to_string()))
                 .collect::<Vec<_>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod membership_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Capture(Mutex<Vec<InboxUpdate>>);
+    impl BusEmitter for Capture {
+        fn appended(&self, _: &AppendedEvent) {}
+        fn inbox_updated(&self, event: &InboxUpdate) {
+            self.0.lock().unwrap().push(event.clone());
+        }
+        fn watermark_advanced(&self, _: &WatermarkUpdate) {}
+    }
+
+    #[test]
+    fn membership_live_and_replay_match_and_directed_messages_are_never_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = EventLog::open(dir.path()).unwrap();
+        let capture = Capture::default();
+        let mut live = BusState::new("m".into(), vec!["lead".into()]);
+        let earlier = log
+            .append(runner_core::EventDraft::message(
+                "c",
+                "m",
+                "human",
+                None,
+                "before join",
+            ))
+            .unwrap();
+        let directed = log
+            .append(runner_core::EventDraft::message(
+                "c",
+                "m",
+                "lead",
+                Some("worker".into()),
+                "direct before join",
+            ))
+            .unwrap();
+        live.tick(&log, &capture).unwrap();
+        for (from, kind) in [("worker", "role_joined"), ("human", "role_joined")] {
+            log.append(runner_core::EventDraft::signal(
+                "c",
+                "m",
+                from,
+                runner_core::SignalType::new(kind),
+                serde_json::json!({"handle":"worker"}),
+            ))
+            .unwrap();
+            live.tick(&log, &capture).unwrap();
+            assert_eq!(live.handles.contains(&"worker".into()), from == "human");
+        }
+        let intro = log
+            .append(runner_core::EventDraft::message(
+                "c", "m", "runner", None, "joined",
+            ))
+            .unwrap();
+        live.tick(&log, &capture).unwrap();
+        log.append(runner_core::EventDraft::signal(
+            "c",
+            "m",
+            "worker",
+            runner_core::SignalType::new("role_removed"),
+            serde_json::json!({"handle":"worker"}),
+        ))
+        .unwrap();
+        live.tick(&log, &capture).unwrap();
+        assert!(live.handles.contains(&"worker".into()));
+        log.append(runner_core::EventDraft::signal(
+            "c",
+            "m",
+            "human",
+            runner_core::SignalType::new("role_removed"),
+            serde_json::json!({"handle":"worker"}),
+        ))
+        .unwrap();
+        let departed = log
+            .append(runner_core::EventDraft::message(
+                "c", "m", "runner", None, "left",
+            ))
+            .unwrap();
+        let late_direct = log
+            .append(runner_core::EventDraft::message(
+                "c",
+                "m",
+                "lead",
+                Some("worker".into()),
+                "still retained",
+            ))
+            .unwrap();
+        live.tick(&log, &capture).unwrap();
+        assert_eq!(
+            live.inbox["worker"].matched,
+            vec![directed.id, intro.id, late_direct.id]
+        );
+        assert!(!live.inbox["worker"].matched.contains(&earlier.id));
+        assert!(!live.inbox["worker"].matched.contains(&departed.id));
+        let mut replay = BusState::new("m".into(), vec!["lead".into(), "worker".into()]);
+        replay.tick(&log, &Capture::default()).unwrap();
+        assert_eq!(live.handles, replay.handles);
+        assert_eq!(live.inbox["worker"].matched, replay.inbox["worker"].matched);
     }
 }

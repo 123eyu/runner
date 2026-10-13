@@ -335,6 +335,27 @@ enum MissionCommand {
         #[arg(long, conflicts_with = "project")]
         cwd: Option<PathBuf>,
     },
+    /// Add a configured worker role to a running mission (person only).
+    AddRole {
+        mission: String,
+        role: String,
+        #[arg(long)]
+        handle: Option<String>,
+        #[arg(long)]
+        runtime: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        effort: Option<String>,
+        #[arg(long)]
+        speed: Option<SpeedArg>,
+        #[arg(long, conflicts_with = "task_file")]
+        task: Option<String>,
+        #[arg(long, conflicts_with = "task")]
+        task_file: Option<PathBuf>,
+    },
+    /// Remove a worker from a running mission (person only).
+    RemoveRole { mission: String, handle: String },
     /// Stop a running mission.
     Stop { mission: Option<String> },
     /// Resume every stopped session in a mission.
@@ -632,6 +653,8 @@ fn output_view(command: &Command) -> output::View {
             MissionCommand::Show { .. } => View::MissionShow,
             MissionCommand::Feed { .. } => View::MissionFeed,
             MissionCommand::Resume { .. } => View::Mission,
+            MissionCommand::AddRole { .. } => View::RoleChange("Added role"),
+            MissionCommand::RemoveRole { .. } => View::RoleChange("Removed role"),
             MissionCommand::Answer { .. } => View::Confirmation("Answered question"),
             MissionCommand::Start { .. }
             | MissionCommand::Stop { .. }
@@ -726,6 +749,16 @@ fn same_mission(target: Option<&str>, mission: &MissionEnv) -> bool {
 
 fn validate_remote(cli: &Cli, context: &BusContext) -> Result<(), CliError> {
     match &cli.command {
+        Command::Mission {
+            command: MissionCommand::AddRole { .. },
+        } if matches!(context, BusContext::Mission(_)) => Err(CliError::usage(
+            "runner mission add-role is for the person; ask the person to add a role",
+        )),
+        Command::Mission {
+            command: MissionCommand::RemoveRole { .. },
+        } if matches!(context, BusContext::Mission(_)) => Err(CliError::usage(
+            "runner mission remove-role is for the person; ask the person to remove a role",
+        )),
         Command::Role {
             command: RoleCommand::Create { fields, .. },
         } => {
@@ -1487,6 +1520,48 @@ async fn run_mission(
                     "goal_override": goal,
                     "cwd": cwd,
                 }),
+            )
+            .await
+        }
+        MissionCommand::AddRole {
+            mission,
+            role,
+            handle,
+            runtime,
+            model,
+            effort,
+            speed,
+            task,
+            task_file,
+        } => {
+            if matches!(context, BusContext::Mission(_)) {
+                return Err(CliError::usage(
+                    "runner mission add-role is for the person; ask the person to add a role",
+                ));
+            }
+            let mission_id = resolve_mission(client, mission).await?;
+            let role = resolve_role(client, role).await?;
+            let task = read_text(task.as_deref(), task_file.as_deref(), "task")?;
+            call(
+                client,
+                "mission_add_role",
+                json!({"mission_id": mission_id, "role_id": role.id,
+                "handle": handle, "runtime": runtime, "model": model, "effort": effort,
+                "speed": speed.map(SpeedArg::value), "task": task}),
+            )
+            .await
+        }
+        MissionCommand::RemoveRole { mission, handle } => {
+            if matches!(context, BusContext::Mission(_)) {
+                return Err(CliError::usage(
+                    "runner mission remove-role is for the person; ask the person to remove a role",
+                ));
+            }
+            let mission_id = resolve_mission(client, mission).await?;
+            call(
+                client,
+                "mission_remove_role",
+                json!({"mission_id": mission_id, "handle": handle.trim_start_matches('@')}),
             )
             .await
         }
@@ -2743,6 +2818,54 @@ mod tests {
         let error = validate_remote(&follow, &BusContext::OffBus).unwrap_err();
         assert_eq!(error.code, 2);
         assert!(error.message.contains("positive --limit"));
+    }
+
+    #[test]
+    fn role_change_flags_and_person_only_refusals() {
+        let cli = Cli::try_parse_from([
+            "runner",
+            "mission",
+            "add-role",
+            "m",
+            "coder",
+            "--handle",
+            "coder-2",
+            "--task-file",
+            "-",
+        ])
+        .unwrap();
+        assert!(
+            matches!(cli.command, Command::Mission { command: MissionCommand::AddRole { ref task_file, .. } } if task_file.as_deref() == Some(Path::new("-")))
+        );
+        assert!(Cli::try_parse_from([
+            "runner",
+            "mission",
+            "add-role",
+            "m",
+            "coder",
+            "--task",
+            "work",
+            "--task-file",
+            "-"
+        ])
+        .is_err());
+        let context = BusContext::Mission(MissionEnv {
+            crew_id: "c".into(),
+            mission_id: "m".into(),
+            handle: "lead".into(),
+            event_log: "events.ndjson".into(),
+        });
+        for verb in ["add-role", "remove-role"] {
+            let cli = Cli::try_parse_from(["runner", "mission", verb, "m", "coder"]).unwrap();
+            assert!(validate_remote(&cli, &context)
+                .unwrap_err()
+                .message
+                .contains("is for the person"));
+            assert!(
+                Cli::try_parse_from(["runner", "mission", verb, "m", "coder", "--as", "lead"])
+                    .is_err()
+            );
+        }
     }
 
     #[tokio::test]

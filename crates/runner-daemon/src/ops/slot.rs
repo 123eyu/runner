@@ -48,7 +48,7 @@ pub fn validate_runtime_override(value: Option<&str>) -> Result<Option<Runtime>>
     super::role::validate_agent_runtime(name).map(Some)
 }
 
-fn normalize_override_value(value: Option<&str>) -> Option<String> {
+pub(super) fn normalize_override_value(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
