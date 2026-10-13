@@ -40,6 +40,22 @@ impl MissionWorkspace {
         }
     }
 
+    pub(crate) fn notification_tab(&self, mission_id: &str) -> Option<&MissionTab> {
+        (self.mission_id.as_deref() == Some(mission_id) && !self.loading && self.mission.is_some())
+            .then_some(&self.active_tab)
+    }
+
+    pub(crate) fn focus_feed(
+        &mut self,
+        mission_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.mission_id.as_deref() == Some(mission_id) && !self.loading {
+            self.select_mission_feed(window, cx);
+        }
+    }
+
     pub(crate) fn cycle_mission_tab(
         &mut self,
         direction: isize,
@@ -85,6 +101,7 @@ impl MissionWorkspace {
             }
         }
         self.active_tab = MissionTab::Feed;
+        crate::notifications::view_changed(cx);
         if self.feed_was_near_bottom {
             self.feed_scroll.scroll_to_bottom();
             self.feed_has_new_messages = false;
@@ -127,6 +144,7 @@ impl MissionWorkspace {
             });
         }
         self.active_tab = MissionTab::Session(session_id.to_owned());
+        crate::notifications::view_changed(cx);
         self.mark_active_session_viewed(window, cx);
         if let Err(error) = self.ensure_mission_terminals_attached(window, cx) {
             self.error = Some(error.to_string());
@@ -161,6 +179,7 @@ impl MissionWorkspace {
         if self.active_tab == MissionTab::Session(session_id.to_owned()) {
             self.clear_feed_selection();
             self.active_tab = MissionTab::Feed;
+            crate::notifications::view_changed(cx);
             window.focus(&self.root_focus, cx);
         }
         self.attached.remove(session_id);

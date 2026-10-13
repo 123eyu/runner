@@ -399,6 +399,7 @@ impl MissionWorkspace {
                             .retain(|session_id| valid_ids.contains(session_id));
                         if archived {
                             this.active_tab = MissionTab::Feed;
+                            crate::notifications::view_changed(cx);
                             this.open_tabs.clear();
                             let removed_mission_id = mission_id.clone();
                             this.update_app_settings(cx, true, move |settings| {
@@ -419,6 +420,7 @@ impl MissionWorkspace {
                             MissionTab::Session(session_id) if !valid_ids.contains(session_id)
                         ) {
                             this.active_tab = MissionTab::Feed;
+                            crate::notifications::view_changed(cx);
                         }
                         this.sync_mission_copy_entities(cx);
                         if let Err(error) = this.ensure_mission_terminals_attached(window, cx) {
