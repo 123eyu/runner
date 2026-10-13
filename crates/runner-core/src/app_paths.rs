@@ -16,7 +16,7 @@ pub fn home_dir() -> Option<PathBuf> {
     std::env::home_dir()
 }
 
-fn app_identifier(debug: bool) -> String {
+pub fn app_identifier(debug: bool) -> String {
     if debug {
         format!("{APP_IDENTIFIER}-dev")
     } else {

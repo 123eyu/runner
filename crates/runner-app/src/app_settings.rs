@@ -246,9 +246,44 @@ impl FileLinkEditor {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct NotificationSettings {
+    pub chats: ChatNotifications,
+    pub missions: MissionNotifications,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ChatNotifications {
+    pub input: bool,
+    pub finished: bool,
+    pub failed: bool,
+}
+
+impl Default for ChatNotifications {
+    fn default() -> Self {
+        Self {
+            input: true,
+            finished: true,
+            failed: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MissionNotifications {
+    pub question: bool,
+    pub input: bool,
+    pub idle: bool,
+    pub failed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    pub notifications: NotificationSettings,
     pub app_theme: ThemeIntent,
     pub window_material: runner_app::appearance::WindowMaterial,
     pub light_app_theme: LightTheme,
@@ -294,6 +329,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            notifications: NotificationSettings::default(),
             app_theme: ThemeIntent::Auto,
             window_material: Default::default(),
             light_app_theme: LightTheme::RunnerLight,
@@ -1052,5 +1088,32 @@ mod material_tests {
                 settings
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+
+    #[test]
+    fn old_settings_load_notification_defaults_and_round_trip_switches() {
+        let mut settings: AppSettings = serde_json::from_str(r#"{"appZoom":1.0}"#).unwrap();
+        assert_eq!(settings.notifications, NotificationSettings::default());
+        assert!(settings.notifications.chats.input);
+        assert!(settings.notifications.chats.finished);
+        assert!(settings.notifications.chats.failed);
+        assert!(!settings.notifications.missions.question);
+        assert!(!settings.notifications.missions.input);
+        assert!(!settings.notifications.missions.idle);
+        assert!(!settings.notifications.missions.failed);
+        settings.notifications.chats.input = false;
+        settings.notifications.chats.finished = false;
+        settings.notifications.missions.input = true;
+        settings.notifications.missions.idle = true;
+        let saved = serde_json::to_string(&settings).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert!(json["notifications"]["missions"].get("enabled").is_none());
+        let loaded: AppSettings = serde_json::from_str(&saved).unwrap();
+        assert_eq!(loaded.notifications, settings.notifications);
     }
 }

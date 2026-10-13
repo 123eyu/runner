@@ -1403,6 +1403,10 @@ fn run() -> Result<()> {
     let application = application.with_quit_mode(QuitMode::Explicit);
     application.on_reopen(handle_reopen);
     application.run(move |cx: &mut App| {
+        cx.set_app_identity(
+            &runner_core::app_paths::app_identifier(cfg!(debug_assertions)),
+            "Runner",
+        );
         runner_app::appearance::install(cx);
         cx.text_system()
             .add_fonts(

@@ -142,6 +142,7 @@ pub(crate) enum SettingsPane {
     General,
     Missions,
     Appearance,
+    Notifications,
     Terminal,
     Shortcuts,
     Agents,
@@ -158,6 +159,7 @@ impl SettingsPane {
         match value {
             Some("missions") => Self::Missions,
             Some("appearance") => Self::Appearance,
+            Some("notifications") => Self::Notifications,
             Some("terminal") => Self::Terminal,
             Some("shortcuts") => Self::Shortcuts,
             Some("agents") => Self::Agents,
@@ -176,6 +178,7 @@ impl SettingsPane {
             Self::General => "general",
             Self::Missions => "missions",
             Self::Appearance => "appearance",
+            Self::Notifications => "notifications",
             Self::Terminal => "terminal",
             Self::Shortcuts => "shortcuts",
             Self::Agents => "agents",
@@ -193,6 +196,7 @@ impl SettingsPane {
             Self::General => "General",
             Self::Missions => "Missions",
             Self::Appearance => "Appearance",
+            Self::Notifications => "Notifications",
             Self::Terminal => "Terminal",
             Self::Shortcuts => "Keyboard shortcuts",
             Self::Agents => "Agents",
@@ -210,6 +214,7 @@ impl SettingsPane {
             Self::General => "settings.svg",
             Self::Missions => "rocket.svg",
             Self::Appearance => "sun.svg",
+            Self::Notifications => "bell.svg",
             Self::Terminal => "terminal.svg",
             Self::Shortcuts => "keyboard.svg",
             Self::Agents => "bot.svg",
@@ -226,6 +231,7 @@ impl SettingsPane {
 const APP_PANES: &[SettingsPane] = &[
     SettingsPane::General,
     SettingsPane::Appearance,
+    SettingsPane::Notifications,
     SettingsPane::Missions,
     SettingsPane::Terminal,
     SettingsPane::Shortcuts,
@@ -582,7 +588,7 @@ fn settings_content_column(
         )
 }
 
-fn settings_section_heading(label: &'static str) -> AnyElement {
+pub(crate) fn settings_section_heading(label: &'static str) -> AnyElement {
     div()
         .px_1()
         .text_size(theme::text_meta())
@@ -951,7 +957,8 @@ impl NativeRoot {
             SettingsPane::General
             | SettingsPane::Appearance
             | SettingsPane::Terminal
-            | SettingsPane::Shortcuts => {}
+            | SettingsPane::Shortcuts
+            | SettingsPane::Notifications => {}
         }
         window.focus(&self.settings_page.focus, cx);
         cx.notify();
@@ -1447,6 +1454,7 @@ impl NativeRoot {
             SettingsPane::General => Some(self.render_general_settings(cx)),
             SettingsPane::Missions => Some(self.render_missions_settings(cx)),
             SettingsPane::Appearance => Some(self.render_appearance_settings(cx)),
+            SettingsPane::Notifications => Some(self.render_notifications_settings(cx)),
             SettingsPane::Terminal => Some(self.render_terminal_settings(cx)),
             SettingsPane::Shortcuts => Some(self.render_shortcuts_settings(cx)),
             SettingsPane::Agents => self
@@ -3196,6 +3204,12 @@ mod tests {
             SettingsPane::from_route(Some("missions")),
             SettingsPane::Missions
         );
+        assert_eq!(
+            SettingsPane::from_route(Some("notifications")),
+            SettingsPane::Notifications
+        );
+        assert_eq!(SettingsPane::Notifications.key(), "notifications");
+        assert_eq!(SettingsPane::Notifications.icon(), "bell.svg");
         assert_eq!(SettingsPane::Missions.key(), "missions");
         assert_eq!(SettingsPane::Missions.label(), "Missions");
         assert_eq!(SettingsPane::Missions.icon(), "rocket.svg");
@@ -3205,7 +3219,7 @@ mod tests {
     fn nav_search_filters_labels_and_removes_empty_groups() {
         let all = filtered_nav_groups("");
         assert_eq!(all.len(), 3);
-        assert_eq!(all.iter().map(|(_, panes)| panes.len()).sum::<usize>(), 12);
+        assert_eq!(all.iter().map(|(_, panes)| panes.len()).sum::<usize>(), 13);
         assert_eq!(
             all[0],
             (
@@ -3213,6 +3227,7 @@ mod tests {
                 vec![
                     SettingsPane::General,
                     SettingsPane::Appearance,
+                    SettingsPane::Notifications,
                     SettingsPane::Missions,
                     SettingsPane::Terminal,
                     SettingsPane::Shortcuts,
