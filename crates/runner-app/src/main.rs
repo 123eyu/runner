@@ -18,6 +18,7 @@ mod file_links;
 mod keymap;
 mod list_controls;
 mod mac_chrome;
+mod notifications;
 mod platform_ui;
 mod runtime_ui;
 mod surfaces;
@@ -1462,6 +1463,7 @@ fn run() -> Result<()> {
             app_store.read(cx).settings.automatically_download_updates;
         keymap::install_bindings(cx, &keymap_overrides, false);
         cx.set_global(GlobalAppStore(app_store));
+        notifications::install(cx);
         cx.set_global(GlobalNativePaths(paths.clone()));
         #[cfg(not(windows))]
         let updater = cx.new(|cx| Updater::new(automatically_check_for_updates, cx));
@@ -1486,6 +1488,7 @@ fn run() -> Result<()> {
         })));
         let quit_connection = connection.clone();
         cx.on_app_quit(move |cx| {
+            notifications::dismiss_all(cx);
             save_window_settings(cx);
             checkpoint_window_layout_on_quit(cx);
             let stop = cx

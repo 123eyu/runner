@@ -31,6 +31,7 @@ impl NativeRoot {
             self.error = Some(error.to_string());
         }
         checkpoint_window_layout_deferred(cx);
+        crate::notifications::view_changed(cx);
     }
 
     pub(crate) fn sync_window_activation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -48,6 +49,7 @@ impl NativeRoot {
         } else {
             let _ = self.core(cx).mark_blurred(&self.window_label);
         }
+        crate::notifications::view_changed(cx);
         self.sync_subject_ownership(window, cx);
         if matches!(self.route, AppRoute::Mission(_)) {
             self.mission_workspace.update(cx, |workspace, cx| {
