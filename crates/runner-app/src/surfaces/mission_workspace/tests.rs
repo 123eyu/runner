@@ -1117,7 +1117,11 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
             );
             assert_eq!(
                 controls.size.width,
-                px(52.),
+                px(if handle_selector == "MISSION_CARD_HANDLE lead" {
+                    52.
+                } else {
+                    80.
+                }),
                 "controls shrank at rail width {width}"
             );
             if handle_selector == "MISSION_CARD_HANDLE lead" {
@@ -1427,4 +1431,18 @@ fn completed_and_archived_missions_offer_no_slot_actions() {
         false,
         true
     ));
+}
+
+#[test]
+fn roster_changes_are_dividers_with_person_attribution() {
+    for (kind, verb, action) in [
+        ("role_joined", "joined", "added"),
+        ("role_removed", "left", "removed"),
+    ] {
+        let event = signal(kind, serde_json::json!({"handle":"worker-2"}));
+        let blocks = crate::surfaces::mission_feed::group_feed_blocks(std::slice::from_ref(&event));
+        assert!(matches!(blocks.as_slice(), [FeedBlock::Divider(_)]));
+        assert!(mission_divider_label(&event)
+            .starts_with(&format!("@worker-2 {verb} · {action} by you · ")));
+    }
 }

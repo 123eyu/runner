@@ -1,3 +1,8 @@
+#[path = "mission_workspace/add_role.rs"]
+mod add_role;
+#[path = "role_setup.rs"]
+mod role_setup;
+
 #[cfg(test)]
 use runner_core::protocol::model::Runtime;
 use std::fs;
@@ -105,6 +110,7 @@ enum StartChatSelection {
 }
 
 pub(crate) struct StartChatModal {
+    mission_role: Option<add_role::MissionRoleForm>,
     target: ChatTarget,
     scope: ProjectScope,
     mode: ChatMode,
@@ -292,7 +298,7 @@ impl StartChatModal {
             }
     }
 
-    fn is_composing(&self, cx: &Context<NativeRoot>) -> bool {
+    fn is_composing(&self, cx: &App) -> bool {
         self.title.read(cx).is_composing()
             || self.cwd.read(cx).is_composing()
             || self.model.read(cx).is_composing()
@@ -1071,6 +1077,7 @@ impl NativeRoot {
 
         self.sidebar_preview_open = false;
         self.start_chat_modal = Some(StartChatModal {
+            mission_role: None,
             target,
             scope,
             mode,
@@ -1246,7 +1253,7 @@ impl NativeRoot {
         let Some(modal) = self.start_chat_modal.as_mut() else {
             return;
         };
-        if modal.mode == mode || modal.submitting {
+        if modal.mission_role.is_some() || modal.mode == mode || modal.submitting {
             return;
         }
         modal.mode = mode;
@@ -1328,6 +1335,9 @@ impl NativeRoot {
             StartChatSelection::Effort => modal.effort = value.to_owned(),
             StartChatSelection::Speed => modal.speed = value.to_owned(),
         }
+        if selection == StartChatSelection::Role {
+            self.suggest_add_role_handle(cx);
+        }
         if refresh_models {
             self.refresh_start_chat_models(cx);
         }
@@ -1396,10 +1406,10 @@ impl NativeRoot {
                 self.close_start_chat_modal(window, cx);
             }
             "enter"
-                if self
-                    .start_chat_modal
-                    .as_ref()
-                    .is_some_and(|modal| !modal.is_composing(cx)) =>
+                if self.start_chat_modal.as_ref().is_some_and(|modal| {
+                    !modal.is_composing(cx)
+                        && (modal.mission_role.is_none() || event.keystroke.modifiers.platform)
+                }) =>
             {
                 cx.stop_propagation();
                 self.submit_start_chat(window, cx);
@@ -1412,6 +1422,10 @@ impl NativeRoot {
         let Some(modal) = self.start_chat_modal.as_ref() else {
             return;
         };
+        if modal.mission_role.is_some() {
+            self.submit_mission_role(window, cx);
+            return;
+        }
         if !modal.can_submit() || modal.is_composing(cx) {
             return;
         }
@@ -1590,6 +1604,9 @@ impl NativeRoot {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let modal = self.start_chat_modal.as_ref().expect("modal is open");
+        if modal.mission_role.is_some() {
+            return self.render_add_role_modal(modal, window, cx);
+        }
         let mode = modal.mode;
         let submitting = modal.submitting;
         let can_submit = modal.can_submit();
@@ -1820,140 +1837,6 @@ impl NativeRoot {
             }
         }
         cx.notify();
-    }
-
-    fn render_role_fields(
-        &self,
-        modal: &StartChatModal,
-        layout: CardLayout,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let mut card = card(layout).child(modal.role_select.clone());
-        let role = modal.selected_role();
-        if let Some(role) = role {
-            card = card.child(self.render_role_setup(modal, role, layout, cx));
-        }
-        let mut field = Field::new(
-            "start-chat-role-field",
-            "Role",
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(card)
-                .when(modal.roles.is_empty(), |field| {
-                    field.child(
-                        div()
-                            .text_size(theme::text_meta())
-                            .text_color(theme::warning())
-                            .child("No roles yet. Create one from the Roles page first."),
-                    )
-                }),
-        )
-        .focus_target(modal.role_select.read(cx).focus_handle())
-        .emphasized(true);
-        if role.is_some() {
-            field = field.subtitle(ROLE_HINT);
-        }
-        field.into_any_element()
-    }
-
-    /// The role's Runtime, Model and Effort as controls filled with the role's
-    /// values; an override adds the amber dot and, under the control, the
-    /// role's value with Reset.
-    fn render_role_setup(
-        &self,
-        modal: &StartChatModal,
-        role: &Role,
-        layout: CardLayout,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let third = layout.third();
-        let root = cx.entity();
-        let overrides = modal.role_overrides(cx);
-        let own = modal.on_own_agent();
-        let agent = modal.role_agent().unwrap_or(&role.runtime).to_owned();
-        let runtime = modal.active_runtime();
-        let effort_available = runtime.is_some_and(|runtime| !runtime.efforts.is_empty());
-        let note = |label: &'static str, kind: ResetKind, changed: bool, value: String| {
-            changed.then(|| {
-                override_note(
-                    label,
-                    third,
-                    format!("role: {value}"),
-                    reset_action(&root, &modal.reset_focus[kind as usize], kind),
-                )
-            })
-        };
-        let row = || div().flex().items_start().gap(rems(COLUMN_GAP / 16.));
-        let controls = row()
-            .child(setup_field(
-                third,
-                "Runtime",
-                modal.role_runtime_select.clone(),
-                note(
-                    "Runtime",
-                    ResetKind::Runtime,
-                    overrides.runtime,
-                    runtime_display_name(&modal.runtimes, &role.runtime),
-                ),
-            ))
-            .child(setup_field(
-                third,
-                "Model",
-                div().w_full().child(modal.model_field.clone()),
-                note(
-                    "Model",
-                    ResetKind::Model,
-                    overrides.model,
-                    model_placeholder(Some(role)),
-                ),
-            ))
-            .when(effort_available, |controls| {
-                controls.child(setup_field(
-                    third,
-                    "Effort",
-                    modal.effort_select.clone(),
-                    note(
-                        "Effort",
-                        ResetKind::Effort,
-                        overrides.effort,
-                        role_setting_label(Some(&modal.baseline_effort())).0,
-                    ),
-                ))
-            });
-        card_section()
-            .when(cfg!(test), |section| {
-                section.debug_selector(|| "START_CHAT_SETUP".into())
-            })
-            .child(controls)
-            .when(modal.codex_speed_visible(), |section| {
-                section.child(row().child(render_speed_column(
-                    modal,
-                    third,
-                    note(
-                        "Speed",
-                        ResetKind::Speed,
-                        overrides.speed,
-                        speed_label(role.codex_speed).into(),
-                    ),
-                )))
-            })
-            .children(speed_note(modal))
-            .children((!own).then(|| {
-                let note = agent_note(
-                    &runtime_display_name(&modal.runtimes, &agent),
-                    &runtime_display_name(&modal.runtimes, &role.runtime),
-                    trimmed(role.model.as_deref()),
-                    trimmed(role.effort.as_deref()),
-                );
-                div()
-                    .w(rems(layout.content / 16.))
-                    .text_size(theme::text_ui())
-                    .text_color(theme::faint())
-                    .child(note)
-            }))
-            .into_any_element()
     }
 
     fn render_direct_fields(

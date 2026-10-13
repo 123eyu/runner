@@ -61,6 +61,8 @@ impl StoreRefreshKind {
                             signal,
                             "mission_start"
                                 | "mission_stopped"
+                                | "role_joined"
+                                | "role_removed"
                                 | "ask_human"
                                 | "human_question"
                                 | "human_response"
@@ -1348,5 +1350,23 @@ pub(crate) fn seed_mixed_working_sessions(store: &mut AppStore) {
                 ..Default::default()
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod roster_change_tests {
+    use super::*;
+    #[test]
+    fn joins_and_leaves_refresh_missions() {
+        for kind in ["role_joined", "role_removed"] {
+            let event = runner_core::protocol::ClientEvent {
+                name: "event/appended".into(),
+                payload: serde_json::json!({"event":{"type":kind}}),
+            };
+            assert_eq!(
+                StoreRefreshKind::for_event(&event),
+                Some(StoreRefreshKind::Missions)
+            );
+        }
     }
 }

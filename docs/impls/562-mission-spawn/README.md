@@ -9,7 +9,7 @@ Implementation record for [feature 562](../../features/562-mission-spawn.md) ([#
 | m1 | Phase 1: each mission keeps its roster in `roster.json` (fixes #863) | — | Merged 2026-10-11 as [#868](https://github.com/yicheng47/runner/pull/868), shipped in 0.15.2 |
 | m2 | Each mission session independent of the others (Phase 2 decision 9, split out) | codex trio | Merged 2026-10-12 as [#874](https://github.com/yicheng47/runner/pull/874); QA passed five macOS checks, Windows unverified |
 | — | [#878](https://github.com/yicheng47/runner/issues/878): a session records its whole launch definition at spawn, so role edits never change it | codex trio | Merged 2026-10-13 as [#881](https://github.com/yicheng47/runner/pull/881) after live QA on macOS; it also fixed the feed's raw card for a stopped mission. Windows unverified |
-| m3 | Phase 2: add and remove roles while a mission runs, CLI and app | codex trio | Planned and briefed on `feat/562-add-remove-roles`, rebased onto #881; waiting for Jason's review of the plan and his go |
+| m3 | Phase 2: add and remove roles while a mission runs, CLI and app | codex trio | Open [#889](https://github.com/yicheng47/runner/pull/889) in three commits on current main; clean review and automated gates, ten selected macOS/Codex QA checks passed before rebase; post-#888 recheck waived at Jason’s call, native Windows unverified |
 | — | Phase 3: start a mission from roles, without a crew | — | Interface under discussion |
 
 Related issue: [#873](https://github.com/yicheng47/runner/issues/873) makes the mission lead optional and may answer Phase 3's first question.
@@ -26,7 +26,7 @@ Related issue: [#873](https://github.com/yicheng47/runner/issues/873) makes the 
 
 ## Open
 
-- Jason's go for m3. Its [brief](../briefs/562-m3-add-remove-roles.md) relies on the standing pre-approval of Runner's Codex trust entry for `qa`'s own `/tmp` folders (`docs/tests/full-smoke-test.md`, Agent configuration isolation). Before launch, the six Phase 2 frames are exported as PNGs into the worktree's `target/design-ref/`, under the names the brief lists.
+- Jason's review of m3's [open PR #889](https://github.com/yicheng47/runner/pull/889) and native Windows verification. The [test record](../../tests/562-add-remove-roles.md) preserves the selected macOS matrix, failed fixture attempts, recheck waiver, evidence and cleanup; CI is tracked on the PR.
 - Phase 3's interface: the spec's questions, and #873.
 - m1's light Windows check, at the next update of Jason's PC with existing missions ([record](../../tests/archive/562-mission-roster.md)).
 - The release that ships #881 and m3 gates on a Windows PC pass: back up the database, upgrade over 0.15.3 with real data, the suite's smoke cases, and the Windows checks deferred from m1, m2, #881 and m3.

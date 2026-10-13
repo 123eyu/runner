@@ -422,17 +422,29 @@ impl MissionWorkspace {
                         .text_size(theme::text_caption())
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::faint())
-                        .child(format!(
-                            "MISSION {} · {}",
-                            if event.signal_type.as_ref().map(|kind| kind.as_str())
-                                == Some("mission_stopped")
-                            {
-                                "STOPPED"
-                            } else {
-                                "STARTED"
+                        .when(
+                            matches!(
+                                event.signal_type.as_ref().map(|kind| kind.as_str()),
+                                Some("role_joined" | "role_removed")
+                            ),
+                            |label| {
+                                label.flex().items_center().gap_2().child(
+                                    svg()
+                                        .path(
+                                            if event.signal_type.as_ref().map(|kind| kind.as_str())
+                                                == Some("role_joined")
+                                            {
+                                                "log-in.svg"
+                                            } else {
+                                                "log-out.svg"
+                                            },
+                                        )
+                                        .size(rems(12. / 16.))
+                                        .text_color(theme::faint()),
+                                )
                             },
-                            format_event_time(&event)
-                        )),
+                        )
+                        .child(mission_divider_label(&event)),
                 )
                 .child(
                     div()
@@ -458,6 +470,8 @@ impl MissionWorkspace {
     ) -> AnyElement {
         let first = &events[0];
         let human = author == "human";
+        let system = author == "runner";
+        let author = if system { "system".to_owned() } else { author };
         let target = message_target(first, &self.askers_by_question);
         let goal = first.kind == EventKind::Signal
             && first.signal_type.as_ref().map(|kind| kind.as_str()) == Some("mission_goal");
@@ -492,6 +506,8 @@ impl MissionWorkspace {
                                     .text_color(runner_app::ui::hue_for_seed(&author).color())
                                     .child(if human {
                                         "you".into()
+                                    } else if system {
+                                        "system".into()
                                     } else {
                                         format!("@{author}")
                                     }),
@@ -524,7 +540,11 @@ impl MissionWorkspace {
                             .flex_col()
                             .gap_1()
                             .text_size(theme::text_body())
-                            .text_color(theme::text())
+                            .text_color(if system {
+                                theme::muted()
+                            } else {
+                                theme::text()
+                            })
                             .children(events.into_iter().filter_map(|event| {
                                 let text = message_text(&event);
                                 if text.is_empty() {

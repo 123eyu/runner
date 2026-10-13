@@ -281,6 +281,9 @@ impl MissionWorkspace {
         if self.stop_all_confirm {
             overlays.push(self.render_stop_all_confirm(cx));
         }
+        if self.remove_confirm.is_some() {
+            overlays.push(self.render_remove_confirm(cx));
+        }
         if self.restart_confirm.is_some() {
             overlays.push(self.render_restart_confirm(cx));
         }
