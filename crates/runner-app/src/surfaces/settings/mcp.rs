@@ -12,7 +12,9 @@ use runner_app::ui::{
     OverlayWidth, PaneHeader, Scrollbar, SelectOption, SettingsCard, StyledSelect, TextField,
     Toggle, Tone,
 };
-use runner_core::protocol::mcp::{McpCatalog, McpClientId, McpServerDefinition, McpServerEntry};
+use runner_core::protocol::mcp::{
+    McpCatalog, McpClientId, McpServerClientEntry, McpServerDefinition, McpServerEntry,
+};
 use runner_core::protocol::runtime::RuntimeCatalogEntry;
 
 use crate::app_settings::AppSettings;
@@ -107,24 +109,15 @@ fn one_line_error(error: &str) -> String {
     }
 }
 
-fn conflict_caption(entry: &McpServerEntry, selected: McpClientId) -> Option<String> {
-    let reference = entry
+fn same_definition(a: &McpServerClientEntry, b: &McpServerClientEntry) -> bool {
+    a.definition == b.definition && (a.definition.is_some() || a.native_text == b.native_text)
+}
+
+fn configured_differently(entry: &McpServerEntry) -> bool {
+    entry
         .clients
-        .get(&selected)
-        .filter(|s| s.registered)
-        .or_else(|| source_client(entry).and_then(|c| entry.clients.get(&c)))?;
-    let (&other, slot) = entry.clients.iter().find(|(client, slot)| {
-        **client != selected
-            && slot.registered
-            && slot.conflicting
-            && (slot.definition != reference.definition
-                || (slot.definition.is_none() && slot.native_text != reference.native_text))
-    })?;
-    Some(format!(
-        "{} has a different definition: {}",
-        other.label(),
-        definition_summary(slot.definition.as_ref())
-    ))
+        .values()
+        .any(|slot| slot.registered && slot.conflicting)
 }
 
 fn copy_hint(entry: &McpServerEntry, client: McpClientId) -> Option<String> {
@@ -258,7 +251,6 @@ impl McpPane {
     ) -> AnyElement {
         let state = self.detail.read(cx);
         let registered = server_toggle_on(entry, client);
-        let conflict = conflict_caption(entry, client);
         let hint = copy_hint(entry, client);
         let error = entry.clients.get(&client).and_then(|s| s.error.clone());
         let open = self.detail.clone();
@@ -310,12 +302,6 @@ impl McpPane {
                             .font_family(theme::UI_MONOSPACE_FONT)
                             .child(definition_summary(definition_for(entry, client))),
                     )
-                    .children(conflict.map(|text| {
-                        div()
-                            .text_size(theme::text_caption())
-                            .text_color(theme::warning())
-                            .child(format!("⚠ {text}"))
-                    }))
                     .children(hint.clone().map(|text| {
                         div()
                             .text_size(theme::text_caption())
@@ -739,7 +725,7 @@ impl McpDetail {
         let text = slot.native_text.clone();
         self.also = registered_clients(entry)
             .into_iter()
-            .filter(|&c| c != self.viewing)
+            .filter(|&c| c != self.viewing && same_definition(&entry.clients[&c], slot))
             .collect();
         self.original = text.clone();
         self.editor.update(cx, |editor, cx| editor.reset(text, cx));
@@ -941,7 +927,14 @@ impl McpDetail {
                         .text_color(theme::faint())
                         .child("Registered in")
                         .children(clients.iter().map(|c| Badge::new(c.label(), Tone::Muted)))
-                        .when(clients.is_empty(), |d| d.child("No agents")),
+                        .when(clients.is_empty(), |d| d.child("No agents"))
+                        .when(configured_differently(entry), |d| {
+                            d.child(
+                                div()
+                                    .debug_selector(|| "MCP_PER_AGENT_NOTE".into())
+                                    .child("· Configured differently per agent"),
+                            )
+                        }),
                 )
                 .when(!self.editing, |d| {
                     d.child(
@@ -1268,7 +1261,6 @@ impl Render for McpDetail {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use runner_daemon::ops::mcp::McpServerClientEntry;
     use std::collections::BTreeMap;
     fn test_store(path: &std::path::Path, cx: &mut gpui::TestAppContext) -> Entity<AppStore> {
         use runner_daemon::{db, session, shell_path};
@@ -1300,11 +1292,11 @@ mod tests {
         })
     }
 
-    fn entry(name: &str, conflict: bool) -> McpServerEntry {
+    fn entry(name: &str, differs: bool) -> McpServerEntry {
         let clients = McpClientId::all()
             .into_iter()
             .map(|client| {
-                let command = if client == McpClientId::Codex && conflict {
+                let command = if client == McpClientId::Codex && differs {
                     "different"
                 } else {
                     "gh-mcp"
@@ -1328,7 +1320,7 @@ mod tests {
                         registered,
                         native_text: text,
                         definition: Some(definition),
-                        conflicting: conflict && registered,
+                        conflicting: differs && registered,
                         error: None,
                     },
                 )
@@ -1424,7 +1416,7 @@ mod tests {
     }
 
     #[test]
-    fn catalog_rows_filter_every_server_and_reflect_registration_and_conflict() {
+    fn catalog_rows_filter_every_server_and_reflect_registration_and_per_agent_differences() {
         let catalog = catalog();
         assert_eq!(
             catalog_rows(&catalog, "")
@@ -1451,13 +1443,8 @@ mod tests {
                 McpClientId::Grok,
             ]
         );
-        assert!(conflict_caption(github, McpClientId::ClaudeCode)
-            .unwrap()
-            .starts_with("Codex has a different definition:"));
-        assert!(conflict_caption(github, McpClientId::Codex)
-            .unwrap()
-            .starts_with("Claude Code has a different definition:"));
-        assert!(conflict_caption(&catalog.servers[0], McpClientId::ClaudeCode).is_none());
+        assert!(configured_differently(github));
+        assert!(!configured_differently(&catalog.servers[0]));
         assert_eq!(source_client(github), Some(McpClientId::ClaudeCode));
         let summary = definition_summary(definition_for(github, McpClientId::ClaudeCode));
         assert!(summary.contains("TOKEN=•••"));
@@ -1548,7 +1535,7 @@ mod tests {
     }
 
     #[test]
-    fn conflict_detail_shows_each_native_body_and_blocks_invalid_save() {
+    fn differing_detail_shows_each_native_body_and_blocks_invalid_save() {
         let temp = tempfile::tempdir().unwrap();
         let mut cx = gpui::TestAppContext::single();
         let store = test_store(temp.path(), &mut cx);
@@ -1572,7 +1559,10 @@ mod tests {
                     .read(cx)
                     .text()
                     .starts_with("[mcp_servers.github]"));
-                assert!(detail.also.contains(&McpClientId::ClaudeCode));
+                assert!(
+                    detail.also.is_empty(),
+                    "an agent configured differently is not updated by default"
+                );
                 assert!(detail.can_save(cx));
                 detail.editor.update(cx, |e, cx| e.reset("[broken", cx));
                 assert!(detail.can_save(cx), "typing never disables Save");
@@ -1590,6 +1580,14 @@ mod tests {
                 detail.viewing = McpClientId::ClaudeCode;
                 detail.edit(window, cx);
                 assert!(detail.editor.read(cx).text().starts_with('{'));
+                assert_eq!(
+                    detail.also,
+                    BTreeSet::from([
+                        McpClientId::Antigravity,
+                        McpClientId::Copilot,
+                        McpClientId::Grok,
+                    ])
+                );
                 detail.editor.update(cx, |e, cx| e.reset("[]", cx));
                 detail.save(cx);
                 assert!(detail.error.is_none() && !detail.busy && detail.editing);
@@ -1613,6 +1611,34 @@ mod tests {
             });
         })
         .unwrap();
+    }
+
+    #[test]
+    fn per_agent_difference_shows_a_neutral_note_in_the_detail() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = gpui::TestAppContext::single();
+        let store = test_store(temp.path(), &mut cx);
+        let host = cx.add_window(|_, cx| Host(cx.new(|cx| McpPane::new(store, cx))));
+        let mut visual = gpui::VisualTestContext::from_window(host.into(), &cx);
+        visual.simulate_resize(gpui::size(px(900.), px(700.)));
+        for (name, differs) in [("github", true), ("aaa", false)] {
+            host.update(&mut visual, |host, window, cx| {
+                let detail = host.0.read(cx).detail.clone();
+                detail.update(cx, |detail, cx| {
+                    detail.catalog = Some(catalog());
+                    detail.runtimes = runtimes();
+                    detail.name = None;
+                    detail.open(McpClientId::Codex, name, window, cx);
+                });
+            })
+            .unwrap();
+            visual.run_until_parked();
+            assert_eq!(
+                visual.debug_bounds("MCP_PER_AGENT_NOTE").is_some(),
+                differs,
+                "{name}"
+            );
+        }
     }
 
     #[test]
