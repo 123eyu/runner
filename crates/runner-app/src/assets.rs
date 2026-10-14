@@ -32,6 +32,7 @@ const ANTIGRAVITY_ICON: &[u8] = include_bytes!("../../../assets/antigravity-icon
 const OPENCODE_ICON: &[u8] = include_bytes!("../../../assets/opencode-icon.png");
 
 const BRAND_MARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 72 72"><path d="M14 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".28"/><path d="M29 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/><path d="M44 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="9.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
+const BRAND_MARK_LIGHT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 72 72"><path d="M14 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".28"/><path d="M29 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/><path d="M44 22l14 14-14 14" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
 const PANEL_LEFT_HIDDEN: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9v6"/></svg>"#;
 const PANEL_LEFT_OPEN: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>"#;
 const PANEL_RIGHT_HIDDEN: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 9v6"/></svg>"#;
@@ -161,6 +162,7 @@ const ASSETS: &[(&str, &[u8])] = &[
     ("antigravity-icon.png", ANTIGRAVITY_ICON),
     ("opencode-icon.png", OPENCODE_ICON),
     ("brand-mark.svg", BRAND_MARK),
+    ("brand-mark-light.svg", BRAND_MARK_LIGHT),
     ("panel-left-hidden.svg", PANEL_LEFT_HIDDEN),
     ("panel-left-open.svg", PANEL_LEFT_OPEN),
     ("panel-right-hidden.svg", PANEL_RIGHT_HIDDEN),

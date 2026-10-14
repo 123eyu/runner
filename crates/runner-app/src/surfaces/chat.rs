@@ -1917,6 +1917,14 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .tabs
+            .active()
+            .is_some_and(|layout| layout.all_session_ids().as_slice() == [session_id])
+        {
+            self.close_terminal_tab(session_id, window, cx);
+            return;
+        }
         self.terminal_close_confirm = None;
         if !self.stopping_sessions.insert(session_id.to_owned()) {
             return;
@@ -2145,7 +2153,7 @@ impl NativeRoot {
         }
     }
 
-    pub(crate) fn prepare_tab_close(&mut self, session_ids: &[String], cx: &mut Context<Self>) {
+    pub(crate) fn prepare_tab_close(&mut self, session_ids: &[String], _cx: &mut Context<Self>) {
         let Some(layout) = self.tabs.active().filter(|layout| {
             layout
                 .all_session_ids()
@@ -2155,14 +2163,7 @@ impl NativeRoot {
             return;
         };
         let tab_id = layout.id.clone();
-        let next_tab_id = self
-            .sidebar
-            .read(cx)
-            .tab_close_neighbour(&self.tabs, &tab_id, cx);
-        self.pending_tab_close = Some(PendingTabClose {
-            tab_id,
-            next_tab_id,
-        });
+        self.pending_tab_close = Some(PendingTabClose { tab_id });
     }
 
     pub(crate) fn clear_pending_tab_close(&mut self, attempted: &[String]) {
@@ -2514,6 +2515,80 @@ mod tests {
             (None, false, TabCloseBehavior::DeleteEmptyTab),
         ] {
             assert_eq!(tab_close_behavior(runtime, drawers), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_close_lands_on_start_unless_another_pane_session_remains() {
+        use crate::surfaces::start_chat::{tests::modal_harness, ChatMode};
+        use std::time::{Duration, Instant};
+
+        for variant in ["single", "empty-sibling", "filled-sibling"] {
+            let mut harness =
+                modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
+            let mut tab_id = String::new();
+            harness.act(|root, window, cx| {
+                root.start_chat_modal = None;
+                root.root_focus.focus(window, cx);
+                let conn = root.app_store.read(cx).test_core.db.get().unwrap();
+                for id in ["exited-shell", "other-tab-shell"]
+                    .into_iter()
+                    .chain((variant == "filled-sibling").then_some("kept-shell"))
+                {
+                    conn.execute("INSERT INTO sessions(id, status, agent_runtime, agent_command) VALUES (?1, 'stopped', 'shell', '/bin/sh')", [id]).unwrap();
+                }
+                drop(conn);
+                let mut layout = PaneLayout::single(Some("exited-shell"), &[]);
+                layout.id = "01ARZ3NDEKTSV4RRFFQ69G5FAV".into();
+                if variant != "single" {
+                    let pane = layout.split("p1", SplitOrientation::Row).unwrap();
+                    if variant == "filled-sibling" {
+                        layout.assign_session(&pane, "kept-shell").unwrap();
+                    }
+                }
+                tab_id = layout.id.clone();
+                root.core(cx).node_tab_upsert(layout.upsert_input().unwrap()).unwrap();
+                let mut other = PaneLayout::single(Some("other-tab-shell"), &[]);
+                other.id = "01ARZ3NDEKTSV4RRFFQ69G5FAX".into();
+                root.core(cx).node_tab_upsert(other.upsert_input().unwrap()).unwrap();
+                root.refresh_sessions(cx);
+                root.reload_tabs(cx).unwrap();
+                root.tabs.activate(&tab_id);
+                root.close_terminal_pane("p1", "exited-shell", window, cx);
+                assert_eq!(root.pending_tab_close.is_some(), variant != "filled-sibling");
+            });
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let mut finished = false;
+                harness.act(|root, _, cx| {
+                    finished = !root.stopping_sessions.contains("exited-shell");
+                    if finished {
+                        assert!(root.chat_error.is_none(), "{:?}", root.chat_error);
+                        root.reload_tabs(cx).unwrap();
+                        assert!(root.session_entry("exited-shell", cx).is_none());
+                        assert!(root.session_entry("other-tab-shell", cx).is_some());
+                        if variant == "filled-sibling" {
+                            let layout = root.tabs.active().unwrap();
+                            assert_eq!(layout.id, tab_id);
+                            assert_eq!(layout.root.leaves().len(), 1);
+                            assert_eq!(layout.focused_session_id(), Some("kept-shell"));
+                        } else {
+                            assert!(root.tabs.active().is_none(), "{variant}");
+                            assert_eq!(root.tabs.tabs().len(), 1);
+                            root.reload_tabs(cx).unwrap();
+                            assert!(root.tabs.active().is_none(), "{variant}");
+                        }
+                    }
+                });
+                if finished {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "terminal close did not finish: {variant}"
+                );
+            }
         }
     }
 

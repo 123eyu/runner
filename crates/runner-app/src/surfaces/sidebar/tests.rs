@@ -94,7 +94,7 @@ fn seeded_store(
 }
 
 #[test]
-fn close_neighbours_skip_invisible_tabs_but_use_the_closing_empty_tab_as_an_anchor() {
+fn sidebar_shortcuts_skip_empty_and_drawer_only_tabs() {
     let temp = tempfile::tempdir().unwrap();
     let mut cx = TestAppContext::single();
     let (pool, store) = seeded_store(&mut cx, temp.path());
@@ -133,16 +133,6 @@ fn close_neighbours_skip_invisible_tabs_but_use_the_closing_empty_tab_as_an_anch
         assert_eq!(
             visible,
             [rows[0].id.clone(), rows[1].id.clone(), rows[4].id.clone()]
-        );
-        for closing in [&rows[1], &rows[2], &rows[3]] {
-            assert_eq!(
-                sidebar.tab_close_neighbour(&tabs, &closing.id, cx),
-                Some(rows[4].id.clone())
-            );
-        }
-        assert_eq!(
-            sidebar.tab_close_neighbour(&tabs, &rows[4].id, cx),
-            Some(rows[1].id.clone())
         );
         sidebar.refresh_shortcut_rows(&tabs, cx);
         for invisible in [&rows[2], &rows[3]] {
