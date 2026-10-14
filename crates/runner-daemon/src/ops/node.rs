@@ -72,7 +72,7 @@ pub fn node_tab_upsert(state: &AppCore, input: NodeTabUpsertInput) -> Result<Nod
     let (parent_id, position) = match existing.as_ref() {
         Some(row) => (row.parent_id.clone(), row.position),
         None => {
-            let position = repo::node::next_position(&conn, input.parent_id.as_deref())?;
+            let position = repo::node::new_node_position(&conn, input.parent_id.as_deref())?;
             (input.parent_id, position)
         }
     };

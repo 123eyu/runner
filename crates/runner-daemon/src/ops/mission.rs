@@ -1191,7 +1191,7 @@ pub async fn mission_unarchive_impl(state: &AppCore, id: String) -> Result<Missi
     let conn = state.db.get()?;
     repo::mission::unarchive(&conn, &id)?;
     let mission = get(&conn, &id)?;
-    // Restore the sidebar node, appended at its parent's end (original
+    // Restore the sidebar node as a new one, first in its scope (original
     // position not remembered, matching chat restore).
     repo::node::ensure_mission_node(&conn, &id, mission.project_id.as_deref())?;
     Ok(mission)
