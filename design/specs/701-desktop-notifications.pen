@@ -1662,7 +1662,7 @@
                                     {
                                       "type": "frame",
                                       "id": "Fp8QN",
-                                      "name": "row · Allow notifications, banner style and sound",
+                                      "name": "row · Notifications are on",
                                       "width": "fill_container",
                                       "gap": 24,
                                       "padding": [
@@ -1684,7 +1684,7 @@
                                               "id": "vT2KN",
                                               "name": "title",
                                               "fill": "$text-1",
-                                              "content": "Allow notifications, banner style and sound",
+                                              "content": "Notifications are on",
                                               "fontFamily": "$font-ui",
                                               "fontSize": 13,
                                               "fontWeight": "500"
@@ -1696,7 +1696,7 @@
                                               "fill": "$text-2",
                                               "textGrowth": "fixed-width",
                                               "width": "fill_container",
-                                              "content": "Set by macOS in System Settings → Notifications → Runner.",
+                                              "content": "Banner style and sound are set in System Settings → Notifications → Runner.",
                                               "fontFamily": "$font-ui",
                                               "fontSize": 11,
                                               "fontWeight": "normal"
@@ -4146,7 +4146,7 @@
                                     {
                                       "type": "frame",
                                       "id": "Ob7QL",
-                                      "name": "row · Allow notifications, banner style and sound",
+                                      "name": "row · Notifications are on",
                                       "width": "fill_container",
                                       "gap": 24,
                                       "padding": [
@@ -4168,7 +4168,7 @@
                                               "id": "cNhm2",
                                               "name": "title",
                                               "fill": "$text-1",
-                                              "content": "Allow notifications, banner style and sound",
+                                              "content": "Notifications are on",
                                               "fontFamily": "$font-ui",
                                               "fontSize": 13,
                                               "fontWeight": "500"
@@ -4180,7 +4180,7 @@
                                               "fill": "$text-2",
                                               "textGrowth": "fixed-width",
                                               "width": "fill_container",
-                                              "content": "Set by macOS in System Settings → Notifications → Runner.",
+                                              "content": "Banner style and sound are set in System Settings → Notifications → Runner.",
                                               "fontFamily": "$font-ui",
                                               "fontSize": 11,
                                               "fontWeight": "normal"
@@ -4972,6 +4972,684 @@
                   ]
                 }
               }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "Feeq7",
+      "x": 0,
+      "y": 2100,
+      "name": "701 · System row states · dark",
+      "theme": {
+        "mode": "dark"
+      },
+      "width": 840,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "H2bzj",
+          "name": "heading",
+          "fill": "$text-1",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "The System row reads macOS's notification permission for Runner and shows it here, rechecked whenever Runner comes to the front. Windows has no prompt, so only On and Off apply there, read from the toast setting, and the button opens Settings → System → Notifications.",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "600"
+        },
+        {
+          "type": "frame",
+          "id": "y3pYJr",
+          "name": "Notifications aren't set up",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "JfPE5",
+              "name": "state label",
+              "fill": "$text-3",
+              "content": "Not asked yet — first launch, or the prompt was missed",
+              "fontFamily": "$font-ui",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "Fhto5",
+              "name": "card · System",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "$panel",
+              "cornerRadius": 12,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "OCYde",
+                  "name": "row · Notifications aren't set up",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Sh5t8",
+                      "name": "label",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MSNFF",
+                          "name": "title",
+                          "fill": "$text-1",
+                          "content": "Notifications aren't set up",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "fxoRF",
+                          "name": "subtitle",
+                          "fill": "$text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "macOS asks the first time Runner notifies you, or you can allow them now.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "C0Bba",
+                      "type": "ref",
+                      "ref": "IelRd",
+                      "name": "allow notifications",
+                      "fill": "$accent",
+                      "descendants": {
+                        "ZU031": {
+                          "enabled": true,
+                          "icon": "bell",
+                          "fill": "$accent-ink"
+                        },
+                        "wUh0u": {
+                          "content": "Allow notifications",
+                          "fill": "$accent-ink"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "k85475",
+          "name": "Notifications are on",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "p5C8t",
+              "name": "state label",
+              "fill": "$text-3",
+              "content": "Allowed",
+              "fontFamily": "$font-ui",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "eQqmq",
+              "name": "card · System",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "$panel",
+              "cornerRadius": 12,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "R2SYB",
+                  "name": "row · Notifications are on",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "tFiJw",
+                      "name": "label",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "v1tpfW",
+                          "name": "title",
+                          "fill": "$text-1",
+                          "content": "Notifications are on",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "P7AnfI",
+                          "name": "subtitle",
+                          "fill": "$text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Banner style and sound are set in System Settings → Notifications → Runner.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "E0J1dk",
+                      "type": "ref",
+                      "ref": "IelRd",
+                      "name": "open system settings",
+                      "descendants": {
+                        "ZU031": {
+                          "enabled": true,
+                          "icon": "external-link"
+                        },
+                        "wUh0u": {
+                          "content": "Open System Settings"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "KYyZr",
+          "name": "Notifications are off",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "zpa6J",
+              "name": "state label",
+              "fill": "$text-3",
+              "content": "Turned off in System Settings",
+              "fontFamily": "$font-ui",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "W70G0U",
+              "name": "card · System",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "$panel",
+              "cornerRadius": 12,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "E0nUzt",
+                  "name": "row · Notifications are off",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "cbZ7C",
+                      "name": "label",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "vkIDy",
+                          "name": "title row",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "L0SEhC",
+                              "name": "warning",
+                              "width": 13,
+                              "height": 13,
+                              "icon": "triangle-alert",
+                              "library": "lucide",
+                              "fill": "$warn"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Z8EcyF",
+                              "name": "title",
+                              "fill": "$text-1",
+                              "content": "Notifications are off",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "iof5t",
+                          "name": "subtitle",
+                          "fill": "$text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Turned off in System Settings, so Runner can't notify you.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "T5ln8",
+                      "type": "ref",
+                      "ref": "IelRd",
+                      "name": "open system settings",
+                      "descendants": {
+                        "ZU031": {
+                          "enabled": true,
+                          "icon": "external-link"
+                        },
+                        "wUh0u": {
+                          "content": "Open System Settings"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "w4PN2",
+      "x": 3080,
+      "y": 2100,
+      "name": "701 · System row states · light",
+      "theme": {
+        "mode": "light"
+      },
+      "width": 840,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "m8j5U",
+          "name": "heading",
+          "fill": "$text-1",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "The System row reads macOS's notification permission for Runner and shows it here, rechecked whenever Runner comes to the front. Windows has no prompt, so only On and Off apply there, read from the toast setting, and the button opens Settings → System → Notifications.",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "600"
+        },
+        {
+          "type": "frame",
+          "id": "Om390",
+          "name": "Notifications aren't set up",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "nMTkc",
+              "name": "state label",
+              "fill": "$text-3",
+              "content": "Not asked yet — first launch, or the prompt was missed",
+              "fontFamily": "$font-ui",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "p6PZEg",
+              "name": "card · System",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "$panel",
+              "cornerRadius": 12,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "aB6nG",
+                  "name": "row · Notifications aren't set up",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "E0sZL",
+                      "name": "label",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Ybytk",
+                          "name": "title",
+                          "fill": "$text-1",
+                          "content": "Notifications aren't set up",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "zYPmu",
+                          "name": "subtitle",
+                          "fill": "$text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "macOS asks the first time Runner notifies you, or you can allow them now.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "sdqUw",
+                      "type": "ref",
+                      "ref": "IelRd",
+                      "name": "allow notifications",
+                      "fill": "$accent",
+                      "descendants": {
+                        "ZU031": {
+                          "enabled": true,
+                          "icon": "bell",
+                          "fill": "$accent-ink"
+                        },
+                        "wUh0u": {
+                          "content": "Allow notifications",
+                          "fill": "$accent-ink"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "JrbXG",
+          "name": "Notifications are on",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "dHfVr",
+              "name": "state label",
+              "fill": "$text-3",
+              "content": "Allowed",
+              "fontFamily": "$font-ui",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "EMtRb",
+              "name": "card · System",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "$panel",
+              "cornerRadius": 12,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "jqACV",
+                  "name": "row · Notifications are on",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "VbGKE",
+                      "name": "label",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "e1ZR2q",
+                          "name": "title",
+                          "fill": "$text-1",
+                          "content": "Notifications are on",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "prgIS",
+                          "name": "subtitle",
+                          "fill": "$text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Banner style and sound are set in System Settings → Notifications → Runner.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "Z1q0TW",
+                      "type": "ref",
+                      "ref": "IelRd",
+                      "name": "open system settings",
+                      "descendants": {
+                        "ZU031": {
+                          "enabled": true,
+                          "icon": "external-link"
+                        },
+                        "wUh0u": {
+                          "content": "Open System Settings"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "y3DsFb",
+          "name": "Notifications are off",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "AFPsJ",
+              "name": "state label",
+              "fill": "$text-3",
+              "content": "Turned off in System Settings",
+              "fontFamily": "$font-ui",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "j4JFf",
+              "name": "card · System",
+              "clip": true,
+              "width": "fill_container",
+              "fill": "$panel",
+              "cornerRadius": 12,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "GqSdz",
+                  "name": "row · Notifications are off",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "padding": [
+                    12,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "A9iQaH",
+                      "name": "label",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "t1kxiC",
+                          "name": "title row",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "WWIjH",
+                              "name": "warning",
+                              "width": 13,
+                              "height": 13,
+                              "icon": "triangle-alert",
+                              "library": "lucide",
+                              "fill": "$warn"
+                            },
+                            {
+                              "type": "text",
+                              "id": "UOLMP",
+                              "name": "title",
+                              "fill": "$text-1",
+                              "content": "Notifications are off",
+                              "fontFamily": "$font-ui",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "ihlU9",
+                          "name": "subtitle",
+                          "fill": "$text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Turned off in System Settings, so Runner can't notify you.",
+                          "fontFamily": "$font-ui",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "HM123",
+                      "type": "ref",
+                      "ref": "IelRd",
+                      "name": "open system settings",
+                      "descendants": {
+                        "ZU031": {
+                          "enabled": true,
+                          "icon": "external-link"
+                        },
+                        "wUh0u": {
+                          "content": "Open System Settings"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
