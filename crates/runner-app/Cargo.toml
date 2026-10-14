@@ -36,7 +36,8 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = 
 objc2 = "0.6"
 block2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSButton", "NSControl", "NSImage", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSNotification", "NSOperation", "block2", "NSArray", "NSData", "NSDate", "NSDateFormatter", "NSDictionary", "NSError", "NSFormatter", "NSGeometry", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSNotification", "NSOperation", "block2", "NSArray", "NSData", "NSDate", "NSDateFormatter", "NSDictionary", "NSBundle", "NSError", "NSFormatter", "NSGeometry", "NSString"] }
+objc2-user-notifications = "0.3"
 raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
@@ -45,6 +46,7 @@ minisign-verify = "0.2"
 gpui = { package = "gpui-pre", version = "=0.3.7", default-features = false, features = ["font-kit", "wayland", "x11"] }
 # gpui-pre-platform would re-enable windows-manifest alongside Runner's manifest.
 gpui_windows = { package = "gpui-pre-windows", version = "=0.3.7", default-features = false }
+windows = { version = "0.62", features = ["UI_Notifications"] }
 reqwest = { package = "zed-reqwest", version = "0.12.15-zed", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots", "socks"] }
 
 [target.'cfg(windows)'.dev-dependencies]

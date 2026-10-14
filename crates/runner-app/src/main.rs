@@ -18,6 +18,10 @@ mod file_links;
 mod keymap;
 mod list_controls;
 mod mac_chrome;
+// The controller's callers are the app entry point and its unix-only tests,
+// and a Windows test build compiles neither.
+#[cfg_attr(all(test, windows), allow(dead_code))]
+mod notifications;
 mod platform_ui;
 mod runtime_ui;
 mod surfaces;
@@ -1403,6 +1407,10 @@ fn run() -> Result<()> {
     let application = application.with_quit_mode(QuitMode::Explicit);
     application.on_reopen(handle_reopen);
     application.run(move |cx: &mut App| {
+        cx.set_app_identity(
+            &runner_core::app_paths::app_identifier(cfg!(debug_assertions)),
+            "Runner",
+        );
         runner_app::appearance::install(cx);
         cx.text_system()
             .add_fonts(
@@ -1458,6 +1466,7 @@ fn run() -> Result<()> {
             app_store.read(cx).settings.automatically_download_updates;
         keymap::install_bindings(cx, &keymap_overrides, false);
         cx.set_global(GlobalAppStore(app_store));
+        notifications::install(cx);
         cx.set_global(GlobalNativePaths(paths.clone()));
         #[cfg(not(windows))]
         let updater = cx.new(|cx| Updater::new(automatically_check_for_updates, cx));
@@ -1482,6 +1491,7 @@ fn run() -> Result<()> {
         })));
         let quit_connection = connection.clone();
         cx.on_app_quit(move |cx| {
+            notifications::dismiss_all(cx);
             save_window_settings(cx);
             checkpoint_window_layout_on_quit(cx);
             let stop = cx

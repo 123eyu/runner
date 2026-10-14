@@ -1446,3 +1446,281 @@ fn roster_changes_are_dividers_with_person_attribution() {
             .starts_with(&format!("@worker-2 {verb} · {action} by you · ")));
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn notification_clicks_select_slot_and_feed_and_visible_slots_stay_silent() {
+    use gpui::{SystemNotificationResponse, TestAppContext, VisualTestContext};
+    use runner_core::protocol::status::{AgentStatus, HumanInteraction, Lifecycle, WaitReason};
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    store.update(&mut cx, |store, _| {
+        crate::app_store::seed_mixed_working_sessions(store);
+        store.settings.notifications.missions = crate::app_settings::MissionNotifications {
+            question: true,
+            input: true,
+            idle: true,
+            failed: true,
+        };
+    });
+    cx.update(|cx| {
+        cx.set_app_identity("com.wycstudios.runner-dev", "Runner");
+        crate::notifications::install(cx);
+    });
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let host = cx.add_window(|window, cx| {
+        let mut root = NativeRoot::new(
+            "main".into(),
+            temp.path().join("logs"),
+            None,
+            None,
+            store.clone(),
+            window,
+            cx,
+        );
+        root.route = AppRoute::Mission("test-mission".into());
+        root.mission_workspace.update(cx, |workspace, _| {
+            workspace.active = true;
+            workspace.mission_id = Some("test-mission".into());
+            workspace.mission =
+                Some(runner_daemon::ops::mission::mission_get(&core, "test-mission").unwrap());
+            workspace.sessions =
+                runner_daemon::ops::session::session_list(&core, "test-mission").unwrap();
+            workspace.loading = false;
+            workspace.active_tab = MissionTab::Feed;
+        });
+        root
+    });
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    let change = |cx: &mut TestAppContext, id: &str| {
+        cx.update(|cx| {
+            store.update(cx, |store, cx| {
+                store.session_statuses.insert(
+                    "mission-agent".into(),
+                    AgentStatus {
+                        lifecycle: Lifecycle::Running,
+                        observation: runner_core::protocol::status::AgentObservation {
+                            interactions: vec![HumanInteraction {
+                                id: id.into(),
+                                reason: WaitReason::Approval,
+                                owners: Vec::new(),
+                                since: 1,
+                            }],
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                );
+                store.revisions.activity += 1;
+                cx.notify();
+            })
+        })
+    };
+    visual.deactivate_window();
+    cx.run_until_parked();
+    change(&mut cx, "first");
+    assert_eq!(cx.delivered_system_notifications().len(), 1);
+    cx.simulate_system_notification_response(SystemNotificationResponse {
+        tag: "mission-agent".into(),
+        action_id: None,
+    });
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert_eq!(root.route, AppRoute::Mission("test-mission".into()));
+        assert_eq!(
+            root.mission_workspace.read(cx).active_tab,
+            MissionTab::Session("mission-agent".into())
+        );
+    })
+    .unwrap();
+    assert!(cx.delivered_system_notifications().is_empty());
+    let count = cx.shown_system_notifications().len();
+    change(&mut cx, "second");
+    assert_eq!(cx.shown_system_notifications().len(), count);
+    visual.deactivate_window();
+    cx.run_until_parked();
+    let events = core.events.clone();
+    events.emit("event/appended", &serde_json::json!({"mission_id":"test-mission", "event": Event {
+        id: "q".into(), ts: chrono::Utc::now(), crew_id: "test-crew".into(), mission_id: "test-mission".into(), kind: EventKind::Signal, from: "app".into(), to: None, signal_type: Some(runner_core::model::SignalType::new("human_question")), payload: serde_json::json!({"prompt":"Ship?"}),
+    }, "next_offset":1}));
+    cx.run_until_parked();
+    assert_eq!(cx.delivered_system_notifications().len(), 1);
+    cx.simulate_system_notification_response(SystemNotificationResponse {
+        tag: "question:q".into(),
+        action_id: None,
+    });
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert_eq!(root.mission_workspace.read(cx).active_tab, MissionTab::Feed);
+    })
+    .unwrap();
+    assert!(cx.delivered_system_notifications().is_empty());
+    host.update(&mut visual, |root, _, cx| {
+        root.mission_workspace.update(cx, |workspace, _| {
+            workspace.active_tab = MissionTab::Session("mission-agent".into());
+        });
+        store.update(cx, |store, _| {
+            store
+                .settings
+                .last_mission_terminal_ids
+                .insert("test-mission".into(), "mission-agent".into());
+        });
+    })
+    .unwrap();
+    visual.deactivate_window();
+    cx.run_until_parked();
+    for activity in [
+        runner_core::protocol::mission::MissionActivityState::Busy,
+        runner_core::protocol::mission::MissionActivityState::Idle,
+    ] {
+        cx.update(|cx| {
+            store.update(cx, |store, cx| {
+                store.missions[0].activity = Some(activity);
+                store.revisions.missions += 1;
+                cx.notify();
+            })
+        });
+    }
+    assert_eq!(cx.delivered_system_notifications().len(), 1);
+    assert_eq!(
+        cx.delivered_system_notifications()[0].tag.as_ref(),
+        "mission:test-mission:idle"
+    );
+    cx.simulate_system_notification_response(SystemNotificationResponse {
+        tag: "mission:test-mission:idle".into(),
+        action_id: None,
+    });
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert_eq!(root.mission_workspace.read(cx).active_tab, MissionTab::Feed);
+        assert!(!store
+            .read(cx)
+            .settings
+            .last_mission_terminal_ids
+            .contains_key("test-mission"));
+    })
+    .unwrap();
+    assert!(cx.delivered_system_notifications().is_empty());
+    host.update(&mut visual, |root, _, cx| {
+        root.mission_workspace.update(cx, |workspace, _| {
+            workspace.active_tab = MissionTab::Session("mission-agent".into());
+        });
+    })
+    .unwrap();
+    cx.simulate_system_notification_response(SystemNotificationResponse {
+        tag: "mission:test-mission:idle".into(),
+        action_id: None,
+    });
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert_eq!(root.mission_workspace.read(cx).active_tab, MissionTab::Feed);
+    })
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn asynchronous_slot_removal_withdraws_a_question_when_it_reveals_the_feed() {
+    use gpui::{TestAppContext, VisualTestContext};
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    store.update(&mut cx, |store, _| {
+        crate::app_store::seed_mixed_working_sessions(store);
+        store.settings.notifications.missions = crate::app_settings::MissionNotifications {
+            question: true,
+            input: true,
+            idle: true,
+            failed: true,
+        };
+    });
+    cx.update(|cx| {
+        cx.set_app_identity("com.wycstudios.runner-dev", "Runner");
+        crate::notifications::install(cx);
+    });
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let host = cx.add_window(|window, cx| {
+        let mut root = NativeRoot::new(
+            "main".into(),
+            temp.path().join("logs"),
+            None,
+            None,
+            store.clone(),
+            window,
+            cx,
+        );
+        root.route = AppRoute::Mission("test-mission".into());
+        root.mission_workspace.update(cx, |workspace, _| {
+            workspace.active = true;
+            workspace.mission_id = Some("test-mission".into());
+            workspace.mission =
+                Some(runner_daemon::ops::mission::mission_get(&core, "test-mission").unwrap());
+            workspace.sessions =
+                runner_daemon::ops::session::session_list(&core, "test-mission").unwrap();
+            workspace.loading = false;
+            workspace.active_tab = MissionTab::Session("mission-agent".into());
+        });
+        root
+    });
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    visual.deactivate_window();
+    cx.run_until_parked();
+    core.events.emit("event/appended", &serde_json::json!({"mission_id":"test-mission", "event": Event {
+        id: "removed-slot-question".into(), ts: chrono::Utc::now(), crew_id: "test-crew".into(), mission_id: "test-mission".into(), kind: EventKind::Signal, from: "app".into(), to: None, signal_type: Some(runner_core::model::SignalType::new("human_question")), payload: serde_json::json!({"prompt":"Ship?"}),
+    }, "next_offset":1}));
+    cx.run_until_parked();
+    assert_eq!(cx.delivered_system_notifications().len(), 1);
+    visual.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    core.db
+        .get()
+        .unwrap()
+        .execute(
+            "UPDATE sessions SET archived_at = '2026-10-13T00:00:00Z' WHERE id = 'mission-agent'",
+            [],
+        )
+        .unwrap();
+    cx.update(|cx| {
+        store.update(cx, |store, cx| {
+            store.session_statuses.remove("mission-agent");
+            for mission in &mut store.missions {
+                mission
+                    .session_statuses
+                    .retain(|(id, _)| id != "mission-agent");
+            }
+            store.revisions.activity += 1;
+            cx.notify();
+        })
+    });
+    host.read_with(&cx, |root, cx| {
+        assert_eq!(
+            root.mission_workspace.read(cx).active_tab,
+            MissionTab::Session("mission-agent".into())
+        )
+    })
+    .unwrap();
+    assert_eq!(cx.delivered_system_notifications().len(), 1);
+    host.update(&mut visual, |root, window, cx| {
+        root.mission_workspace.update(cx, |workspace, cx| {
+            workspace.refresh_open_mission(window, cx)
+        })
+    })
+    .unwrap();
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert_eq!(root.mission_workspace.read(cx).active_tab, MissionTab::Feed)
+    })
+    .unwrap();
+    assert!(cx.delivered_system_notifications().is_empty());
+    assert!(cx
+        .dismissed_system_notifications()
+        .iter()
+        .any(|tag| tag.as_ref() == "question:removed-slot-question"));
+}

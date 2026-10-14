@@ -98,6 +98,7 @@ impl RenderOnce for SettingsCard {
 #[derive(IntoElement)]
 pub struct SettingsRow {
     label: SharedString,
+    label_icon: Option<(SharedString, Hsla)>,
     subtitle: Option<SharedString>,
     subtitle_color: Option<Hsla>,
     control: AnyElement,
@@ -107,10 +108,16 @@ impl SettingsRow {
     pub fn new(label: impl Into<SharedString>, control: impl IntoElement) -> Self {
         Self {
             label: label.into(),
+            label_icon: None,
             subtitle: None,
             subtitle_color: None,
             control: control.into_any_element(),
         }
+    }
+
+    pub fn label_icon(mut self, path: impl Into<SharedString>, color: Hsla) -> Self {
+        self.label_icon = Some((path.into(), color));
+        self
     }
 
     pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
@@ -139,13 +146,27 @@ impl RenderOnce for SettingsRow {
                     .flex()
                     .flex_col()
                     .gap(rems(2. / 16.))
-                    .child(
-                        div()
+                    .child({
+                        let label = div()
                             .text_size(theme::text_body())
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::text())
-                            .child(self.label),
-                    )
+                            .text_color(theme::text());
+                        match self.label_icon {
+                            Some((path, color)) => label
+                                .flex()
+                                .items_center()
+                                .gap(rems(6. / 16.))
+                                .child(
+                                    svg()
+                                        .flex_none()
+                                        .path(path)
+                                        .size(rems(13. / 16.))
+                                        .text_color(color),
+                                )
+                                .child(self.label),
+                            None => label.child(self.label),
+                        }
+                    })
                     .children(self.subtitle.map(|subtitle| {
                         div()
                             .text_size(theme::text_meta())

@@ -179,6 +179,7 @@ impl MissionWorkspace {
                             }
                         }
                         this.focus_active_mission_terminal(window, cx);
+                        crate::notifications::view_changed(cx);
                     }
                     Err(error) => {
                         this.loading = false;
