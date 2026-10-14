@@ -54,6 +54,118 @@ fn command_failures_are_neutral_without_autostart() {
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
 
+#[test]
+fn acknowledged_opencode_reports_fail_silently_when_bridge_is_absent() {
+    let root = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_runner-agent-cli"))
+        .args([
+            "hook",
+            "report",
+            "--runtime",
+            "opencode",
+            "--event",
+            "snapshot",
+            "--acknowledge",
+        ])
+        .env(hook::ENDPOINT_ENV, root.path().join("absent.sock"))
+        .env(hook::SESSION_ENV, "owned")
+        .env(hook::GENERATION_ENV, "current")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"{}").unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    assert!(result.stdout.is_empty() && result.stderr.is_empty());
+}
+
+#[tokio::test]
+async fn acknowledged_opencode_reports_confirm_admission_and_bridge_loss() {
+    for lost in [false, true] {
+        #[cfg(unix)]
+        let root = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        let endpoint = IpcEndpoint(root.path().join("hook.sock"));
+        #[cfg(windows)]
+        let endpoint =
+            IpcEndpoint(format!("\\\\.\\pipe\\opencode-ack-{}", ulid::Ulid::new()).into());
+        let mut listener = IpcListener::bind(&endpoint).unwrap();
+        let routes = Arc::new(HookRoutes::default());
+        let mut receiver = routes.register(Runtime::OpenCode, "owned".into(), "current".into());
+        let admission = routes.clone();
+        let server = tokio::spawn(async move {
+            let (mut read, mut write) = listener.accept().await.unwrap().into_split();
+            assert_eq!(read_frame(&mut read).await.kind, wire::HELLO);
+            write
+                .write_all(
+                    &Frame::json(wire::WELCOME, &json!({}))
+                        .unwrap()
+                        .encode()
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let call: wire::Call = read_frame(&mut read).await.decode().unwrap();
+            let Request::hook_report { report } = call.request else {
+                panic!()
+            };
+            assert_eq!(report.bridge_unavailable, lost);
+            let receipt = admission.admit(report).unwrap();
+            write
+                .write_all(
+                    &Frame::json(
+                        wire::RESPONSE,
+                        &wire::Reply {
+                            id: call.id,
+                            response: Response::hook_report(Ok(())),
+                        },
+                    )
+                    .unwrap()
+                    .encode()
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            drop(receipt);
+        });
+        let child = tokio::task::spawn_blocking(move || {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_runner-agent-cli"));
+            command.args([
+                "hook",
+                "report",
+                "--runtime",
+                "opencode",
+                "--event",
+                "snapshot",
+                "--acknowledge",
+            ]);
+            if lost {
+                command.arg("--bridge-unavailable");
+            }
+            let mut child = command
+                .env(hook::ENDPOINT_ENV, endpoint.0)
+                .env(hook::SESSION_ENV, "owned")
+                .env(hook::GENERATION_ENV, "current")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(b"{}").unwrap();
+            child.wait_with_output().unwrap()
+        });
+        let result = child.await.unwrap();
+        assert!(result.status.success());
+        assert!(result.stdout.is_empty() && result.stderr.is_empty());
+        server.await.unwrap();
+        let mut count = 0;
+        assert_eq!(receiver.drain(|_| count += 1).is_err(), lost);
+        assert_eq!(count, usize::from(!lost));
+    }
+}
+
 async fn read_frame(read: &mut (impl AsyncRead + Unpin)) -> Frame {
     let length = read.read_u32_le().await.unwrap() as usize;
     assert!((1..=wire::MAX_FRAME).contains(&length));

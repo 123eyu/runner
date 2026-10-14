@@ -98,6 +98,10 @@ pub(crate) fn runtime_ui(runtime: Runtime) -> RuntimeUi {
             ui.icon = "grok.svg";
             ui.skills_caption = GROK_CAPTION;
         }
+        Runtime::OpenCode => {
+            ui.icon = "opencode-icon.png";
+            ui.skills_caption = "OpenCode reads ~/.config/opencode/skills, ~/.agents/skills and ~/.claude/skills. Runner does not toggle these skills. Click a row to read a skill, hover it to edit.";
+        }
         Runtime::Shell => {
             ui.icon = "square-terminal.svg";
             ui.tint = theme::accent();

@@ -59,6 +59,10 @@ impl HookFeed {
         Self(receiver)
     }
 
+    pub(crate) fn is_retired(&self) -> bool {
+        self.0.is_retired()
+    }
+
     pub(crate) fn drain(&mut self, mut observe: impl FnMut(Value)) -> Result<()> {
         self.0.drain(|mut report| {
             report.payload["hook_event_name"] = Value::String(report.event);
@@ -105,7 +109,11 @@ mod tests {
                         .is_some_and(|hooks| hooks.supported(windows)),
                     matches!(
                         runtime,
-                        Runtime::ClaudeCode | Runtime::Codex | Runtime::Copilot | Runtime::Pi
+                        Runtime::ClaudeCode
+                            | Runtime::Codex
+                            | Runtime::Copilot
+                            | Runtime::Pi
+                            | Runtime::OpenCode
                     ) || (matches!(
                         runtime,
                         Runtime::Antigravity | Runtime::Cursor | Runtime::Grok

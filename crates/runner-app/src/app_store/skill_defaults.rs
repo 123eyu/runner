@@ -177,6 +177,7 @@ mod tests {
                 Runtime::Copilot,
                 Runtime::Cursor,
                 Runtime::Grok,
+                Runtime::OpenCode,
                 Runtime::Pi
             ]
         );

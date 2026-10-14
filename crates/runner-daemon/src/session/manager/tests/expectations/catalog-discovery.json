@@ -5,7 +5,8 @@
     "pi",
     "antigravity",
     "cursor",
-    "grok"
+    "grok",
+    "opencode"
   ],
   "runtimes": [
     {
@@ -189,6 +190,17 @@
           "timeout_ms": 15000
         }
       ]
+    },
+    {
+      "runtime": "opencode",
+      "override_home": false,
+      "supported": true,
+      "source": {
+        "command": "/golden/agent",
+        "executable": null,
+        "config_home": "<HOME>/.config/opencode"
+      },
+      "commands": []
     },
     {
       "runtime": "shell",
@@ -382,6 +394,17 @@
           "timeout_ms": 15000
         }
       ]
+    },
+    {
+      "runtime": "opencode",
+      "override_home": true,
+      "supported": true,
+      "source": {
+        "command": "/golden/agent",
+        "executable": null,
+        "config_home": "<HOME>/.config/opencode"
+      },
+      "commands": []
     },
     {
       "runtime": "shell",

@@ -61,6 +61,7 @@ pub enum McpClientId {
     Copilot,
     Antigravity,
     Grok,
+    OpenCode,
 }
 impl McpClientId {
     pub fn all() -> Vec<Self> {
@@ -70,7 +71,7 @@ impl McpClientId {
             .collect()
     }
     pub fn parse(raw: &str) -> Result<Self, ClientError> {
-        Self::all().into_iter().find(|client| client.key() == raw).ok_or_else(|| ClientError::msg(format!("unknown MCP client: {raw:?} (expected codex, claude_code, antigravity, copilot, trae, or grok)")))
+        Self::all().into_iter().find(|client| client.key() == raw).ok_or_else(|| ClientError::msg(format!("unknown MCP client: {raw:?} (expected codex, claude_code, antigravity, copilot, trae, grok, or opencode)")))
     }
     pub fn key(self) -> &'static str {
         match self {
@@ -80,6 +81,7 @@ impl McpClientId {
             Self::Copilot => "copilot",
             Self::Trae => "trae",
             Self::Grok => "grok",
+            Self::OpenCode => "opencode",
         }
     }
     pub fn for_runtime(runtime: Runtime) -> Option<Self> {
@@ -90,6 +92,7 @@ impl McpClientId {
             Runtime::Copilot => Some(Self::Copilot),
             Runtime::Trae => Some(Self::Trae),
             Runtime::Grok => Some(Self::Grok),
+            Runtime::OpenCode => Some(Self::OpenCode),
             _ => None,
         }
     }
@@ -101,6 +104,7 @@ impl McpClientId {
             Self::Copilot => Runtime::Copilot,
             Self::Trae => Runtime::Trae,
             Self::Grok => Runtime::Grok,
+            Self::OpenCode => Runtime::OpenCode,
         }
     }
     pub fn label(self) -> &'static str {
@@ -114,9 +118,13 @@ impl McpClientId {
             Self::Copilot => "~/.copilot/mcp-config.json",
             Self::Trae => "~/.trae/traecli.toml",
             Self::Grok => "~/.grok/config.toml",
+            Self::OpenCode => "~/.config/opencode/opencode.jsonc",
         }
     }
     pub fn entry_key(self, name: &str) -> String {
+        if self == Self::OpenCode {
+            return format!("mcp.servers.{name}");
+        }
         format!(
             "{}.{name}",
             if self.is_json() {

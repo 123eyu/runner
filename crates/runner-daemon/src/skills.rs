@@ -35,23 +35,35 @@ pub fn skill_catalog(
     home: &Path,
     codex_home: Option<&Path>,
 ) -> Option<SkillCatalog> {
+    skill_catalog_with_env(runtime, home, codex_home, &Default::default())
+}
+pub(crate) fn skill_catalog_with_env(
+    runtime: Runtime,
+    home: &Path,
+    codex_home: Option<&Path>,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Option<SkillCatalog> {
     let support = crate::runtimes::adapter(runtime).skills();
     let relatives = support.roots;
     if relatives.is_empty() {
         return None;
     }
-    let roots: Vec<_> = relatives
-        .iter()
-        .map(|relative| {
-            if let (Some(codex_home), Ok(suffix)) =
-                (codex_home, Path::new(relative).strip_prefix(".codex"))
-            {
-                codex_home.join(suffix)
-            } else {
-                home.join(relative)
-            }
-        })
-        .collect();
+    let roots = crate::runtimes::adapter(runtime)
+        .skill_roots_with_env(home, codex_home, env)
+        .unwrap_or_else(|| {
+            relatives
+                .iter()
+                .map(|relative| {
+                    if let (Some(codex_home), Ok(suffix)) =
+                        (codex_home, Path::new(relative).strip_prefix(".codex"))
+                    {
+                        codex_home.join(suffix)
+                    } else {
+                        home.join(relative)
+                    }
+                })
+                .collect()
+        });
     let state = (support.load)(home, codex_home);
     let mut catalog = SkillCatalog {
         runtime,

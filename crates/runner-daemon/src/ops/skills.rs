@@ -16,14 +16,21 @@ fn codex_home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-pub fn skill_catalogs(_core: &AppCore) -> Vec<SkillCatalog> {
+pub fn skill_catalogs(core: &AppCore) -> Vec<SkillCatalog> {
     let Ok(home) = home_dir() else {
         return Vec::new();
     };
     let codex_home = codex_home();
+    let env = core
+        .runtime_shell_env
+        .read()
+        .map(|env| env.vars.clone())
+        .unwrap_or_default();
     crate::runtimes::catalogs()
         .iter()
-        .filter_map(|runtime| skill_catalog(runtime.name, &home, codex_home.as_deref()))
+        .filter_map(|runtime| {
+            crate::skills::skill_catalog_with_env(runtime.name, &home, codex_home.as_deref(), &env)
+        })
         .collect()
 }
 
@@ -42,17 +49,29 @@ pub fn set_global_enabled(
     )
 }
 
-pub fn read_skill(_core: &AppCore, runtime: Runtime, path: &Path) -> Result<String> {
-    read_skill_at(&home_dir()?, codex_home().as_deref(), runtime, path)
+pub fn read_skill(core: &AppCore, runtime: Runtime, path: &Path) -> Result<String> {
+    let env = core
+        .runtime_shell_env
+        .read()
+        .map(|env| env.vars.clone())
+        .unwrap_or_default();
+    read_skill_at_with_env(&home_dir()?, codex_home().as_deref(), runtime, path, &env)
 }
 
-pub fn save_skill(
-    _core: &AppCore,
-    runtime: Runtime,
-    path: &Path,
-    text: &str,
-) -> Result<SkillEntry> {
-    save_skill_at(&home_dir()?, codex_home().as_deref(), runtime, path, text)
+pub fn save_skill(core: &AppCore, runtime: Runtime, path: &Path, text: &str) -> Result<SkillEntry> {
+    let env = core
+        .runtime_shell_env
+        .read()
+        .map(|env| env.vars.clone())
+        .unwrap_or_default();
+    save_skill_at_with_env(
+        &home_dir()?,
+        codex_home().as_deref(),
+        runtime,
+        path,
+        text,
+        &env,
+    )
 }
 
 pub(crate) fn catalog_at(
@@ -84,19 +103,32 @@ fn set_global_enabled_at(
     toggle(home, codex_home, skill_path, enabled)
 }
 
+#[cfg(test)]
 fn read_skill_at(
     home: &Path,
     codex_home: Option<&Path>,
     runtime: Runtime,
     path: &Path,
 ) -> Result<String> {
-    let entry = find_entry(&catalog_at(home, codex_home, runtime)?, path)?;
+    read_skill_at_with_env(home, codex_home, runtime, path, &Default::default())
+}
+fn read_skill_at_with_env(
+    home: &Path,
+    codex_home: Option<&Path>,
+    runtime: Runtime,
+    path: &Path,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<String> {
+    let catalog = crate::skills::skill_catalog_with_env(runtime, home, codex_home, env)
+        .ok_or_else(|| Error::msg("runtime has no skills catalog"))?;
+    let entry = find_entry(&catalog, path)?;
     if !entry.files.contains(&entry.marker) {
         return Err(Error::msg("skill has no marker file"));
     }
     Ok(std::fs::read_to_string(entry.path.join(entry.marker))?)
 }
 
+#[cfg(test)]
 fn save_skill_at(
     home: &Path,
     codex_home: Option<&Path>,
@@ -104,7 +136,21 @@ fn save_skill_at(
     path: &Path,
     text: &str,
 ) -> Result<SkillEntry> {
-    let entry = find_entry(&catalog_at(home, codex_home, runtime)?, path)?;
+    save_skill_at_with_env(home, codex_home, runtime, path, text, &Default::default())
+}
+fn save_skill_at_with_env(
+    home: &Path,
+    codex_home: Option<&Path>,
+    runtime: Runtime,
+    path: &Path,
+    text: &str,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<SkillEntry> {
+    let catalog = || {
+        crate::skills::skill_catalog_with_env(runtime, home, codex_home, env)
+            .ok_or_else(|| Error::msg("runtime has no skills catalog"))
+    };
+    let entry = find_entry(&catalog()?, path)?;
     let marker = entry.path.join(&entry.marker);
     if !entry.files.contains(&entry.marker) || !marker.is_file() {
         return Err(Error::msg(format!(
@@ -113,7 +159,7 @@ fn save_skill_at(
         )));
     }
     std::fs::write(marker, text)?;
-    catalog_at(home, codex_home, runtime)?
+    catalog()?
         .entries
         .into_iter()
         .find(|updated| updated.path == entry.path)
@@ -128,6 +174,46 @@ mod tests {
     };
     use crate::skills::GlobalState;
     use serde_json::json;
+
+    #[test]
+    fn opencode_shell_only_xdg_catalog_read_and_save_use_one_root() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("shell-xdg/opencode/skills/example");
+        std::fs::create_dir_all(&path).unwrap();
+        let text = "---\nname: example\ndescription: fixture\n---\nold";
+        std::fs::write(path.join("SKILL.md"), text).unwrap();
+        let env = std::collections::BTreeMap::from([(
+            "XDG_CONFIG_HOME".into(),
+            home.path().join("shell-xdg").display().to_string(),
+        )]);
+        let core = crate::test_support::test_core_in(home.path().join("app-data"));
+        core.runtime_shell_env.write().unwrap().vars = env;
+        let env = core.runtime_shell_env.read().unwrap().vars.clone();
+        crate::golden::with_config_env(Default::default(), || {
+            let catalog =
+                crate::skills::skill_catalog_with_env(Runtime::OpenCode, home.path(), None, &env)
+                    .unwrap();
+            assert_eq!(catalog.entries[0].path, path);
+            assert_eq!(
+                read_skill_at_with_env(home.path(), None, Runtime::OpenCode, &path, &env).unwrap(),
+                text
+            );
+            let saved = save_skill_at_with_env(
+                home.path(),
+                None,
+                Runtime::OpenCode,
+                &path,
+                &text.replace("old", "new"),
+                &env,
+            )
+            .unwrap();
+            assert_eq!(saved.path, path);
+            assert!(std::fs::read_to_string(path.join("SKILL.md"))
+                .unwrap()
+                .ends_with("new"));
+            assert!(!home.path().join(".config/opencode").exists());
+        });
+    }
 
     fn fixture() -> (tempfile::TempDir, PathBuf) {
         let home = tempfile::tempdir().unwrap();

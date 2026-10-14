@@ -42,6 +42,9 @@ const CAPTURED_VARS: &[&str] = &[
     "GROK_DEFAULT_MODEL",
     "CURSOR_CONFIG_DIR",
     "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "OPENCODE_CONFIG_CONTENT",
+    "OPENCODE_CLI_CONFIG_CONTENT",
 ];
 
 pub use runner_core::protocol::discovery::LoginShellEnv;
@@ -454,13 +457,25 @@ mod tests {
         let stdout = block("GROK_HOME", "/profile/grok")
             + &block("GROK_DEFAULT_MODEL", "shell-model")
             + &block("CURSOR_CONFIG_DIR", "/profile/cursor")
-            + &block("XDG_CONFIG_HOME", "/profile/xdg");
+            + &block("XDG_CONFIG_HOME", "/profile/xdg")
+            + &block("XDG_DATA_HOME", "/profile/data")
+            + &block("OPENCODE_CONFIG_CONTENT", "{\"permissions\":[]}")
+            + &block("OPENCODE_CLI_CONFIG_CONTENT", "{\"plugins\":[\"foreign\"]}");
         let parsed = parse_login_shell_env(&stdout);
         assert_eq!(
             parsed.vars.get("CURSOR_CONFIG_DIR").unwrap(),
             "/profile/cursor"
         );
         assert_eq!(parsed.vars.get("XDG_CONFIG_HOME").unwrap(), "/profile/xdg");
+        assert_eq!(parsed.vars.get("XDG_DATA_HOME").unwrap(), "/profile/data");
+        assert_eq!(
+            parsed.vars.get("OPENCODE_CONFIG_CONTENT").unwrap(),
+            "{\"permissions\":[]}"
+        );
+        assert_eq!(
+            parsed.vars.get("OPENCODE_CLI_CONFIG_CONTENT").unwrap(),
+            "{\"plugins\":[\"foreign\"]}"
+        );
         assert_eq!(parsed.vars.get("GROK_HOME").unwrap(), "/profile/grok");
         assert_eq!(
             parsed.vars.get("GROK_DEFAULT_MODEL").unwrap(),

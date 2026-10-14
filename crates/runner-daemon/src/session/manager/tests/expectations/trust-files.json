@@ -38,6 +38,10 @@
     "files": {}
   },
   {
+    "runtime": "opencode",
+    "files": {}
+  },
+  {
     "runtime": "shell",
     "files": {}
   },

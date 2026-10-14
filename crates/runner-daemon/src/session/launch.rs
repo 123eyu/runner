@@ -106,6 +106,7 @@ fn windows_batch_command_line<'a>(
 /// time.
 const FALLBACK_CLI_DIRS: &[&str] = &[
     "~/.local/bin",
+    "~/.opencode/bin",
     "~/.cargo/bin",
     "~/.npm-global/bin",
     "~/.local/share/mise/shims",

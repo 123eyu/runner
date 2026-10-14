@@ -14,6 +14,10 @@ pub enum Command {
         runtime: String,
         #[arg(long)]
         event: String,
+        #[arg(long)]
+        acknowledge: bool,
+        #[arg(long)]
+        bridge_unavailable: bool,
     },
     Serve,
 }
@@ -27,7 +31,10 @@ pub fn run(command: &Command) -> i32 {
         Command::Report {
             runtime: provider,
             event,
+            acknowledge,
+            bridge_unavailable,
         } => {
+            let mut admitted = false;
             let mut bytes = Vec::new();
             let input = std::io::Read::read_to_end(
                 &mut std::io::Read::take(io::stdin().lock(), (MAX_ENVELOPE_BYTES + 1) as u64),
@@ -41,16 +48,18 @@ pub fn run(command: &Command) -> i32 {
                 ) {
                     if let Some(route) = route.as_ref() {
                         let caller = command_caller_thread_id(provider, event, &payload);
-                        let _ = runtime.block_on(deliver(
-                            &route.endpoint,
-                            route.envelope(provider, event.clone(), payload, caller),
-                        ));
+                        let mut report = route.envelope(provider, event.clone(), payload, caller);
+                        report.bridge_unavailable = *bridge_unavailable;
+                        admitted = runtime.block_on(deliver(&route.endpoint, report)).is_ok();
                     }
                 }
             }
             let neutral = neutral(provider, event);
             if !neutral.is_empty() {
                 println!("{neutral}");
+            }
+            if *acknowledge && !admitted {
+                return 1;
             }
         }
         Command::Serve => {

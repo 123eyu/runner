@@ -197,6 +197,10 @@ impl Queue {
 }
 
 impl HookReceiver {
+    pub(crate) fn is_retired(&self) -> bool {
+        self.queue.state.lock().unwrap().closed
+    }
+
     pub fn drain(&mut self, mut observe: impl FnMut(HookReport)) -> Result<()> {
         loop {
             let next = {

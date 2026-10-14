@@ -124,6 +124,7 @@ pub use runner_core::protocol::mcp::McpCatalog;
 #[derive(Clone)]
 pub enum NativeEntry {
     Claude(serde_json::Value),
+    Json(serde_json::Value, crate::runtimes::McpJsonParser),
     Toml(toml_edit::Table),
 }
 
@@ -131,13 +132,14 @@ impl NativeEntry {
     fn definition(&self) -> Option<McpServerDefinition> {
         match self {
             Self::Claude(value) => McpServerDefinition::from_claude(value),
+            Self::Json(value, parse) => parse(value),
             Self::Toml(table) => McpServerDefinition::from_toml(table),
         }
     }
 
     fn text(&self, name: &str) -> String {
         match self {
-            Self::Claude(value) => {
+            Self::Claude(value) | Self::Json(value, _) => {
                 serde_json::to_string_pretty(value).expect("a serde_json::Value always serializes")
             }
             Self::Toml(table) => {
@@ -161,6 +163,9 @@ fn read_config(path: &Path) -> Result<String> {
 }
 
 fn read_entries_at(path: &Path, client: McpClientId) -> Result<BTreeMap<String, NativeEntry>> {
+    if let Some(result) = crate::runtimes::adapter(client.runtime()).read_mcp_entries(path) {
+        return result;
+    }
     let raw = read_config(path)?;
     if raw.trim().is_empty() {
         return Ok(BTreeMap::new());
@@ -557,6 +562,11 @@ fn write_entry_at(
     entry: Option<NativeEntry>,
     merge: bool,
 ) -> Result<()> {
+    if let Some(result) =
+        crate::runtimes::adapter(client.runtime()).write_mcp_entry(path, name, entry.clone(), merge)
+    {
+        return result;
+    }
     let raw = read_config(path)?;
     let existing = read_entries_at(path, client)?;
     if entry.is_none() && !existing.contains_key(name) {
@@ -725,7 +735,12 @@ fn parse_native(client: McpClientId, name: &str, text: &str) -> Result<NativeEnt
         if !value.is_object() {
             return Err(Error::msg("The MCP entry must be a JSON object"));
         }
-        Ok(NativeEntry::Claude(value))
+        Ok(
+            match crate::runtimes::adapter(client.runtime()).mcp_json_parser() {
+                Some(parse) => NativeEntry::Json(value, parse),
+                None => NativeEntry::Claude(value),
+            },
+        )
     } else {
         let mut doc: toml_edit::DocumentMut = text
             .parse()
@@ -1819,6 +1834,24 @@ impl McpClientExt for McpClientId {
             .expect("an MCP client has config support")
     }
     fn status_at(self, path: &Path, binary_path: &str) -> Result<McpClientStatus> {
+        if let Some(entries) = crate::runtimes::adapter(self.runtime()).read_mcp_entries(path) {
+            let entries = entries?;
+            let Some(entry) = entries.get("runner") else {
+                return Ok(McpClientStatus::empty());
+            };
+            let Some(McpServerDefinition::Stdio { command, args, .. }) = entry.definition() else {
+                return Ok(McpClientStatus {
+                    registered: true,
+                    ..McpClientStatus::empty()
+                });
+            };
+            return Ok(McpClientStatus {
+                registered: true,
+                matches_current: command == binary_path && args_match_current(&args),
+                command: Some(command),
+                args,
+            });
+        }
         if self.is_json() {
             claude_code_status_at(path, binary_path)
         } else {
@@ -1886,4 +1919,70 @@ fn grok_toml_roundtrip_preserves_comments_and_translates_http_headers() {
         .unwrap()
         .starts_with("# preserved\n[models]\ndefault = 'account-model'"));
     assert!(!home.path().join(".grok").exists());
+}
+
+#[test]
+fn native_json_mcp_decoders_are_scoped_to_their_runtime() {
+    for value in [
+        json!({"type":"local","command":["tool","argument"],"environment":{"KEY":"value"}}),
+        json!({"type":"remote","url":"https://example.test/mcp","headers":{"KEY":"value"}}),
+    ] {
+        let text = value.to_string();
+        let opencode = parse_native(McpClientId::OpenCode, "server", &text).unwrap();
+        assert!(opencode.definition().is_some());
+        assert_eq!(
+            opencode.text("server"),
+            serde_json::to_string_pretty(&value).unwrap()
+        );
+        let claude = parse_native(McpClientId::ClaudeCode, "server", &text).unwrap();
+        assert!(claude.definition().is_none());
+    }
+    let legacy = json!({"type":"local","command":"tool","args":["argument"],"env":{"KEY":"value"}});
+    assert!(
+        parse_native(McpClientId::Copilot, "server", &legacy.to_string())
+            .unwrap()
+            .definition()
+            .is_some()
+    );
+    assert!(
+        parse_native(McpClientId::OpenCode, "server", &legacy.to_string())
+            .unwrap()
+            .definition()
+            .is_none()
+    );
+}
+
+#[test]
+fn opencode_v2_mcp_copy_edit_remove_preserves_native_config() {
+    let root = tempfile::tempdir().unwrap();
+    let env = BTreeMap::from([(
+        "XDG_CONFIG_HOME".into(),
+        root.path().join("xdg").display().to_string(),
+    )]);
+    let path = root.path().join("xdg/opencode/opencode.jsonc");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path,"{ // retained\n\"model\":\"p/model\",\"mcp\":{\"timeout\":{\"startup\":1000},\"servers\":{\"foreign\":{\"type\":\"remote\",\"url\":\"https://foreign\"}}}}\n").unwrap();
+    mcp_edit_server_with_env(root.path(),&env,McpClientId::OpenCode,"local",r#"{"type":"local","command":["tool","空 格"],"environment":{"KEY":"value"},"disabled":true,"codemode":false}"#,&[McpClientId::Codex]).unwrap();
+    let catalog = catalog_at(&client_paths_with_env(root.path(), &env));
+    let server = catalog.servers.iter().find(|s| s.name == "local").unwrap();
+    assert_eq!(
+        server.clients[&McpClientId::OpenCode].definition,
+        server.clients[&McpClientId::Codex].definition
+    );
+    mcp_copy_server_with_env(
+        root.path(),
+        &env,
+        McpClientId::Codex,
+        McpClientId::OpenCode,
+        "local",
+    )
+    .unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(raw.contains("// retained"));
+    assert!(raw.contains("\"disabled\": true"));
+    assert!(raw.contains("\"codemode\": false"));
+    mcp_remove_server_with_env(root.path(), &env, McpClientId::OpenCode, "local").unwrap();
+    assert!(crate::runtimes::opencode::mcp::read(&path)
+        .unwrap()
+        .contains_key("foreign"));
 }

@@ -3224,6 +3224,432 @@
     }
   },
   {
+    "runtime": "opencode",
+    "shape": "fresh",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "blank",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\"}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "resume",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\"}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "missing",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "direct-permission",
+    "mode": "default",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "direct-permission",
+    "mode": "accept_edits",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "direct-permission",
+    "mode": "auto",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "direct-permission",
+    "mode": "bypass",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "mission-worker",
+    "mode": "bypass",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "MISSION_CWD": "<TMP>",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_CREW_ID": "c",
+        "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_MISSION_ID": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "mission-lead",
+    "mode": "bypass",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "MISSION_CWD": "<TMP>",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_CREW_ID": "c",
+        "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_MISSION_ID": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "mission-worker",
+    "mode": "auto",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "MISSION_CWD": "<TMP>",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_CREW_ID": "c",
+        "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_MISSION_ID": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "mission-lead",
+    "mode": "auto",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "MISSION_CWD": "<TMP>",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_CREW_ID": "c",
+        "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_MISSION_ID": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "mission-worker",
+    "mode": "role-default",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "MISSION_CWD": "<TMP>",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_CREW_ID": "c",
+        "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_MISSION_ID": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
+    "runtime": "opencode",
+    "shape": "mission-lead",
+    "mode": "role-default",
+    "spawn": {
+      "env": {
+        "CODEX_HOME": "<TMP>/.codex",
+        "COLORTERM": "truecolor",
+        "COPILOT_HOME": "<TMP>/.copilot",
+        "MISSION_CWD": "<TMP>",
+        "OPENCODE_CLI_CONFIG_CONTENT": "{\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\"}]}",
+        "OPENCODE_CONFIG_CONTENT": "{\"update\":\"disable\",\"model\":\"fixture/model\",\"plugins\":[{\"package\":\"<TMP>/opencode-hooks\",\"options\":{\"model\":{\"providerID\":\"fixture\",\"id\":\"model\",\"variant\":\"High\"}}}]}",
+        "PI_CODING_AGENT_DIR": "<TMP>/.pi/agent",
+        "RUNNER_CREW_ID": "c",
+        "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
+        "RUNNER_HANDLE": "tester",
+        "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
+        "RUNNER_HOOK_GENERATION": "<ID1>",
+        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_MISSION_ID": "<ID3>",
+        "TERM": "xterm-256color",
+        "XDG_CONFIG_HOME": "<TMP>/.config",
+        "XDG_DATA_HOME": "<TMP>/.local/share"
+      },
+      "codex_pending_turn": null,
+      "watcher": "opencode",
+      "interrupt": false,
+      "key_capture": {
+        "mechanism": "hook"
+      },
+      "rollout": null
+    }
+  },
+  {
     "runtime": "shell",
     "shape": "fresh",
     "spawn": {

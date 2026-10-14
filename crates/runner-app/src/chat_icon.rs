@@ -59,7 +59,10 @@ impl ChatIcon {
 
     pub fn render(self, size: impl Into<DefiniteLength>, color: Hsla, live: bool) -> AnyElement {
         let size = size.into();
-        if matches!(self.path, "antigravity-icon.png" | "pi.svg") {
+        if matches!(
+            self.path,
+            "antigravity-icon.png" | "opencode-icon.png" | "pi.svg"
+        ) {
             img(color_mark_source(self.path))
                 .size(size)
                 .flex_none()
@@ -115,6 +118,7 @@ mod tests {
                 ("pi", "pi.svg", theme::text()),
                 ("cursor", "cursor.svg", theme::text()),
                 ("grok", "grok.svg", theme::text()),
+                ("opencode", "opencode-icon.png", theme::text()),
                 ("antigravity", "antigravity-icon.png", theme::text()),
             ] {
                 let icon = ChatIcon::for_runtime(runtime);

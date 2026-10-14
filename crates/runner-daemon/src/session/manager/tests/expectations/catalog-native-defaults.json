@@ -48,6 +48,12 @@
     "effort": null
   },
   {
+    "runtime": "opencode",
+    "seeded": false,
+    "model": null,
+    "effort": null
+  },
+  {
     "runtime": "shell",
     "seeded": false,
     "model": null,
@@ -100,6 +106,12 @@
     "seeded": true,
     "model": "grok-model",
     "effort": "high"
+  },
+  {
+    "runtime": "opencode",
+    "seeded": true,
+    "model": null,
+    "effort": null
   },
   {
     "runtime": "shell",
