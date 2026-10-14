@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/hero.png" alt="Runner — a mission feed: a coder, reviewer and QA agent on one goal, with the lead's question waiting for your answer" width="100%" />
+  <img src="assets/hero.png" alt="Runner — coder, reviewer and QA coordinating in a mission feed, with Add role in the sessions rail" width="100%" />
 </p>
 
 <p align="center">
@@ -89,6 +89,10 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 
 - **Real terminals** — each agent keeps its own TUI in a real PTY on a GPU-drawn `alacritty_terminal` grid, with mouse reporting, IME input (Pinyin included), file-path paste and click-to-open, and a shell drawer beneath every chat and mission.
 - **Agents keep working when Runner is closed** — sessions live in `runnerd`, Runner's background service. Quit the app, or let it crash, and reopen it to the same live terminals; stopped agents resume their own conversations on the next launch.
+- **Desktop notifications** — while Runner is in the background, get notified when an agent needs input, finishes a turn or fails. Clicking a notification opens its chat or mission. Choose events in **Settings → Notifications**; chat notifications are on by default, and mission notifications are opt-in.
+
+  <img src="assets/notifications.png" alt="Settings → Notifications: choose which chat and mission events send desktop notifications" width="100%" />
+
 - **Split tabs and windows** — split a tab as far as the window allows, drag panes to reorder, group tabs into folders, and open more windows with `⇧⌘N` or `Ctrl+Shift+N`.
 
   <img src="assets/chat_split.png" alt="One tab split four ways: Codex, Claude Code, Antigravity CLI and pi side by side" width="100%" />

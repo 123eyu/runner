@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/hero.png" alt="Runner — mission 的事件 feed：coder、reviewer 和 QA 三个 agent 围绕同一个目标协作，lead 的问题在等你回答" width="100%" />
+  <img src="assets/hero.png" alt="Runner — coder、reviewer 和 QA 在 mission feed 中协作，成员侧栏提供 Add role 入口" width="100%" />
 </p>
 
 <p align="center">
@@ -89,6 +89,10 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 
 - **真实终端** — 每个 agent 都在真实 PTY 里保留自己的 TUI，跑在 GPU 绘制的 `alacritty_terminal` 网格上：鼠标上报、输入法（包括拼音）、文件路径粘贴和点击打开，每个 chat 和 mission 下面还有一个终端抽屉。
 - **Runner 关闭后 agent 照样工作** — 会话跑在 Runner 的后台服务 `runnerd` 里。退出应用或者应用崩溃，重新打开后会接回同一批正在运行的终端；停止的 agent 会在下次启动时各自接着原来的对话。
+- **桌面通知** — Runner 在后台时，agent 需要输入、完成一轮回复或失败都可以发通知，点击后打开对应的 chat 或 mission。在 **Settings → Notifications** 中选择通知事件；chat 通知默认开启，mission 通知需要手动开启。
+
+  <img src="assets/notifications.png" alt="Settings → Notifications：选择哪些 chat 和 mission 事件发送桌面通知" width="100%" />
+
 - **分栏与多窗口** — 标签页可以一直分栏到窗口放不下为止，拖动各栏重新排列，把标签页归进文件夹，用 `⇧⌘N` 或 `Ctrl+Shift+N` 打开更多窗口。
 
   <img src="assets/chat_split.png" alt="一个标签页分成四栏：Codex、Claude Code、Antigravity CLI 和 pi 并排运行" width="100%" />
