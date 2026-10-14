@@ -4999,109 +4999,10 @@
           "fill": "$text-1",
           "textGrowth": "fixed-width",
           "width": "fill_container",
-          "content": "The System row reads macOS's notification permission for Runner and shows it here, rechecked whenever Runner comes to the front. Windows has no prompt, so only On and Off apply there, read from the toast setting, and the button opens Settings → System → Notifications.",
+          "content": "The System row shows whether notifications are on or off, rechecked whenever Runner comes to the front. Every state uses Open System Settings, which opens Runner’s own page in Notifications. Windows uses Open Settings and opens Settings → System → Notifications.",
           "fontFamily": "$font-ui",
           "fontSize": 13,
           "fontWeight": "600"
-        },
-        {
-          "type": "frame",
-          "id": "y3pYJr",
-          "name": "Notifications aren't set up",
-          "width": "fill_container",
-          "layout": "vertical",
-          "gap": 8,
-          "children": [
-            {
-              "type": "text",
-              "id": "JfPE5",
-              "name": "state label",
-              "fill": "$text-3",
-              "content": "Not asked yet — first launch, or the prompt was missed",
-              "fontFamily": "$font-ui",
-              "fontSize": 11,
-              "fontWeight": "normal"
-            },
-            {
-              "type": "frame",
-              "id": "Fhto5",
-              "name": "card · System",
-              "clip": true,
-              "width": "fill_container",
-              "fill": "$panel",
-              "cornerRadius": 12,
-              "stroke": "$border",
-              "strokeWidth": 1,
-              "strokeAlignment": "inner",
-              "layout": "vertical",
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "OCYde",
-                  "name": "row · Notifications aren't set up",
-                  "width": "fill_container",
-                  "gap": 24,
-                  "padding": [
-                    12,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "Sh5t8",
-                      "name": "label",
-                      "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 2,
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "MSNFF",
-                          "name": "title",
-                          "fill": "$text-1",
-                          "content": "Notifications aren't set up",
-                          "fontFamily": "$font-ui",
-                          "fontSize": 13,
-                          "fontWeight": "500"
-                        },
-                        {
-                          "type": "text",
-                          "id": "fxoRF",
-                          "name": "subtitle",
-                          "fill": "$text-2",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "macOS asks the first time Runner notifies you, or you can allow them now.",
-                          "fontFamily": "$font-ui",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "id": "C0Bba",
-                      "type": "ref",
-                      "ref": "IelRd",
-                      "name": "allow notifications",
-                      "fill": "$accent",
-                      "descendants": {
-                        "ZU031": {
-                          "enabled": true,
-                          "icon": "bell",
-                          "fill": "$accent-ink"
-                        },
-                        "wUh0u": {
-                          "content": "Allow notifications",
-                          "fill": "$accent-ink"
-                        }
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         },
         {
           "type": "frame",
@@ -5212,7 +5113,7 @@
               "id": "zpa6J",
               "name": "state label",
               "fill": "$text-3",
-              "content": "Turned off in System Settings",
+              "content": "Not allowed yet, declined, or turned off in System Settings",
               "fontFamily": "$font-ui",
               "fontSize": 11,
               "fontWeight": "normal"
@@ -5286,7 +5187,7 @@
                           "fill": "$text-2",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Turned off in System Settings, so Runner can't notify you.",
+                          "content": "Allow notifications in System Settings → Notifications → Runner.",
                           "fontFamily": "$font-ui",
                           "fontSize": 11,
                           "fontWeight": "normal"
@@ -5338,109 +5239,10 @@
           "fill": "$text-1",
           "textGrowth": "fixed-width",
           "width": "fill_container",
-          "content": "The System row reads macOS's notification permission for Runner and shows it here, rechecked whenever Runner comes to the front. Windows has no prompt, so only On and Off apply there, read from the toast setting, and the button opens Settings → System → Notifications.",
+          "content": "The System row shows whether notifications are on or off, rechecked whenever Runner comes to the front. Every state uses Open System Settings, which opens Runner’s own page in Notifications. Windows uses Open Settings and opens Settings → System → Notifications.",
           "fontFamily": "$font-ui",
           "fontSize": 13,
           "fontWeight": "600"
-        },
-        {
-          "type": "frame",
-          "id": "Om390",
-          "name": "Notifications aren't set up",
-          "width": "fill_container",
-          "layout": "vertical",
-          "gap": 8,
-          "children": [
-            {
-              "type": "text",
-              "id": "nMTkc",
-              "name": "state label",
-              "fill": "$text-3",
-              "content": "Not asked yet — first launch, or the prompt was missed",
-              "fontFamily": "$font-ui",
-              "fontSize": 11,
-              "fontWeight": "normal"
-            },
-            {
-              "type": "frame",
-              "id": "p6PZEg",
-              "name": "card · System",
-              "clip": true,
-              "width": "fill_container",
-              "fill": "$panel",
-              "cornerRadius": 12,
-              "stroke": "$border",
-              "strokeWidth": 1,
-              "strokeAlignment": "inner",
-              "layout": "vertical",
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "aB6nG",
-                  "name": "row · Notifications aren't set up",
-                  "width": "fill_container",
-                  "gap": 24,
-                  "padding": [
-                    12,
-                    16
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "E0sZL",
-                      "name": "label",
-                      "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 2,
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "Ybytk",
-                          "name": "title",
-                          "fill": "$text-1",
-                          "content": "Notifications aren't set up",
-                          "fontFamily": "$font-ui",
-                          "fontSize": 13,
-                          "fontWeight": "500"
-                        },
-                        {
-                          "type": "text",
-                          "id": "zYPmu",
-                          "name": "subtitle",
-                          "fill": "$text-2",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "macOS asks the first time Runner notifies you, or you can allow them now.",
-                          "fontFamily": "$font-ui",
-                          "fontSize": 11,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "id": "sdqUw",
-                      "type": "ref",
-                      "ref": "IelRd",
-                      "name": "allow notifications",
-                      "fill": "$accent",
-                      "descendants": {
-                        "ZU031": {
-                          "enabled": true,
-                          "icon": "bell",
-                          "fill": "$accent-ink"
-                        },
-                        "wUh0u": {
-                          "content": "Allow notifications",
-                          "fill": "$accent-ink"
-                        }
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         },
         {
           "type": "frame",
@@ -5551,7 +5353,7 @@
               "id": "AFPsJ",
               "name": "state label",
               "fill": "$text-3",
-              "content": "Turned off in System Settings",
+              "content": "Not allowed yet, declined, or turned off in System Settings",
               "fontFamily": "$font-ui",
               "fontSize": 11,
               "fontWeight": "normal"
@@ -5625,7 +5427,7 @@
                           "fill": "$text-2",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Turned off in System Settings, so Runner can't notify you.",
+                          "content": "Allow notifications in System Settings → Notifications → Runner.",
                           "fontFamily": "$font-ui",
                           "fontSize": 11,
                           "fontWeight": "normal"
