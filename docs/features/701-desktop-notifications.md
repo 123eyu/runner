@@ -31,7 +31,7 @@ They do not need Swift, an extension or new dependencies. `gpui-pre` 0.3.7, the 
 The costs, accepted:
 
 - **macOS needs a bundle**: a plain `make run` build is not in an app bundle and posts nothing. QA and testing use a wrapped `.app`; see Verification.
-- **Permission prompt**: the first notification on macOS asks the user for permission, so notifications start working only once the user allows them. On current macOS the request is itself a notification whose buttons show only on hover, so it is easy to miss; the System row's **Allow notifications** button asks at a moment the user chooses. After Don't Allow, nothing shows until the user allows Runner in System Settings. Windows shows toasts without asking.
+- **Permission prompt**: the first notification on macOS asks the user for permission, so notifications start working only once the user allows them. On current macOS the request is itself a notification whose buttons show only on hover, so it is easy to miss. The System row always opens System Settings; it does not request permission itself (Jason, 2026-10-14, after the Allow notifications button produced no visible prompt). After Don't Allow, nothing shows until the user allows Runner in System Settings. Windows shows toasts without asking.
 - **Less control over presentation**: the system decides placement and stacking, and the notification has two lines of text and no custom styling.
 
 ## Behavior
@@ -125,12 +125,11 @@ Notifications get their own Settings pane rather than a row in General, and user
 
   | Permission | Title | Subtitle | Button |
   | --- | --- | --- | --- |
-  | Not asked yet (macOS only) | Notifications aren't set up | macOS asks the first time Runner notifies you, or you can allow them now. | **Allow notifications** (primary, bell), which shows the macOS request at once |
   | Allowed | Notifications are on | Banner style and sound are set in System Settings → Notifications → Runner. | Open System Settings |
-  | Off (the request was declined or ignored, or Runner was turned off) | Notifications are off, with a warning icon | Not allowed in System Settings, so Runner can't notify you. | Open System Settings |
+  | Off (not allowed yet, the request was declined or ignored, or Runner was turned off) | Notifications are off, with a warning icon | Allow notifications in System Settings → Notifications → Runner. | Open System Settings |
   | Unknown (an unbundled build, or no answer yet) | Allow notifications, banner style and sound | Set by macOS in System Settings → Notifications → Runner. | Open System Settings |
 
-  macOS asks only once: a request that is ignored counts as declined, after which only System Settings can turn notifications on (seen in Jason's live test, 2026-10-14). Open System Settings opens Runner's own page there, `x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=<bundle id>`, with the running app's bundle id, so a development or test build opens its own entry. Windows has no request, so it shows only on and off, read from the toast setting; there the subtitles name Settings → System → Notifications, or say "Not allowed in Windows Settings", and the button reads **Open Settings** and opens `ms-settings:notifications`. Banner style, sound and Focus stay the system's settings and are not repeated in Runner.
+  There is no separate not-set-up state or Allow notifications button. Open System Settings is a bordered secondary button in every state and opens Runner's own page there, `x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=<bundle id>`, with the running app's bundle id, so a development or test build opens its own entry. macOS falls back to the notification list if that bundle has no notification entry yet; human test rebuilds preserve the test bundle identity so they retain its entry. The first posted notification can still trigger macOS's permission request through GPUI. Windows shows on and off, read from the toast setting; there the subtitles name Settings → System → Notifications, or say "Not allowed in Windows Settings", and the button reads **Open Settings** and opens `ms-settings:notifications`. Banner style, sound and Focus stay the system's settings and are not repeated in Runner.
 
 ## Implementation notes
 
@@ -139,7 +138,7 @@ Notifications get their own Settings pane rather than a row in General, and user
 - **Trigger detection**: a pure function from the previous and next `AppStore::session_statuses` (`app_store.rs:267`, a map of `AgentStatus`), plus the newly appended mission events, to a list of `(session_id, reason)`. It runs on the refreshes that `StoreRefreshKind::for_event` already routes (`session/status`, and `event/appended` for `human_question`), so `runnerd` and the client protocol do not change. Keeping it pure keeps the edge rules unit-testable.
 - **Content**: a pure function from the trigger and session to the `SystemNotification` title and body, tested for each row of the content table.
 - **Response routing**: `on_system_notification_response` registered during app startup, mapping the tag back to a session or a question and running the View paths above.
-- **Permission**: gpui-pre requests permission but never reports it, so `notifications/permission.rs` asks the platform itself. On macOS it reads `UNUserNotificationCenter`'s notification settings and calls its authorization request, skipped outside an app bundle where that API aborts the process; on Windows it reads `ToastNotifier::Setting` for the app identity. The answer is kept on the notification controller and the windows are refreshed when it changes.
+- **Permission**: gpui-pre requests permission but never reports it, so `notifications/permission.rs` asks the platform itself. On macOS it reads `UNUserNotificationCenter`'s notification settings, skipped outside an app bundle where that API aborts the process, and treats not-determined and denied as off; on Windows it reads `ToastNotifier::Setting` for the app identity. The answer is kept on the notification controller and the windows are refreshed when it changes.
 - **Settings pane**: `SettingsPane::Notifications` in `surfaces/settings_page.rs`, with the route key `notifications`, the label Notifications and `bell.svg`. The lucide bell icon is added to `assets.rs`, and the pane goes into `APP_PANES` after Appearance.
 
 ## Non-goals
@@ -186,7 +185,7 @@ Notifications get their own Settings pane rather than a row in General, and user
   - With the default switches and Runner in the background, a fresh chat completion posts "Finished · <project>". Turning its switch off withdraws it and suppresses later completions; re-enabling does not replay an observed completion.
   - With Missions → Asks you a question on and Runner in the background, the lead's `ask_human` posts "@lead asked you · <mission>" with the question as the body, and clicking it opens the mission workspace on the feed. With all mission switches off, slots, questions and mission idle post nothing. Each switch enables only its event; Goes idle enables one whole-mission Busy → Idle alert; slot finished turns never post.
   - Turning an event's switch off withdraws its visible notifications, and nothing more posts for it.
-  - On a fresh install the System row reads "Notifications aren't set up"; Allow notifications shows the macOS request, and allowing it turns the row to "Notifications are on" without a restart.
+  - On a fresh install the System row reads "Notifications are off" with Open System Settings. The button opens the system's notification settings without requesting permission itself. After allowing Runner and returning to it, the row reads "Notifications are on" without a restart.
   - After Don't Allow, or after letting the request go away unanswered, nothing shows and the row reads "Notifications are off" with its warning; allowing Runner in System Settings and coming back to Runner turns the row on and brings notifications back without restarting it.
   - On Windows, turning Runner off in Settings → System → Notifications and coming back to Runner shows "Notifications are off".
   - Open System Settings lands on Runner's own page in Notifications on macOS; Open Settings lands on Settings → System → Notifications on Windows.

@@ -18,7 +18,6 @@ const SETTINGS_BUTTON: &str = "Open Settings";
 struct SystemRow {
     title: &'static str,
     subtitle: &'static str,
-    allow: bool,
     warn: bool,
 }
 
@@ -26,7 +25,6 @@ fn system_row(permission: Permission) -> SystemRow {
     let row = |title, subtitle| SystemRow {
         title,
         subtitle,
-        allow: false,
         warn: false,
     };
     #[cfg(not(windows))]
@@ -35,13 +33,6 @@ fn system_row(permission: Permission) -> SystemRow {
             "Allow notifications, banner style and sound",
             "Set by macOS in System Settings → Notifications → Runner.",
         ),
-        Permission::NotAsked => SystemRow {
-            allow: true,
-            ..row(
-                "Notifications aren't set up",
-                "macOS asks the first time Runner notifies you, or you can allow them now.",
-            )
-        },
         Permission::Allowed => row(
             "Notifications are on",
             "Banner style and sound are set in System Settings → Notifications → Runner.",
@@ -50,7 +41,7 @@ fn system_row(permission: Permission) -> SystemRow {
             warn: true,
             ..row(
                 "Notifications are off",
-                "Not allowed in System Settings, so Runner can't notify you.",
+                "Allow notifications in System Settings → Notifications → Runner.",
             )
         },
     }
@@ -60,7 +51,7 @@ fn system_row(permission: Permission) -> SystemRow {
             "Allow notifications, banner style and sound",
             "Set by Windows in Settings → System → Notifications → Runner.",
         ),
-        Permission::NotAsked | Permission::Allowed => row(
+        Permission::Allowed => row(
             "Notifications are on",
             "Banners and sound are set in Settings → System → Notifications → Runner.",
         ),
@@ -77,20 +68,12 @@ fn system_row(permission: Permission) -> SystemRow {
 impl NativeRoot {
     pub(crate) fn render_notifications_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let row = system_row(crate::notifications::permission(cx));
-        let control = if row.allow {
-            Button::new("notification-allow", "Allow notifications")
-                .icon("bell.svg")
-                .size(ButtonSize::Sm)
-                .variant(ButtonVariant::Primary)
-                .on_press(|_, cx| crate::notifications::request_permission(cx))
-        } else {
-            let url = crate::notifications::settings_url();
-            Button::new("notification-system-settings", SETTINGS_BUTTON)
-                .icon("external-link.svg")
-                .size(ButtonSize::Sm)
-                .variant(ButtonVariant::Ghost)
-                .on_press(move |_, cx| cx.open_url(&url))
-        };
+        let url = crate::notifications::settings_url();
+        let control = Button::new("notification-system-settings", SETTINGS_BUTTON)
+            .icon("external-link.svg")
+            .size(ButtonSize::Sm)
+            .variant(ButtonVariant::Secondary)
+            .on_press(move |_, cx| cx.open_url(&url));
         let mut system = SettingsRow::new(row.title, control).subtitle(row.subtitle);
         if row.warn {
             system = system.label_icon("triangle-alert.svg", theme::warning());
@@ -215,24 +198,15 @@ mod tests {
     #[test]
     fn system_row_follows_the_system_permission() {
         let unknown = system_row(Permission::Unknown);
-        assert!(!unknown.allow && !unknown.warn);
+        assert!(!unknown.warn);
         assert_eq!(unknown.title, "Allow notifications, banner style and sound");
 
         let allowed = system_row(Permission::Allowed);
-        assert!(!allowed.allow && !allowed.warn);
+        assert!(!allowed.warn);
         assert_eq!(allowed.title, "Notifications are on");
 
         let denied = system_row(Permission::Denied);
-        assert!(!denied.allow && denied.warn);
+        assert!(denied.warn);
         assert_eq!(denied.title, "Notifications are off");
-
-        let not_asked = system_row(Permission::NotAsked);
-        #[cfg(not(windows))]
-        {
-            assert!(not_asked.allow && !not_asked.warn);
-            assert_eq!(not_asked.title, "Notifications aren't set up");
-        }
-        #[cfg(windows)]
-        assert_eq!(not_asked, allowed);
     }
 }
