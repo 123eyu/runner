@@ -186,6 +186,7 @@ Each is a copy-pasteable handle + system-prompt set you can spawn into a new Cre
 ## Community
 
 - Bugs and feature requests: [GitHub Issues](https://github.com/yicheng47/runner/issues).
+- Thanks to [LINUX DO](https://linux.do) for providing a community for discussion and sharing open-source projects.
 - 中文用户可以扫码加入 Runner 微信用户群。群二维码 7 天过期，如果扫码提示失效，请[提一个 issue](https://github.com/yicheng47/runner/issues/new) 提醒我更新。
 
 <img src="assets/wechat_group_qr.png" alt="Runner 微信用户群二维码" width="200" />
