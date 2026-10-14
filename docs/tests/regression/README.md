@@ -2,7 +2,7 @@
 
 This is Runner's maintained list of live regression cases for the current native app and CLI. It contains actions and observable expectations, not the results of a particular run. Automated unit/integration tests and parser/fixture checks stay in the crates and CI. An archive pass, user confirmation, CLI-only probe or green CI does not establish a current native pass.
 
-Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candidate identity, isolation, native computer use, bounded startup goals and cleanup. The suite itself authorizes no app launch, agent/account use, installation, configuration change or destructive fixture action. Only run a case inside the live-test scope already granted. Record missing access or a safe fixture rather than changing accounts, trust, permissions or production state to obtain a pass. Current code wins over an origin record, with newer archived records clarifying older contracts.
+Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candidate identity, isolation, native computer use, bounded startup goals and cleanup. Launching the development app and using agents in it fall under the standing authorization in [Test Scope](../../AGENTS.md#test-scope); the suite itself authorizes no installation, configuration change or destructive fixture action. Only run the cases selected for the change. Record missing access or a safe fixture rather than changing accounts, trust, permissions or production state to obtain a pass. Current code wins over an origin record, with newer archived records clarifying older contracts.
 
 ## Layout and cases
 
