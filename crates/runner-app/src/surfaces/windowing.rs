@@ -43,6 +43,7 @@ impl NativeRoot {
             if let Err(error) = self.core(cx).mark_focused(&self.window_label) {
                 self.error = Some(error.to_string());
             }
+            crate::notifications::refresh_permission(cx);
             if self.route == AppRoute::Chat {
                 self.mark_active_tab_viewed(window, cx);
             }

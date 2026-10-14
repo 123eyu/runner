@@ -15,6 +15,9 @@ use crate::app_settings::NotificationSettings;
 use crate::app_store::{AppStore, StoreRevisions};
 use crate::{global_app_store, AppRoute, NativeRoot};
 
+mod permission;
+pub(crate) use permission::{settings_url, Permission};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reason {
     Input(WaitReason),
@@ -340,6 +343,7 @@ struct NotificationController {
     askers: BTreeMap<String, String>,
     ask_order: VecDeque<String>,
     pending_questions: BTreeMap<String, Event>,
+    permission: Permission,
     _subscription: Subscription,
     _listener: Task<()>,
     _events: Task<()>,
@@ -613,6 +617,7 @@ pub(crate) fn install(cx: &mut App) {
             askers: BTreeMap::new(),
             ask_order: VecDeque::new(),
             pending_questions: BTreeMap::new(),
+            permission: Permission::Unknown,
             _subscription: cx.observe(&store, |this, _, cx| this.refresh(cx)),
             _listener: listener,
             _events: event_task,
@@ -620,7 +625,50 @@ pub(crate) fn install(cx: &mut App) {
         }
     });
     cx.set_global(GlobalNotifications(controller));
+    refresh_permission(cx);
     cx.on_system_notification_response(|response, cx| open(response.tag.as_ref(), cx));
+}
+
+pub(crate) fn permission(cx: &App) -> Permission {
+    cx.try_global::<GlobalNotifications>()
+        .map_or(Permission::Unknown, |global| global.0.read(cx).permission)
+}
+
+/// Asks the system again, since the user can change the permission in
+/// System Settings at any time. Called when a Runner window comes to the
+/// front, and after the permission prompt is answered.
+pub(crate) fn refresh_permission(cx: &mut App) {
+    let Some(controller) = cx
+        .try_global::<GlobalNotifications>()
+        .map(|global| global.0.clone())
+    else {
+        return;
+    };
+    let answer = permission::query();
+    controller.update(cx, |_, cx| {
+        cx.spawn(async move |this, cx| {
+            let Ok(permission) = answer.await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                if this.permission != permission {
+                    this.permission = permission;
+                    cx.refresh_windows();
+                }
+            });
+        })
+        .detach();
+    });
+}
+
+pub(crate) fn request_permission(cx: &mut App) {
+    let answered = permission::request();
+    cx.spawn(async move |cx| {
+        if answered.await.is_ok() {
+            cx.update(refresh_permission);
+        }
+    })
+    .detach();
 }
 
 pub(crate) fn view_changed(cx: &mut App) {

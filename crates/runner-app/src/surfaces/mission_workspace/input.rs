@@ -45,6 +45,8 @@ impl MissionWorkspace {
             .then_some(&self.active_tab)
     }
 
+    // Called only from a notification click; see `mod notifications`.
+    #[cfg_attr(all(test, windows), allow(dead_code))]
     pub(crate) fn focus_feed(
         &mut self,
         mission_id: &str,

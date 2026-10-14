@@ -48,6 +48,22 @@ The authorized history was shaped into settings, direct chats and missions on to
 
 The first standalone direct-chat build exited 101 because the split test snapshot retained a mission-only argument and omitted the new active-window field in two fixtures. These test declarations were corrected and the complete step rerun successfully; the failure log is `commit-2-workspace-nextest-initial.log`. The final reviewed product source was restored for the mission step and remained unchanged.
 
+## Notification permission row (2026-10-14)
+
+In Jason's live test of the rebased PR build, macOS's permission request arrived as a notification whose Allow button shows only on hover, and was easy to miss. The System row now reads the system's permission and shows not set up (with Allow notifications), on, or off, rechecked whenever a Runner window comes to the front; the design is `93b125ea` on main. The branch was first rebased onto `origin/main` at `39f54285` with no conflicts, and the full gates passed there: 2,294 passed, 6 skipped.
+
+| Check | Exit | Result |
+| --- | --- | --- |
+| `cargo nextest run --locked --workspace --no-fail-fast --cargo-profile ci` | 0 | 2,295 passed, 6 skipped, including `system_row_follows_the_system_permission` |
+| `cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings` | 0 | first run exited 101 on `let_unit_value` for `cx.update(refresh_permission)`; fixed and rerun |
+| Same Clippy command with `--features updater` | 0 | |
+| `cargo fmt --all --check` | 0 | |
+| `git diff --check` | 0 | |
+
+The Windows toast-setting query could not be built as part of the app on macOS, because `ring`'s build script needs a Windows C compiler; the same `ToastNotificationManager::CreateToastNotifierWithId(...).Setting()` call was type-checked in a scratch crate against `windows` 0.62.2 with `cargo +1.97.1 check --target x86_64-pc-windows-msvc`, exit 0. CI builds the app on Windows. The live permission states on macOS and Windows are for Jason: not set up → Allow notifications → on; off after Don't Allow or after turning Runner off in the system settings, then on again after allowing it and returning to Runner.
+
+The [Windows CI run on `e1782c4c`](https://github.com/yicheng47/runner/actions/runs/38523405863/job/115718087652) failed Clippy on unused notification code: Windows never constructs `Permission::NotAsked`, and its test build omits the app entry point and Unix-only controller tests. The correction allows dead code only for that Windows permission variant and, under `cfg(all(test, windows))`, the notification module and its `focus_feed` entry point. The macOS review of this correction passed `cargo nextest run --locked -p runner-app --no-fail-fast --cargo-profile ci` (701 passed, 3 skipped), workspace Clippy with and without `--features updater`, `cargo fmt --all --check`, and `git diff --check`, all with exit 0. Logs are `/tmp/runner-701-review-app-tests.log`, `/tmp/runner-701-review-clippy-default.log` and `/tmp/runner-701-review-clippy.log`. Native notification QA remains for Jason.
+
 ## Earlier checks (chat completion on, mission master)
 
 Run on macOS on 2026-10-13 after the chat completion default was restored to on. Logs live under `target/validation/701/`; each gate's exit code was captured from the command itself in its matching `.exit` file.

@@ -18,6 +18,9 @@ mod file_links;
 mod keymap;
 mod list_controls;
 mod mac_chrome;
+// The controller's callers are the app entry point and its unix-only tests,
+// and a Windows test build compiles neither.
+#[cfg_attr(all(test, windows), allow(dead_code))]
 mod notifications;
 mod platform_ui;
 mod runtime_ui;
