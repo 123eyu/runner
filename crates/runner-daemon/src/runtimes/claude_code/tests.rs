@@ -53,10 +53,20 @@ fn claude_transcript_lookup_preserves_resume_identity() {
         ),
     ];
     #[cfg(not(windows))]
-    let cases = [(
-        "-Users-tester-app-test",
-        ["/Users/tester/app.test", "/Users/tester/app-test"],
-    )];
+    let cases = [
+        (
+            "-Users-tester-app-test",
+            ["/Users/tester/app.test", "/Users/tester/app-test"],
+        ),
+        (
+            "-Users-tester-runner-server",
+            ["/Users/tester/runner_server", "/Users/tester/runner server"],
+        ),
+        (
+            "-Users-tester------",
+            ["/Users/tester/运行 测试", "/Users/tester/运行_测试"],
+        ),
+    ];
 
     for (encoded, cwds) in cases {
         let project_dir = home.path().join(".claude/projects").join(encoded);
@@ -83,6 +93,35 @@ fn claude_transcript_lookup_preserves_resume_identity() {
         &uuid::Uuid::new_v4().to_string(),
         claude_code_project_dir,
     ));
+}
+
+#[test]
+fn claude_project_dir_matches_claude_code_naming() {
+    for (cwd, encoded) in [
+        (
+            "/Users/jason/repos/yeelinks/runner_server",
+            "-Users-jason-repos-yeelinks-runner-server",
+        ),
+        ("/Users/tester/my app 😀", "-Users-tester-my-app---"),
+        (r"C:\Work\my_project v1.0", "C--Work-my-project-v1-0"),
+    ] {
+        assert_eq!(claude_code_project_dir(cwd), encoded, "cwd={cwd}");
+    }
+
+    let long = format!(
+        "/Users/tester/projects/{}my_app",
+        "nested folder/".repeat(16)
+    );
+    let prefix = format!("-Users-tester-projects-{}", "nested-folder-".repeat(16));
+    assert_eq!(
+        claude_code_project_dir(&long),
+        format!("{}-k6cul3", &prefix[..200])
+    );
+    let exactly_max = format!("/{}", "a".repeat(199));
+    assert_eq!(
+        claude_code_project_dir(&exactly_max),
+        format!("-{}", "a".repeat(199))
+    );
 }
 
 #[test]

@@ -106,18 +106,37 @@ pub(crate) fn claude_settings_args(
         serde_json::to_string(&settings).expect("Claude settings must serialize"),
     ]
 }
-#[cfg(windows)]
-fn claude_code_project_dir(cwd: &str) -> String {
-    cwd.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
-}
 
-#[cfg(not(windows))]
+/// Claude Code's `~/.claude/projects/<dir>` name for `cwd` on every
+/// platform, as of Claude Code 2.1.300: each UTF-16 unit outside
+/// `[A-Za-z0-9]` becomes `-` (so an emoji becomes `--`), and a name over
+/// 200 units keeps its first 200 followed by `-` and a base-36 hash of `cwd`.
 fn claude_code_project_dir(cwd: &str) -> String {
-    cwd.chars()
-        .map(|c| if c == '/' || c == '.' { '-' } else { c })
-        .collect()
+    const MAX_LEN: usize = 200;
+    let encoded: String = cwd
+        .encode_utf16()
+        .map(|unit| match char::from_u32(unit.into()) {
+            Some(c) if c.is_ascii_alphanumeric() => c,
+            _ => '-',
+        })
+        .collect();
+    if encoded.len() <= MAX_LEN {
+        return encoded;
+    }
+    let hash = cwd.encode_utf16().fold(0i32, |hash, unit| {
+        hash.wrapping_mul(31).wrapping_add(i32::from(unit))
+    });
+    let mut value = hash.unsigned_abs();
+    let mut suffix = Vec::new();
+    loop {
+        suffix.push(char::from_digit(value % 36, 36).expect("base-36 digit"));
+        value /= 36;
+        if value == 0 {
+            break;
+        }
+    }
+    let suffix: String = suffix.into_iter().rev().collect();
+    format!("{}-{suffix}", &encoded[..MAX_LEN])
 }
 
 /// True iff claude-code's conversation file for `(cwd, uuid)` exists on
