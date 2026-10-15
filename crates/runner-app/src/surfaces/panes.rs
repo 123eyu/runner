@@ -1,7 +1,10 @@
 //! Chat-surface rendering: the active tab, its split menus, and the pane tree.
 use super::*;
 use crate::*;
-use gpui::{canvas, quad, svg, BorderStyle, FontWeight, Pixels, Point, Size};
+use gpui::{
+    canvas, linear_color_stop, linear_gradient, quad, svg, BorderStyle, Div, FontWeight, Pixels,
+    Point, Size,
+};
 use runner_app::ui::resize::{resize_strip, resize_strip_inset, ResizeAxis};
 use runner_app::ui::{
     ButtonVariant, Modal, OverlayWidth, SessionControlVariant, SessionOverlay, SessionOverlayKind,
@@ -326,70 +329,17 @@ impl NativeRoot {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.ensure_active_chat_detail(cx);
-        let Some(layout) = self.tabs.active().cloned() else {
-            let empty = div()
-                .flex_1()
-                .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme::muted())
-                .child(if self.app_store.read(cx).sessions.is_empty() {
-                    keymap::effective_binding("new-chat", &self.settings(cx).keymap_overrides)
-                        .map_or_else(
-                            || "No direct chats yet".to_owned(),
-                            |combo| {
-                                format!(
-                                    "No direct chats yet — press {}",
-                                    keymap::format_combo(&combo)
-                                )
-                            },
-                        )
-                } else {
-                    "No active tab".to_owned()
-                })
-                .into_any_element();
-            return div()
-                .flex_1()
-                .min_h(px(0.))
-                .flex()
-                .flex_col()
-                .children(
-                    (self.route != AppRoute::Settings)
-                        .then(|| self.render_daemon_banner(cx))
-                        .flatten(),
-                )
-                .child(empty)
-                .into_any_element();
-        };
-        let grouped = pane_identity_visible(layout.root.leaves().len());
-        let focused_shell = layout
-            .focused_session_id()
-            .and_then(|id| self.session_entry(id, cx))
-            .is_some_and(|entry| {
-                Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
-            });
-        self.prune_pane_state(&layout);
-        let pane_tree = self.render_pane_node(&layout.root, &layout, cx);
-        let tab_archiving =
-            split_tab_archiving(&layout, |id| self.sidebar_archiving_session(id, cx));
-        let header_layout = layout.clone();
-        let header = self.cached_region(
-            "tab-bar",
-            gpui::StyleRefinement::default()
-                .w_full()
-                .h(rems(WORKSPACE_HEADER_HEIGHT / 16.))
-                .flex_none(),
-            move |root, window, cx| root.render_chat_tab_header(&header_layout, window, cx),
-            cx,
-        );
-        let root = cx.entity();
         let error_banner = self
             .chat_error
             .clone()
             .filter(|_| !self.app_store.read(cx).daemon_disconnected)
-            .map(|error| runner_app::ui::notice_banner(error, runner_app::ui::Tone::Danger));
-        let warning_root = root.clone();
+            .map(|error| {
+                runner_app::ui::notice_banner(error, runner_app::ui::Tone::Danger)
+                    .when(cfg!(test), |banner| {
+                        banner.debug_selector(|| "CHAT_ERROR_BANNER".into())
+                    })
+            });
+        let warning_root = cx.entity();
         let warning_banner = self
             .chat_warning
             .clone()
@@ -408,6 +358,50 @@ impl NativeRoot {
                 )
             });
 
+        let Some(layout) = self.tabs.active().cloned() else {
+            return div()
+                .track_focus(&self.chat_focus)
+                .flex_1()
+                .min_h(px(0.))
+                .flex()
+                .flex_col()
+                .children(
+                    (self.route != AppRoute::Settings)
+                        .then(|| self.render_daemon_banner(cx))
+                        .flatten(),
+                )
+                .children(error_banner)
+                .children(warning_banner)
+                .child(render_start_surface(&self.settings(cx).keymap_overrides))
+                .into_any_element();
+        };
+        let show_start = start_surface_visible(Some(&layout));
+        let grouped = pane_identity_visible(layout.root.leaves().len());
+        let focused_shell = layout
+            .focused_session_id()
+            .and_then(|id| self.session_entry(id, cx))
+            .is_some_and(|entry| {
+                Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
+            });
+        self.prune_pane_state(&layout);
+        let pane_tree = if show_start {
+            render_start_surface(&self.settings(cx).keymap_overrides).into_any_element()
+        } else {
+            self.render_pane_node(&layout.root, &layout, cx)
+        };
+        let tab_archiving =
+            split_tab_archiving(&layout, |id| self.sidebar_archiving_session(id, cx));
+        let header_layout = layout.clone();
+        let header = self.cached_region(
+            "tab-bar",
+            gpui::StyleRefinement::default()
+                .w_full()
+                .h(rems(WORKSPACE_HEADER_HEIGHT / 16.))
+                .flex_none(),
+            move |root, window, cx| root.render_chat_tab_header(&header_layout, window, cx),
+            cx,
+        );
+
         let drawer = layout
             .drawer_open()
             .then(|| self.render_terminal_drawer(&layout, window, cx));
@@ -422,7 +416,15 @@ impl NativeRoot {
             .min_h(px(0.))
             .flex()
             .flex_col()
-            .child(div().relative().flex_1().min_h(px(0.)).child(pane_tree))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .flex()
+                    .flex_col()
+                    .child(pane_tree),
+            )
             .children(drawer.map(|drawer| {
                 div()
                     .flex_none()
@@ -480,12 +482,12 @@ impl NativeRoot {
             .h_full()
             .flex()
             .flex_col()
-            .child(
+            .children((!show_start).then(|| {
                 div()
                     .flex_none()
                     .debug_selector(|| "CHAT_TAB_HEADER".into())
-                    .child(header),
-            )
+                    .child(header)
+            }))
             .children(
                 (self.route != AppRoute::Settings)
                     .then(|| self.render_daemon_banner(cx))
@@ -494,7 +496,8 @@ impl NativeRoot {
             .children(error_banner)
             .children(warning_banner)
             .child(tab_body);
-        let panel_open = side_panel_open(self.settings(cx).chat_panel_open, focused_shell);
+        let panel_open =
+            !show_start && side_panel_open(self.settings(cx).chat_panel_open, focused_shell);
         let (panel_visibility, panel_animating) = self.chat_panel_visibility.animate_to(
             if panel_open { 1. } else { 0. },
             Instant::now(),
@@ -1714,6 +1717,9 @@ impl NativeRoot {
             });
         div()
             .id("terminal-drawer")
+            .when(cfg!(test), |drawer| {
+                drawer.debug_selector(|| "CHAT_TERMINAL_DRAWER".into())
+            })
             .track_focus(&self.drawer_focus)
             .flex_1()
             .min_h(px(0.))
@@ -2507,34 +2513,85 @@ impl NativeRoot {
         } else {
             let new_chat_pane_id = pane_id.clone();
             let new_chat_root = cx.entity();
-            let new_chat_label = empty_pane_action_label(&self.settings(cx).keymap_overrides);
+            let new_terminal_pane_id = pane_id.clone();
+            let new_terminal_root = cx.entity();
+            let overrides = &self.settings(cx).keymap_overrides;
             div()
                 .flex_1()
                 .flex()
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .gap(rems(10. / 16.))
-                .p_4()
                 .child(
                     div()
-                        .text_size(theme::text_body())
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::muted())
-                        .child("No session in this pane"),
-                )
-                .child(
-                    Button::new(
-                        SharedString::from(format!("new-chat-{pane_id}")),
-                        new_chat_label,
-                    )
-                    .size(ButtonSize::Sm)
-                    .variant(ButtonVariant::Primary)
-                    .on_press(move |window, cx| {
-                        new_chat_root.update(cx, |this, cx| {
-                            this.open_pane_chat_modal(&new_chat_pane_id, window, cx)
-                        });
-                    }),
+                        .when(cfg!(test), |column| {
+                            column.debug_selector(|| "EMPTY_PANE_START".into())
+                        })
+                        .w(rems(280. / 16.))
+                        .max_w_full()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(rems(12. / 16.))
+                        .child(
+                            div()
+                                .text_size(rems(13. / 16.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::muted())
+                                .child("Open in this pane"),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .p(rems(4. / 16.))
+                                .flex()
+                                .flex_col()
+                                .gap(rems(2. / 16.))
+                                .bg(theme::panel())
+                                .border_1()
+                                .border_color(theme::border())
+                                .rounded(rems(10. / 16.))
+                                .child(
+                                    empty_pane_action_row(
+                                        "new-chat",
+                                        "New chat",
+                                        "message-square-plus.svg",
+                                        overrides,
+                                    )
+                                    .id(SharedString::from(format!("new-chat-{pane_id}")))
+                                    .on_click(
+                                        move |_, window, cx| {
+                                            new_chat_root.update(cx, |this, cx| {
+                                                this.open_pane_chat_modal(
+                                                    &new_chat_pane_id,
+                                                    window,
+                                                    cx,
+                                                )
+                                            });
+                                        },
+                                    ),
+                                )
+                                .child(
+                                    empty_pane_action_row(
+                                        "new-terminal",
+                                        "New terminal",
+                                        "terminal.svg",
+                                        overrides,
+                                    )
+                                    .id(SharedString::from(format!("new-terminal-{pane_id}")))
+                                    .on_click(
+                                        move |_, window, cx| {
+                                            new_terminal_root.update(cx, |this, cx| {
+                                                if this.create_modal_open() {
+                                                    return;
+                                                }
+                                                this.focus_pane(&new_terminal_pane_id, cx);
+                                                this.new_terminal_action(&NewTerminal, window, cx);
+                                            });
+                                        },
+                                    ),
+                                ),
+                        ),
                 )
                 .into_any_element()
         };
@@ -2718,11 +2775,239 @@ fn split_tab_archiving(layout: &PaneLayout, archiving: impl Fn(&str) -> bool) ->
         && session_ids.iter().all(|session_id| archiving(session_id))
 }
 
-fn empty_pane_action_label(overrides: &keymap::KeymapOverrides) -> String {
-    keymap::effective_binding("new-chat", overrides).map_or_else(
-        || "New chat".to_owned(),
-        |combo| format!("{}  New chat", keymap::format_combo(&combo)),
-    )
+fn start_surface_visible(layout: Option<&PaneLayout>) -> bool {
+    layout.is_none_or(|layout| {
+        let leaves = layout.root.leaves();
+        leaves.len() == 1 && leaves[0].session_id.is_none()
+    })
+}
+
+fn start_action_shortcut(binding: &str, overrides: &keymap::KeymapOverrides) -> Option<String> {
+    keymap::effective_binding(binding, overrides).map(|combo| keymap::format_combo(&combo))
+}
+
+fn start_action_badge(shortcut: String, compact: bool) -> Div {
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .when(compact, |badge| {
+            badge
+                .py(rems(3. / 16.))
+                .px(rems(7. / 16.))
+                .rounded(rems(5. / 16.))
+                .text_size(rems(11. / 16.))
+        })
+        .when(!compact, |badge| {
+            badge
+                .h(rems(28. / 16.))
+                .min_w(rems(58. / 16.))
+                .px(rems(7. / 16.))
+                .rounded(rems(6. / 16.))
+                .text_size(rems(12. / 16.))
+        })
+        .bg(theme::raised())
+        .border_1()
+        .border_color(theme::border_strong())
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::muted())
+        .child(shortcut)
+}
+
+fn start_surface_action_row(
+    binding: &'static str,
+    label: &'static str,
+    description: &'static str,
+    icon: &'static str,
+    action: impl gpui::Action,
+    overrides: &keymap::KeymapOverrides,
+) -> impl IntoElement {
+    div()
+        .id(binding)
+        .h(rems(84. / 16.))
+        .flex_none()
+        .py(rems(1.))
+        .px(rems(20. / 16.))
+        .flex()
+        .items_center()
+        .gap(rems(1.))
+        .rounded(rems(8. / 16.))
+        .cursor_pointer()
+        .hover(|row| row.bg(theme::sidebar_selected()))
+        .child(
+            svg()
+                .path(icon)
+                .size(rems(22. / 16.))
+                .flex_none()
+                .text_color(if binding == "new-chat" {
+                    theme::accent()
+                } else {
+                    theme::muted()
+                }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap(rems(5. / 16.))
+                .child(
+                    div()
+                        .text_size(rems(15. / 16.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::text())
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .text_size(rems(13. / 16.))
+                        .text_color(theme::muted())
+                        .child(description),
+                ),
+        )
+        .children(
+            start_action_shortcut(binding, overrides)
+                .map(|shortcut| start_action_badge(shortcut, false)),
+        )
+        .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
+}
+
+fn render_start_surface(overrides: &keymap::KeymapOverrides) -> Div {
+    div()
+        .when(cfg!(test), |surface| {
+            surface.debug_selector(|| "START_SURFACE".into())
+        })
+        .relative()
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .pb(rems(48. / 16.))
+        .bg(theme::bg())
+        .child(div().absolute().inset_0().bg(linear_gradient(
+            180.,
+            linear_color_stop(theme::with_alpha(theme::accent(), 18. / 255.), 0.),
+            linear_color_stop(theme::with_alpha(theme::accent(), 0.), 0.6),
+        )))
+        .child(
+            div()
+                .when(cfg!(test), |column| {
+                    column.debug_selector(|| "START_SURFACE_COLUMN".into())
+                })
+                .relative()
+                .w(rems(480. / 16.))
+                .flex_none()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(rems(28. / 16.))
+                .child(
+                    svg()
+                        .path("brand-mark-light.svg")
+                        .size(rems(44. / 16.))
+                        .text_color(theme::accent()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(rems(8. / 16.))
+                        .child(
+                            div()
+                                .text_size(rems(28. / 16.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::text())
+                                .child("Start something new"),
+                        )
+                        .child(
+                            div()
+                                .text_size(rems(14. / 16.))
+                                .text_color(theme::muted())
+                                .child("Choose how you want to work."),
+                        ),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .p(rems(6. / 16.))
+                        .flex()
+                        .flex_col()
+                        .gap(rems(2. / 16.))
+                        .bg(theme::panel())
+                        .border_1()
+                        .border_color(theme::border())
+                        .rounded(rems(12. / 16.))
+                        .child(start_surface_action_row(
+                            "new-chat",
+                            "New chat",
+                            "Work with an agent or a saved role",
+                            "message-square-plus.svg",
+                            NewTab,
+                            overrides,
+                        ))
+                        .child(start_surface_action_row(
+                            "new-terminal",
+                            "New terminal",
+                            "Run commands in a shell",
+                            "terminal.svg",
+                            NewTerminal,
+                            overrides,
+                        ))
+                        .child(start_surface_action_row(
+                            "new-mission",
+                            "New mission",
+                            "Work with a crew of agents",
+                            "users.svg",
+                            NewMission,
+                            overrides,
+                        )),
+                ),
+        )
+}
+
+fn empty_pane_action_row(
+    binding: &str,
+    label: &'static str,
+    icon: &'static str,
+    overrides: &keymap::KeymapOverrides,
+) -> Div {
+    div()
+        .h(rems(40. / 16.))
+        .flex_none()
+        .pl(rems(12. / 16.))
+        .pr(rems(10. / 16.))
+        .flex()
+        .items_center()
+        .gap(rems(10. / 16.))
+        .rounded(rems(6. / 16.))
+        .cursor_pointer()
+        .hover(|row| row.bg(theme::sidebar_selected()))
+        .child(
+            svg()
+                .path(icon)
+                .size(rems(1.))
+                .flex_none()
+                .text_color(if binding == "new-chat" {
+                    theme::accent()
+                } else {
+                    theme::muted()
+                }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .text_size(rems(13. / 16.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::text())
+                .child(label),
+        )
+        .children(
+            start_action_shortcut(binding, overrides)
+                .map(|shortcut| start_action_badge(shortcut, true)),
+        )
 }
 
 pub(crate) fn terminal_drawer_tooltip(open: bool, overrides: &keymap::KeymapOverrides) -> String {
@@ -3344,12 +3629,12 @@ pub(crate) fn adjacent_pane_index(
 mod tests {
     use super::{
         adjacent_pane_index, archive_chat_confirm_body, drop_allowed, drop_preview, drop_side,
-        empty_pane_action_label, header_fork_state, pane_action_items_for, pane_body_opacity,
-        pane_close_behavior, pane_identity_icon, pane_identity_shows_status, pane_identity_visible,
-        pane_rename_key, side_panel_open, split_allowed, split_decision, split_menu_items,
-        split_tab_archiving, starting_overlay_label, terminal_drawer_tooltip,
-        workspace_header_icon, HeaderForkState, PaneCloseBehavior, PaneRenameKey, SplitDecision,
-        MIN_SPLIT_PANE_HEIGHT, MIN_SPLIT_PANE_WIDTH, TOO_SMALL_TO_SPLIT, UNFOCUSED_PANE_OPACITY,
+        header_fork_state, pane_action_items_for, pane_body_opacity, pane_close_behavior,
+        pane_identity_icon, pane_identity_shows_status, pane_identity_visible, pane_rename_key,
+        side_panel_open, split_allowed, split_decision, split_menu_items, split_tab_archiving,
+        starting_overlay_label, terminal_drawer_tooltip, workspace_header_icon, HeaderForkState,
+        PaneCloseBehavior, PaneRenameKey, SplitDecision, MIN_SPLIT_PANE_HEIGHT,
+        MIN_SPLIT_PANE_WIDTH, TOO_SMALL_TO_SPLIT, UNFOCUSED_PANE_OPACITY,
     };
     use crate::keymap;
     use gpui::{point, px, size, AppContext, Bounds};
@@ -4049,28 +4334,192 @@ mod tests {
     }
 
     #[test]
-    fn empty_pane_offers_only_the_chat_entry_point() {
+    fn start_surface_badges_follow_default_rebound_and_unbound_bindings() {
         let mut overrides = keymap::KeymapOverrides::new();
-        #[cfg(unix)]
-        assert_eq!(empty_pane_action_label(&overrides), "⌘N  New chat");
-        #[cfg(windows)]
-        assert_eq!(empty_pane_action_label(&overrides), "Ctrl+N  New chat");
-
-        let mut rebound = keymap::entry("new-chat").unwrap().default.clone();
-        rebound.meta = false;
-        rebound.ctrl = true;
-        #[cfg(windows)]
-        {
+        for (binding, mac, windows) in [
+            ("new-chat", "⌘N", "Ctrl+N"),
+            ("new-terminal", "⌘T", "Ctrl+Shift+T"),
+            ("new-mission", "⇧⌘M", "Ctrl+Shift+M"),
+        ] {
+            let expected = if cfg!(windows) { windows } else { mac };
+            assert_eq!(
+                super::start_action_shortcut(binding, &overrides).as_deref(),
+                Some(expected)
+            );
+            let mut rebound = keymap::entry(binding).unwrap().default.clone();
+            rebound.meta = false;
+            rebound.ctrl = true;
             rebound.shift = false;
+            rebound.code = "KeyJ".into();
+            rebound.label = None;
+            overrides.insert(binding.into(), Some(rebound));
+            let expected = if cfg!(windows) { "Ctrl+J" } else { "⌃J" };
+            assert_eq!(
+                super::start_action_shortcut(binding, &overrides).as_deref(),
+                Some(expected)
+            );
+            overrides.insert(binding.into(), None);
+            assert_eq!(super::start_action_shortcut(binding, &overrides), None);
         }
-        overrides.insert("new-chat".into(), Some(rebound));
-        #[cfg(unix)]
-        assert_eq!(empty_pane_action_label(&overrides), "⌃N  New chat");
-        #[cfg(windows)]
-        assert_eq!(empty_pane_action_label(&overrides), "Ctrl+N  New chat");
+    }
 
-        overrides.insert("new-chat".into(), None);
-        assert_eq!(empty_pane_action_label(&overrides), "New chat");
+    #[test]
+    fn start_surface_is_shown_for_no_tab_or_a_single_empty_pane() {
+        assert!(super::start_surface_visible(None));
+        let mut layout = PaneLayout::single(None, &[]);
+        assert!(super::start_surface_visible(Some(&layout)));
+        layout.split("p1", SplitOrientation::Row).unwrap();
+        assert!(!super::start_surface_visible(Some(&layout)));
+        let filled = PaneLayout::single(Some("chat"), &[]);
+        assert!(!super::start_surface_visible(Some(&filled)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn start_surface_and_split_pane_variants_render_in_their_own_contexts() {
+        use crate::{AppRoute, NativeRoot};
+        use gpui::{TestAppContext, VisualTestContext};
+        use runner_app::pane_layout::TabSet;
+        use runner_core::protocol::node::{NodeRow, NodeType};
+
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for variant in [
+            "no-tab",
+            "no-tab-error",
+            "single-empty",
+            "single-empty-error",
+            "single-empty-drawer",
+            "split-empty",
+            "filled",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            store.update(&mut cx, |store, cx| {
+                crate::app_store::seed_mixed_working_sessions(store);
+                store
+                    .test_core
+                    .db
+                    .get()
+                    .unwrap()
+                    .execute("UPDATE sessions SET status = 'stopped'", [])
+                    .unwrap();
+                store.refresh(crate::app_store::StoreRefreshKind::All, cx);
+            });
+            let host = cx.add_window(|window, cx| {
+                let mut root = NativeRoot::new(
+                    "surface-variants".into(),
+                    temp.path().join("logs"),
+                    None,
+                    None,
+                    store.clone(),
+                    window,
+                    cx,
+                );
+                let mut layout =
+                    PaneLayout::single((variant == "filled").then_some("direct-agent"), &[]);
+                if variant == "split-empty" {
+                    layout.assign_session("p1", "direct-agent").unwrap();
+                    layout.split("p1", SplitOrientation::Row).unwrap();
+                }
+                if variant == "single-empty-drawer" {
+                    layout.add_drawer_shell("busy-shell".into());
+                }
+                let rows = if variant.starts_with("no-tab") {
+                    Vec::new()
+                } else {
+                    vec![NodeRow {
+                        id: layout.id.clone(),
+                        parent_id: None,
+                        position: 0,
+                        node_type: NodeType::Tab,
+                        name: None,
+                        ref_id: None,
+                        layout: Some(layout.serialize().unwrap()),
+                        pinned_position: None,
+                        last_completed_at: None,
+                        last_viewed_at: None,
+                        created_at: String::new(),
+                    }]
+                };
+                root.tabs = TabSet::from_rows(&rows);
+                root.route = AppRoute::Chat;
+                if variant.ends_with("error") {
+                    root.chat_error = Some("Shell launch failed".into());
+                }
+                root
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            visual.simulate_resize(size(px(1440.), px(900.)));
+            visual.run_until_parked();
+            assert_eq!(
+                visual.debug_bounds("START_SURFACE").is_some(),
+                variant.starts_with("no-tab") || variant.starts_with("single-empty"),
+                "{variant}"
+            );
+            assert_eq!(
+                visual.debug_bounds("EMPTY_PANE_START").is_some(),
+                variant == "split-empty",
+                "{variant}"
+            );
+            assert_eq!(
+                visual.debug_bounds("CHAT_ERROR_BANNER").is_some(),
+                variant.ends_with("error"),
+                "{variant}"
+            );
+            assert_eq!(
+                visual.debug_bounds("CHAT_TERMINAL_DRAWER").is_some(),
+                variant == "single-empty-drawer",
+                "{variant}"
+            );
+            if let Some(surface) = visual.debug_bounds("START_SURFACE") {
+                assert!(surface.size.height > px(0.), "{variant}");
+                assert!(
+                    visual.debug_bounds("CHAT_TAB_HEADER").is_none(),
+                    "{variant}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn start_surface_column_stays_480_pixels_wide_and_centred() {
+        use crate::{AppRoute, NativeRoot};
+        use gpui::{TestAppContext, VisualTestContext};
+        use runner_app::pane_layout::TabSet;
+
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        let host = cx.add_window(|window, cx| {
+            let mut root = NativeRoot::new(
+                "start-surface-width".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            );
+            root.tabs = TabSet::default();
+            root.route = AppRoute::Chat;
+            root
+        });
+        let mut visual = VisualTestContext::from_window(host.into(), &cx);
+        for width in [900., 1440.] {
+            visual.simulate_resize(size(px(width), px(900.)));
+            visual.run_until_parked();
+            let surface = visual.debug_bounds("START_SURFACE").unwrap();
+            let column = visual.debug_bounds("START_SURFACE_COLUMN").unwrap();
+            assert_eq!(column.size.width, px(480.), "window width {width}");
+            assert_eq!(
+                column.center().x,
+                surface.center().x,
+                "window width {width}"
+            );
+        }
     }
 
     #[test]

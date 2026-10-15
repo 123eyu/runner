@@ -663,6 +663,7 @@ fn clamp_drawer_height(height: f32) -> f32 {
 pub struct TabSet {
     tabs: Vec<PaneLayout>,
     active_tab_id: Option<String>,
+    active_cleared: bool,
 }
 
 impl TabSet {
@@ -682,6 +683,7 @@ impl TabSet {
         Self {
             tabs,
             active_tab_id,
+            active_cleared: false,
         }
     }
 
@@ -708,7 +710,13 @@ impl TabSet {
             return false;
         }
         self.active_tab_id = Some(tab_id.to_owned());
+        self.active_cleared = false;
         true
+    }
+
+    pub fn clear_active(&mut self) {
+        self.active_tab_id = None;
+        self.active_cleared = true;
     }
 
     pub fn activate_session(&mut self, session_id: &str) -> bool {
@@ -721,6 +729,7 @@ impl TabSet {
         };
         tab.focus_session(session_id);
         self.active_tab_id = Some(tab.id.clone());
+        self.active_cleared = false;
         true
     }
 
@@ -747,7 +756,9 @@ impl TabSet {
             .and_then(PaneLayout::focused_session_id)
             .map(str::to_owned);
         let mut next = Self::from_rows(rows);
-        if let Some(active_id) = active_id {
+        if self.active_cleared {
+            next.clear_active();
+        } else if let Some(active_id) = active_id {
             next.activate(&active_id);
         }
         if let Some(focused_session) = focused_session {
@@ -860,7 +871,7 @@ fn valid_sizes(sizes: [f32; 2]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{leaf, split, DropSide, PaneLayout, PaneNode, SplitOrientation};
+    use super::{leaf, split, DropSide, PaneLayout, PaneNode, SplitOrientation, TabSet};
     use runner_core::protocol::node::{NodeRow, NodeType};
 
     fn tab_row(name: Option<&str>, layout: &PaneLayout) -> NodeRow {
@@ -876,6 +887,40 @@ mod tests {
             last_completed_at: None,
             last_viewed_at: None,
             created_at: "2026-09-10T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn launch_activates_the_first_tab_including_after_an_empty_initial_load() {
+        let row = tab_row(None, &PaneLayout::single(Some("chat"), &[]));
+        assert_eq!(
+            TabSet::from_rows(std::slice::from_ref(&row)).active_tab_id(),
+            Some("tab-1")
+        );
+        let mut tabs = TabSet::default();
+        tabs.replace_rows(std::slice::from_ref(&row));
+        assert_eq!(tabs.active_tab_id(), Some("tab-1"));
+    }
+
+    #[test]
+    fn cleared_selection_survives_reload_until_a_tab_or_session_is_activated() {
+        let rows = [tab_row(None, &PaneLayout::single(Some("chat"), &[]))];
+        for activate_session in [false, true] {
+            let mut tabs = TabSet::from_rows(&rows);
+            tabs.clear_active();
+            tabs.replace_rows(&rows);
+            assert!(tabs.active().is_none());
+            assert!(!tabs.activate("missing"));
+            tabs.replace_rows(&[]);
+            tabs.replace_rows(&rows);
+            assert!(tabs.active().is_none());
+            assert!(if activate_session {
+                tabs.activate_session("chat")
+            } else {
+                tabs.activate("tab-1")
+            });
+            tabs.replace_rows(&rows);
+            assert_eq!(tabs.active_tab_id(), Some("tab-1"));
         }
     }
 

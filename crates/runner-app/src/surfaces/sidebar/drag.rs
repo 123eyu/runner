@@ -217,7 +217,7 @@ impl Sidebar {
                     "sidebar drop committed"
                 );
                 if let Some(shell) = self.shell.upgrade() {
-                    shell.update(cx, |shell, _| shell.tabs.replace_rows(&nodes));
+                    shell.update(cx, |shell, _| shell.replace_tab_rows(&nodes));
                 }
                 self.app_store
                     .update(cx, |store, store_cx| store.replace_nodes(nodes, store_cx));

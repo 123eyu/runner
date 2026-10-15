@@ -427,16 +427,15 @@ struct PendingPaneClose {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PendingTabClose {
     tab_id: String,
-    next_tab_id: Option<String>,
 }
 
 impl PendingTabClose {
-    fn apply(&self, tabs: &mut TabSet) -> bool {
-        if tabs.tabs().iter().any(|tab| tab.id == self.tab_id) {
+    fn apply(&self, tabs: &mut TabSet, rows: &[runner_core::protocol::node::NodeRow]) -> bool {
+        if rows.iter().any(|row| row.id == self.tab_id) {
             return false;
         }
-        if let Some(next_tab_id) = &self.next_tab_id {
-            tabs.activate(next_tab_id);
+        if tabs.active_tab_id() == Some(self.tab_id.as_str()) {
+            tabs.clear_active();
         }
         true
     }
@@ -1082,15 +1081,20 @@ impl NativeRoot {
         Ok(())
     }
 
-    fn apply_tab_rows(&mut self, cx: &mut Context<Self>) {
-        self.tabs.replace_rows(&self.app_store.read(cx).nodes);
+    fn replace_tab_rows(&mut self, rows: &[runner_core::protocol::node::NodeRow]) {
         if self
             .pending_tab_close
             .as_ref()
-            .is_some_and(|close| close.apply(&mut self.tabs))
+            .is_some_and(|close| close.apply(&mut self.tabs, rows))
         {
             self.pending_tab_close = None;
         }
+        self.tabs.replace_rows(rows);
+    }
+
+    fn apply_tab_rows(&mut self, cx: &mut Context<Self>) {
+        let store = self.app_store.clone();
+        self.replace_tab_rows(&store.read(cx).nodes);
         self.sync_active_project_from_active_tab(cx);
         self.prune_sidebar_collapse_state(cx);
     }
@@ -2137,35 +2141,109 @@ mod native_root_tests {
             last_viewed_at: None,
             created_at: String::new(),
         });
-        for (closing, next) in [("middle", Some("last")), ("last", Some("middle"))] {
+        for closing in ["first", "middle", "last"] {
             let mut tabs = TabSet::from_rows(&rows);
             tabs.activate(closing);
             let pending = PendingTabClose {
                 tab_id: closing.into(),
-                next_tab_id: next.map(str::to_owned),
             };
+            assert!(!pending.apply(&mut tabs, &rows));
             tabs.replace_rows(&rows);
-            assert!(!pending.apply(&mut tabs));
             assert_eq!(tabs.active_tab_id(), Some(closing));
             let remaining = rows
                 .iter()
                 .filter(|row| row.id != closing)
                 .cloned()
                 .collect::<Vec<_>>();
+            assert!(pending.apply(&mut tabs, &remaining));
             tabs.replace_rows(&remaining);
-            assert!(pending.apply(&mut tabs));
-            assert_eq!(tabs.active_tab_id(), next);
+            assert!(tabs.active().is_none());
             tabs.replace_rows(&remaining);
-            assert_eq!(tabs.active_tab_id(), next);
+            assert!(tabs.active().is_none());
         }
         let mut tabs = TabSet::from_rows(&rows[..1]);
         let pending = PendingTabClose {
             tab_id: "first".into(),
-            next_tab_id: None,
         };
+        assert!(pending.apply(&mut tabs, &[]));
         tabs.replace_rows(&[]);
-        assert!(pending.apply(&mut tabs));
+        tabs.replace_rows(&rows);
         assert!(tabs.active().is_none());
+
+        let mut tabs = TabSet::from_rows(&rows);
+        tabs.activate("middle");
+        let pending = PendingTabClose {
+            tab_id: "last".into(),
+        };
+        assert!(pending.apply(&mut tabs, &rows[..2]));
+        tabs.replace_rows(&rows[..2]);
+        assert_eq!(tabs.active_tab_id(), Some("middle"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidebar_node_results_and_store_reload_share_the_pending_close_rule() {
+        use gpui::TestAppContext;
+        use runner_core::protocol::node::{NodeRow, NodeType};
+
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let rows = ["first", "closing"].map(|id| NodeRow {
+            id: id.into(),
+            parent_id: None,
+            position: 0,
+            node_type: NodeType::Tab,
+            name: None,
+            ref_id: None,
+            layout: Some(PaneLayout::single(None, &[]).serialize().unwrap()),
+            pinned_position: None,
+            last_completed_at: None,
+            last_viewed_at: None,
+            created_at: String::new(),
+        });
+        for node_result_first in [false, true] {
+            for activate_another in [false, true] {
+                let temp = tempfile::tempdir().unwrap();
+                let mut cx = TestAppContext::single();
+                let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+                cx.add_window(|window, cx| {
+                    let mut root = NativeRoot::new(
+                        "close-ordering".into(),
+                        temp.path().join("logs"),
+                        None,
+                        None,
+                        store.clone(),
+                        window,
+                        cx,
+                    );
+                    root.tabs = TabSet::from_rows(&rows);
+                    root.tabs.activate("closing");
+                    root.prepare_tab_close(&[], cx);
+                    assert!(root.pending_tab_close.is_some());
+                    if activate_another {
+                        root.tabs.activate("first");
+                    }
+                    if node_result_first {
+                        root.replace_tab_rows(&rows[..1]);
+                    }
+                    store.update(cx, |store, cx| store.replace_nodes(rows[..1].to_vec(), cx));
+                    root.apply_tab_rows(cx);
+                    if !node_result_first {
+                        root.replace_tab_rows(&rows[..1]);
+                    }
+                    assert!(root.pending_tab_close.is_none());
+                    assert_eq!(
+                        root.tabs.active_tab_id(),
+                        activate_another.then_some("first")
+                    );
+                    root.apply_tab_rows(cx);
+                    assert_eq!(
+                        root.tabs.active_tab_id(),
+                        activate_another.then_some("first")
+                    );
+                    root
+                });
+            }
+        }
     }
 
     #[test]
