@@ -33,7 +33,6 @@ use super::*;
 use crate::chat_icon::runtime_mark;
 use crate::*;
 
-const START_CHAT_MODE_FILE: &str = "start-chat-mode";
 const START_CHAT_RECENT_RUNTIMES_FILE: &str = "start-chat-recent-runtimes";
 const MODAL_WIDTH: f32 = 560.;
 const CARD_PADDING: f32 = 12.;
@@ -46,23 +45,6 @@ const ROLE_HINT: &str = "Starts with the role's settings. Change any of them for
 pub(super) enum ChatMode {
     Role,
     Runtime,
-}
-
-impl ChatMode {
-    fn from_persisted(value: Option<&str>) -> Self {
-        if value.is_some_and(|value| matches!(value.trim(), "role" | "runner")) {
-            Self::Role
-        } else {
-            Self::Runtime
-        }
-    }
-
-    fn persisted(self) -> &'static str {
-        match self {
-            Self::Role => "role",
-            Self::Runtime => "runtime",
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -917,13 +899,8 @@ impl NativeRoot {
 
         let (runtimes, agents_checking, agents_error) =
             load_selectable_runtimes(self.core(cx), self.settings(cx));
-        let persisted_mode = read_start_chat_mode(&self.app_store.read(cx).app_data_dir);
         let recent_runtimes = read_recent_runtimes(&self.app_store.read(cx).app_data_dir);
-        let mode = if default_role_id.is_some() {
-            ChatMode::Role
-        } else {
-            persisted_mode
-        };
+        let mode = ChatMode::Runtime;
         let role_id = default_role_id
             .filter(|role_id| {
                 self.app_store
@@ -1255,7 +1232,6 @@ impl NativeRoot {
 
     fn set_start_chat_mode(&mut self, mode: ChatMode, cx: &mut Context<Self>) {
         let default_working_dir = self.settings(cx).default_working_dir.clone();
-        let app_data_dir = self.app_store.read(cx).app_data_dir.clone();
         let Some(modal) = self.start_chat_modal.as_mut() else {
             return;
         };
@@ -1279,7 +1255,6 @@ impl NativeRoot {
         modal.cwd.update(cx, |input, input_cx| {
             input.set_placeholder(placeholder, input_cx)
         });
-        let _ = write_start_chat_mode(&app_data_dir, mode);
         self.refresh_start_chat_models(cx);
         cx.notify();
     }
@@ -2845,19 +2820,6 @@ fn record_recent_runtime(app_data_dir: &Path, runtime: &str) -> std::io::Result<
     fs::write(recent_runtimes_path(app_data_dir), recent.join("\n"))
 }
 
-fn start_chat_mode_path(app_data_dir: &Path) -> PathBuf {
-    app_data_dir.join(START_CHAT_MODE_FILE)
-}
-
-fn read_start_chat_mode(app_data_dir: &Path) -> ChatMode {
-    let value = fs::read_to_string(start_chat_mode_path(app_data_dir)).ok();
-    ChatMode::from_persisted(value.as_deref())
-}
-
-fn write_start_chat_mode(app_data_dir: &Path, mode: ChatMode) -> std::io::Result<()> {
-    fs::write(start_chat_mode_path(app_data_dir), mode.persisted())
-}
-
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
@@ -4073,21 +4035,26 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn remembered_and_preselected_roles_focus_the_picker_with_empty_modes_falling_back() {
+    fn new_chats_default_to_direct_with_empty_modes_focusing_the_title() {
         let mut modal = modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
         modal.act(|root, window, cx| {
             let input =
                 serde_json::from_value(serde_json::to_value(test_role("saved", "codex")).unwrap())
                     .unwrap();
             let role = root.core(cx).role_create(input).unwrap();
-            write_start_chat_mode(&root.app_store.read(cx).app_data_dir, ChatMode::Role).unwrap();
+            fs::write(
+                root.app_store.read(cx).app_data_dir.join("start-chat-mode"),
+                "role",
+            )
+            .unwrap();
+            root.set_start_chat_mode(ChatMode::Role, cx);
             root.close_start_chat_modal(window, cx);
             root.open_new_tab_modal(&NewTab, window, cx);
             let form = root.start_chat_modal.as_ref().unwrap();
-            assert!(form.role_select.read(cx).focus_handle().is_focused(window));
+            assert_eq!(form.mode, ChatMode::Runtime);
+            assert!(form.picker_focus(cx).is_focused(window));
+            root.set_start_chat_mode(ChatMode::Role, cx);
             root.close_start_chat_modal(window, cx);
-            write_start_chat_mode(&root.app_store.read(cx).app_data_dir, ChatMode::Runtime)
-                .unwrap();
             let mut layout = PaneLayout::single(None, &[]);
             layout.id = "01M3VD00000000000000000004".into();
             let pane_id = layout.focused_pane_id.clone();
@@ -4095,11 +4062,14 @@ pub(super) mod tests {
                 .node_tab_upsert(layout.upsert_input().unwrap())
                 .unwrap();
             root.reload_tabs(cx).unwrap();
-            root.last_focused_role_id = Some(role.id);
+            root.last_focused_role_id = Some(role.id.clone());
             root.open_pane_chat_modal(&pane_id, window, cx);
             let form = root.start_chat_modal.as_ref().unwrap();
-            assert_eq!(form.mode, ChatMode::Role);
-            assert!(form.role_select.read(cx).focus_handle().is_focused(window));
+            assert_eq!(form.mode, ChatMode::Runtime);
+            assert!(form.picker_focus(cx).is_focused(window));
+            assert_eq!(form.role_id.as_deref(), Some(role.id.as_str()));
+            root.set_start_chat_mode(ChatMode::Role, cx);
+            assert_eq!(root.start_chat_modal.as_ref().unwrap().mode, ChatMode::Role);
         });
         for mode in [ChatMode::Runtime, ChatMode::Role] {
             modal.edit(|form, cx| seed_modal(form, Vec::new(), Vec::new(), mode, cx));
@@ -5140,28 +5110,6 @@ pub(super) mod tests {
             terminal_working_dir(None, None, " ", Some("/home")).as_deref(),
             Some("/home")
         );
-    }
-
-    #[test]
-    fn mode_preference_round_trips_and_invalid_values_fall_back_to_direct() {
-        let temp = tempfile::tempdir().unwrap();
-        assert_eq!(read_start_chat_mode(temp.path()), ChatMode::Runtime);
-
-        write_start_chat_mode(temp.path(), ChatMode::Role).unwrap();
-        assert_eq!(read_start_chat_mode(temp.path()), ChatMode::Role);
-        assert_eq!(
-            fs::read_to_string(start_chat_mode_path(temp.path())).unwrap(),
-            "role"
-        );
-
-        fs::write(start_chat_mode_path(temp.path()), "runner").unwrap();
-        assert_eq!(read_start_chat_mode(temp.path()), ChatMode::Role);
-
-        write_start_chat_mode(temp.path(), ChatMode::Runtime).unwrap();
-        assert_eq!(read_start_chat_mode(temp.path()), ChatMode::Runtime);
-
-        fs::write(start_chat_mode_path(temp.path()), "unexpected").unwrap();
-        assert_eq!(read_start_chat_mode(temp.path()), ChatMode::Runtime);
     }
 
     #[test]
