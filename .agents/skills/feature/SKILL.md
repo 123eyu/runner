@@ -78,7 +78,7 @@ When in doubt between two levels, pick the lower-urgency one and say why; over-l
 
 - A spec is named after its tracking issue, `{issue}-{slug}.md`, with a lowercase kebab-case slug.
 - Specs, impl plans (`docs/impls/`) and mission briefs (`docs/impls/briefs/`) are written on the feature's branch and land with its code. Design files are the exception: `.pen` files are settled on `main` first (`AGENTS.md`, Engineering Conventions).
-- Shipped specs move to `docs/features/archive/` in the release's docs sweep. The implementation is the source of truth; the archived spec stays as the "what we were going for" record.
+- At the release's docs sweep, retain specs in `docs/features/archive/` only when their decisions, compatibility constraints or implementation context still help. Obsolete or duplicate proposals can be pruned after preserving useful unique content and fixing references; issues and git history are enough for many dropped ideas. The implementation is the source of truth.
 
 ## Notes
 

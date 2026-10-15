@@ -2,6 +2,10 @@
 
 Tracking issue: [#570](https://github.com/yicheng47/runner/issues/570). Status: shipped 2026-09-12 in [#571](https://github.com/yicheng47/runner/pull/571) (fade, border, chat glyph; mission `01M2AGDBGT7CPFSWSFR652FQ20`) and [#572](https://github.com/yicheng47/runner/pull/572) (layout tree, split icon, picker removed; mission `01M2AHEYTZQFK3X5JZA2TGZNDN`), both claude crew. Priority was P2.
 
+## Implementation notes
+
+Review of #572 corrected the legacy tree reader, pane measurement and shortcut size gate. Jason's final adjustments put the identity-line trigger directly left of `×` and removed its tooltip. The persistence and size-floor requirements below include those corrections.
+
 ## Motivation
 
 Two things about a split tab read heavy or limiting today. The focused pane is marked with a 1 px accent border on all four sides; next to the 26 px identity line and the divider the accent box competes with the terminal content, and in a three-pane split the eye lands on the frame before the text. And splitting goes through a preset picker: six shapes, at most three panes, and `⌘D` / `⇧⌘D` step the whole tab to the next preset rather than splitting the pane you are in (`next_split_preset` bails with "this tab already has three panes").

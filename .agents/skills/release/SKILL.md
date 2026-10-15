@@ -82,15 +82,15 @@ Rules for the 中文 half: translate the meaning, not the words; keep product te
 
 ## `sweep <version>`
 
-Archives the docs of everything shipped since the previous sweep in one doc-only commit on `main`, so merges themselves add no docs commits (`AGENTS.md`, Docs Sweep At Release). Run it only once `v<version>` is published (`gh release view v<version> --json isDraft` is `false`): a `main` push while a release or nightly run is in flight cancels the CI run its publish job waits on.
+Reviews and cleans up the docs of everything shipped since the previous sweep in one doc-only commit on `main`, so merges themselves add no docs commits (`AGENTS.md`, Docs Sweep At Release). Run it only once `v<version>` is published (`gh release view v<version> --json isDraft` is `false`): a `main` push while a release or nightly run is in flight cancels the CI run its publish job waits on.
 
 1. **Preflight.** On `main`, clean tree, `git rev-parse main origin/main` equal after `git fetch origin`, and nothing in flight in `gh run list --workflow release.yml --limit 3 --json status` or the same for `nightly.yml`.
 2. **Find what shipped.** Walk the in-progress docs rather than a commit range, so anything an earlier sweep missed is caught: each brief in `docs/impls/briefs/`, each test record directly under `docs/tests/` (not `full-smoke-test.md`), and each spec in `docs/features/`. Check each one's issue with `gh issue view <n> --json state,stateReason,closedAt` and its PRs with `gh pr list --state merged --search <n>`. Anything whose work is still open stays put.
 3. **Test records.** Move each shipped record to `docs/tests/archive/` and promote its lasting live checks into `docs/tests/regression/` under that README's promotion rules, reconciled with current code, or have the record state why none apply. Run results stay separate from maintained cases.
 4. **Briefs.** Prune the brief of every merged mission; git history keeps it. Keep the ones `docs/impls/briefs/README.md` lists as references, and the brief of any mission still running.
-5. **Specs.** Move each spec whose tracking issue has closed, shipped or dropped, to `docs/features/archive/`; for a multi-PR feature that is after its last PR. Move its `docs/features/README.md` entry from Active to Recently shipped with the release and date that carried it, or note it as dropped.
+5. **Specs and plans.** Once an issue closes (after the last PR for a multi-PR feature), retain its spec or plan in `archive/` only if it explains lasting design decisions, migrations, compatibility constraints or useful implementation context. Preserve unique current decisions in `docs/arch/` and deferred scope in the issue, then prune obsolete or duplicate proposals after checking references and protecting uncommitted edits. Do not prune test evidence or task history under this rule. Update the relevant index to link to the retained record, implementation or issue; an archive entry is not required for every closed feature.
 6. **Roadmap.** Record the release in `docs/roadmap.md`: latest release, the Releases table, milestone state and open-work counts, reconciled with GitHub, and move the snapshot date.
-7. **Commit.** Repoint every link to a moved file and check the relative links with a script. Commit as `docs: record the <version> release and archive its shipped docs`, push `main`, and report what moved, the regression case IDs added, and anything left in place with the reason.
+7. **Commit.** Repoint every link to a moved file and check the relative links with a script. Commit as `docs: record the <version> release and clean up its shipped docs`, push `main`, and report what was retained or pruned, the regression case IDs added, and anything left in place with the reason.
 
 ## `check <version>`
 

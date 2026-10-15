@@ -105,7 +105,7 @@ The user-facing surfaces, described by the value they deliver, not by their impl
 - **The `runner` CLI** — one bundled binary is the external surface for agents, scripts, and people at a terminal: projects, roles, crews and slots, mission and chat lifecycle, the feed (with `--follow`), signals and messages. Inside a mission the caller's mission and handle come from the environment; outside, `--mission` is a flag and the caller acts for the person unless `--as <handle>` names a seat they hold. `--json` is what agents read; the default output is shaped for people.
 - **Discovery through a skill, not configuration.** No agent is set up to reach Runner. Each one finds the CLI through a `runner` skill the app installs into that runtime's skills root — three folders cover all five runtimes (`~/.claude/skills/`, `~/.agents/skills/` for Codex, Copilot and pi, `~/.trae/skills/`). A provider Runner has never heard of only needs the binary on PATH.
 - **One way in.** The MCP integration — the `runner-mcp` bridge and the entries Runner wrote into each agent's config — was removed in 0.11.0, the release that shipped the CLI; two ways in at once would be confusing, and pi has no MCP client at all. The CLI uses the same `runnerd.sock` client protocol as the app, with typed requests and pushed mission events. The old MCP endpoint remains only as an accept-and-close guard against a 0.12 app replacing the daemon. Settings → MCP remains as the catalog of the user's own servers.
-- Runner.app remains the state owner. This is a local control surface, not a remote server.
+- `runnerd` owns state; the app and CLI are local clients. Planned [web remote control](https://github.com/yicheng47/runner/issues/836) adds host enrollment, an outbound relay connection and a versioned encrypted client protocol. A person first reaches existing sessions from a desktop or phone browser; the [iOS companion](https://github.com/yicheng47/runner/issues/912) reuses that foundation, followed by [desktop-to-desktop SSH](https://github.com/yicheng47/runner/issues/808). The relay cannot read session traffic, and rejecting a remote client must leave the host's agents running.
 
 ## 5. The demo loop
 
@@ -135,13 +135,13 @@ These are intentionally out of scope — they belong to a different product or a
 - Cross-mission memory / persistent crew brain.
 - A multi-host coordination bus. Sessions on other machines come through the session host ([#645](https://github.com/yicheng47/runner/issues/645), 0.13), which runs the process half of the backend next to the agent; the bus itself stays local.
 - Sandboxing beyond the child process's own permissions.
-- Observability dashboards. The token ledger ([#630](https://github.com/yicheng47/runner/issues/630), 0.11) shows spend and remaining quota per subscription; anything beyond that is a different product.
+- Observability dashboards. The unscheduled token ledger ([#630](https://github.com/yicheng47/runner/issues/630)) proposes per-session tokens and subscription quota; it has not shipped.
 - Marketplace of roles.
 - Multi-human collaboration on the same mission.
 - Thread/fact primitives for mission coordination.
 - Secrets management beyond plain env vars.
 - LLM-based signal routing (the router is a flat dispatcher by design — the lead owns coordination judgment).
-- Linux desktop support. macOS and Windows are the shipping platforms, both built from `main` with signed installers and updaters since 0.8.0.
+- Additional platforms before their own validation. macOS and Windows ship today; Linux and WSL support is planned separately in [#823](https://github.com/yicheng47/runner/issues/823).
 
 ## 7. Open product questions
 

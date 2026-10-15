@@ -1,6 +1,6 @@
 # Command palette on ⌘⇧P
 
-Tracking issue: [#559](https://github.com/yicheng47/runner/issues/559). Status: planned, design first. Priority P2, milestone 0.16 (0.14 until 2026-10-10), designed in the liquid glass style of [793](./archive/793-liquid-glass.md).
+Tracking issue: [#559](https://github.com/yicheng47/runner/issues/559). Status: planned, design first. Scheduling and priority live on the issue; designed in the liquid glass style of [793](./archive/793-liquid-glass.md).
 
 ## Motivation
 

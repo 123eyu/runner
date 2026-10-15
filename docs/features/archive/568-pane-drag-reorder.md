@@ -1,6 +1,10 @@
 # Drag to reorder panes
 
-Tracking issue: [#568](https://github.com/yicheng47/runner/issues/568). Status: shipped 2026-09-13 in [#573](https://github.com/yicheng47/runner/pull/573) (brief [568](../../impls/archive/568-pane-drag-reorder.md), mission `01M2C50JAYDGEKHJDTPCJ1QZA4` on codex-crew). Priority P2.
+Tracking issue: [#568](https://github.com/yicheng47/runner/issues/568). Status: shipped 2026-09-13 in [#573](https://github.com/yicheng47/runner/pull/573) (brief [568](https://github.com/yicheng47/runner/blob/b07c56a0e29149cf5079e1243797f4957eaa45c4/docs/impls/archive/568-pane-drag-reorder.md), mission `01M2C50JAYDGEKHJDTPCJ1QZA4` on codex-crew). Priority P2.
+
+## Implementation notes
+
+Review before #573 landed required a real minimum width on the grip wrapper so long titles yield to it; the drag pill uses the sidebar pill's width cap and shadow. Commit `c1d460b` passed CI.
 
 ## Motivation
 

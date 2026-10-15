@@ -1,6 +1,10 @@
 # Terminal tab split
 
-Tracking issue: [#574](https://github.com/yicheng47/runner/issues/574). Status: shipped 2026-09-13 in [#576](https://github.com/yicheng47/runner/pull/576) (brief [574](../../impls/archive/574-terminal-tab-split.md), mission `01M2CEE7QAZSAA65ATQQ3XRQWN` on codex-crew). Priority P2.
+Tracking issue: [#574](https://github.com/yicheng47/runner/issues/574). Status: shipped 2026-09-13 in [#576](https://github.com/yicheng47/runner/pull/576) (brief [574](https://github.com/yicheng47/runner/blob/b07c56a0e29149cf5079e1243797f4957eaa45c4/docs/impls/archive/574-terminal-tab-split.md), mission `01M2CEE7QAZSAA65ATQQ3XRQWN` on codex-crew). Priority P2.
+
+## Implementation notes
+
+Review before #576 landed caught New terminal from the palette outside the Chat route either doing nothing or placing a shell in a chat tab. Choosing the target by tab kind on every route fixed both cases. Commit `2766b6a` passed CI after the queued run was restarted.
 
 ## Motivation
 

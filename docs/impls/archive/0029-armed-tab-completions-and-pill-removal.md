@@ -73,4 +73,4 @@ Separately, the chat topbar still renders a per-session busy/idle status pill (p
 - Issue #296 — bug: unread dots appear on viewed chat tabs without new activity; drop topbar idle/busy pill.
 - Spec `docs/features/archive/39-chat-working-unread-indicators.md` — the attention model this fix tightens.
 - Archived spec `docs/features/archive/13-pty-silence-idle-detection.md` — origin of the byte-silence heuristic.
-- Archived impl `docs/impls/archive/0014-direct-chat-response-status.md` — origin of the topbar status pill.
+- Archived impl [historical proposal](https://github.com/yicheng47/runner/blob/b07c56a0e29149cf5079e1243797f4957eaa45c4/docs/impls/archive/0014-direct-chat-response-status.md) — origin of the topbar status pill.

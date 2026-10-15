@@ -33,4 +33,4 @@ Each milestone is one `codex peer` mission on a task branch off `main`, working-
 
 ## History
 
-The Tauri-era attempt was impl [0008 — runner skills and MCPs](../0008-runner-skills-and-mcps.md) against the original spec 05 (per-runner skills injected through a synthetic agent home built from symlink overlays); it was superseded by the 2026-07-15 catalog rewrite of the spec, which in turn was replaced on 2026-08-28 by the visibility design once `skillOverrides` existed. The catalog framing's MCP half is deferred, not dropped — it gets its own spec when felt.
+The Tauri-era attempt was impl [0008 — runner skills and MCPs](https://github.com/yicheng47/runner/blob/b07c56a0e29149cf5079e1243797f4957eaa45c4/docs/impls/archive/0008-runner-skills-and-mcps.md) against the original spec 05 (per-runner skills injected through a synthetic agent home built from symlink overlays); it was superseded by the 2026-07-15 catalog rewrite of the spec, which in turn was replaced on 2026-08-28 by the visibility design once `skillOverrides` existed. The catalog framing's MCP half is deferred, not dropped — it gets its own spec when felt.

@@ -45,8 +45,8 @@ Surface hierarchy (strict — do not blur these in code, docs, or UI copy):
 - `docs/arch/`: architecture references (how it works).
 - `docs/product/`: product vision and direction (why we're building this, what surfaces matter).
 - `docs/guide/`: user documentation, with `README.md` as the website's navigation order; writing and generation conventions live in [docs/guide-authoring.md](docs/guide-authoring.md).
-- `docs/features/`: specs of features in development, named `{tracking-issue}-{slug}.md`. A feature is only an issue until its development starts; its spec is then written on the feature's branch and lands with the code. Shipped specs live in `docs/features/archive/`.
-- `docs/impls/`: implementation plans; shipped plans live in `docs/impls/archive/`, mission briefs in `docs/impls/briefs/`.
+- `docs/features/`: specs of features in development, named `{tracking-issue}-{slug}.md`. A feature is only an issue until its development starts; its spec is then written on the feature's branch and lands with the code. Retained shipped specs live in `docs/features/archive/`; obsolete duplicate proposals may be pruned after preserving useful context.
+- `docs/impls/`: implementation plans; retained shipped plans live in `docs/impls/archive/`, mission briefs in `docs/impls/briefs/`.
 - `docs/tests/`: validation and smoke-test plans; records of shipped features live in `docs/tests/archive/`.
 - `docs/roadmap.md`: where the project is, mirrored from the GitHub milestones and dated.
 - `docs/tech/`: deep dives on the libraries Runner builds on (how the dependencies work), pinned to the versions in `Cargo.lock`.
@@ -138,7 +138,7 @@ The mission's brief, test record and spec stay where they are until the next rel
 
 ## Docs Sweep At Release
 
-Shipped work's docs are archived once per production release, not after each merge. Once a release is published, one doc-only commit on `main` sweeps everything shipped since the previous sweep: test records move to `docs/tests/archive/` with their lasting live checks promoted into [`docs/tests/regression/`](docs/tests/regression/README.md), merged missions' briefs are pruned unless [`docs/impls/briefs/README.md`](docs/impls/briefs/README.md) keeps one as a reference, specs whose issues have closed move to `docs/features/archive/`, and [`docs/roadmap.md`](docs/roadmap.md) records the release. The procedure is the `sweep` action of the [release skill](.agents/skills/release/SKILL.md).
+Shipped work's docs are reviewed once per production release, not after each merge. Once a release is published, one doc-only commit on `main` sweeps everything shipped since the previous sweep: test records move to `docs/tests/archive/` with their lasting live checks promoted into [`docs/tests/regression/`](docs/tests/regression/README.md), merged missions' briefs are pruned unless [`docs/impls/briefs/README.md`](docs/impls/briefs/README.md) keeps one as a reference, specs and plans whose issues have closed are retained in `archive/` only when they explain lasting decisions, migrations or compatibility constraints; obsolete or duplicate proposals are pruned after preserving useful unique content and checking references, and [`docs/roadmap.md`](docs/roadmap.md) records the release. Distant features normally remain issues until development starts. Test evidence and task history are retained; an archive is not a requirement for every historical document. The procedure is the `sweep` action of the [release skill](.agents/skills/release/SKILL.md).
 
 ## Notes For Agent Runtimes
 

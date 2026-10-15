@@ -26,16 +26,16 @@ Claude Code's subagents spawn Claude and Codex's spawn Codex. No vendor has a re
 | Identity | Roster handles; outside agents take a seat | 648 decisions shipped; seats in #562 |
 | Coordination | The mission bus: signals, messages, the inbox | Shipped |
 | Handing off directly | An empty mission started from the chat with a worker added to it, its results typed back into that chat | [#562](https://github.com/yicheng47/runner/issues/562) with [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
-| Living past the app | Sessions that survive quitting the app; today they die with it ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), 0.13 |
+| Living past the app | Sessions continue in runnerd when the app quits ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), shipped in 0.13 |
 | Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | In #562 |
 | Reaching the person | A message to the lead, then `ask_human`; a mission without a lead asks the person directly; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701); `ask_lead` retired in [#562](https://github.com/yicheng47/runner/issues/562) Phase 3 |
-| Keeping track | Plan usage and a token ledger; a cross-session Activity view moved to a future mobile companion | [#706](https://github.com/yicheng47/runner/issues/706), [#630](https://github.com/yicheng47/runner/issues/630); [#552](https://github.com/yicheng47/runner/issues/552) closed 2026-10-08 |
+| Keeping track | Plan usage is shipped; the token ledger is unscheduled. Remote control starts in the browser, then adds iOS; the desktop Active view is separate | [#706](https://github.com/yicheng47/runner/issues/706), [#630](https://github.com/yicheng47/runner/issues/630), [#836](https://github.com/yicheng47/runner/issues/836), [#912](https://github.com/yicheng47/runner/issues/912), [#887](https://github.com/yicheng47/runner/issues/887) |
 
 The limits matter more as agents do more of the spawning. Once agents can start agents, a runaway fan-out is the first failure to expect, and the cap plus the one-level rule are what stop it.
 
 ## What it does not provide
 
-The non-goals in [`vision.md`](./vision.md) §6 stand. Runner does not create worktrees, show file trees, render diffs or sandbox anything. The agent brings its own tools, and a crew that needs its own checkout makes one from its brief. Runner provides the place, the identities, the channels, the limits and the way to reach the person, and nothing more.
+The non-goals in [`vision.md`](./vision.md) §6 stand. Runner does not create worktrees, edit files, perform git writes or sandbox agents. Read-only file and diff review is planned in [#634](https://github.com/yicheng47/runner/issues/634). The agent brings its own tools, and a crew that needs its own checkout makes one from its brief. Runner provides the place, the identities, the channels, the limits and the way to reach the person, and nothing more.
 
 ## The test
 
@@ -55,6 +55,4 @@ Steps 1, 2 and 4 are #562 (empty missions and add-role, outside seats, `spawn`, 
 
 ## Roadmap implications
 
-- **0.12 is this direction's first release.** #562 and #704 are the headline, unchanged. The role and crew pages still gate 0.12.0: roles are what agents spawn, so the role page is where the person decides what an agent can pick, and #562 turns crews into templates.
-- **#645 is the next headline after 0.12.** Agents cannot live in an environment that closes when the app quits.
-- **Update `vision.md` when #562 ships.** Three changes: "Mission: one live run of a roster, seeded from a crew or a role"; the caller can be an agent; and sessions outlive the app once #645 lands.
+The [roadmap](../roadmap.md) owns release scheduling. The session host has shipped; mission delegation is being completed through #562, #748 and reliable delivery. File review follows. Remote supervision starts with browser access to local hosts, then iOS on the same protocol, then desktop-to-desktop SSH. Historical milestone numbers from the original September direction are superseded by that plan.

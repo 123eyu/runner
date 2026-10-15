@@ -6,7 +6,7 @@ Tracking issue: [#527](https://github.com/yicheng47/runner/issues/527). Status: 
 
 ## Motivation
 
-A permission prompt inside a mission slot is never a real control point. Nobody is watching that PTY, so the prompt is a silent stall: the lead waits on a handoff that never arrives, and the human sees nothing. The byte-flow `IdleDetector` (`crates/runner-backend/src/session/pty_runtime.rs`) reports the stuck slot as idle, which is what a finished slot looks like too. Spec [52](./52-hook-based-session-status.md) closed the hook-based status route, so the feed will not learn to show this.
+A permission prompt inside a mission slot is never a real control point. Nobody is watching that PTY, so the prompt is a silent stall: the lead waits on a handoff that never arrives, and the human sees nothing. The byte-flow `IdleDetector` (`crates/runner-backend/src/session/pty_runtime.rs`) reports the stuck slot as idle, which is what a finished slot looks like too. Spec [52](https://github.com/yicheng47/runner/blob/b07c56a0e29149cf5079e1243797f4957eaa45c4/docs/features/archive/52-hook-based-session-status.md) closed the hook-based status route, so the feed will not learn to show this.
 
 [542](./542-slot-restart.md) adds per-slot Stop, Resume, and Restart recovery for a stalled slot without interrupting its siblings; Restart re-sends the cold-start brief and notifies the lead.
 

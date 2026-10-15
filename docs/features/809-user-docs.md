@@ -2,7 +2,7 @@
 
 > Tracking issue: [#809](https://github.com/yicheng47/runner/issues/809)
 > Platforms: macOS and Windows.
-> Status: implemented for review; native fresh-install walkthroughs remain unverified. See the [validation record](../tests/809-user-docs.md).
+> Status: merged in [#911](https://github.com/yicheng47/runner/pull/911) after 0.16.2; native fresh-install walkthroughs remain unverified. See the [validation record](../tests/809-user-docs.md).
 > Related: runnersh.dev will render these pages at `/docs/`; that integration lives in the website repository. [#565](https://github.com/yicheng47/runner/issues/565) (i18n) decides when a Chinese version follows.
 
 ## Motivation
