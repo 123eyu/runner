@@ -1,6 +1,8 @@
 # OpenCode v2 focused validation
 
-Scope: [brief](../impls/briefs/592-opencode-runtime.md), local uncommitted work on `feat/592-opencode-runtime`. Native version: **v2.0.26**, macOS read-only help and session-free metadata probes on 2026-10-12. No native inference/smoke, global skill/config mutation, installation, full daemon/app/workspace suites, commit/push/PR.
+Archived in the 0.16.2 docs sweep on 2026-10-15. Lasting live checks are maintained as RT-OPENCODE-01/02/03 in [Runtimes](../regression/runtimes.md), with OpenCode added as an additional runtime for the existing templates; historical verdicts, blocked rows and platform gaps below are preserved.
+
+Scope: [brief](https://github.com/yicheng47/runner/blob/v0.16.2/docs/impls/briefs/592-opencode-runtime.md), local uncommitted work on `feat/592-opencode-runtime`. Native version: **v2.0.26**, macOS read-only help and session-free metadata probes on 2026-10-12. No native inference/smoke, global skill/config mutation, installation, full daemon/app/workspace suites, commit/push/PR.
 
 ## Selected behaviors and checks (before execution)
 
@@ -78,7 +80,7 @@ Two changes intentionally apply to shared launch setup: login-shell capture now 
 
 ## macOS native feature run — 2026-10-13
 
-See the [separate native run record](runs/2026-10-13-mac.md). Native testing found and locally fixed an early model-snapshot race and normal Stop clearing OpenCode's resume key. Dynamic model display and exact-key/native-history restore now have real macOS evidence. Inference-dependent chat, tool, persona and crew checks remain blocked by two native free-model request errors and the lack of a working private account. This is a partial feature validation, not a complete native pass. The user requested that these fixes stay local: no commit, push or PR update was performed.
+See the [separate native run record](../runs/2026-10-13-mac.md). Native testing found and locally fixed an early model-snapshot race and normal Stop clearing OpenCode's resume key. Dynamic model display and exact-key/native-history restore now have real macOS evidence. Inference-dependent chat, tool, persona and crew checks remain blocked by two native free-model request errors and the lack of a working private account. This is a partial feature validation, not a complete native pass. The user requested that these fixes stay local: no commit, push or PR update was performed.
 
 ## Native session allocation fix — implemented, verification deferred
 
@@ -107,7 +109,7 @@ Only the OpenCode TUI plugin, its test fixture and this record changed in this f
 
 ## Authorized local recheck — 2026-10-13
 
-The human requested another native-machine check after a successful manual run. Four exact OpenCode tests passed. Isolated real OpenCode replies, foreground shell execution, hook Working→Ready/Completed, addressed human inbox read/ACK, Step 5 `high` variant and exact-key variant-preserving stop/resume passed at the backend/native-data level. No new production fix was needed. GUI control timed out and macOS accessibility denied the fallback window read, so visible indicators, keyboard interruption/recovery and other required UI portions remain blocked. See the [focused recheck section](runs/2026-10-13-mac.md#focused-recheck-after-session-variant-and-working-state-fixes--2026-10-13-16001630-cst) for candidate identity, scope, evidence and cleanup. Test sessions/mission were archived, temporary roles/crew deleted, private daemon/app stopped, and the user's development app retained. No full suite, Windows/CI, commit or push was performed.
+The human requested another native-machine check after a successful manual run. Four exact OpenCode tests passed. Isolated real OpenCode replies, foreground shell execution, hook Working→Ready/Completed, addressed human inbox read/ACK, Step 5 `high` variant and exact-key variant-preserving stop/resume passed at the backend/native-data level. No new production fix was needed. GUI control timed out and macOS accessibility denied the fallback window read, so visible indicators, keyboard interruption/recovery and other required UI portions remain blocked. See the [focused recheck section](../runs/2026-10-13-mac.md#focused-recheck-after-session-variant-and-working-state-fixes--2026-10-13-16001630-cst) for candidate identity, scope, evidence and cleanup. Test sessions/mission were archived, temporary roles/crew deleted, private daemon/app stopped, and the user's development app retained. No full suite, Windows/CI, commit or push was performed.
 
 ## Rebase onto upstream v0.16.0 — 2026-10-13
 

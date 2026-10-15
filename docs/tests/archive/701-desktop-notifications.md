@@ -1,5 +1,7 @@
 # 701 — desktop notifications validation
 
+Archived in the 0.16.2 docs sweep on 2026-10-15. Lasting live checks are maintained as SET-NOTIF-01 to SET-NOTIF-09 in [Settings](../regression/settings.md), from NOTIF-1 to NOTIF-9 with the final defaults; the native notification checks below were never completed by QA, and those results are preserved as recorded.
+
 ## Changed behavior and selected checks
 
 - Saved notification event switches and the Notifications settings pane: settings defaults/round-trip tests and SET-AGENT-01 verify old-file compatibility, navigation and the new controls.

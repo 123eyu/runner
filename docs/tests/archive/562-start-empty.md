@@ -1,8 +1,10 @@
 # 562 mission 4 — start empty
 
+Archived in the 0.16.2 docs sweep on 2026-10-15. Lasting live checks are maintained as MIS-EMPTY-01/02, MIS-CREW-02, MIS-MSG-06 and MIS-LIFE-03 in [Missions](../regression/missions.md), with legacy asks in MIS-ASK-01; UPG-1 was a one-time migration check. Historical verdicts, failures and platform gaps below are preserved.
+
 ## Scope and candidate
 
-Phase 3 of [the implementation plan](../impls/562-mission-spawn/plan.md#phase-3--start-empty), including [#849's Start mission dialog](../features/849-start-mission-modal.md). Worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-start-empty`, branch `feat/562-start-empty`. Working-tree review, frozen-candidate QA, five commits, then open PR and macOS/Windows CI; no merge or release is authorized. Native Windows is unverified.
+Phase 3 of [the implementation plan](../../impls/562-mission-spawn/plan.md#phase-3--start-empty), including [#849's Start mission dialog](../../features/archive/849-start-mission-modal.md). Worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-start-empty`, branch `feat/562-start-empty`. Working-tree review, frozen-candidate QA, five commits, then open PR and macOS/Windows CI; no merge or release is authorized. Native Windows is unverified.
 
 A new must-fix was reported by Jason at 06:29 UTC on 2026-10-15: Codex add-role inbox delivery entered the composer during MCP startup and its Enter was lost. The startup-delivery correction below is awaiting clean working-tree review and a new run of every selected native check; the previous matrix is historical evidence, not validation of this correction. Jason authorized a separate sixth fix commit.
 
@@ -10,7 +12,7 @@ Current selected macOS verdict: **Incomplete — 11 Passed, 0 Failed, 1 Blocked*
 
 The changed behaviors are the version 27→28 database upgrade, optional crew provenance and mission paths/envelopes/environment, empty start and lead-less coordination, crew deletion retaining its missions, removal of `ask_lead` sends, and Start mission / empty workspace / composer / mission info. Existing crew launches and their prompts are regression gates; their only coordination copy changes are Phase 3 decision 16's two lines and the removed signal in the allowed-signal list.
 
-Use [full-smoke setup and isolation](full-smoke-test.md) for candidate identity, development data, account/configuration handling, evidence and cleanup. Select only the cases below, not the entire suite. `qa` owns live execution and its verdict; coder and reviewer do not launch the app. The development app is authorized, including its automatic saved-chat resume, but pre-existing sessions must never be operated by QA. Block if another person's development app or daemon is running. Use the Phase 2 plan's two #881 lessons. Archive only owned fixtures and stop every owned app, daemon, agent and helper when finished.
+Use [full-smoke setup and isolation](../full-smoke-test.md) for candidate identity, development data, account/configuration handling, evidence and cleanup. Select only the cases below, not the entire suite. `qa` owns live execution and its verdict; coder and reviewer do not launch the app. The development app is authorized, including its automatic saved-chat resume, but pre-existing sessions must never be operated by QA. Block if another person's development app or daemon is running. Use the Phase 2 plan's two #881 lessons. Archive only owned fixtures and stop every owned app, daemon, agent and helper when finished.
 
 ## Selected checks and reasons
 
@@ -25,7 +27,7 @@ Use [full-smoke setup and isolation](full-smoke-test.md) for candidate identity,
 | MIS-CREW-01 | Existing regression through the redesigned dialog, including crew preselection, changing crew/roster, five slots with overrides, empty crew refusal, failed-start error, keyboard confirm and 640 × 480 layout. | Shared crew start and #849 redesign. |
 | MIS-LIFE-01 | Selected owned crew mission Stop/Resume/Archive, correct PIDs and history. | Optional crew changes touch lifecycle paths. |
 | MIS-MSG-02 | Existing targeted/broadcast sender/recipient regression with reads and ACKs. | Routing now handles an optional lead. |
-| MIS-ASK-01 | Rewritten [regression](regression/missions.md): worker direct-message to lead, refused legacy send, human ask/card/answer and historical ask rendering. | Every crew loses legacy ask sending. |
+| MIS-ASK-01 | Rewritten [regression](../regression/missions.md): worker direct-message to lead, refused legacy send, human ask/card/answer and historical ask rendering. | Every crew loses legacy ask sending. |
 | MIS-ROSTER-01 | Owned crew edits, remount and frozen original roster/prompt/overrides. | Optional provenance must preserve crew snapshots. |
 | MIS-FEED-01 | Feed/native ask and event rendering for the owned mission. | Goal targeting, empty state, historical asks and info surface changed. |
 

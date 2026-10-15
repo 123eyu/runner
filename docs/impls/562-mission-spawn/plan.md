@@ -8,7 +8,7 @@ Each mission keeps its roster in `roster.json` beside its event log, written at 
 
 ## Sessions independent of each other (mission 2, shipped)
 
-Phase 2's decision 9, split out and shipped first: one mission session's exit or failed spawn never stops another. Brief [`562-m2-independent-sessions.md`](../briefs/562-m2-independent-sessions.md); merged on 2026-10-12 as [#874](https://github.com/yicheng47/runner/pull/874); record [`562-independent-sessions.md`](../../tests/562-independent-sessions.md).
+Phase 2's decision 9, split out and shipped first: one mission session's exit or failed spawn never stops another. Brief [`562-m2-independent-sessions.md`](https://github.com/yicheng47/runner/blob/v0.15.3/docs/impls/briefs/562-m2-independent-sessions.md); merged on 2026-10-12 as [#874](https://github.com/yicheng47/runner/pull/874); record [`562-independent-sessions.md`](../../tests/archive/562-independent-sessions.md).
 
 ## Phase 2 — add and remove roles while a mission runs
 
@@ -118,7 +118,7 @@ Line numbers are as of `3a628e50`, after #874, #881 and #885.
 **Docs**
 
 - The spec's Phase 2 bullets and Decisions to confirm, revised to decisions 4, 6, 9, 10 and 15 above, on this branch.
-- `docs/tests/562-add-remove-roles.md`: the test record with Jason's live checks.
+- `docs/tests/archive/562-add-remove-roles.md`: the test record with Jason's live checks.
 
 ### Tests
 
@@ -140,7 +140,7 @@ Daemon tests use `runtime: "shell"` roles and temporary app data, as Phase 1's d
 
 ### Live checks
 
-Run on macOS by the trio's `qa` slot in the development app, following `docs/tests/full-smoke-test.md`, with bounded test missions on real agents; Windows is Jason's. Recorded in `docs/tests/562-add-remove-roles.md`. Selected because Phase 2 changes the roster, routing and inboxes of a running mission:
+Run on macOS by the trio's `qa` slot in the development app, following `docs/tests/full-smoke-test.md`, with bounded test missions on real agents; Windows is Jason's. Recorded in `docs/tests/archive/562-add-remove-roles.md`. Selected because Phase 2 changes the roster, routing and inboxes of a running mission:
 
 - Add a role from the rail with a task. The newcomer boots, reads the introduction and the task, and posts to the lead. The lead reaches it with `--to`, and a broadcast reaches it.
 - Restart `runnerd` (quit the app and run `make run` again). The newcomer is still on the team and resumes, and its unread count does not include messages from before its join. Its `runner msg read` shows the earlier broadcasts too, as intended (decision 4).
@@ -255,7 +255,7 @@ Line numbers are as of `cf839e16`.
 **Docs**
 
 - The spec's status line, rule 4 refined by decision 4, and Phase 3's scope where this plan sharpened it, on this branch.
-- `docs/tests/562-start-empty.md`: the test record with the live checks.
+- `docs/tests/archive/562-start-empty.md`: the test record with the live checks.
 - `docs/tests/regression/missions.md`: MIS-ASK-01 rewritten without `ask_lead` (decision 16).
 
 ### Tests
@@ -276,7 +276,7 @@ Daemon tests use `runtime: "shell"` roles and temporary app data; a `runnerd` re
 
 ### Live checks
 
-Run on macOS by the trio's `qa` slot in the development app, under the standing authorization in `AGENTS.md`; Windows is Jason's. Recorded in `docs/tests/562-start-empty.md`. Selected because Phase 3 changes how a mission starts, its directory and envelope, and every lead fallback:
+Run on macOS by the trio's `qa` slot in the development app, under the standing authorization in `AGENTS.md`; Windows is Jason's. Recorded in `docs/tests/archive/562-start-empty.md`. Selected because Phase 3 changes how a mission starts, its directory and envelope, and every lead fallback:
 
 - Upgrade the development database: start the candidate on the existing development data and compare counts of crews, slots, roles, missions, sessions and attention rows, and sessions with a mission, before and after. Existing missions and chats resume.
 - Start a mission from the dialog with **No crew**. It opens on the empty state with no paused overlay; the composer is disabled. Add a role with a task: it boots with the goal, reads the task and posts. Add a second; a composer message without a recipient reaches both, and the two coordinate with each other through `--to` with no lead in the mission.

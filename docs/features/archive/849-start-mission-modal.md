@@ -4,11 +4,11 @@
 > Priority: P2, milestone 0.16 (0.14 until 2026-10-10). Platforms: macOS and Windows.
 > Status: merged on 2026-10-15 in [#906](https://github.com/yicheng47/runner/pull/906) with #562 Phase 3, as its own commit (`docs/impls/562-mission-spawn/plan.md`, Phase 3 decision 11); #849 is closed.
 > Design: `design/specs/562-mission-spawn.pen`, drawn together with #562 Phase 3: Start mission from a crew (`AVJ15`) and the crew picker open (`iJuGG`).
-> Related: [562](./562-mission-spawn.md)'s Phase 3 adds **No crew** as the first entry of this dialog's crew picker, for a mission that starts with no roles (settled 2026-10-15), and is drawn and built together with this redesign. This spec covers the crew mode; the No crew entry is 562's.
+> Related: [562](../562-mission-spawn.md)'s Phase 3 adds **No crew** as the first entry of this dialog's crew picker, for a mission that starts with no roles (settled 2026-10-15), and is drawn and built together with this redesign. This spec covers the crew mode; the No crew entry is 562's.
 
 ## Motivation
 
-The role and crew pages ([393](./archive/393-role-page.md), [699](./archive/699-crew-page.md)) and Start a chat ([735](./archive/735-start-chat-modal.md)) lead with identity and setup: pixel avatars, the crew picture, provider marks, and each slot's runtime, model and effort. Start mission is the last create dialog still in the old form style (`crates/runner-app/src/surfaces/start_mission.rs`):
+The role and crew pages ([393](./393-role-page.md), [699](./699-crew-page.md)) and Start a chat ([735](./735-start-chat-modal.md)) lead with identity and setup: pixel avatars, the crew picture, provider marks, and each slot's runtime, model and effort. Start mission is the last create dialog still in the old form style (`crates/runner-app/src/surfaces/start_mission.rs`):
 
 - **The crew is a text dropdown.** The selected crew shows its name over `lead: @coder · 1 worker: @reviewer` (`summarize_crew`), and the other crews in the menu show only `N roles`. Nothing shows who will spawn or what each slot runs, so a wrong model or runtime on a slot only shows up once the mission is running.
 - **The footer only counts.** "2 sessions will spawn" is the only roster information near the Start button.

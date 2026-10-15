@@ -1,6 +1,6 @@
 # OpenCode v2 runtime (local fork)
 
-Historical [issue #592](https://github.com/yicheng47/runner/issues/592) is closed as NOT_PLANNED. This is user-requested local fork work, not an upstream commitment. Scope and authorization: [mission brief](../impls/briefs/592-opencode-runtime.md).
+Historical [issue #592](https://github.com/yicheng47/runner/issues/592) is closed as NOT_PLANNED. This is user-requested local fork work, not an upstream commitment. Scope and authorization: [mission brief](https://github.com/yicheng47/runner/blob/v0.16.2/docs/impls/briefs/592-opencode-runtime.md).
 
 ## Native inventory, 2026-10-12
 
@@ -27,7 +27,7 @@ The original `/docs/cli` describes V1. Use the official [v2 config](https://open
 
 ## Acceptance boundary
 
-Implementation and synthetic validation do not certify native support. macOS and Windows require later explicitly authorized PTY smoke for native first-turn receipt, exact session switching/resume, mission permission/bus access, terminal interaction and plugin status. Full CI and complete regression suites are outside this mission. See [focused validation](../tests/592-opencode-runtime.md) for selected checks and results.
+Implementation and synthetic validation do not certify native support. macOS and Windows require later explicitly authorized PTY smoke for native first-turn receipt, exact session switching/resume, mission permission/bus access, terminal interaction and plugin status. Full CI and complete regression suites are outside this mission. See [focused validation](../../tests/archive/592-opencode-runtime.md) for selected checks and results.
 
 The TUI plugin polls its own current route and synchronized session data, not global events. Root switches and returning home report the exact new ID or clear it. Viewing a child clears Runner's root resume identity; it cannot silently replace the root with a subagent ID. Reporter snapshots include a monotonic plugin epoch and sequence so reloads accept new reports and reject older callbacks; daemon admission additionally authenticates the spawn generation. Historical completion on loading an idle conversation is suppressed. Visible approval/question mapping is deferred: pending server requests alone do not prove a dialog is surfaced in this TUI.
 

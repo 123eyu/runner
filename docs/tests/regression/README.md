@@ -8,14 +8,14 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 
 | Area | File | Cases | Smoke | Additional full |
 | --- | --- | ---: | ---: | ---: |
-| Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 41 | 10 | 31 |
+| Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 45 | 10 | 35 |
 | Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 24 | 5 | 19 |
 | Windows, tabs, panes, sidebar, cwd and drawers | [workspace.md](workspace.md) | 31 | 6 | 25 |
-| Crews, missions, delivery, asks, feed and watches | [missions.md](missions.md) | 26 | 4 | 22 |
+| Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 35 | 4 | 31 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
-| Agents, settings, skills, MCP, installation and updates | [settings.md](settings.md) | 23 | 4 | 19 |
+| Agents, settings, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 32 | 4 | 28 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| **Total** | | **180** | **37** | **143** |
+| **Total** | | **202** | **37** | **165** |
 
 `regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 
@@ -66,7 +66,7 @@ When a feature's test record is archived in a [release's docs sweep](../../../AG
 
 ## Not carried over
 
-All 38 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
+All 51 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 
 | Archive record/check left out | Reason / current owner |
 | --- | --- |
@@ -90,4 +90,9 @@ All 38 archive records were considered. Their lasting current live checks are li
 | [#533 update verification](../../features/archive/533-agent-cli-updates.md#verification): Windows stop-before-update guard | Retired by #790. Current [Agents action](../../../crates/runner-app/src/surfaces/settings/agents.rs) keeps Update enabled with a running-session caption; retained in `SET-UPDATE-01`. |
 | [PC full regression](../archive/2026-10-06-pc-full-regression.md): F1/F2/F4 before/after repetitions, F5 global-canary write investigation and F6 PowerShell option prototypes | One-off remediation/history. Current Stop, hook and configuration-isolation boundaries survive. Signed/native Windows rows remain cases even where that run was Blocked. |
 | [#821](../archive/821-cli-client-protocol-smoke.md): old app-owned MCP handshake, wrong-sidecar report and scratch trust-stanza restoration recipe | MCP server retired, wrong-sidecar is setup evidence, config restoration is run history. Current daemon/sentinel/feed/sandbox cases retained. Trust writers are accounted for by startup isolation, not global edits to make a case pass. |
+| [#562 add/remove roles](../archive/562-add-remove-roles.md): ADD-1, ADD-2, REM-1 and CLI-1 as separate checks, and the run's refusal exit codes | Folded into `MIS-ADD-01` and `MIS-REM-01`, which cover the rail and CLI paths together. Exact exits stay in the [run record](../runs/2026-10-13-macos.md). |
+| [#562 empty start](../archive/562-start-empty.md): UPG-1's 27→28 row and link counts on read-only database copies, design-PNG comparisons and the per-run fixture ledger | One-time migration proof; CI owns migration 0028 in the [database tests](../../../crates/runner-daemon/src/db/tests.rs). Shipped frames live in the design files. Ongoing empty, membership, crew-deletion, startup-delivery and archive behavior is `MIS-EMPTY-*`, `MIS-ADD-01`, `MIS-REM-01`, `MIS-CREW-02`, `MIS-MSG-06` and `MIS-LIFE-03`; legacy asks are `MIS-ASK-01`. |
+| [#592 OpenCode](../archive/592-opencode-runtime.md): synthetic plugin, SQLite history, model-query and JSONC fixtures, the free-tier provider failures and the local fork's allocation and variant rechecks | Automated in the OpenCode adapter's own tests; provider failures are account history, not product behavior. OpenCode runs the existing `RT-*`, `SET-AGENT-*`, `SET-SKILL-*` and `SET-MCP-*` templates as an additional runtime, plus `RT-OPENCODE-01/02/03`. |
+| [#701 notifications](../archive/701-desktop-notifications.md): controller, rule and settings round-trip tests, and the superseded mission master switch and completion-off defaults | CI owns the [notification controller](../../../crates/runner-app/src/notifications.rs) tests. The final four independent mission switches and background-only posting are `SET-NOTIF-01` to `SET-NOTIF-09`. |
+| [#878 launch definitions](../archive/878-session-launch-definition.md): LD-3's previous-build conversion and migration 0026/0027 | One-time upgrade; CI owns the conversion and schema snapshot tests. Ongoing launch freezing is `RT-LAUNCH-01` and `MIS-ROSTER-03`, and the stop divider is `MIS-FEED-02`. |
 | [M6.1](../archive/m6-1-input-state-smoke.md), [M6.6](../archive/m6-6-resize-smoke.md): old backend byte-latch/ring purge, `gpui-nightly` versus Tauri-main and internal ioctl/DB-count assertions | Retired structure/CI detail. Native drafts/IME and immediate resize/reattach/geometry/memory behavior remain `TERM-*`, `WS-*` and `MIS-*`. |

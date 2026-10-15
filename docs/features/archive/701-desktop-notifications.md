@@ -4,7 +4,7 @@
 > Priority: P2, milestone 0.16 (moved from 0.13 to 0.14 on 2026-10-07, renumbered 0.16 on 2026-10-10). Platforms: macOS and Windows.
 > Decision, 2026-10-13: use the operating system's own notifications, Notification Center on macOS and toast notifications on Windows, posted through GPUI's system notification API. This replaces the 2026-09-22 decision to copy Zed's self-drawn popup window.
 > Defaults, Jason, 2026-10-13 (latest correction): post only while Runner is in the background; chat input, completion and errors on; the four independent mission switches off by default. Mission turn completion is replaced by a whole-mission Busy → Idle edge.
-> Design: [`design/specs/701-desktop-notifications.pen`](../../design/specs/701-desktop-notifications.pen), revised and reviewed with Jason in Pencil before implementation. The panes are `K8FVAY` (dark) and `gYgga` (light), with all seven event rows always visible; the final design is committed on main as `ce2b8f81`, and the System row's permission states (`Feeq7` dark, `w4PN2` light) as `93b125ea`. The system draws the notification, so the design covers the Settings → Notifications pane (`K8FVAY`, with the new nav row in `cmp/SettingsNav`) and how each trigger fills the notification's title and body, drawn as macOS banners (`w9LiW` dark, `Ozj1d` light).
+> Design: [`design/specs/701-desktop-notifications.pen`](../../../design/specs/701-desktop-notifications.pen), revised and reviewed with Jason in Pencil before implementation. The panes are `K8FVAY` (dark) and `gYgga` (light), with all seven event rows always visible; the final design is committed on main as `ce2b8f81`, and the System row's permission states (`Feeq7` dark, `w4PN2` light) as `93b125ea`. The system draws the notification, so the design covers the Settings → Notifications pane (`K8FVAY`, with the new nav row in `cmp/SettingsNav`) and how each trigger fills the notification's title and body, drawn as macOS banners (`w9LiW` dark, `Ozj1d` light).
 
 ## Motivation
 
@@ -171,7 +171,7 @@ Notifications get their own Settings pane rather than a row in General, and user
   - The System row for each permission state.
 - **Checks**: `runner-app` tests and workspace clippy.
 - **Live QA on macOS**: notifications need an app bundle, so a plain `make run` build posts nothing.
-  - QA builds with `make run` and drives the development build through the `.app` wrapper of the [full smoke-test procedure](../tests/full-smoke-test.md#macos-native-control-of-the-debug-executable): bundle id `com.wycstudios.runner.smoke-dev`, development data and daemon.
+  - QA builds with `make run` and drives the development build through the `.app` wrapper of the [full smoke-test procedure](../../tests/full-smoke-test.md#macos-native-control-of-the-debug-executable): bundle id `com.wycstudios.runner.smoke-dev`, development data and daemon.
   - The wrapper has its own notification permission, separate from an installed Runner. QA accepts the permission prompt on the first notification.
   - If macOS refuses authorization for the unsigned wrapper, ad-hoc sign it with `codesign --force --sign - "$smoke_bundle"` and record that in the procedure.
   - Do not test with `script/bundle-mac --dev`. Its `Runner.app` uses the production bundle id `com.wycstudios.runner` and release data paths, so it would share notification permission and clicks with an installed Runner.

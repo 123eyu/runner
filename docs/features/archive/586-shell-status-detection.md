@@ -9,7 +9,7 @@
 
 A shell running `sleep 4` can become Idle after two seconds because Runner currently infers activity from byte arrival. Foreground process detection improves the ordinary shell → command → shell transition without injecting shell startup scripts. Try that smaller change and evaluate it in live use before implementing semantic prompt integration.
 
-This applies to Runner's shell tabs, panes, and drawer shells. It does not classify agent turns or fix agent inbox routing: Codex and Claude Code remain foreground processes while working and while awaiting input. Their lifecycle belongs to [#347](./archive/347-hook-based-session-status.md).
+This applies to Runner's shell tabs, panes, and drawer shells. It does not classify agent turns or fix agent inbox routing: Codex and Claude Code remain foreground processes while working and while awaiting input. Their lifecycle belongs to [#347](./347-hook-based-session-status.md).
 
 ## First step: process detection
 
@@ -39,4 +39,4 @@ Bundled injection must preserve each shell's startup chain and user configuratio
 
 - Runner: `crates/runner-backend/src/session/process/{unix,windows}.rs`, `session/pty_runtime.rs`, `session/manager/`, and `ops/session.rs`.
 - Ghostty: `src/shell-integration/` and `src/termio/shell_integration.zig` in `~/repos/gui/ghostty`; Zellij: foreground process discovery in `~/repos/gui/zellij`. Zellij's process discovery is not an agent Busy/Idle protocol.
-- [#584](./archive/584-title-status-detection.md) records the shipping title heuristic; [#587](./archive/587-terminal-provided-titles.md) displays titles without interpreting them as activity.
+- [#584](./584-title-status-detection.md) records the shipping title heuristic; [#587](./587-terminal-provided-titles.md) displays titles without interpreting them as activity.

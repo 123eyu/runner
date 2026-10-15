@@ -6,12 +6,13 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 ## Active
 
-- [`562-mission-spawn/`](./562-mission-spawn/README.md) — missions as containers ([#562](https://github.com/yicheng47/runner/issues/562)): Phase 1 shipped in [#868](https://github.com/yicheng47/runner/pull/868), session independence in [#874](https://github.com/yicheng47/runner/pull/874); Phase 2, adding and removing roles while a mission runs, is next.
-- [`701-desktop-notifications.md`](./701-desktop-notifications.md) — system notifications when an agent needs you, and the Settings → Notifications pane ([#701](https://github.com/yicheng47/runner/issues/701)).
+- [`562-mission-spawn/`](./562-mission-spawn/README.md) — missions as containers ([#562](https://github.com/yicheng47/runner/issues/562)): Phase 1 shipped in [#868](https://github.com/yicheng47/runner/pull/868), session independence in [#874](https://github.com/yicheng47/runner/pull/874), Phase 2's adding and removing roles in [#889](https://github.com/yicheng47/runner/pull/889) (0.16.0) and Phase 3's empty start in [#906](https://github.com/yicheng47/runner/pull/906) (0.16.2); the lead's own verbs and outside seats remain.
 
 ## Archive
 
 - [`733-gpui-pre.md`](./archive/733-gpui-pre.md) — move GPUI from the yanked `gpui-ce` 0.3.3 to `gpui-pre =0.3.7` ([#767](https://github.com/yicheng47/runner/pull/767), shipped in 0.12.6 on 2026-10-01).
+- [`878-session-launch-definition.md`](./archive/878-session-launch-definition.md) — record each session's launch inputs at spawn so Resume and fork ignore later role edits ([#881](https://github.com/yicheng47/runner/pull/881), shipped in 0.16.0 on 2026-10-13).
+- [`701-desktop-notifications.md`](./archive/701-desktop-notifications.md) — system notifications when an agent needs you, and the Settings → Notifications pane ([#891](https://github.com/yicheng47/runner/pull/891), shipped in 0.16.1 on 2026-10-14).
 
 Shipped plans are in [`archive/`](./archive/) in number order, and each names its PR. Multi-mission programs keep a folder with a condensed README:
 

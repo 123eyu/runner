@@ -1,6 +1,6 @@
 # 701 — desktop notifications: plan
 
-Implementation plan for [#701](https://github.com/yicheng47/runner/issues/701) (feature, P2, milestone 0.16). The spec is [`docs/features/701-desktop-notifications.md`](../features/701-desktop-notifications.md) and the design is [`design/specs/701-desktop-notifications.pen`](../../design/specs/701-desktop-notifications.pen): the Settings → Notifications pane `K8FVAY` and the notification content `w9LiW` (dark) and `Ozj1d` (light). Where this plan and the spec disagree, the spec wins. Line numbers are as of `8c47a317`; paths are under `crates/runner-app/src/` unless stated.
+Implementation plan for [#701](https://github.com/yicheng47/runner/issues/701) (feature, P2, milestone 0.16). The spec is [`docs/features/701-desktop-notifications.md`](../../features/archive/701-desktop-notifications.md) and the design is [`design/specs/701-desktop-notifications.pen`](../../../design/specs/701-desktop-notifications.pen): the Settings → Notifications pane `K8FVAY` and the notification content `w9LiW` (dark) and `Ozj1d` (light). Where this plan and the spec disagree, the spec wins. Line numbers are as of `8c47a317`; paths are under `crates/runner-app/src/` unless stated.
 
 The work is app-side only: `runnerd`, the client protocol and the database do not change. It lands as one pull request from one mission, in three commits that each build and pass their tests: the setting and its pane, direct chats, then missions.
 

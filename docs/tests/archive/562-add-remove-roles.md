@@ -1,6 +1,8 @@
 # 562 — add and remove roles while a mission runs
 
-Branch: `feat/562-add-remove-roles`, worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-add-remove-roles`. Phase 2 follows [the plan](../impls/562-mission-spawn/plan.md), decisions 1–15. Native Windows remains unverified.
+Archived in the 0.16.2 docs sweep on 2026-10-15. Lasting live checks are maintained as MIS-ADD-01 and MIS-REM-01 in [Missions](../regression/missions.md); the draft cases below are the origin, and historical verdicts and platform gaps are preserved.
+
+Branch: `feat/562-add-remove-roles`, worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-add-remove-roles`. Phase 2 follows [the plan](../../impls/562-mission-spawn/plan.md), decisions 1–15. Native Windows remains unverified.
 
 ## Selected checks and reasons
 
@@ -51,7 +53,7 @@ The revised focused run passed all three `mission_roles` tests (`mission-roles-r
 
 ## Native macOS QA
 
-Final native verdict on 2026-10-13: **Passed for ADD-1, ADD-2, REM-1, CLI-1, MIS-CREW-01, MIS-LIFE-01, MIS-MSG-01, MIS-MSG-02, MIS-FEED-01 and MIS-ROSTER-01 on macOS/Codex**. Native Windows remains unverified, outside this run. This is the selected feature pass, not a complete regression pass. The [run record](runs/2026-10-13-macos.md#562-addremove-roles--resumed-run-and-final-verdict) contains the final matrix, candidate/environment, exact refusal exits, runtime conversations, screenshot paths, first failed fixture attempts and successful retries.
+Final native verdict on 2026-10-13: **Passed for ADD-1, ADD-2, REM-1, CLI-1, MIS-CREW-01, MIS-LIFE-01, MIS-MSG-01, MIS-MSG-02, MIS-FEED-01 and MIS-ROSTER-01 on macOS/Codex**. Native Windows remains unverified, outside this run. This is the selected feature pass, not a complete regression pass. The [run record](../runs/2026-10-13-macos.md#562-addremove-roles--resumed-run-and-final-verdict) contains the final matrix, candidate/environment, exact refusal exits, runtime conversations, screenshot paths, first failed fixture attempts and successful retries.
 
 QA matched the handoff HEAD `58878d641b7707e08a0471b13d3dc2baa7dab293` and initial full diff SHA-256 `adf6f60cf224cbb2621e8ad9fff98e7795bb2cb5a7bef4162d6145aa49b154ce`, built once, and kept source unchanged. Final source-only diff SHA-256 is `0e6cb014772b340bbd77b6eace7dc5fda4f0acb87619b0074272a178e4413d38`; app and development sidecar hashes remained identical across restarts. Evidence root: `/private/tmp/runner-562-qa.moi8by_j/evidence`; ledger: `/private/tmp/runner-562-qa.moi8by_j/ledger.json`. The native six-surface comparison passed with the documented shared-control precedence.
 
