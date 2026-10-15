@@ -10,7 +10,7 @@
   <a href="https://github.com/yicheng47/runner/releases"><img src="https://img.shields.io/github/downloads/yicheng47/runner/total?style=flat-square&label=downloads" alt="下载量" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/yicheng47/runner?style=flat-square&cacheSeconds=86400" alt="许可证" /></a>
   <a href="#社区"><img src="https://img.shields.io/badge/WeChat-user%20group-07C160?style=flat-square&logo=wechat&logoColor=white" alt="微信用户群" /></a>
-  <a href="#下载"><img src="https://img.shields.io/badge/macOS%20%7C%20Windows-native-2ea44f?style=flat-square" alt="macOS 与 Windows" /></a>
+  <a href="https://runnersh.dev/downloads/"><img src="https://img.shields.io/badge/macOS%20%7C%20Windows-native-2ea44f?style=flat-square" alt="macOS 与 Windows" /></a>
 </p>
 
 <p align="center">
@@ -34,9 +34,9 @@
 </p>
 
 <p align="center">
-  <a href="#关于">关于</a>
-  ·
   <a href="#功能">功能</a>
+  ·
+  <a href="#演示">演示</a>
   ·
   <a href="#支持的-agent">Agent</a>
   ·
@@ -44,44 +44,14 @@
   ·
   <a href="#示例-crew">Crew 示例</a>
   ·
-  <a href="#下载">下载</a>
-  ·
   <a href="./CONTRIBUTING.md">参与贡献</a>
 </p>
 
-> 状态：alpha，持续迭代中。原生支持 macOS（Apple Silicon）和 Windows（x64），Windows 从 0.8.0 起加入。
+> Alpha · 原生支持 macOS（Apple Silicon）和 Windows（x64）。
 
-## 关于
-
-Runner 是一个原生桌面应用，用来让命令行编码 agent **一起**干活。同时跑多个 agent 本来就不难——一人一个终端，它们就能并行，各干各的。Runner 要解决的是另一件事：同一个任务、不同的角色、一条共享的 feed，以及一个在该你拍板时把你叫进来的 lead。对工作流有主张，对厂商保持中立：coder 可以是 Claude Code，reviewer 可以是 Codex。
-
-- **角色（role）** — 一份可复用的 agent 配置：运行时、系统提示词、工作目录。
-- **Crew** — 把若干角色组合成有名字的槽位，指定一个 lead，再加上每个 mission 都会继承的团队约定。
-- **Mission** — 一个 crew 围绕一个目标干活：每个槽位一个实时终端，通过一条可持久化、可回放的事件 feed 协作，需要你拍板时用 `ask_human` 提问。
-- **Chat** — 单个 agent 跑在一个真实终端里，不需要 mission；标签页可以一直分栏到窗口放不下为止。
-- **CLI** — 上面的一切也都有对应命令，agent、脚本和终端前的人都可以自己驱动 Runner。
-
-用 Rust 写成，通过 [gpui-pre](https://github.com/longbridge/gpui-kit) 使用 [Zed](https://zed.dev) 的 GPUI，终端网格用 `alacritty_terminal`，状态存在 SQLite。没有 webview。会话由后台服务 `runnerd` 持有，所以应用关闭后 agent 照样继续工作；应用和 `runner` 命令都是它的客户端。一切都在你自己的机器上运行和保存。
-
-## 前置条件
-
-Runner 运行的是你已经在用的 agent 命令行工具，它不负责安装。开始之前，至少安装 Claude Code、Codex、Antigravity CLI、GitHub Copilot CLI 或 pi 中的一个并完成登录，Runner 会在 `PATH` 上找到它。在 Windows 上，Claude Code 和 pi 的 bash 工具需要 Git for Windows，通过 npm 安装的 CLI 需要 Node.js。
-
-## 下载
-
-在[下载页](https://runnersh.dev/downloads/)获取最新版本：macOS（Apple Silicon）是已签名并完成公证的 `.dmg`，Windows 10 1809 或更高版本是已签名的 `Runner-Setup-…-x64.exe` 安装包。Intel Mac、Windows ARM64 和 Linux 暂不支持。
-
-两个平台都支持原地更新，macOS 走 Sparkle，Windows 走 Settings 旁边的更新图标，设置、对话和 mission 都会保留。更新会重启正在运行的 agent，每个 agent 都会接着自己原来的对话。在 Windows 上，证书积累信誉之前，新版本可能仍会触发 SmartScreen 警告，点 **更多信息 → 仍要运行** 即可继续。
-
-## 演示
-
-快速展示可复用角色、crew 配置、终端分屏，以及 mission 中 coder、reviewer 和 QA 的协作。
-
-https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
+Runner 让命令行编码 agent 通过可复用的 crew、真实终端和共享 mission feed 一起工作。会话和历史记录都保存在你的机器上。
 
 ## 功能
-
-每项功能的界面演示见 [runnersh.dev](https://runnersh.dev/)。
 
 <table>
   <tr>
@@ -137,6 +107,16 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 - **在一个地方管理 MCP 服务与技能** — **Settings → MCP** 和 **Settings → Skills** 按 agent 列出它自己的配置，可以按 agent 单独关掉某一项，只改动你碰过的那一条。
 - **项目** — 绑定一次工作目录；在项目里发起的 chat 和 mission 会继承它的 cwd，并在侧边栏里归在一起。
 - **浅色与深色** — Carbon 和 Runner Light，外加 Catppuccin，每种模式各有一套应用配色和终端配色。Claude Code 会实时跟着切换。
+
+## 演示
+
+快速展示可复用角色、crew 配置、终端分屏，以及 mission 中 coder、reviewer 和 QA 的协作。
+
+https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
+
+## 前置条件
+
+Runner 运行的是你已经在用的 agent 命令行工具，它不负责安装。开始之前，至少安装 Claude Code、Codex、Antigravity CLI、GitHub Copilot CLI 或 pi 中的一个并完成登录，Runner 会在 `PATH` 上找到它。在 Windows 上，Claude Code 和 pi 的 bash 工具需要 Git for Windows，通过 npm 安装的 CLI 需要 Node.js。
 
 ## 让你的 agent 来驱动 Runner
 
