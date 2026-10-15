@@ -83,23 +83,52 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 
 [runnersh.dev](https://runnersh.dev/) shows each of these in the app.
 
-- **Crews and missions** — a crew is roles in named slots with one lead and shared conventions; a mission gives each slot a live terminal and a feed where the crew coordinates and its questions wait for you. Stop, resume or restart one slot without touching the rest. [Architecture →](./docs/arch/arch.md)
-
-  <img src="assets/mission_terminal.png" alt="A mission slot's own terminal: the coder's Codex session, beside the crew's session cards" width="100%" />
-
-- **Real terminals** — each agent keeps its own TUI in a real PTY on a GPU-drawn `alacritty_terminal` grid, with mouse reporting, IME input (Pinyin included), file-path paste and click-to-open, and a shell drawer beneath every chat and mission.
-- **Agents keep working when Runner is closed** — sessions live in `runnerd`, Runner's background service. Quit the app, or let it crash, and reopen it to the same live terminals; stopped agents resume their own conversations on the next launch.
-- **Desktop notifications** — while Runner is in the background, get notified when an agent needs input, finishes a turn or fails. Clicking a notification opens its chat or mission. Choose events in **Settings → Notifications**; chat notifications are on by default, and mission notifications are opt-in.
-
-  <img src="assets/notifications.png" alt="Settings → Notifications: choose which chat and mission events send desktop notifications" width="100%" />
-
-- **Split tabs and windows** — split a tab as far as the window allows, drag panes to reorder, group tabs into folders, and open more windows with `⇧⌘N` or `Ctrl+Shift+N`.
-
-  <img src="assets/chat_split.png" alt="One tab split four ways: Codex, Claude Code, Antigravity CLI and pi side by side" width="100%" />
-
-- **MCP servers and skills in one place** — **Settings → MCP** and **Settings → Skills** list each agent's own config and switch entries off per agent, changing only the entry you touched.
-- **Projects** — bind a working directory once; chats and missions started in it inherit the cwd and group in the sidebar.
-- **Light and dark** — Carbon and Runner Light, plus Catppuccin, with an app palette and a terminal palette per mode. Claude Code follows the switch live.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Crews and missions</h3>
+      <a href="assets/mission_feed.png"><img src="assets/mission_feed.png" alt="A mission feed with coder, reviewer and QA coordinating, and a question waiting for your input" width="100%" /></a>
+      <p>A crew is roles in named slots with one lead and shared conventions; a mission gives each slot a live terminal and a feed where the crew coordinates and its questions wait for you. Stop, resume or restart one slot without touching the rest. <a href="./docs/arch/arch.md">Architecture →</a></p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Real terminals</h3>
+      <a href="assets/mission_terminal.png"><img src="assets/mission_terminal.png" alt="A mission slot's own terminal: the coder's Codex session, beside the crew's session cards" width="100%" /></a>
+      <p>Each agent keeps its own TUI in a real PTY on a GPU-drawn <code>alacritty_terminal</code> grid, with mouse reporting, IME input (Pinyin included), file-path paste and click-to-open, and a shell drawer beneath every chat and mission.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Split tabs and windows</h3>
+      <a href="assets/chat_split.png"><img src="assets/chat_split.png" alt="One tab split four ways: Codex, Claude Code, Antigravity CLI and pi side by side" width="100%" /></a>
+      <p>Split a tab as far as the window allows, drag panes to reorder, group tabs into folders, and open more windows with <code>⇧⌘N</code> or <code>Ctrl+Shift+N</code>.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Desktop notifications</h3>
+      <a href="assets/notifications.png"><img src="assets/notifications.png" alt="Settings → Notifications: choose which chat and mission events send desktop notifications" width="100%" /></a>
+      <p>While Runner is in the background, get notified when an agent needs input, finishes a turn or fails. Clicking a notification opens its chat or mission. Choose events in <strong>Settings → Notifications</strong>; chat notifications are on by default, and mission notifications are opt-in.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Agents keep working when Runner is closed</h3>
+      <p>Sessions live in <code>runnerd</code>, Runner's background service. Quit the app, or let it crash, and reopen it to the same live terminals; stopped agents resume their own conversations on the next launch.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>MCP servers and skills in one place</h3>
+      <p><strong>Settings → MCP</strong> and <strong>Settings → Skills</strong> list each agent's own config and switch entries off per agent, changing only the entry you touched.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Projects</h3>
+      <p>Bind a working directory once; chats and missions started in it inherit the cwd and group in the sidebar.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Light and dark</h3>
+      <p>Carbon and Runner Light, plus Catppuccin, with an app palette and a terminal palette per mode. Claude Code follows the switch live.</p>
+    </td>
+  </tr>
+</table>
 
 ## Drive Runner from your agents
 
