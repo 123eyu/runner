@@ -69,6 +69,7 @@ use crate::error::Result;
 // 0024: runtime_options_json on roles, slots and sessions; sessions drops it in 0027.
 // 0026: records launch definitions, with a Rust conversion in the same transaction.
 // 0027: drops six process-host columns and three session override columns.
+// 0028: optional mission crew provenance and explicit dependent-row cleanup.
 pub(super) const MIGRATIONS: &[(i64, &str, bool)] = &[
     (1, include_str!("../../migrations/0001_init.sql"), false),
     (
@@ -192,6 +193,11 @@ pub(super) const MIGRATIONS: &[(i64, &str, bool)] = &[
         27,
         include_str!("../../migrations/0027_drop_unused_session_columns.sql"),
         false,
+    ),
+    (
+        28,
+        include_str!("../../migrations/0028_optional_mission_crew_restrict_deletes.sql"),
+        true,
     ),
 ];
 
