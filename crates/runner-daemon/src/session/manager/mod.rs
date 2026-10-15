@@ -46,6 +46,7 @@ use crate::session::runtime::{
 mod lifecycle;
 mod output;
 mod spawn;
+mod startup;
 pub mod terminal;
 #[cfg(windows)]
 pub(crate) mod windows_shutdown;
@@ -473,6 +474,7 @@ pub struct WarningEvent {
 pub use runner_core::protocol::session::SpawnedSession;
 
 struct SessionHandle {
+    startup: Option<startup::StartupDelivery>,
     #[cfg(windows)]
     pending_first_turn: Option<PendingFirstTurn>,
     id: String,
@@ -737,7 +739,6 @@ pub struct PendingMissionSpawn {
     size_source: &'static str,
     plan: router::runtime::ResumePlan,
     first_turn_delivered_via_argv: bool,
-    #[cfg(windows)]
     first_turn: Option<String>,
     resolved_cwd: Option<String>,
     row_started_at: String,
@@ -1021,7 +1022,10 @@ impl SessionManager {
         let gate = session.lock().unwrap().delivery_gate.clone();
         let delivery = gate.state.lock().unwrap();
         let session = session.lock().unwrap();
-        session.handle.is_some()
+        session
+            .handle
+            .as_ref()
+            .is_some_and(|handle| handle.startup.is_none())
             && !session.model.status().observation.needs_you()
             && !delivery.in_flight
             && delivery.next_ticket == delivery.next_served
@@ -1058,6 +1062,13 @@ impl SessionManager {
         let session = session.lock().unwrap();
         if session.handle.is_none() {
             return Ok(router::DeliveryReservation::Unavailable);
+        }
+        if session
+            .handle
+            .as_ref()
+            .is_some_and(|handle| handle.startup.is_some())
+        {
+            return Ok(router::DeliveryReservation::Starting);
         }
         if session.model.status().observation.needs_you() {
             return Ok(router::DeliveryReservation::HumanInteraction);
@@ -1581,7 +1592,8 @@ impl SessionManager {
         let Some(session) = self.session_state(session_id) else {
             return Default::default();
         };
-        let (status, sink, effects) = {
+        let bridge_failed = matches!(event, SessionEvent::BridgeFailed { .. });
+        let (status, sink, effects, startup_ready) = {
             let mut session = session.lock().unwrap();
             if launch.is_some_and(|launch| {
                 launch.load(Ordering::Acquire)
@@ -1600,10 +1612,26 @@ impl SessionManager {
                 _ => {}
             }
             let effects = session.model.apply(event, super::clock::state_now());
+            let status = session.model.status().clone();
+            let startup_ready = session.handle.as_mut().is_some_and(|handle| {
+                let Some(startup) = handle.startup.as_mut() else {
+                    return false;
+                };
+                if bridge_failed {
+                    startup.bridge_failed();
+                }
+                if startup.observation(&status.observation) {
+                    handle.startup = None;
+                    true
+                } else {
+                    false
+                }
+            });
             (
-                session.model.status().clone(),
+                status,
                 session.mission_status_sink.clone(),
                 effects,
+                startup_ready,
             )
         };
         if let Some((state, source)) = effects.publication {
@@ -1620,6 +1648,9 @@ impl SessionManager {
                     log::warn!("publish hook observation: {error:?}");
                 }
             }
+        }
+        if startup_ready {
+            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::StartupReady);
         }
         if effects.input_cleared {
             self.notify_delivery_event(session_id, router::SessionDeliveryEvent::InputCleared);

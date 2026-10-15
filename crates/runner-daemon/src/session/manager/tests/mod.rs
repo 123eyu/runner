@@ -25,6 +25,7 @@ mod runtime_direct;
 mod runtime_override;
 mod slot_restart;
 mod spawn_env;
+mod startup;
 mod status;
 mod terminal_size;
 mod unlisted;
@@ -613,6 +614,7 @@ fn install_test_session_handle(manager: &SessionManager, session_id: &str) {
         .lock()
         .unwrap()
         .handle = Some(SessionHandle {
+        startup: None,
         #[cfg(windows)]
         pending_first_turn: None,
         id: session_id.into(),

@@ -385,6 +385,9 @@ pub trait RuntimeAdapter: Send + Sync {
     fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
         None
     }
+    fn startup_delivery_uses_hooks(&self, _pending_turn: bool) -> bool {
+        false
+    }
     fn mission_dir_args(&self, _dir: Option<&Path>) -> Vec<String> {
         Vec::new()
     }

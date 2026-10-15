@@ -145,6 +145,12 @@ impl SessionManager {
                                 Err(_) => break,
                             }
                         }
+                        manager_t.startup_output(
+                            &session_id,
+                            &stop,
+                            &bytes,
+                            super::super::clock::now(),
+                        );
                         manager_t.ingest_output_chunk(
                             &session_id,
                             mission_id.as_deref(),
@@ -276,7 +282,14 @@ impl SessionManager {
                             }
                         }
                     }
-                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Timeout) => {
+                        manager_t.release_settled_startup(
+                            &session_id,
+                            &stop,
+                            super::super::clock::now(),
+                        );
+                        continue;
+                    }
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
             }

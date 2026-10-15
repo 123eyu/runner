@@ -239,6 +239,7 @@ fn install_replay_handle(
     log: &Arc<EventLog>,
 ) {
     let handle = SessionHandle {
+        startup: None,
         #[cfg(windows)]
         pending_first_turn: None,
         id: ID.into(),
@@ -449,6 +450,7 @@ fn replay(path: &Path) -> Value {
                             router::DeliveryReservation::Drafting { composer_visible } => {
                                 json!({"gate":"drafting", "composer_visible":composer_visible})
                             }
+                            router::DeliveryReservation::Starting => json!({"gate":"starting"}),
                             router::DeliveryReservation::Unavailable => {
                                 json!({"gate":"unavailable"})
                             }

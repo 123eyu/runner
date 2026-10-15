@@ -178,6 +178,9 @@ impl RuntimeAdapter for Codex {
             Box::new(terminal::CodexTerminal::new(pending)) as Box<dyn TerminalAdapter>
         })
     }
+    fn startup_delivery_uses_hooks(&self, _pending_turn: bool) -> bool {
+        true
+    }
     fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
         Some(&Hooks)
     }

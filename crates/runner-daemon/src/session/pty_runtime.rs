@@ -42,7 +42,9 @@ const READ_BUF: usize = 64 * 1024;
 /// while a turn runs, so genuine work rarely goes quiet; the 2 s window is
 /// for the moments it does (a tool call that pauses the spinner), because
 /// the router treats Idle as a turn boundary and delivers into it.
-const DEFAULT_IDLE_THRESHOLD: Duration = Duration::from_secs(2);
+pub(crate) const DEFAULT_IDLE_THRESHOLD: Duration = Duration::from_secs(2);
+// An optional native bridge may never start despite its receiver being allocated.
+const HOOK_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const IDLE_MONITOR_POLL: Duration = Duration::from_millis(50);
 /// How long a runtime gets to exit on its own after SIGHUP before its
 /// process group is SIGKILLed. Sized to claude-code's own shutdown failsafe
@@ -287,7 +289,11 @@ impl SessionRuntime for PtyRuntime {
         });
         let mut idle_detector =
             IdleDetector::with_adapter_at(DEFAULT_IDLE_THRESHOLD, terminal_adapter, Instant::now());
+        idle_detector.awaiting_first_hook = spec.mission && hook_status.is_some();
         if hook_status.is_none() {
+            if spec.mission {
+                let _ = tx.send(RuntimeOutput::StatusBridgeFailed);
+            }
             idle_detector.hooks_unavailable();
         }
         let handle = Arc::new(SessionHandle {
@@ -721,6 +727,8 @@ fn record_exit_status(handle: &SessionHandle, status: ExitStatus) {
 // --- Reader thread ------------------------------------------------------
 
 pub(crate) struct IdleDetector {
+    first_output: Option<Instant>,
+    awaiting_first_hook: bool,
     last_byte: Instant,
     current: SessionActivityState,
     threshold: Duration,
@@ -739,6 +747,8 @@ impl IdleDetector {
             .as_ref()
             .is_some_and(|adapter| adapter.held_activity() == Some(SessionActivityState::Busy));
         Self {
+            first_output: None,
+            awaiting_first_hook: false,
             last_byte: now,
             current: SessionActivityState::Busy,
             threshold,
@@ -761,6 +771,9 @@ impl IdleDetector {
         now: Instant,
     ) -> Option<crate::runtimes::TerminalEvent> {
         use crate::runtimes::TerminalEvent;
+        if !bytes.is_empty() {
+            self.first_output.get_or_insert(now);
+        }
         if let Some(event) = self
             .adapter
             .as_mut()
@@ -824,12 +837,22 @@ impl IdleDetector {
             self.input_transition |= input.announce;
         }
     }
+    pub(crate) fn hook_startup_timed_out_at(&self, now: Instant) -> bool {
+        self.awaiting_first_hook
+            && self
+                .first_output
+                .is_some_and(|first| now.duration_since(first) >= HOOK_STARTUP_TIMEOUT)
+            && now.duration_since(self.last_byte) >= self.threshold
+    }
+
     pub(crate) fn hooks_unavailable(&mut self) {
+        self.awaiting_first_hook = false;
         if let Some(adapter) = self.adapter.as_mut() {
             adapter.hooks_unavailable();
         }
     }
     pub(crate) fn accept_event(&mut self, event: &super::state::agent::AgentEvent) -> bool {
+        self.awaiting_first_hook = false;
         if self
             .adapter
             .as_mut()
@@ -919,7 +942,7 @@ fn idle_monitor_thread(
             break;
         }
         if let Some(watcher) = hook_status.as_mut() {
-            if let Err(error) = watcher.drain_events(
+            let result = watcher.drain_events(
                 {
                     let mut detector = detector.lock().expect("idle detector poisoned");
                     std::mem::take(&mut detector.pending_cancel)
@@ -972,7 +995,21 @@ fn idle_monitor_thread(
                         let _ = tx.send(RuntimeOutput::ConversationStart(id));
                     }
                 },
-            ) {
+            );
+            let result = result.and_then(|()| {
+                let expired = detector
+                    .lock()
+                    .expect("idle detector poisoned")
+                    .hook_startup_timed_out_at(Instant::now());
+                if expired {
+                    Err(crate::error::Error::msg(format!(
+                        "hook bridge produced no status within {HOOK_STARTUP_TIMEOUT:?} of terminal output; using output fallback"
+                    )))
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(error) = result {
                 log::warn!("read agent status: {error}");
                 detector
                     .lock()
@@ -1367,6 +1404,95 @@ mod tests {
                 })
                 .unwrap(),
         );
+    }
+
+    #[test]
+    fn hook_startup_deadline_requires_output_and_quiet_and_stops_after_any_valid_report() {
+        let start = Instant::now();
+        let mut detector = codex_detector(DEFAULT_IDLE_THRESHOLD, true);
+        detector.awaiting_first_hook = true;
+        assert!(!detector.hook_startup_timed_out_at(start + Duration::from_secs(3600)));
+        detector.on_output_event_at(b"Starting MCP servers (6/7)", false, start);
+        for seconds in [2, 10, 59] {
+            assert!(!detector.hook_startup_timed_out_at(start + Duration::from_secs(seconds)));
+        }
+        detector.on_output_event_at(b"first answer", false, start + Duration::from_secs(59));
+        assert!(!detector.hook_startup_timed_out_at(start + Duration::from_secs(60)));
+        assert!(detector.hook_startup_timed_out_at(start + Duration::from_secs(61)));
+        assert!(detector.accept_event(&super::super::state::agent::AgentEvent::TurnStarted));
+        assert!(!detector.hook_startup_timed_out_at(start + Duration::from_secs(3600)));
+
+        let mut startup = codex_detector(DEFAULT_IDLE_THRESHOLD, true);
+        startup.awaiting_first_hook = true;
+        startup.on_output_event_at(b"startup", false, start);
+        // Codex suppresses startup-ready while argv is pending, but the bridge is alive.
+        assert!(
+            !startup.accept_event(&super::super::state::agent::AgentEvent::Batch {
+                runtime: crate::model::Runtime::Codex,
+                events: vec![super::super::state::agent::AgentEvent::StartupReady],
+            })
+        );
+        assert!(!startup.hook_startup_timed_out_at(start + Duration::from_secs(3600)));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn allocated_hook_receiver_with_no_reports_enters_output_fallback() {
+        let routes = Arc::new(super::super::hook_queue::HookRoutes::default());
+        let receiver = routes.register(
+            crate::model::Runtime::Codex,
+            "silent-bridge".into(),
+            "launch".into(),
+        );
+        let spec = SpawnSpec {
+            agent_runtime: Some(crate::model::Runtime::Codex),
+            session_id: "silent-bridge".into(),
+            mission: true,
+            pending_turn: Some(true),
+            ..Default::default()
+        };
+        let mut watcher = crate::runtimes::adapter(crate::model::Runtime::Codex)
+            .status_hooks()
+            .unwrap()
+            .start_receiver(&spec, receiver)
+            .unwrap();
+        watcher
+            .drain_events(
+                0,
+                &mut |_| panic!("no native reports were sent"),
+                &mut |_| panic!("no native key report was sent"),
+            )
+            .unwrap();
+        let start = Instant::now() - HOOK_STARTUP_TIMEOUT;
+        let mut detector = codex_detector(DEFAULT_IDLE_THRESHOLD, true);
+        detector.awaiting_first_hook = true;
+        detector.on_output_event_at(b"finished first answer", false, start);
+        let detector = Arc::new(Mutex::new(detector));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let monitor = thread::spawn({
+            let detector = detector.clone();
+            let stop = stop.clone();
+            move || {
+                idle_monitor_thread(
+                    detector,
+                    tx,
+                    stop,
+                    Arc::new(AtomicBool::new(false)),
+                    Some(watcher),
+                )
+            }
+        });
+        let event = rx.recv_timeout(Duration::from_secs(5));
+        stop.store(true, Ordering::Release);
+        monitor.join().unwrap();
+        assert!(
+            matches!(event, Ok(RuntimeOutput::StatusBridgeFailed)),
+            "{event:?}"
+        );
+        let detector = detector.lock().unwrap();
+        assert!(!detector.awaiting_first_hook);
+        assert!(detector.adapter.as_ref().unwrap().held_activity().is_none());
     }
 
     #[test]

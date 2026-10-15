@@ -131,6 +131,7 @@ impl StdinInjector for SessionManager {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryReservation {
     Unavailable,
+    Starting,
     Ready(u64),
     Drafting { composer_visible: bool },
     LocalInputPending,
@@ -145,6 +146,7 @@ pub enum SessionDeliveryEvent {
     InputQueueDrained,
     DeliveryFinished,
     Respawned,
+    StartupReady,
     Exited,
 }
 
@@ -810,7 +812,7 @@ impl Router {
                     }
                     (session_id, None)
                 }
-                DeliveryReservation::InFlight => {
+                reason @ (DeliveryReservation::Starting | DeliveryReservation::InFlight) => {
                     if reconciliation.is_some() {
                         return Ok(false);
                     }
@@ -822,7 +824,7 @@ impl Router {
                         outbox.handle = handle.to_string();
                         outbox.pending_input_blocked = false;
                         outbox.enqueue(delivery);
-                        outbox.hold(&session_id, DeliveryReservation::InFlight);
+                        outbox.hold(&session_id, reason);
                         self.blocked_transition(&mut state, &session_id);
                     }
                     (session_id, None)
@@ -1231,13 +1233,13 @@ impl Router {
                 outbox.hold(session_id, reason);
                 self.blocked_transition(&mut state, session_id);
             }
-            DeliveryReservation::InFlight => {
+            reason @ (DeliveryReservation::Starting | DeliveryReservation::InFlight) => {
                 let mut state = self.state.lock().unwrap();
                 let Some(outbox) = state.outbox_by_session.get_mut(session_id) else {
                     return;
                 };
                 outbox.pending_input_blocked = false;
-                outbox.hold(session_id, DeliveryReservation::InFlight);
+                outbox.hold(session_id, reason);
                 self.blocked_transition(&mut state, session_id);
             }
         }
@@ -1496,6 +1498,7 @@ impl SessionDeliveryListener for Router {
             SessionDeliveryEvent::InputCleared => {
                 self.schedule_outbox_flush(session_id.to_string(), INPUT_CLEAR_FLUSH_GRACE);
             }
+            SessionDeliveryEvent::StartupReady => self.flush_outbox(session_id, "StartupReady"),
             SessionDeliveryEvent::InputQueueDrained => {
                 self.flush_outbox(session_id, "InputQueueDrained")
             }

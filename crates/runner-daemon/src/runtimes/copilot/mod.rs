@@ -70,6 +70,9 @@ impl RuntimeAdapter for Copilot {
         crate::runtime_defaults::json_defaults(&settings_path(home), true)
     }
 
+    fn startup_delivery_uses_hooks(&self, _pending_turn: bool) -> bool {
+        true
+    }
     fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
         Some(&Hooks)
     }

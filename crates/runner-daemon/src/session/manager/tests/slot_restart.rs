@@ -88,6 +88,10 @@ fn missing_worker_conversation_resume_delivers_cold_start_first_turn() {
             mgr.resume(&id, None, None, app_data.path(), pool.clone(), capture())
         })
         .unwrap();
+        assert_eq!(
+            mgr.reserve_delivery(&id).unwrap(),
+            router::DeliveryReservation::Starting
+        );
         let spec = fake.last_spawn_spec().unwrap();
         let body =
             router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None);

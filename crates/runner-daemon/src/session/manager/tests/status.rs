@@ -255,6 +255,7 @@ fn direct_input_gate_timeout_is_bounded_and_does_not_pin_the_queue() {
     let state = mgr.session_state_or_insert(session_id);
     let gate = state.lock().unwrap().delivery_gate.clone();
     state.lock().unwrap().handle = Some(SessionHandle {
+        startup: None,
         #[cfg(windows)]
         pending_first_turn: None,
         id: session_id.into(),

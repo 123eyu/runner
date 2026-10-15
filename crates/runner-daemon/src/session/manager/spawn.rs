@@ -528,6 +528,7 @@ impl SessionManager {
         self.install_handle(
             &session_id,
             SessionHandle {
+                startup: None,
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.clone(),
@@ -947,7 +948,6 @@ impl SessionManager {
             size_source,
             plan,
             first_turn_delivered_via_argv,
-            #[cfg(windows)]
             first_turn,
             resolved_cwd,
             row_started_at: started_at,
@@ -995,7 +995,6 @@ impl SessionManager {
             mut size_source,
             plan,
             first_turn_delivered_via_argv,
-            #[cfg(windows)]
             first_turn,
             resolved_cwd,
             row_started_at,
@@ -1172,6 +1171,11 @@ impl SessionManager {
         self.install_handle(
             &session_id,
             SessionHandle {
+                startup: Some(startup::StartupDelivery::new(
+                    &role.runtime,
+                    !plan.resuming && first_turn.is_some(),
+                    super::super::clock::now(),
+                )),
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.clone(),
@@ -1727,6 +1731,7 @@ impl SessionManager {
         self.install_handle(
             &session_id,
             SessionHandle {
+                startup: None,
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.clone(),
@@ -2112,6 +2117,7 @@ impl SessionManager {
                 self.install_handle(
                     &session_id,
                     SessionHandle {
+                        startup: None,
                         #[cfg(windows)]
                         pending_first_turn: None,
                         id: session_id.clone(),
@@ -2909,6 +2915,13 @@ impl SessionManager {
         self.install_handle(
             session_id,
             SessionHandle {
+                startup: snap.mission_id.as_ref().map(|_| {
+                    startup::StartupDelivery::new(
+                        &role.runtime,
+                        !plan.resuming && first_turn.is_some(),
+                        super::super::clock::now(),
+                    )
+                }),
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.to_string(),
