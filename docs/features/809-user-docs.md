@@ -1,9 +1,9 @@
 # 809 — User documentation
 
 > Tracking issue: [#809](https://github.com/yicheng47/runner/issues/809)
-> Priority: P2, no milestone yet. Platforms: macOS and Windows.
-> Status: draft structure, waiting for Jason's comments.
-> Related: runnersh.dev renders these pages at `/docs/`; that work lives in the website repository. [#565](https://github.com/yicheng47/runner/issues/565) (i18n) decides when a Chinese version follows.
+> Platforms: macOS and Windows.
+> Status: implemented for review; native fresh-install walkthroughs remain unverified. See the [validation record](../tests/809-user-docs.md).
+> Related: runnersh.dev will render these pages at `/docs/`; that integration lives in the website repository. [#565](https://github.com/yicheng47/runner/issues/565) (i18n) decides when a Chinese version follows.
 
 ## Motivation
 
@@ -13,7 +13,7 @@ Runner has no documentation for people who use it. `docs/` is written for people
 
 The user guide lives in this repository, in `docs/guide/`, next to the code it describes. A pull request that changes user-visible behavior updates the guide in the same diff, and anyone can correct a page because the repository is public.
 
-runnersh.dev reads `docs/guide/` from the latest published `v*` release tag when it builds, so the website describes the version people download. Its existing rebuild on each published release picks up new docs automatically. A correction made on `main` reaches the website with the next release; it is visible on GitHub at once.
+The website integration is to read `docs/guide/` from the latest published `v*` release tag when it builds, so it describes the version people download. Its release-triggered rebuild should pick up new docs automatically. A correction made on `main` reaches that website with the next release; it is visible on GitHub at once. Implementing or deploying that integration is outside this repository's change.
 
 ## Structure
 
@@ -89,7 +89,7 @@ docs/guide/
 - **Callouts.** GitHub alerts (`> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`) render on GitHub and map to the website's callouts.
 - **Platforms.** Shortcuts give the macOS keys first, then Windows (`⌘D` / `Ctrl+D`). A behavior that differs on Windows says so where it applies.
 - **Vocabulary.** Role, crew, slot, lead, mission, session, chat and project are used exactly as the app uses them; `concepts/` defines them once.
-- **Images.** None in the first version; see Open questions.
+- **Images.** None in the first version.
 - **English only** until #565 settles the Chinese version.
 
 ## Generated CLI reference
@@ -107,19 +107,24 @@ docs/guide/
 - Trimming the README into a shorter introduction that links to the guide; that comes after the guide ships.
 - Contributor documentation; `docs/arch/`, `docs/features/` and the rest stay as they are.
 
-## Open questions
+## Implementation decisions
 
-1. **Images.** The website draws every view of Runner as an HTML replica, never a screenshot. Screenshots in the guide go stale with each UI change. Recommendation: text-only for the first version; revisit once the guide exists.
-2. **Folder name.** `docs/guide/` keeps the guide under `docs/` beside the contributor material, with its own README as the entry point. A top-level `guide/` would separate the two more clearly.
-3. **Corrections between releases.** A fix on `main` waits for the next release to reach the website. Recommendation: accept it; releases are frequent.
+1. **Format and location.** The first version is text-only English Markdown in `docs/guide/`, with all 17 pages linked from its index. Authoring and regeneration instructions live outside the published guide in [guide-authoring.md](../guide-authoring.md).
+2. **Current behavior.** The pages cover 0.16.2's No crew missions, adding and removing workers, OpenCode v2, desktop notifications, quit settings, and distinct Windows shortcuts. Runtime validation gaps stay explicit.
+3. **Generated reference.** `script/generate-cli-reference.py` runs the branch's built CLI, including `help agents`, and recursively discovers public subcommands through their help output. It never starts a daemon. `make guide-cli` regenerates the page; `make guide-cli-check` and both platform CI jobs reject stale content.
+4. **Publication.** The website uses release-tagged content once integrated. README links to the website docs remain deferred until that route is live; README trimming and translation remain out of scope.
+
+## Guide pages affected
+
+This change introduces every page in the Structure above. Later user-visible changes identify the affected subset in their own spec and update those pages in the same PR.
 
 ## Implementation phases
 
-1. The structure: `docs/guide/README.md`, one stub per page with its title and summary, the conventions, and the `AGENTS.md` rule.
-2. Getting started and Concepts, drawn mostly from the README.
-3. Guides.
-4. Reference, with the generated `cli.md`, its `make` target and the CI check.
-5. The README links to runnersh.dev/docs once the website renders the guide.
+1. Complete: `docs/guide/README.md`, all pages with titles and summaries, authoring conventions, and the `AGENTS.md` maintenance rule.
+2. Complete: Getting started and Concepts, checked against current source.
+3. Complete: Guides, including shell and PowerShell examples.
+4. Complete: Reference, with generated `cli.md`, make targets and checks in both platform CI jobs.
+5. Deferred to website integration: README links to runnersh.dev/docs once the website renders the guide.
 
 ## Verification
 
