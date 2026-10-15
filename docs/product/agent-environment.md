@@ -22,10 +22,10 @@ Claude Code's subagents spawn Claude and Codex's spawn Codex. No vendor has a re
 
 | Need | How Runner meets it | State |
 | --- | --- | --- |
-| A place to work together | The mission as a container that owns its roster, seeded from a crew or a single role | [#562](https://github.com/yicheng47/runner/issues/562), 0.16 |
+| A place to work together | The mission as a container that owns its roster, seeded from a crew or started empty | [#562](https://github.com/yicheng47/runner/issues/562), 0.16 |
 | Identity | Roster handles; outside agents take a seat | 648 decisions shipped; seats in #562 |
 | Coordination | The mission bus: signals, messages, the inbox | Shipped |
-| Handing off directly | A one-role mission started from the chat, its results typed back into that chat | [#562](https://github.com/yicheng47/runner/issues/562) with [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
+| Handing off directly | An empty mission started from the chat with a worker added to it, its results typed back into that chat | [#562](https://github.com/yicheng47/runner/issues/562) with [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
 | Living past the app | Sessions that survive quitting the app; today they die with it ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), 0.13 |
 | Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | In #562 |
 | Reaching the person | `ask_lead`, then `ask_human`; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701) |
@@ -41,16 +41,16 @@ The non-goals in [`vision.md`](./vision.md) §6 stand. Runner does not create wo
 
 The direction holds if this works end to end without the person touching anything:
 
-1. A Claude Code chat, open in a tab, starts a one-role mission or takes a seat in one.
+1. A Claude Code chat, open in a tab, starts an empty mission or takes a seat in one.
 2. It spawns a Codex worker with a task.
 3. The worker's session appears in the app, where the person can watch it but is not interrupted.
 4. The chat waits, reads the worker's report from its inbox, and stops the worker or closes the mission.
 
-Steps 1, 2 and 4 are #562 (role-seeded missions, outside seats, `spawn`, `wait`, `done`). Step 3 is an open design question.
+Steps 1, 2 and 4 are #562 (empty missions and add-role, outside seats, `spawn`, `wait`, `done`). Step 3 was settled in #562's Phase 3: the mission appears in the sidebar without taking focus.
 
 ## Open questions
 
-1. **Where does a session an agent spawned show up?** In a new tab, in the mission's tab as a pane, or kept in the sidebar until the person opens it. It must not take focus from what the person is doing. This belongs in #562's Phase 3 design.
+1. **Where does a session an agent spawned show up?** In a new tab, in the mission's tab as a pane, or kept in the sidebar until the person opens it. It must not take focus from what the person is doing. Settled 2026-10-15 in #562's Phase 3: the mission appears in the sidebar and does not take focus, as a mission started from the CLI does today; only the app's own Start mission dialog opens the mission it starts.
 2. **Does a direct chat get a way to spawn workers without a mission?** No, settled 2026-10-11 when #704 closed into #562: direct chats stay off the bus, and a chat that needs workers starts a mission. Revisit only if that step turns out to be friction in real use.
 
 ## Roadmap implications

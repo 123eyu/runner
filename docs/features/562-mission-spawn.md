@@ -1,13 +1,14 @@
 # 562 — Missions as containers: missions without a crew, roles added and removed while they run
 
 > Tracking issue: [#562](https://github.com/yicheng47/runner/issues/562), "delegate work to other agents". Priority: P1, milestone 0.16 (moved from 0.17 on 2026-10-11, when #562 became the parent of [#863](https://github.com/yicheng47/runner/issues/863) and [#704](https://github.com/yicheng47/runner/issues/704) closed into it). [#748](https://github.com/yicheng47/runner/issues/748), typing a mission's updates into the chat that started it, was a sub-issue until 2026-10-13, when Jason detached it as unrelated.
-> Status: Phase 1, the mission roster, merged on 2026-10-11 as [#868](https://github.com/yicheng47/runner/pull/868), fixing [#863](https://github.com/yicheng47/runner/issues/863), and shipped in 0.15.2. Phases 2 and 3 each ship with their app UI, designed first. Phase 2 is in development in `docs/impls/562-mission-spawn/` on `feat/562-add-remove-roles`, after [#878](https://github.com/yicheng47/runner/issues/878) merged as #881. Phase 3's interface is under discussion.
+> Status: Phase 1, the mission roster, merged on 2026-10-11 as [#868](https://github.com/yicheng47/runner/pull/868), fixing [#863](https://github.com/yicheng47/runner/issues/863), and shipped in 0.15.2. Phases 2 and 3 each ship with their app UI, designed first. Phase 2, adding and removing roles while a mission runs, merged on 2026-10-13 as [#889](https://github.com/yicheng47/runner/pull/889), after [#878](https://github.com/yicheng47/runner/issues/878) merged as #881. Phase 3, starting a mission empty, was settled on 2026-10-15 and is in design. The implementation record is `docs/impls/562-mission-spawn/`.
 > Design: `design/specs/562-mission-spawn.pen`, drawn on `main` phase by phase: Phase 2's frames before Phase 2 starts, Phase 3's before Phase 3, the latter together with the Start mission dialog of [849](./849-start-mission-modal.md).
 > Identity: a caller is the person at the app or a roster handle, never a location ([648](./archive/648-runner-cli.md) decision 7).
-> Related: [704](./archive/704-session-send.md), `runner session send` into a chat that is already open, closed into this issue on 2026-10-11 and not scheduled. [#863](https://github.com/yicheng47/runner/issues/863), the crew-edit roster bug that Phase 1 fixes. [#878](https://github.com/yicheng47/runner/issues/878), sessions recording their launch definition at spawn, the prerequisite for Phase 2.
+> Related: [704](./archive/704-session-send.md), `runner session send` into a chat that is already open, closed into this issue on 2026-10-11 and not scheduled. [#863](https://github.com/yicheng47/runner/issues/863), the crew-edit roster bug that Phase 1 fixes. [#878](https://github.com/yicheng47/runner/issues/878), sessions recording their launch definition at spawn, the prerequisite for Phase 2. [#873](https://github.com/yicheng47/runner/issues/873), making the mission lead optional; Phase 3 builds its no-lead paths, since an empty mission never has a lead.
 > Rewritten 2026-10-10 against the `runnerd` code, after Jason set the direction: a crew is not a prerequisite for a mission, a mission can start from a single role, and roles can be added to or removed from a running mission when needed. The 2026-09-18 draft's lead verbs (`runner spawn`, `ps`, `stop`) and outside seats move to Follow-ups; they build on this.
 > Revised 2026-10-11: Jason replaced the 2026-10-10 choice of a crew row per mission (`crews.kind`, `template` or `mission`) with a roster file in the mission's directory. The database holds the definitions that are listed and searched (roles, crews and their slots); a mission's roster is the mission's own state, like its event log.
 > Revised 2026-10-12: Jason folded the app phase into Phases 2 and 3, so everything a phase adds can be done from the GUI as well as the CLI, and reopened Phase 3's interface for discussion: the drafted one is not good enough. Later that day he settled what is copied and when: roles and crews are templates, a session records its whole launch definition at spawn (#878, before Phase 2), and a roster never copies a role's configuration.
+> Revised 2026-10-15: Jason settled Phase 3 as an empty mission. A start names no roles, and roles join one at a time through Phase 2's add-role. This replaces the start-from-roles draft and the 2026-10-10 recommendation that a mission cannot start empty, and returns to his 2026-09-18 direction that a mission starts empty or from a crew.
 
 ## Motivation
 
@@ -23,9 +24,9 @@ Crews stay. A repeatable shape, such as coder plus reviewer, needs a fixed templ
 
 - **Crew**: a named, reusable set of slots, each filled by a role, with exactly one lead, edited on the crew page. Unchanged. Roles, crews and their slots are the definitions the database holds, lists and searches.
 - **Mission roster**: the slots one mission runs with, kept in `roster.json` in the mission's directory beside `events.ndjson`. It is written when the mission starts, changed only by that mission's own add-role and remove-role operations, and read by everything that needs the mission's roster: the router and bus when they mount, the handle checks on posts and signals, the lead's prompt, session resume, the app's mission view and the CLI.
-- **Mission**: a container with one event log, a cwd, a goal, and one roster with exactly one lead.
+- **Mission**: a container with one event log, a cwd, an optional goal, and one roster with at most one lead: a mission started from a crew has the crew's lead, and one started empty has none.
 - **Start from a crew**: copy the crew's name, prompt addendum and slots into the roster. Editing or deleting the crew afterwards never touches the mission. `missions.crew_id` keeps naming the crew the mission started from.
-- **Start from roles**: build the roster from roles, with one lead and no crew behind it. A single role is a one-agent mission. How a start names its roles is open (Phase 3).
+- **Start empty**: a mission with no crew behind it and no roles. Nothing spawns at start; roles join one at a time through Add role. With no lead, the goal is shared with every member, and the person's messages without a recipient go to every member (Phase 3).
 - **Add a role**: add a slot to the roster of a running mission and start its session. An added role is always a worker.
 - **Remove a role**: stop the slot's session and drop the slot from the roster. Its messages stay in the feed and its handle stays taken in that mission. The lead cannot be removed.
 
@@ -39,17 +40,17 @@ Settled by Jason on 2026-10-12. Roles and crews are templates. Each layer below 
 | --- | --- | --- | --- |
 | Role | Template for one agent | Runtime, command, args, env, system prompt, model, effort, speed | The role page |
 | Crew | Template for a team | Slots (role, handle, lead, overrides), name, addendum | The crew page |
-| Mission roster | The mission's team | Slots copied from a crew or built from roles, with their overrides, and copies of the crew's name and addendum | Add role and Remove role |
+| Mission roster | The mission's team | Slots copied from a crew or added one at a time, with their overrides, and copies of the crew's name and addendum | Add role and Remove role |
 | Session | One run of one slot or chat | Its launch definition, recorded at spawn: runtime, model, effort, speed, command (as configured), args, env and the role's system prompt, plus the agent's native session key; the mission parts of a prompt (crew addendum, the lead's goal and team) still compose at launch from the roster and log | Spawn and Restart |
 
 1. **Copy at creation, then own it.** A mission copies its crew into `roster.json` when it starts. A session records its launch definition when it spawns, from its roster slot and the slot's role. Nothing re-reads the layer above afterwards unless asked to.
 2. **Resume replays a session exactly.** Restart is the one explicit way to take up later edits: it starts a fresh conversation rebuilt from the current role and, for a mission slot, its roster slot.
 3. **The machine stays live.** Resolving the command to an executable and applying the app-wide permission mode happen at every launch, because they describe the machine, not the agent.
-4. **Links upward record where a thing came from.** `missions.crew_id`, a roster slot's `role_id` and `sessions.role_id` are provenance and display, not configuration. Deleting a crew keeps the missions started from it: the link becomes empty, and the mission shows the crew name copied into its roster (Phase 3, which makes `missions.crew_id` nullable). Deleting a role stays refused while an unarchived mission uses it, since role deletion still deletes the role's sessions.
+4. **Links upward record where a thing came from.** `missions.crew_id`, a roster slot's `role_id` and `sessions.role_id` are provenance and display, not configuration. Deleting a crew keeps the missions started from it: the link becomes empty, and the roster keeps its copy of the crew's name and addendum for the mission's prompts (Phase 3, which makes `missions.crew_id` nullable). Deleting a role stays refused while an unarchived mission uses it, since role deletion still deletes the role's sessions.
 
 Before #878 a session recorded its runtime and resolved command at spawn, and model, effort and speed only when overridden (#870), while Resume read the remaining configuration from the current role. [#878](https://github.com/yicheng47/runner/issues/878), merged as #881, records the whole definition at spawn for direct chats and mission slots before Phase 2, so that Phases 2 and 3 build on rule 1 instead of adding code that reads the role at resume. A roster therefore never holds a role's own configuration: a slot carries the role's id and the mission's overrides, and the session carries what actually ran.
 
-UI copy keeps "Crew" for crews, the only thing a person picks or edits by that name. In code and docs the mission's slots are *the mission roster*. The vision's "Mission: one live activation of a crew" becomes "one live run of its own roster, seeded from a crew or from roles".
+UI copy keeps "Crew" for crews, the only thing a person picks or edits by that name. In code and docs the mission's slots are *the mission roster*. The vision's "Mission: one live activation of a crew" becomes "one live run of its own roster, seeded from a crew or started empty".
 
 ### The roster file
 
@@ -77,7 +78,7 @@ Version 2, written by Phase 1:
 ```
 
 - A slot keeps the id it had in the crew, so `sessions.slot_id` names a roster slot. Slots added in Phase 2 get new ids that exist only in the file.
-- `crew_name` and `crew_addendum` are the copies mission prompts read. Phase 1 display surfaces keep reading the crew's current name. A mission started from roles has an empty name and no addendum.
+- `crew_name` and `crew_addendum` are the copies mission prompts read. Phase 1 display surfaces keep reading the crew's current name. A mission started empty has an empty name, no addendum and no slots until a role joins.
 - Version 1 is the file written before Phase 1: a bare array of `{ "handle", "lead" }`. It is converted once when `runnerd` starts, as described under Existing missions, and nothing else reads it.
 - The file is written atomically, through a temporary file renamed over it, as it is today. Its type lives in `runner-core`, so the daemon and the CLI parse one definition.
 
@@ -87,16 +88,16 @@ Most of the runtime machinery already works per session and per handle; Phase 1 
 
 | Layer | Today | With the mission roster |
 | --- | --- | --- |
-| Database | `missions.crew_id` and `slots.crew_id` are `NOT NULL`; a mission uses its crew's slots directly, and `sessions.slot_id` points at one of them. | Phase 1: unchanged. `sessions.slot_id` names a roster slot, which keeps its id from the crew. Phase 3: a mission started from roles has no crew. |
+| Database | `missions.crew_id` and `slots.crew_id` are `NOT NULL`; a mission uses its crew's slots directly, and `sessions.slot_id` points at one of them. | Phase 1: unchanged. `sessions.slot_id` names a roster slot, which keeps its id from the crew. Phase 3: `missions.crew_id` is nullable, and empty for a mission started empty. |
 | Start | `ops::mission::start` requires a crew with a lead, writes `roster.json` with each slot's handle and lead flag, and `mission_start_impl_with_size` reads the crew's slots again after the commit to spawn. | Builds the roster once in the start transaction, writes it, and spawns from it. |
 | Re-mount | `ensure_mission_router_mounted` builds the router and mounts the bus from `slot::list(mission.crew_id)`, and reads the crew's name and addendum from its row. | Reads the roster file. |
 | Posts and signals | `validate_roster_handle` and `post_message` check `--from` and `--to` against `slot::list(mission.crew_id)`. | Check against the roster file. |
 | Session resume | `session/manager/spawn.rs` reads the slot row by `slot_id` for the handle and lead flag, and fails with "slot … no longer exists" once the crew dropped it; a lead's resume reads the crew's slots, name and addendum for its prompt. | Reads the slot, the name and the addendum from the roster file. |
 | App | `mission_workspace/attach.rs` loads the roster with `slot_list(mission.crew_id)`. | Loads it with `mission_roster(mission_id)`. |
 | CLI | Rereads `roster.json` on every call to validate `--to`. | Reads version 2. |
-| Event log, events, env | `crews/<crew_id>/missions/<mission_id>/events.ndjson`; `crew_id` on every envelope; `RUNNER_CREW_ID` on every session. | Unchanged for a mission started from a crew. Phase 3 settles them for a mission without one. |
+| Event log, events, env | `crews/<crew_id>/missions/<mission_id>/events.ndjson`; `crew_id` on every envelope; `RUNNER_CREW_ID` on every session. | Unchanged for a mission started from a crew. Phase 3: a mission started empty logs to `missions/<mission_id>/events.ndjson`, its envelopes carry no `crew_id`, and its sessions get no `RUNNER_CREW_ID`. |
 | Crew lists, missions of a crew | Every crew is listed; `runner mission list --crew` filters on `missions.crew_id`. | Unchanged. |
-| Crew deletion | Refused while the crew has unarchived missions; deleting it deletes its archived missions' rows. | Phase 1: unchanged. |
+| Crew deletion | Refused while the crew has unarchived missions; deleting it deletes its archived missions' rows. | Phase 1: unchanged. Phase 3: deleting a crew keeps its missions, which run on from their rosters. |
 | Session spawn | `register_mission_session` then `complete_mission_session_spawn`, once per slot; nudges queue until the PTY is live. | Ready for one new slot. |
 | Router routing | `session_by_handle` is a map under the router's state lock; `register_sessions` adds entries at any time. | Ready. |
 | Router roster | `LaunchInputs.roster` is fixed at mount; broadcast nudges walk it and the lead's Restart prompt lists it. | Needs add and remove (Phase 2). |
@@ -118,12 +119,14 @@ Most of the runtime machinery already works per session and per handle; Phase 1 
   - A mission with no file at all takes the crew's current slots, which is what it runs with today.
 - **Deleting a role** (Phase 1). Also refused while an unarchived mission has a session for the role: "role @x is used by unarchived missions; archive them before deleting this role: …", naming the missions. Today the crew check covers a mission's roles only while its crew still has them; once the slot is removed from the crew, deleting the role deletes the running mission's session with it, since role deletion deletes every session of the role (`ops/role.rs`, `delete`).
 - **Crew edits and deletion** (Phase 1). The crew page's slot operations need no guard, since a crew edit no longer changes a mission's runtime roster or prompt copies. Display surfaces, including mission summaries and CLI list/status, keep reading the crew's current name as before Phase 1; the rail's Crew row still reads and opens the current crew. Deleting a crew is unchanged.
-- **Start from roles** (Phase 3). A mission starts with no crew behind it, its roster built from roles with exactly one lead, an empty crew name and no addendum; the mission header, summaries and the lead prompt leave an empty crew name out. A mission without a crew needs `missions.crew_id` to become nullable (a table rebuild) and a directory that is not under a crew. How the protocol, the CLI and the Start mission dialog name the roles is under discussion; the questions to settle are under Phase 3.
+- **Start empty** (Phase 3). A mission starts with no crew behind it and an empty roster: no slots, no crew name, no addendum and no lead. Nothing spawns at start. Roles join one at a time through Add role, each as a worker, and the mission runs until it is stopped or archived, like any mission. `missions.crew_id` becomes nullable (a table rebuild). The mission's directory is `missions/<mission_id>/`, where its `runner` shims already live, instead of `crews/<crew_id>/missions/<mission_id>/`. Its envelopes carry no `crew_id`, and its sessions get no `RUNNER_CREW_ID`. Mission headers, summaries, the sidebar and the CLI leave out the crew name it does not have.
+- **A mission without a lead** (Phase 3, [#873](https://github.com/yicheng47/runner/issues/873)'s no-lead paths). An empty mission never has a lead, since an added role is always a worker. Every path that falls back to the lead gets a no-lead branch. The goal is composed into each member's launch prompt as the mission's goal; each role's own work is its Add role task. The person's messages without a recipient go to every member. Worker prompts do not offer `ask_lead`, since workers ask the person with `ask_human`. A slot's restart is announced to every member, as joins and leaves are. Worker prompts stop saying "crew" when the mission has none. Crews keep exactly one lead, and a mission started from a crew is unchanged.
+- **Deleting a crew keeps its missions** (Phase 3, rule 4 of What is copied, and when). The missions' `crew_id` becomes empty, and their rosters keep the copied name and addendum for prompts.
 - **Add a role** (Phase 2). `mission_add_role({ mission_id, role_id, handle?, runtime?, model?, effort?, speed?, task? })` adds a configured worker to a running, unarchived mission. It refuses pending spawns, registers its cancel flag immediately after the checks, validates the handle against current and removed handles, records the session's launch definition, appends `role_joined` before writing the roster, updates routing, then appends the introduction and optional task before spawning. Slot overrides persist for Restart. A failed roster publication records a leave and rolls back the slot, router entry and session row.
 - **Remove a role** (Phase 2). `mission_remove_role(mission_id, handle)` refuses the lead, unknown or removed handles, and pending spawns. It stops the session, writes the smaller roster, drops routing and pending deliveries, then appends `role_removed` and a system notice. The session row remains as history; session lists and Resume all filter by roster membership. It does not archive the removed session. One session's exit or failed spawn never stops another.
 - **Router and bus** (Phase 2). The operations change the router's mutable roster directly. The bus replays the log from zero and learns membership from human join/leave signals in log order; membership bounds broadcasts only, and directed messages always reach their addressee's projection. Newcomer unread counts start at the join, but `runner msg read` still includes broadcasts from before it. One mutex per mission serializes adds, removals and roster writes; atomic file replacement retries briefly on Windows.
-- **Protocol and CLI.** Phase 2 adds the above protocol operations and `runner mission add-role <mission> <role> [--handle <handle>] [--runtime …] [--model …] [--effort …] [--speed …] [--task … | --task-file <path|->]`, plus `runner mission remove-role <mission> <handle>`. They act as the person and refuse mission-session callers and `--as`. Phase 3 adds a start without a crew, with its shape under discussion.
-- **App** (Phases 2 and 3). Each phase ships its GUI with its daemon and CLI work, so the person can do from the app everything the phase adds to the CLI. Phase 2: the mission rail gains **+ Add role** under its sessions while the mission runs, opening a modal with Start chat's shared role picker and Runtime, Model, Effort and Codex Speed controls, a handle pre-filled with the suggested unique handle, and an optional task. A worker card gains the **Remove from mission** button, with a confirmation. The feed renders `role_joined` and `role_removed` dividers attributed to the person and shows `runner` notices as `system`. Phase 3: the Start mission dialog offers a start without a crew (with 849), and the rail's Crew row, which opens the crew the mission started from, is redesigned for a mission without a crew; both follow the interface Phase 3 settles.
+- **Protocol and CLI.** Phase 2 adds the above protocol operations and `runner mission add-role <mission> <role> [--handle <handle>] [--runtime …] [--model …] [--effort …] [--speed …] [--task … | --task-file <path|->]`, plus `runner mission remove-role <mission> <handle>`. They act as the person and refuse mission-session callers and `--as`. Phase 3 makes the crew optional: `mission_start` takes an optional `crew_id`, and `runner mission start` without `--crew` starts the mission empty. The title then defaults from the goal, so one of `--title` or `--goal` is required. A chat delegates with two calls, `runner mission start` and `runner mission add-role <mission> <role> --task-file -`, and `runner --help` and the embedded `runner` skill teach that pair.
+- **App** (Phases 2 and 3). Each phase ships its GUI with its daemon and CLI work, so the person can do from the app everything the phase adds to the CLI. Phase 2: the mission rail gains **+ Add role** under its sessions while the mission runs, opening a modal with Start chat's shared role picker and Runtime, Model, Effort and Codex Speed controls, a handle pre-filled with the suggested unique handle, and an optional task. A worker card gains the **Remove from mission** button, with a confirmation. The feed renders `role_joined` and `role_removed` dividers attributed to the person and shows `runner` notices as `system`. Phase 3: the Start mission dialog's crew picker (849) lists **No crew** first, above the crews. Picking it turns the crew card into an empty state, "No crew · start empty" with a note that roles join from the mission, and the Goal hint says the goal is shared with every role that joins. With no crews, No crew is the only entry and is picked. Starting an empty mission opens its workspace. There the feed and the rail say no role has joined yet, each with **+ Add role**, in place of the Mission paused overlay that a mission with no live session shows today, and the composer stays in place but disabled, reading "Add a role to start messaging", until the first role joins. The mission info panel drops its Crew row for every mission, since a crew is only the template the roster was copied from. A mission started by an agent or a script appears in the sidebar without taking focus, as a mission started from the CLI does today; only the app's own Start mission dialog opens the mission it starts.
 - **Docs.** `AGENTS.md` and `docs/product/vision.md` core vocabulary as in Model; `docs/arch/arch.md` §3 and §10 for the roster file (Phase 1), and §7 and §8 for `role_joined`, `role_removed` and the roster changing while a mission runs (Phase 2).
 
 ### Decisions to confirm
@@ -131,20 +134,27 @@ Most of the runtime machinery already works per session and per handle; Phase 1 
 Each has a recommendation; the spec assumes it until Jason decides otherwise. Phase 1 needs none of them.
 
 1. **A removed role's handle stays taken in the mission.** Reusing it would merge two agents' history under one name in the feed and in inbox projection. Adding the same role again gets `coder-2`. The add operation checks the mission's `role_removed` events.
-2. **A mission cannot start empty.** It needs a lead to receive the goal. "Create a mission, then assign roles" is: pick the lead role at start, then add the rest.
-3. **The lead is fixed for the mission's life.** Removing or changing the lead is not in this delivery.
+2. **A mission can start empty** (Jason, 2026-10-15, reversing the 2026-10-10 recommendation that it could not). It has no lead and no sessions until a role joins, and roles join one at a time with Add role. A start never names roles: starting from one or more roles is dropped in favor of starting empty and then adding them.
+3. **The lead is fixed for the mission's life.** A mission started from a crew keeps the crew's lead, and one started empty never gets one. Removing, changing or promoting a lead is not in this delivery.
 4. **No roster cap for the person.** A cap arrives with the lead's spawn verb, where an agent could loop.
 5. **Add and remove are for the person only** until the lead's verbs land; a mission agent calling them and `--as` are refused. The slot flag is `--handle`.
 6. **Membership bounds broadcasts only.** The bus learns joins and leaves from the log; directed messages are retained regardless of membership. `runner msg read` keeps earlier broadcasts.
 7. **Remove stops and drops, without archiving.** The historical session row remains; session lists and Resume all follow the roster.
 8. **Sessions are independent.** A failed spawn or exit never stops siblings.
 9. **Roster changes refuse pending spawns.** Add registers cancellation immediately after its checks, so Stop all or Archive can cancel the new spawn.
+10. **With no lead, the goal is shared** (Phase 3). The goal goes into every member's launch prompt as the mission's goal, and each role's own work is its Add role task.
+11. **With no lead, the person's untargeted messages go to every member** (Phase 3). The composer is shown but disabled until a role has joined.
+12. **A mission without a crew lives in `missions/<mission_id>/`** (Phase 3), with no `crew_id` on its envelopes and no `RUNNER_CREW_ID`.
+13. **A mission an agent starts does not take focus** (Phase 3). It appears in the sidebar, as a mission started from the CLI does today; only the app's own Start mission dialog opens the mission it starts. This settles open question 1 of the [agent environment](../product/agent-environment.md).
+14. **The mission info panel drops its Crew row** (Jason, 2026-10-15). A crew is only the template a roster is copied from, so a running mission no longer names or links it there.
 
 ### Out of scope
 
 - **The lead's verbs** (Follow-ups): `runner spawn`, `runner ps` and `runner stop` from the lead, idle and crash notices to the lead (`slot_exited`), and outside seats, where an agent outside Runner holds the lead seat. A separate issue once this lands.
 - **A copy of each role's configuration in the roster.** Replaced on 2026-10-12 by sessions recording their own launch definition ([#878](https://github.com/yicheng47/runner/issues/878), see What is copied, and when). Letting a role be deleted while missions that used it are unarchived, by making the sessions' role link become empty instead of deleting them, is a Follow-up once #878 has landed.
 - Saving a mission's roster as a crew.
+- Starting a mission from one or more named roles in one call. Dropped on 2026-10-15: a mission starts empty and the roles are added.
+- Giving an empty mission a lead, or promoting a member to lead.
 - A direct chat joining a mission as a slot. A chat's `RUNNER_*` environment is fixed at spawn; it drives a mission from outside instead.
 - Workers adding or removing roles.
 - Adding to or removing from a completed, aborted or archived mission, or while the mission's cold-start spawn queue is still running.
@@ -185,39 +195,35 @@ Starts after [#878](https://github.com/yicheng47/runner/issues/878) merges, so a
   - Join events land in order with the documented payloads; the newcomer's inbox holds the broadcast and the task and nothing earlier; `--to` the newcomer validates right after the join and broadcasts reach it; `--to` a removed handle is refused and broadcasts skip it; removing the lead is refused; adding a removed role's handle again is suffixed or refused; a re-mount after a daemon restart rebuilds both changes from the file; two missions of one crew can each add `@coder-2`.
   - The modal validates handles against the mission roster, including removed ones; the rail shows a slot added after `session/spawned` and hides a removed one; feed row copy.
 
-### Phase 3 — start from roles (interface under discussion)
+### Phase 3 — start empty
 
-Jason, 2026-10-12: the interface drafted for this phase is not good enough. It is redesigned, and the questions below settled, before the phase starts. What holds is the model: a mission can start with no crew behind it, its roster built from roles with exactly one lead. The draft under discussion:
+Settled by Jason on 2026-10-15. A mission can start with no roles, and roles join one at a time through Phase 2's add-role. This replaces the start-from-roles draft he reopened on 2026-10-12. A start never names roles, so the draft's questions fall away: per-role options at start, which entry is the lead, and a dialog that edits a crew it cannot save. Phase 3 builds [#873](https://github.com/yicheng47/runner/issues/873)'s no-lead paths, since an empty mission never has a lead. Its dialog is drawn with 849's Start mission redesign, whose layout keeps room for the switch.
 
-- The client protocol's `mission_start` takes exactly one of `crew_id` or `roles: [{ role, handle?, lead, runtime?, model?, effort? }]`, with exactly one lead.
-- The CLI repeats `runner mission start --role <role>`, with `--lead <role>` when there is more than one.
-- The Start mission dialog switches between a crew and a set of roles.
-
-Questions to settle:
-
-1. **A roster or a lead.** Whether a start names every role or only the lead, the rest joining through Phase 2's add-role. A several-role start repeats add-role's per-role options in a second shape.
-2. **The CLI.** How a start gives each role a handle, runtime, model and effort, and which entry is the lead when one role appears twice; a repeated `--role` with `--lead <role>` can express neither. This is the call a chat agent makes to delegate work, the case that motivates the phase.
-3. **The dialog.** What the Start mission dialog shows for a start without a crew beside 849's crew card, without becoming a crew editor that cannot save.
-4. **A mission without a crew.** Where its directory lives (recommended `missions/<mission_id>/`, where its `runner` shims already live), what an event's `crew_id` and the session's `RUNNER_CREW_ID` carry, and what the rail's Crew row shows. Deleting a crew keeps the missions started from it (What is copied, and when, rule 4).
-5. **Where a delegated mission shows up** for the person without taking focus: a new tab, a pane in the mission's tab, or the sidebar until it is opened ([agent environment](../product/agent-environment.md), open question 1).
-
-Once they are settled:
-
-- Design: the Start mission dialog's start without a crew (with 849), the rail's Crew row for a mission without a crew, and where a delegated mission appears, drawn and signed off before code.
-- `runner-daemon` and `runner-cli`: `mission_start` without a crew in the settled shape, the nullable `missions.crew_id`, the mission's directory, envelope and environment, the empty-name rule in the lead prompt and the mission header, and the CLI's start command.
-- `runner-app`: the Start mission dialog's mode and the rail's Crew row.
-- Tests: a one-role mission runs end to end and its lead's `runner msg post` works; a start without exactly one lead is refused; the dialog starts a mission without a crew; the rest follow the settled interface.
+- Design: in `design/specs/562-mission-spawn.pen`, the crew picker's No crew entry and the empty crew card in the Start mission dialog (with 849's crew card and picker), the workspace of a mission no role has joined yet, the same mission after its first role joins, and the mission info panel without its Crew row, drawn and signed off before code.
+- `runner-daemon`:
+  - `mission_start` without a crew, the nullable `missions.crew_id` (a table rebuild), the `missions/<mission_id>/` directory, and envelopes and environment without a crew.
+  - The no-lead branches: the goal in every member's prompt, untargeted messages to every member, no `ask_lead`, and restart notices to every member.
+  - Worker prompt wording without a crew, and crew deletion keeping its missions.
+- `runner-cli`: `--crew` optional on `mission start`, the title rule, and the start-then-add-role pair in `--help` and the embedded skill.
+- `runner-app`: the crew picker's No crew entry and empty card (with 849), the empty feed and rail in place of the paused overlay, the composer disabled until the first role joins, the info panel without its Crew row, and display surfaces that leave out a missing crew name.
+- Tests:
+  - An empty mission starts with no sessions and no lead, and survives a `runnerd` restart.
+  - A role added to it gets the goal and its task, and posts with `runner msg post`. A second role is reached by `--to` and by the person's untargeted message. No prompt offers `ask_lead`.
+  - `runner mission start` without `--crew`, `--title` and `--goal` is refused.
+  - Deleting a crew keeps its missions, which run on from their rosters.
+  - The dialog starts an empty mission with No crew picked, and picks No crew when there are no crews.
+  - A mission with no roles shows the empty state, not the Mission paused overlay.
 
 ## Verification
 
 - [ ] A mission started from a crew runs as before on its own roster file, and missions started before Phase 1 have their files converted at the first `runnerd` start, then resume, restart and replay unchanged.
 - [ ] Editing a crew (slots, handles, lead, overrides, addendum) never changes a running mission, including after a `runnerd` restart.
 - [ ] A role used by an unarchived mission cannot be deleted.
-- [ ] A mission started from one role runs end to end: the lead gets the goal and posts with `runner msg post`.
-- [ ] A mission started without a crew has exactly one lead and the roster the start named.
-- [ ] Everything Phases 2 and 3 add to the CLI also works from the app: adding and removing a role from the mission rail, and starting a mission without a crew from the Start mission dialog.
+- [ ] An empty mission starts with no sessions and no lead. The first role added to it gets the goal and its task, and posts with `runner msg post`.
+- [ ] With no lead, the person's untargeted messages reach every member, and no prompt offers `ask_lead`.
+- [ ] Everything Phases 2 and 3 add to the CLI also works from the app: adding and removing a role from the mission rail, and starting an empty mission from the Start mission dialog.
 - [ ] An added role boots with the join broadcast and its task, is reachable with `--to` at once, receives later broadcasts, and survives a daemon restart.
 - [ ] A removed role's session stops, `--to` it is refused, broadcasts skip it, its history stays in the feed, its handle is not reused, and the removal survives a daemon restart.
 - [ ] The lead cannot be removed, and add and remove are refused on a mission that is not running.
 - [ ] Every join and leave on the feed is attributed to the person.
-- [ ] Live checks: #863's reproduction and the affected `MIS-*` cases in [`docs/tests/regression/missions.md`](../tests/regression/missions.md), plus new cases for a roles start, an add and a remove, on macOS and Windows.
+- [ ] Live checks: #863's reproduction and the affected `MIS-*` cases in [`docs/tests/regression/missions.md`](../tests/regression/missions.md), plus new cases for an empty start, an add and a remove, on macOS and Windows.

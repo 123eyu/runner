@@ -164,6 +164,6 @@ Mission 3, on the codex trio (coder, reviewer, qa), at Jason's call on 2026-10-1
 - **A removed agent's unanswered question stays pending.** If it had asked the person (`ask_human`), the question stays open in the app after the removal, and answering it reaches no session. Accepted for this phase; the person sees the leave divider beside it.
 - **Moving Start chat's role and setup fields into a shared module** touches a 5,000-line file the Start chat tests cover. The commit runs those tests unchanged.
 
-## Phase 3 — start from roles
+## Phase 3 — start empty
 
-Not planned yet. Its interface is under discussion in the spec's Phase 3 questions, and [#873](https://github.com/yicheng47/runner/issues/873), making the lead optional, may answer the first of them. Its frames are drawn in `design/specs/562-mission-spawn.pen` before the plan is written here.
+Not planned yet. Settled on 2026-10-15: a mission starts with no roles, roles join one at a time through add-role, and a mission started empty builds [#873](https://github.com/yicheng47/runner/issues/873)'s no-lead paths. The spec's Phase 3 has the scope. Its frames are drawn in `design/specs/562-mission-spawn.pen` before the plan is written here.

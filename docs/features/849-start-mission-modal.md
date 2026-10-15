@@ -4,7 +4,7 @@
 > Priority: P2, milestone 0.16 (0.14 until 2026-10-10). Platforms: macOS and Windows.
 > Status: draft, design first.
 > Design: `design/specs/849-start-mission-modal.pen`, drawn and signed off before any code.
-> Related: [562](./562-mission-spawn.md) adds a crew-or-role choice to this dialog in 0.17. This redesign leaves room for it and does not build it.
+> Related: [562](./562-mission-spawn.md)'s Phase 3 adds **No crew** as the first entry of this dialog's crew picker, for a mission that starts with no roles (settled 2026-10-15), and is drawn together with this redesign. This spec leaves room for it and does not build it.
 
 ## Motivation
 
@@ -22,14 +22,14 @@ Design the dialog in `design/specs/849-start-mission-modal.pen` using the visual
 - **The roster under the picker.** One read-only row per slot, in slot order. Each row has the slot's `RoleAvatar`, handle, LEAD, role, and the effective runtime, model and effort with overrides marked, the same as the crew page's slot rows (`SlotSetup`, `slot_setup_line`, `lead_badge`). These rows replace the footer's session count. A crew of eight slots scrolls with the dialog body, not inside the card.
 - **Fields.** Mission title, Goal and Working directory keep their behavior and move to the new field style. The Goal hint still names the lead ("Delivered to @coder (lead) on mission start."). The Working directory keeps Browse and the project's directory as its starting value. Its hint says where a blank field starts, in Start chat's form.
 - **Dropped.** The Advanced section and its placeholder. The footer becomes Cancel and Start mission, as in Start chat, with the same `esc` and ⌘↩ hints.
-- **Room for 562.** Start chat has a Direct | Role switch above its card. The layout keeps that position free for 562's Crew | Role choice, so 0.17 adds a mode instead of redrawing the dialog.
+- **Room for 562.** 562's Phase 3 lists **No crew** first in the crew picker, above the crews; picking it turns the crew card into an empty state. The picker and card are drawn so that entry fits without a mode switch.
 - **States.** The frames cover a crew that is picked, the picker menu open, a crew with five or more slots and some overrides, and a crew with no slots. States that are not drawn keep today's copy in the new layout: loading, no crews yet, the error banner, and Starting….
 - **Unchanged behavior.** Crew preselection from the crew page and the crew list's Start mission. The project scope and its working directory. ⌘↩ from every control, including an open picker and the goal textarea. Focus order, minus the Advanced toggle. The dialog fits Runner's 640 × 480 minimum window, scrolls vertically and does not clip horizontally. Long crew names, handles and paths truncate.
 
 ## Non-goals
 
 - **Overrides for one mission.** The roster is read-only. Changes to a slot's runtime, model or effort stay on the crew page. Overrides that apply to one mission only would need `MissionStart` and the daemon to take per-slot input. They fit after 562 gives each mission its own slots.
-- **562's role option.** Starting a mission from a single role, and the switch for it, are designed and built in 562.
+- **562's empty mission.** Starting a mission with no roles, and the picker's No crew entry for it, are designed and built in 562's Phase 3.
 - **Backend changes.** `MissionStart`, `ops::mission` and the CLI's `mission start` stay as they are.
 - **Changes to the crew page, the crew list or Start a chat.**
 
