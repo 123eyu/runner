@@ -28,7 +28,7 @@ Claude Code's subagents spawn Claude and Codex's spawn Codex. No vendor has a re
 | Handing off directly | An empty mission started from the chat with a worker added to it, its results typed back into that chat | [#562](https://github.com/yicheng47/runner/issues/562) with [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
 | Living past the app | Sessions that survive quitting the app; today they die with it ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), 0.13 |
 | Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | In #562 |
-| Reaching the person | `ask_lead`, then `ask_human`; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701) |
+| Reaching the person | A message to the lead, then `ask_human`; a mission without a lead asks the person directly; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701); `ask_lead` retired in [#562](https://github.com/yicheng47/runner/issues/562) Phase 3 |
 | Keeping track | Plan usage and a token ledger; a cross-session Activity view moved to a future mobile companion | [#706](https://github.com/yicheng47/runner/issues/706), [#630](https://github.com/yicheng47/runner/issues/630); [#552](https://github.com/yicheng47/runner/issues/552) closed 2026-10-08 |
 
 The limits matter more as agents do more of the spawning. Once agents can start agents, a runaway fan-out is the first failure to expect, and the cap plus the one-level rule are what stop it.

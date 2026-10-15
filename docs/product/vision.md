@@ -37,7 +37,7 @@ These are the words the product surfaces to the user; they also map 1:1 to the a
 - **Slot** — a position inside a crew, filled by a role. The slot carries the per-crew handle (`@impl`, `@reviewer`, …) and the lead flag. Two slots in different crews can both be filled by the same role.
 - **Mission** — one live activation of a crew. Everyone spawns together, shares a coordination bus, ends together.
 - **Session** — the live PTY process for one slot inside a mission, one role-backed direct chat, or one runtime-only direct chat.
-- **Signal** — a typed notification crew members emit for the router to handle. Verb grammar (`ask_lead`, `ask_human`, `mission_goal`, `session_status`).
+- **Signal** — a typed notification crew members emit for the router to handle. Verb grammar (`ask_human`, `mission_goal`, `session_status`).
 - **Message** — prose posted to the mission. Broadcast or directed (`--to <handle>`).
 - **Inbox** — each crew member's projection of the mission: broadcasts plus directs addressed to me. Pull-based — crew members check it on convention; nothing auto-interrupts a working session.
 - **Lead** — the human's counterpart in the crew. The mission goal lands on the lead; the lead dispatches work; the lead is the default HITL gateway when workers need a human.
@@ -122,7 +122,7 @@ The concrete user flow the product must support end-to-end:
 5. Reviewer reads its inbox, sees the broadcast, and reviews the diff.
 6. Reviewer signals `changes_requested` and posts specific feedback as a directed message to `coder`.
 7. Coder responds; cycle continues until Reviewer signals `approved`.
-8. If at any point a worker needs human input, it emits `ask_lead`. The lead can answer from context or escalate via `ask_human` (carrying `on_behalf_of: "@coder"`). The HITL card pops; user clicks a choice; router injects the answer into the lead's stdin; lead forwards via a directed message.
+8. If at any point a worker needs human input, it messages the lead with `runner msg post --to <lead>`. The lead can answer from context or escalate via `ask_human` (carrying `on_behalf_of: "@coder"`). The HITL card pops; user clicks a choice; router injects the answer into the lead's stdin; lead forwards via a directed message.
 9. User clicks **Stop** when pausing work, or **Archive** when the mission is done. Archive terminates the run, marks the mission `completed`, and removes it from active mission lists while keeping a read-only record.
 
 If this loop doesn't work end-to-end without the user touching a terminal outside the app, the product hasn't shipped.

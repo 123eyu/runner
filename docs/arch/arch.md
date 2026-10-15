@@ -617,8 +617,8 @@ runner crew remove <crew> <handle> | lead <crew> <handle> | order <crew> <handle
 
 # missions, chats, and sessions
 runner mission list [--crew <crew>] | show [<mission>]
-runner mission start --crew <crew> [--goal <text> | --goal-file <path | ->] [--title <title>]
-                     [--project <project> | --cwd <dir>]
+runner mission start [--crew <crew>] [--goal <text> | --goal-file <path | ->] [--title <title>]
+                     [--project <project> | --cwd <dir>]    # no --crew starts empty; needs --title or --goal
 runner mission stop | resume | archive | unarchive | pin | unpin [<mission>]
 runner mission rename <mission> <title> | move [<mission>] (--project <project> | --unfile)
 runner mission feed [<mission>] [--follow] [--since <offset>] [--limit <n>] [--oldest-first]
