@@ -136,6 +136,12 @@ impl MissionWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let roster = self.mission_composer_roster();
+        let placeholder = mission_composer_placeholder(&self.roster);
+        let disabled = self.roster.is_empty() || self.composer_posting;
+        self.composer_input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, cx);
+            input.set_disabled(disabled, cx);
+        });
         let options = if self.composer_input.read(cx).is_composing() {
             Vec::new()
         } else {
@@ -144,7 +150,7 @@ impl MissionWorkspace {
         let picker_open = !options.is_empty();
         let target = self.composer.target.clone();
         let posting = self.composer_posting;
-        let can_send = !posting && !self.composer.draft.trim().is_empty();
+        let can_send = !disabled && !self.composer.draft.trim().is_empty();
         let root = cx.entity();
         let anchor_root = root.clone();
         let target_root = root.clone();
@@ -322,7 +328,7 @@ impl MissionWorkspace {
     }
 
     fn clear_mission_composer_target(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.composer_posting || self.secondary_state(cx).secondary {
+        if self.roster.is_empty() || self.composer_posting || self.secondary_state(cx).secondary {
             return;
         }
         self.composer.target = None;
@@ -357,7 +363,7 @@ impl MissionWorkspace {
         let Some(mission_id) = self.mission_id.clone() else {
             return;
         };
-        if self.composer_posting || self.secondary_state(cx).secondary {
+        if self.roster.is_empty() || self.composer_posting || self.secondary_state(cx).secondary {
             return;
         }
         self.composer_posting = true;
@@ -388,8 +394,9 @@ impl MissionWorkspace {
                     return;
                 }
                 this.composer_posting = false;
-                this.composer_input
-                    .update(cx, |input, input_cx| input.set_disabled(false, input_cx));
+                this.composer_input.update(cx, |input, input_cx| {
+                    input.set_disabled(this.roster.is_empty(), input_cx)
+                });
                 match result {
                     Ok(_) => {
                         this.composer = ComposerState::default();
@@ -408,5 +415,15 @@ impl MissionWorkspace {
             });
         })
         .detach();
+    }
+}
+
+fn mission_composer_placeholder(roster: &[SlotWithRole]) -> &'static str {
+    if roster.is_empty() {
+        "Add a role to start messaging"
+    } else if roster.iter().any(|member| member.slot.lead) {
+        "Message the crew — @handle to address one session"
+    } else {
+        "Message everyone — @handle to address one"
     }
 }

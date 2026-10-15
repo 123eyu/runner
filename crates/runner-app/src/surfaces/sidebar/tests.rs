@@ -193,6 +193,88 @@ fn mission_rename_commits_when_the_field_loses_focus() {
     assert_eq!(title, "Renamed mission");
 }
 
+#[test]
+fn sidebar_archive_returns_to_start_only_after_success() {
+    for (route, archive_id, expected_route) in [
+        (
+            AppRoute::Mission("mission".into()),
+            "mission",
+            AppRoute::Chat,
+        ),
+        (
+            AppRoute::Mission("other".into()),
+            "mission",
+            AppRoute::Mission("other".into()),
+        ),
+        (AppRoute::Roles, "mission", AppRoute::Roles),
+        (
+            AppRoute::Mission("missing".into()),
+            "missing",
+            AppRoute::Mission("missing".into()),
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        let core = store.read_with(&cx, |store, _| store.test_core.clone());
+        let conn = core.db.get().unwrap();
+        conn.execute_batch(
+            "INSERT INTO missions (id, title, status, started_at) VALUES ('mission', 'Empty mission', 'running', '2026-10-15T00:00:00Z');
+             INSERT INTO sessions (id, status, agent_runtime, agent_command) VALUES ('saved-chat', 'stopped', 'codex', 'codex');",
+        ).unwrap();
+        let layout = PaneLayout::single(Some("saved-chat"), &["saved-chat".into()]);
+        let tab = runner_daemon::repo::node::create_tab(
+            &conn,
+            None,
+            "Saved chat",
+            0,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap();
+        drop(conn);
+        store.update(&mut cx, |store, cx| store.refresh_nodes(cx).unwrap());
+        let host = cx.add_window(|window, cx| {
+            let mut root = NativeRoot::new(
+                "archive-test".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            );
+            root.set_route(route.clone(), cx);
+            root
+        });
+        host.update(&mut cx, |root, window, cx| {
+            assert_eq!(root.tabs.active_tab_id(), Some(tab.id.as_str()));
+            root.sidebar.update(cx, |sidebar, cx| {
+                sidebar.handle_sidebar_menu_action(
+                    SidebarMenuAction::ArchiveMission(archive_id.into()),
+                    window,
+                    cx,
+                );
+            });
+            assert_eq!(root.route, route);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        host.update(&mut cx, |root, window, cx| {
+            assert_eq!(root.route, expected_route);
+            let expected_tab = (expected_route != AppRoute::Chat).then_some(tab.id.as_str());
+            assert_eq!(root.tabs.active_tab_id(), expected_tab);
+            root.reload_tabs(cx).unwrap();
+            assert_eq!(root.tabs.active_tab_id(), expected_tab);
+            assert_eq!(root.tabs.tabs().len(), 1);
+            assert!(root.sidebar.read(cx).archiving_missions.is_empty());
+            window.remove_window();
+        })
+        .unwrap();
+        let mission = runner_daemon::ops::mission::mission_get(&core, "mission").unwrap();
+        assert_eq!(mission.archived_at.is_some(), archive_id == "mission");
+    }
+}
+
 struct SidebarRowTest {
     sidebar: Entity<Sidebar>,
     _observe: gpui::Subscription,

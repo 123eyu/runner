@@ -141,8 +141,7 @@ impl MissionWorkspace {
             .sessions
             .iter()
             .find(|session| session.lead)
-            .map(|session| session.handle.clone())
-            .unwrap_or_default();
+            .map(|session| session.handle.as_str());
         let confirm = cx.entity();
         let cancel = confirm.clone();
         let restart_id = session_id.clone();
@@ -150,7 +149,7 @@ impl MissionWorkspace {
             format!("Restart @{handle}?"),
             restart_confirm_body(
                 &handle,
-                &lead_handle,
+                lead_handle,
                 target.is_some_and(|session| session.lead),
             ),
             "Restart",

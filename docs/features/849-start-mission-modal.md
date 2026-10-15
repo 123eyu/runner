@@ -2,7 +2,7 @@
 
 > Tracking issue: [#849](https://github.com/yicheng47/runner/issues/849)
 > Priority: P2, milestone 0.16 (0.14 until 2026-10-10). Platforms: macOS and Windows.
-> Status: implemented on 2026-10-15 with #562 Phase 3, the second working-tree review is clean and native QA follow-up is pending in #562's mission 4; lands as its own commit (`docs/impls/562-mission-spawn/plan.md`, Phase 3 decision 11).
+> Status: implemented on 2026-10-15 with #562 Phase 3, the second working-tree review is clean and affected native macOS checks pass; the overall mission QA remains Incomplete for pre-existing-session upgrade resume in #562's mission 4; lands as its own commit (`docs/impls/562-mission-spawn/plan.md`, Phase 3 decision 11).
 > Design: `design/specs/562-mission-spawn.pen`, drawn together with #562 Phase 3: Start mission from a crew (`AVJ15`) and the crew picker open (`iJuGG`).
 > Related: [562](./562-mission-spawn.md)'s Phase 3 adds **No crew** as the first entry of this dialog's crew picker, for a mission that starts with no roles (settled 2026-10-15), and is drawn and built together with this redesign. This spec covers the crew mode; the No crew entry is 562's.
 

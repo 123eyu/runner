@@ -182,14 +182,6 @@ impl MissionWorkspace {
             MissionTab::Session(session_id) => Some(session_id.as_str()),
             MissionTab::Feed => None,
         };
-        let lead_handle = self
-            .sessions
-            .iter()
-            .find(|session| session.lead)
-            .or_else(|| self.sessions.first())
-            .map(|session| session.handle.as_str())
-            .unwrap_or_default()
-            .to_owned();
         let mut list = div()
             .id("mission-roles-scroll")
             .debug_selector(|| "MISSION_ROLES_SCROLL".into())
@@ -202,16 +194,6 @@ impl MissionWorkspace {
             .flex_col()
             .gap_3()
             .child(rail_section_label("Sessions"));
-        if self.sessions.is_empty() {
-            return list
-                .child(
-                    div()
-                        .text_size(theme::text_ui())
-                        .text_color(theme::faint())
-                        .child("No sessions yet."),
-                )
-                .into_any_element();
-        }
         let root = cx.entity();
         for session in &self.sessions {
             let session_id = session.session.id.clone();
@@ -469,7 +451,7 @@ impl MissionWorkspace {
                                         )
                                         .expand(),
                                     )
-                                    .children((session.handle == lead_handle).then(|| {
+                                    .children(session.lead.then(|| {
                                         div()
                                             .debug_selector(|| {
                                                 format!("MISSION_CARD_LEAD {session_id}")
@@ -529,6 +511,15 @@ impl MissionWorkspace {
                     ),
             );
         }
+        if self.roster.is_empty() {
+            list = list.child(
+                div()
+                    .debug_selector(|| "MISSION_RAIL_NO_ROLES".into())
+                    .text_size(theme::text_ui())
+                    .text_color(theme::faint())
+                    .child("No roles yet."),
+            );
+        }
         if mission_slot_actions_available(
             self.mission.as_ref().map(|mission| mission.status),
             self.archived(),
@@ -539,23 +530,27 @@ impl MissionWorkspace {
             let roster = self.roster.clone();
             let events = self.events.clone();
             list = list.child(
-                Button::new("mission-add-role", "Add role")
-                    .full_width(true)
-                    .variant(ButtonVariant::Outline)
-                    .icon("plus.svg")
-                    .on_press(move |window, cx| {
-                        if let Some(mission) = mission.clone() {
-                            let _ = shell.update(cx, |this, cx| {
-                                this.open_add_role_modal(
-                                    mission,
-                                    roster.clone(),
-                                    events.clone(),
-                                    window,
-                                    cx,
-                                )
-                            });
-                        }
-                    }),
+                div()
+                    .debug_selector(|| "MISSION_RAIL_ADD_ROLE".into())
+                    .child(
+                        Button::new("mission-add-role", "Add role")
+                            .full_width(true)
+                            .variant(ButtonVariant::Outline)
+                            .icon("plus.svg")
+                            .on_press(move |window, cx| {
+                                if let Some(mission) = mission.clone() {
+                                    let _ = shell.update(cx, |this, cx| {
+                                        this.open_add_role_modal(
+                                            mission,
+                                            roster.clone(),
+                                            events.clone(),
+                                            window,
+                                            cx,
+                                        )
+                                    });
+                                }
+                            }),
+                    ),
             );
         }
         list.into_any_element()
@@ -602,7 +597,6 @@ impl MissionWorkspace {
             return div().into_any_element();
         };
         let root = cx.entity();
-        let crew_root = root.clone();
         let cwd_root = root;
         let goal = self.goal();
         let permission_mode = self.permission_mode();
@@ -704,39 +698,7 @@ impl MissionWorkspace {
                 },
             ),
         ));
-        let crew_name = self
-            .crew
-            .as_ref()
-            .map(|crew| crew.name.clone())
-            .unwrap_or_else(|| "…".into());
-        let crew_id = mission.crew_id.clone().unwrap_or_default();
         panel
-            .child(meta_section(
-                "Crew",
-                div()
-                    .id("open-mission-crew")
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer()
-                    .text_size(theme::text_ui())
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::accent())
-                    .hover(|link| link.underline())
-                    .on_click(move |_, window, cx| {
-                        crew_root.update(cx, |this, cx| {
-                            this.open_crew_editor(crew_id.clone(), window, cx)
-                        });
-                    })
-                    .child(
-                        svg()
-                            .flex_none()
-                            .path("users.svg")
-                            .size(rems(12. / 16.))
-                            .text_color(theme::muted()),
-                    )
-                    .child(crew_name),
-            ))
             .children(permission_mode.map(|mode| {
                 meta_section(
                     "Permissions",

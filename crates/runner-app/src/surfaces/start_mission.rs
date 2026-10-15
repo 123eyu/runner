@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{div, px, rems, AnyElement, Entity, FontWeight, PathPromptOptions, Window};
+use gpui::{div, px, rems, svg, AnyElement, Entity, FontWeight, PathPromptOptions, Window};
 use runner_app::ui::{
     working_dir_text_field, Button, ButtonVariant, Field, IconButton, Modal, OverlayWidth,
     RoleAvatar, SelectLeading, SelectOption, StyledSelect, TextField, WorkingDirField,
@@ -38,12 +38,12 @@ impl StartMissionModalState {
     fn can_submit(&self, cx: &App) -> bool {
         !self.submitting
             && !self.loading
-            && !self.crew_id.is_empty()
             && !self.title.read(cx).text().trim().is_empty()
-            && self
-                .crews
-                .iter()
-                .any(|crew| crew.crew.id == self.crew_id && crew.role_count > 0)
+            && (self.crew_id.is_empty()
+                || self
+                    .crews
+                    .iter()
+                    .any(|crew| crew.crew.id == self.crew_id && crew.role_count > 0))
     }
 
     fn is_composing(&self, cx: &App) -> bool {
@@ -190,8 +190,10 @@ impl NativeRoot {
         modal.crew_id = crew_id.clone();
         modal.roster.clear();
         modal.error = None;
-        modal.loading = true;
-        self.load_start_mission_roster(crew_id, cx);
+        modal.loading = !crew_id.is_empty();
+        if !crew_id.is_empty() {
+            self.load_start_mission_roster(crew_id, cx);
+        }
         cx.notify();
     }
 
@@ -311,7 +313,7 @@ impl NativeRoot {
             return;
         }
         let input = runner_core::protocol::mission::MissionStart {
-            crew_id: Some(modal.crew_id.clone()),
+            crew_id: nonempty(&modal.crew_id),
             scope: ProjectScope::or_root(modal.project.as_ref().map(|project| project.id.clone())),
             title: modal.title.read(cx).text().trim().to_owned(),
             goal_override: nonempty(modal.goal.read(cx).text()),
@@ -440,7 +442,7 @@ impl NativeRoot {
                                 lead.slot.slot_handle
                             )
                         })
-                        .unwrap_or_else(|| "Delivered to the crew lead on mission start.".into()),
+                        .unwrap_or_else(|| if modal.crew_id.is_empty() { "Shared with every role that joins. Give each one its own task when you add it.".into() } else { "Delivered to the crew lead on mission start.".into() }),
                     ),
             )
             .child(
@@ -458,7 +460,7 @@ impl NativeRoot {
                     .browse_focus(modal.browse_focus.clone()),
                 )
                 .emphasized(true)
-                .subtitle("Each role starts here. Leave blank to use its default directory or your home directory."),
+                .subtitle(if modal.crew_id.is_empty() { "Every role you add starts here. Leave blank to use its default directory or your home directory." } else { "Each role starts here. Leave blank to use its default directory or your home directory." }),
             )
             ;
         let footer = div().w_full().flex().items_center().justify_end().child(
@@ -552,6 +554,9 @@ fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
         .border_color(theme::border())
         .bg(theme::bg())
         .child(modal.crew_select.clone())
+        .children(modal.crew_id.is_empty().then(|| div().border_t_1().border_color(theme::border()).px_4().py_3()
+            .text_size(theme::text_ui()).text_color(theme::muted())
+            .child("No roles at start. Add them one at a time from the mission once it starts; each joins as a worker.")))
         .children((!modal.roster.is_empty()).then(|| {
             div()
                 .border_t_1()
@@ -615,9 +620,28 @@ fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
 }
 
 fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
-    crews
-        .iter()
-        .map(|crew| {
+    let empty = SelectOption::new("", "No crew")
+        .description("start empty · add roles from the mission")
+        .trigger_description("start empty")
+        .leading(SelectLeading::new("no-crew", |size| {
+            div()
+                .flex_none()
+                .size(rems(size / 16.))
+                .rounded(rems(8. / 16.))
+                .bg(theme::raised())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path("user-plus.svg")
+                        .size(rems(size * 0.5 / 16.))
+                        .text_color(theme::muted()),
+                )
+                .into_any_element()
+        }));
+    std::iter::once(empty)
+        .chain(crews.iter().enumerate().map(|(index, crew)| {
             let handles: Vec<SharedString> = crew
                 .members
                 .iter()
@@ -625,6 +649,7 @@ fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
                 .collect();
             let key = format!("crew:{}:{handles:?}", crew.crew.id);
             SelectOption::new(crew.crew.id.clone(), crew.crew.name.clone())
+                .separator_before(index == 0)
                 .description(crew_summary(
                     crew.role_count as usize,
                     crew.members
@@ -635,7 +660,7 @@ fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
                 .leading(SelectLeading::new(key, move |size| {
                     crew_picture(&handles, size)
                 }))
-        })
+        }))
         .collect()
 }
 
@@ -727,8 +752,8 @@ mod keyboard_tests {
                 slot_handle: member.slot.slot_handle.clone(), role_handle: member.role.handle.clone(), runtime: "codex".into(), lead: member.slot.lead,
             }).collect();
             let options = start_mission_crew_options(&modal.crews);
-            assert_eq!(options[0].description.as_deref(), Some("5 slots · lead @worker-0"));
-            assert!(options[0].leading.is_some());
+            assert_eq!(options[1].description.as_deref(), Some("5 slots · lead @worker-0"));
+            assert!(options[1].leading.is_some());
             modal.crew_select.update(cx, |select, cx| select.set_options(options, cx));
             cx.notify();
         });
@@ -743,6 +768,45 @@ mod keyboard_tests {
             let row = harness.visual.debug_bounds(selector).unwrap();
             assert!(row.left() >= modal.left() && row.right() <= modal.right());
         }
+    }
+
+    #[test]
+    fn no_crew_is_first_and_starts_an_empty_workspace_at_minimum_size() {
+        let mut harness = modal_harness(640., 480., Vec::new(), Vec::new(), ChatMode::Runtime);
+        harness.act(|root, window, cx| {
+            root.start_chat_modal = None;
+            for crew in root.core(cx).crew_list(1, 10_000, "").unwrap().items {
+                root.core(cx).crew_delete(&crew.crew.id).unwrap();
+            }
+            root.new_mission_action(&NewMission, window, cx);
+        });
+        harness.act(|root, _, cx| {
+            let form = root.start_mission_modal.as_ref().unwrap();
+            assert!(form.crews.is_empty());
+            assert!(form.crew_id.is_empty());
+            let options = start_mission_crew_options(&form.crews);
+            assert_eq!(options[0].label, "No crew");
+            assert_eq!(
+                options[0].description.as_deref(),
+                Some("start empty · add roles from the mission")
+            );
+            form.title
+                .update(cx, |field, cx| field.set_text("Empty mission", cx));
+            form.goal
+                .update(cx, |field, cx| field.set_text("Shared goal", cx));
+            assert!(form.can_submit(cx));
+        });
+        harness
+            .visual
+            .simulate_keystrokes(&keymap::platform_default("cmd-enter"));
+        harness.act(|root, _, cx| {
+            assert!(root.start_mission_modal.is_none());
+            let AppRoute::Mission(id) = &root.route else {
+                panic!("mission not opened");
+            };
+            assert!(root.core(cx).mission_get(id).unwrap().crew_id.is_none());
+            assert!(root.core(cx).session_list(id).unwrap().is_empty());
+        });
     }
 
     #[test]
@@ -794,7 +858,7 @@ mod keyboard_tests {
                 match condition {
                     0 => form.loading = true,
                     1 => form.submitting = true,
-                    2 => form.crew_id.clear(),
+                    2 => form.crew_id = "missing-crew".into(),
                     3 => form.title.update(cx, |field, cx| field.set_text("", cx)),
                     4 => form.crews[0].role_count = 0,
                     _ => form.goal.update(cx, |field, cx| {

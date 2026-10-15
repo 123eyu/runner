@@ -35,11 +35,19 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) {
         let changed = if archiving {
-            self.archiving_missions.insert(mission_id)
+            self.archiving_missions.insert(mission_id.clone())
         } else {
             self.archiving_missions.remove(&mission_id)
         };
         if changed {
+            if let Some(shell) = self.shell.upgrade() {
+                cx.defer(move |cx| {
+                    let workspace = shell.read(cx).mission_workspace.clone();
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.set_archiving(&mission_id, archiving, cx);
+                    });
+                });
+            }
             cx.notify();
         }
     }

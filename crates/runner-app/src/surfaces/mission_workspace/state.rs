@@ -177,7 +177,6 @@ impl MissionWorkspace {
             refresh_generation: 0,
             event_resync_generation: 0,
             mission: None,
-            crew: None,
             sessions: Vec::new(),
             events: Vec::new(),
             session_statuses: BTreeMap::new(),
@@ -251,7 +250,6 @@ impl MissionWorkspace {
         self.closing_drawer_shells.clear();
         self.drawer_exit_codes.clear();
         self.mission = None;
-        self.crew = None;
         self.sessions.clear();
         self.events.clear();
         self.session_statuses.clear();
@@ -627,16 +625,15 @@ impl MissionWorkspace {
         }
     }
 
-    pub(super) fn open_crew_editor(
+    pub(crate) fn set_archiving(
         &mut self,
-        crew_id: String,
-        window: &mut Window,
+        mission_id: &str,
+        archiving: bool,
         cx: &mut Context<Self>,
     ) {
-        if let Some(shell) = self.shell.upgrade() {
-            shell.update(cx, |shell, shell_cx| {
-                shell.open_crew_editor(crew_id, window, shell_cx)
-            });
+        if self.mission_id.as_deref() == Some(mission_id) && self.archiving != archiving {
+            self.archiving = archiving;
+            cx.notify();
         }
     }
 

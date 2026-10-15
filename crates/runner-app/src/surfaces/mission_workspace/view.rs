@@ -877,6 +877,7 @@ impl MissionWorkspace {
             .is_some_and(|mission| mission.status == MissionStatus::Running);
         let can_compose = mission_running && !self.archived() && !self.secondary;
         let paused = mission_running
+            && !self.roster.is_empty()
             && !self.any_session_live()
             && self.slot_actions.is_empty()
             && !self.resuming

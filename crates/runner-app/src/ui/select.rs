@@ -58,6 +58,8 @@ pub struct SelectOption {
     pub value: String,
     pub label: SharedString,
     pub description: Option<SharedString>,
+    pub trigger_description: Option<SharedString>,
+    pub separator_before: bool,
     pub danger: bool,
     pub disabled: bool,
     pub swatch: Option<u32>,
@@ -73,6 +75,8 @@ impl SelectOption {
             value: value.into(),
             label: label.into(),
             description: None,
+            trigger_description: None,
+            separator_before: false,
             danger: false,
             disabled: false,
             swatch: None,
@@ -93,6 +97,16 @@ impl SelectOption {
 
     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    pub fn trigger_description(mut self, description: impl Into<SharedString>) -> Self {
+        self.trigger_description = Some(description.into());
+        self
+    }
+
+    pub fn separator_before(mut self, separator: bool) -> Self {
+        self.separator_before = separator;
         self
     }
 
@@ -470,7 +484,14 @@ impl Render for StyledSelect {
             .unwrap_or_else(|| self.placeholder.clone());
         let stacked = self.detailed || self.picker;
         let description = stacked
-            .then(|| selected.and_then(|option| option.description.clone()))
+            .then(|| {
+                selected.and_then(|option| {
+                    option
+                        .trigger_description
+                        .clone()
+                        .or_else(|| option.description.clone())
+                })
+            })
             .flatten();
         let swatch = selected.and_then(|option| option.swatch);
         let leading = selected.and_then(|option| option.leading.clone());
@@ -719,6 +740,9 @@ pub(crate) fn option_menu(
                 } else {
                     theme::raised()
                 })
+            })
+            .when(option.separator_before, |row| {
+                row.border_t_1().border_color(theme::border()).mt_1()
             })
             .when(!option.disabled, |row| {
                 row.cursor_pointer().hover(|row| {

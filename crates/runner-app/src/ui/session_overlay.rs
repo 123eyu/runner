@@ -147,6 +147,7 @@ impl RenderOnce for SessionOverlay {
                     .into_any_element()
             }
             SessionOverlayKind::Archiving => div()
+                .debug_selector(|| "SESSION_ARCHIVING".into())
                 .absolute()
                 .inset_0()
                 .flex()

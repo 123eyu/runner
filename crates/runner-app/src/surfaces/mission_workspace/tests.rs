@@ -163,6 +163,31 @@ fn composer_tracks_keyboard_and_mouse_caret_moves_and_completes_without_resettin
         0
     );
     assert_eq!(query(&visual), None);
+    let roster = workspace.update(&mut visual, |workspace, cx| {
+        let roster = std::mem::take(&mut workspace.roster);
+        workspace.composer = Default::default();
+        workspace
+            .composer_input
+            .update(cx, |input, cx| input.reset("", cx));
+        cx.notify();
+        roster
+    });
+    cx.run_until_parked();
+    visual.simulate_input("cannot send without a role");
+    assert_eq!(
+        input.read_with(&visual, |input, _| input.text().to_owned()),
+        ""
+    );
+    workspace.update(&mut visual, |workspace, cx| {
+        workspace.roster = roster;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    visual.simulate_input("worker joined");
+    assert_eq!(
+        input.read_with(&visual, |input, _| input.text().to_owned()),
+        "worker joined"
+    );
 }
 
 fn signal(signal_type: &str, payload: serde_json::Value) -> Event {
@@ -303,7 +328,6 @@ fn sidebar_and_mission_fills_follow_carbon_and_runner_light() {
             workspace.mission_id = Some("mission".into());
             workspace.mission =
                 Some(runner_daemon::ops::mission::mission_get(&core, "mission").unwrap());
-            workspace.crew = Some(runner_daemon::ops::crew::crew_get(&core, "crew").unwrap());
             workspace.composer.draft = "Ready to review".into();
             workspace
                 .composer_input
@@ -670,6 +694,99 @@ fn slot_rail_actions_match_status() {
         );
     }
 }
+
+#[test]
+fn sidebar_archiving_shows_the_pill_instead_of_paused_actions() {
+    use gpui::{TestAppContext, VisualTestContext};
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    store.update(&mut cx, |store, _| {
+        crate::app_store::seed_mixed_working_sessions(store);
+    });
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let host = cx.add_window(|window, cx| {
+        let mut root = NativeRoot::new(
+            "archive-progress".into(),
+            temp.path().join("logs"),
+            None,
+            None,
+            store.clone(),
+            window,
+            cx,
+        );
+        root.route = AppRoute::Mission("test-mission".into());
+        root.mission_workspace.update(cx, |workspace, _| {
+            workspace.active = true;
+            workspace.mission_id = Some("test-mission".into());
+            workspace.mission =
+                Some(runner_daemon::ops::mission::mission_get(&core, "test-mission").unwrap());
+            workspace.roster =
+                runner_daemon::ops::mission::mission_roster(&core, "test-mission").unwrap();
+            workspace.sessions =
+                runner_daemon::ops::session::session_list(&core, "test-mission").unwrap();
+            for session in &mut workspace.sessions {
+                session.session.status = SessionStatus::Stopped;
+            }
+        });
+        root
+    });
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.simulate_resize(size(px(1200.), px(900.)));
+
+    for tab in [
+        MissionTab::Feed,
+        MissionTab::Session("mission-agent".into()),
+    ] {
+        host.update(&mut visual, |root, _, cx| {
+            root.mission_workspace.update(cx, |workspace, cx| {
+                workspace.active_tab = tab.clone();
+                cx.notify();
+            });
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_some());
+        assert!(visual.debug_bounds("SESSION_ARCHIVING").is_none());
+
+        host.update(&mut visual, |root, _, cx| {
+            root.set_sidebar_mission_archiving("other-mission".into(), true, cx);
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_some());
+
+        host.update(&mut visual, |root, _, cx| {
+            root.set_sidebar_mission_archiving("test-mission".into(), true, cx);
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_none());
+        assert!(visual.debug_bounds("SESSION_ARCHIVING").is_some());
+
+        host.update(&mut visual, |root, _, cx| {
+            root.set_sidebar_mission_archiving("test-mission".into(), false, cx);
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_some());
+        assert!(visual.debug_bounds("SESSION_ARCHIVING").is_none());
+    }
+    host.update(&mut visual, |root, window, cx| {
+        root.set_sidebar_mission_archiving("test-mission".into(), true, cx);
+        root.set_route(AppRoute::Roles, cx);
+        root.open_mission("test-mission".into(), window, cx);
+        assert!(root.mission_workspace.read(cx).archiving);
+    })
+    .unwrap();
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_none());
+    assert!(visual.debug_bounds("SESSION_ARCHIVING").is_some());
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
 #[test]
 fn cached_mission_header_tabs_and_feed_span_the_content_column() {
     use gpui::{TestAppContext, VisualTestContext};
@@ -737,7 +854,6 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
             workspace.mission_id = Some("mission".into());
             workspace.mission =
                 Some(runner_daemon::ops::mission::mission_get(&core, "mission").unwrap());
-            workspace.crew = Some(runner_daemon::ops::crew::crew_get(&core, "crew").unwrap());
         });
         root
     });
@@ -757,6 +873,11 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
             );
         }
     }
+
+    assert!(visual.debug_bounds("MISSION_NO_ROLES").is_some());
+    assert!(visual.debug_bounds("MISSION_RAIL_NO_ROLES").is_some());
+    assert!(visual.debug_bounds("MISSION_RAIL_ADD_ROLE").is_some());
+    assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_none());
 
     let handles = [
         "coder",
@@ -780,12 +901,48 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
                         stopped_at: None,
                     },
                     handle: (*handle).into(),
-                    lead: *handle == "coder",
+                    lead: false,
                     runtime: "codex".into(),
                     live_title: None,
                     agent_session_key: None,
                 })
                 .collect();
+            workspace.roster = vec![runner_core::protocol::model::SlotWithRole {
+                slot: runner_core::protocol::model::Slot {
+                    id: "slot-coder".into(),
+                    crew_id: "crew".into(),
+                    role_id: "role".into(),
+                    slot_handle: "coder".into(),
+                    position: 0,
+                    lead: false,
+                    runtime_override: None,
+                    model_override: None,
+                    effort_override: None,
+                    codex_speed_override: None,
+                    added_at: Utc::now(),
+                },
+                role: runner_core::protocol::model::Role {
+                    id: "role".into(),
+                    handle: "coder".into(),
+                    display_name: "Coder".into(),
+                    runtime: "codex".into(),
+                    command: "codex".into(),
+                    args: Vec::new(),
+                    working_dir: None,
+                    system_prompt: None,
+                    env: Default::default(),
+                    model: None,
+                    effort: None,
+                    codex_speed: None,
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                },
+            }];
+            workspace.events = vec![signal(
+                "mission_goal",
+                serde_json::json!({"text": "Ship it"}),
+            )];
+            workspace.rebuild_event_projection();
             workspace.open_tabs = handles
                 .iter()
                 .map(|handle| format!("slot-{handle}"))
@@ -810,6 +967,27 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
             "{selector} {tab:?} escapes the tab strip {strip:?}"
         );
     }
+    assert!(visual
+        .debug_bounds("MISSION_CARD_LEAD slot-coder")
+        .is_none());
+    assert!(visual
+        .debug_bounds("MISSION_MESSAGE_TARGET coder")
+        .is_none());
+    host.update(&mut visual, |root, _, cx| {
+        root.mission_workspace.update(cx, |workspace, cx| {
+            workspace.sessions[0].lead = true;
+            workspace.roster[0].slot.lead = true;
+            cx.notify();
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(visual
+        .debug_bounds("MISSION_CARD_LEAD slot-coder")
+        .is_some());
+    assert!(visual
+        .debug_bounds("MISSION_MESSAGE_TARGET coder")
+        .is_some());
 }
 
 struct MissionRailLayoutTest {
@@ -1352,6 +1530,26 @@ fn slot_control_titles_follow_effective_bindings() {
     assert_eq!(
         slot_control_title(SessionControlKind::Resume, &overrides),
         "Resume"
+    );
+}
+
+#[test]
+fn restart_confirmation_without_a_lead_names_other_members() {
+    assert_eq!(
+        restart_confirm_body("worker", None, false),
+        "Its conversation so far is discarded. @worker comes back with its brief, the same first turn a cold start gives it, and the other members get a note that it starts over."
+    );
+}
+
+#[test]
+fn restart_confirmation_preserves_crew_lead_and_worker_copy() {
+    assert_eq!(
+        restart_confirm_body("captain", Some("captain"), true),
+        "Its conversation so far is discarded. @captain comes back with the launch prompt, the same first turn a cold start gives it, and the other slots get a note that it starts over."
+    );
+    assert_eq!(
+        restart_confirm_body("worker", Some("captain"), false),
+        "Its conversation so far is discarded. @worker comes back with its brief, the same first turn a cold start gives it, and @captain gets a note that it must re-send anything @worker needs."
     );
 }
 

@@ -312,6 +312,9 @@ impl MissionWorkspace {
     }
 
     pub(super) fn render_mission_paused_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.roster.is_empty() {
+            return div().into_any_element();
+        }
         let root = cx.entity();
         let resume_root = root.clone();
         let archive_root = root;

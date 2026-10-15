@@ -139,6 +139,13 @@ impl NativeRoot {
             .contains(session_id)
     }
 
+    pub(crate) fn sidebar_archiving_mission(&self, mission_id: &str, cx: &App) -> bool {
+        self.sidebar
+            .read(cx)
+            .archiving_missions
+            .contains(mission_id)
+    }
+
     pub(crate) fn set_sidebar_mission_archiving(
         &mut self,
         mission_id: String,

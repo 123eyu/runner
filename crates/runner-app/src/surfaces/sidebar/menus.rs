@@ -322,10 +322,10 @@ impl Sidebar {
                 }
             }
             SidebarMenuAction::ArchiveMission(mission_id) => {
-                if !self.archiving_missions.insert(mission_id.clone()) {
+                if self.archiving_missions.contains(&mission_id) {
                     return;
                 }
-                cx.notify();
+                self.set_mission_archiving(mission_id.clone(), true, cx);
                 let core = self.core(cx).clone();
                 let archive_id = mission_id.clone();
                 let archive_task = cx.background_spawn(async move {
@@ -333,12 +333,26 @@ impl Sidebar {
                         .map(drop)
                         .map_err(|error| error.to_string())
                 });
-                cx.spawn(async move |weak, cx| {
+                cx.spawn_in(window, async move |weak, cx| {
                     let result = archive_task.await;
-                    let _ = weak.update(cx, |this, cx| {
-                        this.archiving_missions.remove(&mission_id);
+                    let _ = weak.update_in(cx, |this, window, cx| {
+                        this.set_mission_archiving(mission_id.clone(), false, cx);
                         match result {
-                            Ok(()) => (),
+                            Ok(()) => {
+                                if let Some(shell) = this.shell.upgrade() {
+                                    window.defer(cx, move |window, cx| {
+                                        shell.update(cx, |shell, shell_cx| {
+                                            shell.leave_archived_mission(
+                                                &mission_id,
+                                                Some(false),
+                                                true,
+                                                window,
+                                                shell_cx,
+                                            );
+                                        });
+                                    });
+                                }
+                            }
                             Err(error) => this.report_error(error, cx),
                         }
                         this.refresh_store(StoreRefreshKind::All, cx);

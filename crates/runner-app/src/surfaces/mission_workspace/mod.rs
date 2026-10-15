@@ -20,7 +20,7 @@ use gpui::prelude::*;
 use gpui::{div, px, rems, App, Bounds, Entity, Pixels, SharedString, WeakEntity, Window};
 use runner_app::ui::{CopyValueButton, PopoverMenu, SessionControlKind, TextField};
 use runner_core::protocol::model::{
-    Crew, Event, EventKind, Mission, MissionStatus, SessionStatus, SlotWithRole,
+    Event, EventKind, Mission, MissionStatus, SessionStatus, SlotWithRole,
 };
 use runner_core::protocol::session::SessionRow;
 
@@ -191,11 +191,13 @@ fn slot_control_title(action: SessionControlKind, overrides: &keymap::KeymapOver
         )
 }
 
-fn restart_confirm_body(handle: &str, lead_handle: &str, is_lead: bool) -> String {
+fn restart_confirm_body(handle: &str, lead_handle: Option<&str>, is_lead: bool) -> String {
     if is_lead {
         format!("Its conversation so far is discarded. @{handle} comes back with the launch prompt, the same first turn a cold start gives it, and the other slots get a note that it starts over.")
-    } else {
+    } else if let Some(lead_handle) = lead_handle {
         format!("Its conversation so far is discarded. @{handle} comes back with its brief, the same first turn a cold start gives it, and @{lead_handle} gets a note that it must re-send anything @{handle} needs.")
+    } else {
+        format!("Its conversation so far is discarded. @{handle} comes back with its brief, the same first turn a cold start gives it, and the other members get a note that it starts over.")
     }
 }
 
@@ -276,7 +278,6 @@ pub(crate) struct MissionWorkspace {
     refresh_generation: u64,
     event_resync_generation: u64,
     mission: Option<Mission>,
-    crew: Option<Crew>,
     sessions: Vec<SessionRow>,
     events: Vec<Event>,
     session_statuses: BTreeMap<String, SessionActivityState>,
@@ -333,7 +334,6 @@ pub(crate) struct MissionWorkspace {
 #[derive(Clone)]
 struct MissionLoadResult {
     mission: Mission,
-    crew: Option<Crew>,
     roster: Vec<SlotWithRole>,
     sessions: Vec<SessionRow>,
     events: Vec<Event>,
