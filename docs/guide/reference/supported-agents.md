@@ -1,0 +1,54 @@
+# Supported agents
+
+Runner launches separately installed agent CLIs and keeps their native terminal interfaces. Enable agents, inspect detected executables, and choose executable overrides in **Settings → Agents**.
+
+## Install and sign in
+
+Use each provider's setup instructions, then run its CLI in a normal terminal to finish authentication before starting it in Runner.
+
+| Agent | Runtime name for the CLI | Setup and account notes |
+| --- | --- | --- |
+| Codex | `codex` | [Codex CLI setup](https://developers.openai.com/codex/cli); sign in through Codex |
+| Claude Code | `claude-code` | [Claude Code setup](https://code.claude.com/docs/en/setup); sign in through Claude Code |
+| Antigravity CLI | `antigravity` | [Antigravity CLI reference](https://antigravity.google/docs/cli/reference); Google account; updates itself at startup |
+| pi | `pi` | [pi setup](https://github.com/earendil-works/pi); configure your model provider |
+| GitHub Copilot CLI | `copilot` | [Copilot CLI setup](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli); Copilot subscription |
+| Cursor Agent CLI | `cursor` | [Cursor CLI setup](https://cursor.com/docs/cli/installation); install the CLI separately from the editor |
+| Grok Build | `grok` | [Grok Build setup](https://docs.x.ai/build/overview); existing grok.com sign-in; updates itself |
+| OpenCode v2 | `opencode` | [OpenCode](https://opencode.ai); configure an available provider and model |
+| TRAE CLI | `trae` | Opt-in runtime; enable it in Settings → Agents after installing and configuring its CLI |
+
+All listed runtimes except TRAE are enabled by default when detected. The runtime name is Runner's identifier; it need not be the executable name. For example, Runner's Claude Code runtime is `claude-code`, while its executable is `claude`.
+
+## Capabilities
+
+“Yes” describes an implemented integration. Platform notes below distinguish implementation from native validation. “Catalog” means Runner can display and edit skill documents but has no global skill switch for that runtime.
+
+| Capability | Codex | Claude Code | Antigravity CLI | pi | Copilot CLI | Cursor | Grok |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Chats, missions and saved-conversation resume | Yes | Yes | Yes | Yes | Yes | Yes | macOS checked; relaunch gap |
+| Native conversation switches update the resume key | Yes | Yes | Yes | Yes | No | macOS/Linux integration | macOS/Linux integration |
+| Windows | Yes | Yes | Unverified | Unverified | Yes | Unverified | Unverified |
+| Fork a chat | Yes | Yes | No | Yes | No | No | Yes |
+| Working/idle from agent hooks | Yes | Yes | macOS only | Yes | Yes | Terminal activity | macOS/Linux integration |
+| Needs-input reporting | No | Approvals and questions | No | Extension reports only | Approvals and questions | No | Approvals on macOS/Linux |
+| Models discovered from the CLI | Yes | Yes | Yes | Yes | No | Yes | Yes |
+| Update through Settings → Agents | Yes | Yes | No | Yes | Yes | No | No |
+| Usage indicator | Yes | Yes | Yes | No | No | No | No |
+| Skills | Catalog and switch | Catalog and switch | Catalog | Catalog | Catalog and switch | Catalog | Catalog |
+| Runner skill installed | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Mission access | Bypass | Bypass | Bypass | Trusted workspace | Bypass | Bypass | Bypass |
+
+**OpenCode v2** supports chats, roles, crews, exact session identities, dynamic models and model variants, hook status, skills catalogs, MCP settings and the Runner skill. It has no chat fork, usage indicator, global skill toggle or update control. Backend/native-data checks cover replies, coordination and stop/resume; complete GUI and Windows checks remain unverified. Mission access uses its automatic permission mode.
+
+**TRAE CLI** remains opt-in. It has a skills catalog, MCP configuration and mission permission support. Do not assume feature or platform parity with the primary runtimes.
+
+## Platform and resume notes
+
+- Runner ships for Apple Silicon macOS and Windows x64. References to Linux above describe a runtime adapter's behavior, not a Linux build of Runner.
+- Windows agents run natively, without WSL. Claude Code and pi's bash tool need Git for Windows. npm-installed agents need Node.js; Copilot's npm installation requires Node.js 22. PowerShell 7 is optional.
+- Antigravity CLI and pi have Windows implementation paths but no completed native Windows smoke check. Cursor, Grok and OpenCode also have Windows validation gaps.
+- Grok chats, missions and stop/resume were checked on macOS; full app-relaunch persistence remains unverified. Switching an already loaded Grok dashboard conversation updates Runner's resume key on the next prompt, not an idle dashboard switch.
+- A resume key identifies the runtime's conversation. The runtime must still have that conversation history. Working/idle and needs-input indicators depend on the runtime's reporting and do not certify completion of a task.
+
+See [Sessions](../concepts/sessions.md) for lifecycle behavior and [Troubleshooting](../guides/troubleshooting.md) for detection and resume problems.

@@ -44,6 +44,7 @@ Surface hierarchy (strict — do not blur these in code, docs, or UI copy):
 - `design/`: Pencil source files.
 - `docs/arch/`: architecture references (how it works).
 - `docs/product/`: product vision and direction (why we're building this, what surfaces matter).
+- `docs/guide/`: user documentation, with `README.md` as the website's navigation order; writing and generation conventions live in [docs/guide-authoring.md](docs/guide-authoring.md).
 - `docs/features/`: specs of features in development, named `{tracking-issue}-{slug}.md`. A feature is only an issue until its development starts; its spec is then written on the feature's branch and lands with the code. Shipped specs live in `docs/features/archive/`.
 - `docs/impls/`: implementation plans; shipped plans live in `docs/impls/archive/`, mission briefs in `docs/impls/briefs/`.
 - `docs/tests/`: validation and smoke-test plans; records of shipped features live in `docs/tests/archive/`.
@@ -91,6 +92,7 @@ Work stays inside its own worktree. When several are live at once, treat the oth
 - Follow existing local patterns before adding new abstractions.
 - Keep platform window chrome in `crates/runner-app/src/platform_ui/{macos,windows}.rs` and font mappings in the adjacent `fonts_{macos,windows}.rs`, selected at compile time. Windows layout changes must preserve the macOS implementation; share sidebar and workspace content across platforms.
 - Keep changes scoped to the request. Avoid unrelated refactors.
+- A pull request that changes user-visible behavior (commands, settings, shortcuts or screens) updates the relevant `docs/guide/` pages in the same pull request. Feature specs name the guide pages they affect. Regenerate the CLI reference with `make guide-cli` when CLI help changes; CI checks it on both platforms.
 - Do not revert user changes. If the working tree is dirty, inspect first and
   preserve unrelated edits.
 - Use structured APIs and parsers when available instead of ad hoc string

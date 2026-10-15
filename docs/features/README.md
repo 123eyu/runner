@@ -14,7 +14,7 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 - [764 — Support MCP management for Pi](./764-pi-mcp-management.md) — proposed catalog, editing, multi-client sync and conflict detection for pi's user MCP servers; verify native config support and reconcile Runner registration with the shipped CLI-only coordination contract ([#764](https://github.com/yicheng47/runner/issues/764), P2, 0.18; spec under review).
 - [559 — Command palette on ⌘⇧P](./559-command-palette.md) — the ⌘K overlay in command mode over the keymap ([#559](https://github.com/yicheng47/runner/issues/559), P2, 0.16).
 - [565 — i18n, 简体中文 first](./565-i18n.md) — a language setting, a compile-time catalog, a live switch ([#565](https://github.com/yicheng47/runner/issues/565), P2, 0.18).
-- [809 — User documentation](./809-user-docs.md) — a user guide in `docs/guide/`, in four sections (getting started, concepts, guides, reference), that runnersh.dev renders from the latest release tag; plain Markdown that reads on GitHub, a CLI reference generated from `runner help`, and a rule that behavior changes update the guide in the same PR ([#809](https://github.com/yicheng47/runner/issues/809), P2, 0.17, written once liquid glass has shipped; draft structure).
+- [809 — User documentation](./809-user-docs.md) — a user guide in `docs/guide/`, in four sections (getting started, concepts, guides, reference), for runnersh.dev to render from the latest release tag; plain Markdown, a CLI reference generated from the built binary and checked on both platforms, and a rule that behavior changes update the guide in the same PR ([#809](https://github.com/yicheng47/runner/issues/809); implemented for review, website integration separate).
 
 ## Recently shipped
 
