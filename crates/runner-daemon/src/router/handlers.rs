@@ -56,44 +56,22 @@ pub(super) fn human_said(router: &Router, event: &Event) {
         .payload
         .get("target")
         .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| router.lead_handle().to_string());
-
-    if let Err(e) = router.inject_and_submit(&target, &submit_body(text)) {
-        router.warn(format!(
-            "human_said injection to @{target} failed: {e} (text: {text:?})"
-        ));
-    }
-}
-
-pub(super) fn ask_lead(router: &Router, event: &Event) {
-    let question = event
-        .payload
-        .get("question")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let context = event.payload.get("context").and_then(|v| v.as_str());
-
-    // Render a stdin template the lead can read in-stream. The asker handle
-    // (`event.from`) is preserved in the prefix so the lead knows whom to
-    // reply to with `runner msg post --to <asker>`.
-    let mut text = format!(
-        "[ask_lead from @{asker}] {question}\n",
-        asker = event.from,
-        question = question,
-    );
-    if let Some(ctx) = context {
-        let ctx = ctx.trim();
-        if !ctx.is_empty() {
-            text.push_str("Context:\n");
-            text.push_str(ctx);
-            text.push('\n');
+        .or_else(|| router.lead_handle());
+    let targets: Vec<String> = match target {
+        Some(target) => vec![target.to_owned()],
+        None => router
+            .launch()
+            .roster()
+            .iter()
+            .map(|row| row.handle().to_owned())
+            .collect(),
+    };
+    for target in targets {
+        if let Err(e) = router.inject_and_submit(&target, &submit_body(text)) {
+            router.warn(format!(
+                "human_said injection to @{target} failed: {e} (text: {text:?})"
+            ));
         }
-    }
-
-    let lead_handle = router.lead_handle().to_string();
-    if let Err(e) = router.inject_and_submit(&lead_handle, &submit_body(&text)) {
-        router.warn(format!("ask_lead injection to lead failed: {e}"));
     }
 }
 

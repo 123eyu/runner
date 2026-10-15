@@ -147,6 +147,9 @@ impl RuntimeAdapter for Pi {
         pi_defaults(&settings_path(home))
     }
 
+    fn startup_delivery_uses_hooks(&self, _pending_turn: bool) -> bool {
+        true
+    }
     fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
         Some(&Hooks)
     }

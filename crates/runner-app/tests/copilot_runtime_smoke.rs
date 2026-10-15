@@ -222,7 +222,7 @@ fn copilot_real_binary_direct_mission_and_relaunch_resume() {
     .slot;
     let mission = Mission {
         id: "COPILOTSMOKEMISSION".into(),
-        crew_id: crew.id,
+        crew_id: Some(crew.id),
         project_id: None,
         title: "Copilot smoke".into(),
         status: MissionStatus::Running,
@@ -241,7 +241,7 @@ fn copilot_real_binary_direct_mission_and_relaunch_resume() {
     let events_path = relaunched
         .app_data_dir
         .join("crews")
-        .join(&mission.crew_id)
+        .join(mission.crew_id.as_deref().unwrap())
         .join("missions")
         .join(&mission.id)
         .join("events.ndjson");

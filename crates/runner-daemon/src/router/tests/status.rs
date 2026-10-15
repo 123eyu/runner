@@ -227,7 +227,7 @@ fn synthetic_busy_replays_through_existing_session_status_projection() {
         let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
         let router = Router::new(
             "mission-1".into(),
-            "crew-1".into(),
+            Some("crew-1".into()),
             "Crew One".into(),
             &roster,
             vec![],
@@ -250,7 +250,7 @@ fn synthetic_busy_replays_through_existing_session_status_projection() {
     let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
     let router2 = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
         vec![],

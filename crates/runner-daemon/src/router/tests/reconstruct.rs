@@ -1,6 +1,85 @@
 use super::*;
 
 #[test]
+fn answered_human_ask_stays_resolved_after_reopen_with_legacy_ask() {
+    for has_lead in [true, false] {
+        let roster = vec![
+            slot_with_role("asker", has_lead),
+            slot_with_role("worker", false),
+        ];
+        let (router, _, log, _dir) = fixture(
+            roster.clone(),
+            &[("asker", "S-ASKER"), ("worker", "S-WORKER")],
+        );
+        let ask = log
+            .append(signal(
+                "asker",
+                "ask_human",
+                serde_json::json!({
+                    "prompt": "Approve?", "choices": ["yes", "no"], "on_behalf_of": "worker",
+                }),
+            ))
+            .unwrap();
+        router.handle_event(&ask);
+        let question = read_signals(&log)
+            .into_iter()
+            .find(|event| {
+                event
+                    .signal_type
+                    .as_ref()
+                    .is_some_and(|kind| kind.as_str() == "human_question")
+            })
+            .unwrap();
+        let response = log
+            .append(signal(
+                "human",
+                "human_response",
+                serde_json::json!({
+                    "question_id": question.id, "choice": "yes",
+                }),
+            ))
+            .unwrap();
+        router.handle_event(&response);
+        assert!(router.state.lock().unwrap().pending_asks.is_empty());
+        log.append(signal(
+            "worker",
+            "ask_lead",
+            serde_json::json!({
+                "question": "Historical question", "context": "Legacy event compatibility",
+            }),
+        ))
+        .unwrap();
+        drop(router);
+
+        let injector = Arc::new(RecordingInjector::new(log.clone()));
+        let reopened = Router::new(
+            "mission-1".into(),
+            has_lead.then(|| "crew-1".into()),
+            "Crew One".into(),
+            &roster,
+            vec![],
+            None,
+            log.clone(),
+            injector.clone(),
+            injector.clone(),
+        )
+        .unwrap();
+        reopened.register_sessions(&[
+            ("asker".into(), "S-ASKER".into()),
+            ("worker".into(), "S-WORKER".into()),
+        ]);
+        reopened.reconstruct_from_log().unwrap();
+        let history = log.read_from(0).unwrap();
+        for entry in &history {
+            reopened.handle_event(&entry.event);
+        }
+        assert!(reopened.state.lock().unwrap().pending_asks.is_empty());
+        assert!(injector.all_pushes().is_empty());
+        assert_eq!(log.read_from(0).unwrap().len(), history.len());
+    }
+}
+
+#[test]
 fn pending_ask_map_reconstructs_from_log_on_reopen() {
     // Mount router #1, dispatch ask_human (which appends human_question),
     // drop. Mount router #2, call reconstruct_from_log (the reopen entry
@@ -28,7 +107,7 @@ fn pending_ask_map_reconstructs_from_log_on_reopen() {
         let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
         let router = Router::new(
             "mission-1".into(),
-            "crew-1".into(),
+            Some("crew-1".into()),
             "Crew One".into(),
             &roster,
             vec![],
@@ -65,7 +144,7 @@ fn pending_ask_map_reconstructs_from_log_on_reopen() {
     let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
     let router2 = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
         vec![],
@@ -155,7 +234,7 @@ fn reconstruct_and_dispatch_read_legacy_runner_status_rows() {
     let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
     let router = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
         vec![],
@@ -223,7 +302,7 @@ fn reconstruct_recovers_latest_session_status_only() {
     let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
     let router = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
         vec![],
@@ -313,7 +392,7 @@ fn fresh_mission_start_does_not_call_reconstruct() {
     let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
     let router = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
         vec![],
@@ -458,7 +537,7 @@ fn reconstruct_tolerates_malformed_lines_like_the_bus() {
         let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
         let router = Router::new(
             "mission-1".into(),
-            "crew-1".into(),
+            Some("crew-1".into()),
             "Crew One".into(),
             &roster,
             vec![],
@@ -487,7 +566,7 @@ fn reconstruct_tolerates_malformed_lines_like_the_bus() {
     let injector_dyn: Arc<dyn StdinInjector> = injector.clone();
     let router2 = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
         vec![],

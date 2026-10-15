@@ -228,8 +228,11 @@ impl TextField {
         placeholder: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) {
-        self.placeholder = placeholder.into();
-        cx.notify();
+        let placeholder = placeholder.into();
+        if self.placeholder != placeholder {
+            self.placeholder = placeholder;
+            cx.notify();
+        }
     }
 
     pub fn set_disabled(&mut self, disabled: bool, cx: &mut Context<Self>) {

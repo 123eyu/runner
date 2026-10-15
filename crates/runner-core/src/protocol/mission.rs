@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct StartMissionInput {
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     /// Optional project membership. Its cwd is used when cwd is omitted.
     #[serde(default)]
     pub project_id: Option<String>,
@@ -25,7 +25,7 @@ pub struct StartMissionInput {
 /// none is named.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionStart {
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     pub scope: ProjectScope,
     pub title: String,
     pub goal_override: Option<String>,
@@ -71,7 +71,7 @@ pub struct MissionSummary {
     pub session_statuses: Vec<(String, super::status::AgentStatus)>,
     #[serde(flatten)]
     pub mission: Mission,
-    pub crew_name: String,
+    pub crew_name: Option<String>,
     pub pending_ask_count: usize,
     /// True iff at least one of the mission's session rows is `status =
     /// 'running'`. A mission without live sessions never shows the sidebar
@@ -175,7 +175,7 @@ pub struct SkippedEventLine {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MissionStatusSnapshot {
     pub mission: Mission,
-    pub crew: Crew,
+    pub crew: Option<Crew>,
     pub sessions: Vec<SessionRow>,
     pub latest_session_status_by_handle: BTreeMap<String, SessionStatusSnapshot>,
     pub pending_asks: Vec<PendingAskSnapshot>,

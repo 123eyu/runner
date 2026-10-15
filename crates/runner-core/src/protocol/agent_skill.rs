@@ -71,6 +71,15 @@ Runner is the local cockpit for coordinating CLI coding agents. Crews are reusab
 
 {invocation}
 
+Start empty and add a role with its task:
+
+```sh
+mission=$({command} mission start --title "Small task" -q)
+{command} mission add-role "$mission" <role> --task-file - < task.md
+```
+
+Use `mission show` to see the team; direct messages can address any member when there is no lead.
+
 Rules:
 
 1. Prefer `--json` for structured output.

@@ -69,6 +69,10 @@ impl RuntimeAdapter for Antigravity {
     fn capabilities(&self) -> RuntimeCapabilities {
         runner_core::protocol::runtime_metadata::antigravity::capabilities()
     }
+    fn startup_delivery_uses_hooks(&self, pending_turn: bool) -> bool {
+        // Antigravity has turn hooks but no startup-ready hook on a quiet resume.
+        pending_turn
+    }
     fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
         Some(&Hooks)
     }

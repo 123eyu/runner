@@ -764,7 +764,7 @@ mod tests {
     fn mission(id: &str, title: &str, cwd: &str, archived_at: &str) -> Mission {
         Mission {
             id: id.into(),
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             project_id: None,
             title: title.into(),
             status: MissionStatus::Completed,

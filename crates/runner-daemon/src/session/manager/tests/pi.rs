@@ -170,7 +170,7 @@ fn pi_direct_spawn_and_relocated_agent_dir_resume_use_recorded_prompt_file_and_n
 #[test]
 fn pi_lead_and_worker_split_prompt_channels_and_approve_only_the_slot() {
     let worker_body =
-        router::prompt::compose_worker_first_turn(Some("WORKER_BRIEF"), Some("TEAM_RULES"));
+        router::prompt::compose_worker_first_turn(Some("WORKER_BRIEF"), Some("TEAM_RULES"), None);
 
     for lead in [true, false] {
         let pool = pool_with_schema();
@@ -233,7 +233,7 @@ fn pi_lead_and_worker_split_prompt_channels_and_approve_only_the_slot() {
                 app_data.path(),
                 runner_core::event_log::path::events_path(
                     app_data.path(),
-                    &mission.crew_id,
+                    mission.crew_id.as_deref(),
                     &mission.id,
                 ),
                 Arc::clone(&pool),
@@ -438,7 +438,7 @@ fn pi_restart_running_worker_rewrites_prompt_after_old_forwarder_exits() {
     let prompt_path = crate::session::system_prompt::path(app_data.path(), &id);
     assert_eq!(
         std::fs::read_to_string(&prompt_path).unwrap(),
-        router::prompt::compose_worker_first_turn(Some("UPDATED_BRIEF"), Some("TEAM_RULES"))
+        router::prompt::compose_worker_first_turn(Some("UPDATED_BRIEF"), Some("TEAM_RULES"), None)
     );
     assert!(has_arg_pair(
         &fake.last_spawn_spec().unwrap().args,

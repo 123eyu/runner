@@ -1749,6 +1749,7 @@ impl NativeRoot {
         else {
             return;
         };
+        self.tabs.clear_active();
         self.set_route(route, cx);
         match self.ensure_active_tab_attached(window, cx) {
             Ok(()) => {

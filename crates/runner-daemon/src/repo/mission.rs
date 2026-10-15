@@ -15,7 +15,7 @@ use super::{de_err, insert_sql, select_list, ser_err};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MissionRow {
     pub id: String,
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     pub project_id: Option<String>,
     pub title: String,
     pub status: MissionStatus,
@@ -296,7 +296,7 @@ mod tests {
         let now = Utc::now();
         MissionRow {
             id: "m-full".into(),
-            crew_id: "c1".into(),
+            crew_id: Some("c1".into()),
             project_id: None,
             title: "Ship it".into(),
             status: MissionStatus::Completed,
@@ -312,7 +312,7 @@ mod tests {
     fn minimal_row() -> MissionRow {
         MissionRow {
             id: "m-min".into(),
-            crew_id: "c1".into(),
+            crew_id: Some("c1".into()),
             project_id: None,
             title: "Bare".into(),
             status: MissionStatus::Running,

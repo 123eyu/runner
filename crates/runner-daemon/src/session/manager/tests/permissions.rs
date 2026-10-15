@@ -122,7 +122,7 @@ fn mission_spawn_worker_preamble_lands_as_trailing_positional_argv_with_brief() 
     slot.id = slot_id;
     slot.lead = false;
 
-    let body = compose_worker_first_turn(role.system_prompt.as_deref(), None);
+    let body = compose_worker_first_turn(role.system_prompt.as_deref(), None, None);
     // Composer ships the on-bus preamble + the brief.
     assert!(body.contains("in a crew coordinated by the bundled"));
     assert!(body.contains("WORKER_BRIEF"));
@@ -171,7 +171,7 @@ fn codex_mission_spawn_grants_event_log_dir_to_sandbox() {
     // app-data mission log unless we grant the mission directory.
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let mut role = role(
@@ -199,10 +199,16 @@ fn codex_mission_spawn_grants_event_log_dir_to_sandbox() {
     slot.id = slot_id;
 
     let app_data = tempfile::tempdir().unwrap();
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &mission.crew_id, &mission.id);
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
 
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
@@ -253,8 +259,11 @@ fn mission_spawn_args(role: &Role, mode: MissionPermissionMode) -> Vec<String> {
     let pool = pool_with_schema();
     let (mission, slot) = seed_mission_rows(&pool, role);
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     mgr.set_mission_permission_mode(mode);
@@ -422,8 +431,11 @@ fn trae_mission_resume_strips_conflicting_permission_mode() {
     role.handle = "trae-resume".into();
     let (mission, slot) = seed_mission_rows(&pool, &role);
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let spawned = mgr
@@ -483,8 +495,11 @@ fn mission_resume_reads_the_current_permission_mode() {
     role.handle = "perm-resume".into();
     let (mission, slot) = seed_mission_rows(&pool, &role);
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
 
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));

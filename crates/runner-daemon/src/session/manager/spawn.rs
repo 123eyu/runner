@@ -50,6 +50,9 @@ pub(super) fn agent_env(
     }
     env.insert("TERM".into(), "xterm-256color".into());
     env.insert("COLORTERM".into(), "truecolor".into());
+    if extra_env.contains_key("RUNNER_MISSION_ID") && !extra_env.contains_key("RUNNER_CREW_ID") {
+        env.remove("RUNNER_CREW_ID");
+    }
     env.extend(extra_env);
     for &(name, value) in crate::runtimes::for_key(runtime_key).launch_env() {
         env.insert(name.into(), value.into());
@@ -525,6 +528,7 @@ impl SessionManager {
         self.install_handle(
             &session_id,
             SessionHandle {
+                startup: None,
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.clone(),
@@ -832,7 +836,7 @@ impl SessionManager {
         // PATH so `runner` resolves to it regardless of shell context.
         let shim_dir = crate::cli_install::install_session_runner_shim(
             app_data_dir,
-            &mission.crew_id,
+            mission.crew_id.as_deref(),
             &mission.id,
             &slot.slot_handle,
             &events_log_path,
@@ -843,7 +847,9 @@ impl SessionManager {
         let bundled_bin_dir = Some(app_data_dir.join("bin"));
 
         let mut mission_env: BTreeMap<String, String> = BTreeMap::new();
-        mission_env.insert("RUNNER_CREW_ID".into(), mission.crew_id.clone());
+        if let Some(crew_id) = &mission.crew_id {
+            mission_env.insert("RUNNER_CREW_ID".into(), crew_id.clone());
+        }
         mission_env.insert("RUNNER_MISSION_ID".into(), mission.id.clone());
         // RUNNER_HANDLE is the slot's in-mission identity, not the
         // role template's handle.
@@ -873,8 +879,11 @@ impl SessionManager {
             initial_size,
             mission_env,
         );
-        let mission_bus_dir =
-            runner_core::event_log::path::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
+        let mission_bus_dir = runner_core::event_log::path::mission_dir(
+            app_data_dir,
+            mission.crew_id.as_deref(),
+            &mission.id,
+        );
         let first_turn_delivered_via_argv = self.apply_runtime_args(
             &mut spec,
             &role,
@@ -939,7 +948,6 @@ impl SessionManager {
             size_source,
             plan,
             first_turn_delivered_via_argv,
-            #[cfg(windows)]
             first_turn,
             resolved_cwd,
             row_started_at: started_at,
@@ -987,7 +995,6 @@ impl SessionManager {
             mut size_source,
             plan,
             first_turn_delivered_via_argv,
-            #[cfg(windows)]
             first_turn,
             resolved_cwd,
             row_started_at,
@@ -1140,13 +1147,15 @@ impl SessionManager {
             None
         };
 
-        let spawn_emit_ctx = open_mission_event_log(&app_data_dir, &mission.crew_id, &mission.id)
-            .map(|event_log| ForwarderEmitCtx {
-                crew_id: mission.crew_id.clone(),
-                mission_id: mission.id.clone(),
-                handle: slot_handle.clone(),
-                event_log,
-            });
+        let spawn_emit_ctx =
+            open_mission_event_log(&app_data_dir, mission.crew_id.as_deref(), &mission.id).map(
+                |event_log| ForwarderEmitCtx {
+                    crew_id: mission.crew_id.clone(),
+                    mission_id: mission.id.clone(),
+                    handle: slot_handle.clone(),
+                    event_log,
+                },
+            );
         let stop = output.stop_flag();
         self.start_antigravity_capture(
             &role.runtime,
@@ -1162,6 +1171,11 @@ impl SessionManager {
         self.install_handle(
             &session_id,
             SessionHandle {
+                startup: Some(startup::StartupDelivery::new(
+                    &role.runtime,
+                    !plan.resuming && first_turn.is_some(),
+                    super::super::clock::now(),
+                )),
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.clone(),
@@ -1717,6 +1731,7 @@ impl SessionManager {
         self.install_handle(
             &session_id,
             SessionHandle {
+                startup: None,
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.clone(),
@@ -2102,6 +2117,7 @@ impl SessionManager {
                 self.install_handle(
                     &session_id,
                     SessionHandle {
+                        startup: None,
                         #[cfg(windows)]
                         pending_first_turn: None,
                         id: session_id.clone(),
@@ -2404,7 +2420,7 @@ impl SessionManager {
         // their RUNNER_HANDLE is the role template's globally-unique
         // handle, no slot involved.
         struct MissionCtx {
-            crew_id: String,
+            crew_id: Option<String>,
             mission_id: String,
             mission_cwd: Option<String>,
             slot_handle: String,
@@ -2426,7 +2442,7 @@ impl SessionManager {
                 let roster = crate::ops::mission::roster::load(&conn, app_data_dir, &mission)?;
                 let slot = &roster.slots.iter().find(|member| member.slot.id == sid)
                     .ok_or_else(|| {
-                        let dir = runner_core::event_log::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
+                        let dir = runner_core::event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), &mission.id);
                         let removed = runner_core::EventLog::open(&dir).and_then(|log| log.read_from_lossy(0)).ok()
                             .and_then(|(entries, _)| entries.into_iter().find(|entry| {
                                 let event = &entry.event;
@@ -2618,12 +2634,12 @@ impl SessionManager {
         let shim_dir = mission_ctx.as_ref().and_then(|ctx| {
             let event_log_path = runner_core::event_log::path::events_path(
                 app_data_dir,
-                &ctx.crew_id,
+                ctx.crew_id.as_deref(),
                 &ctx.mission_id,
             );
             crate::cli_install::install_session_runner_shim(
                 app_data_dir,
-                &ctx.crew_id,
+                ctx.crew_id.as_deref(),
                 &ctx.mission_id,
                 &ctx.slot_handle,
                 &event_log_path,
@@ -2637,12 +2653,14 @@ impl SessionManager {
         // chat resume falls through to the template handle.
         let mut env_extra: BTreeMap<String, String> = BTreeMap::new();
         if let Some(ctx) = mission_ctx.as_ref() {
-            env_extra.insert("RUNNER_CREW_ID".into(), ctx.crew_id.clone());
+            if let Some(crew_id) = &ctx.crew_id {
+                env_extra.insert("RUNNER_CREW_ID".into(), crew_id.clone());
+            }
             env_extra.insert("RUNNER_MISSION_ID".into(), ctx.mission_id.clone());
             env_extra.insert("RUNNER_HANDLE".into(), ctx.slot_handle.clone());
             let event_log_path = runner_core::event_log::path::events_path(
                 app_data_dir,
-                &ctx.crew_id,
+                ctx.crew_id.as_deref(),
                 &ctx.mission_id,
             );
             env_extra.insert(
@@ -2676,7 +2694,11 @@ impl SessionManager {
             env_extra,
         );
         let mission_bus_dir = mission_ctx.as_ref().map(|ctx| {
-            runner_core::event_log::path::mission_dir(app_data_dir, &ctx.crew_id, &ctx.mission_id)
+            runner_core::event_log::path::mission_dir(
+                app_data_dir,
+                ctx.crew_id.as_deref(),
+                &ctx.mission_id,
+            )
         });
         let (system_prompt, first_turn) = if !plan.resuming
             || adapter.prompt_channels().system_prompt
@@ -2693,16 +2715,26 @@ impl SessionManager {
                         crate::ops::mission::all_known_signals(),
                         ctx.roster.file.crew_addendum.clone(),
                     )?;
-                    let log = open_mission_event_log(app_data_dir, &ctx.crew_id, &ctx.mission_id)
-                        .ok_or_else(|| Error::msg("mission event log unavailable"))?;
+                    let log = open_mission_event_log(
+                        app_data_dir,
+                        ctx.crew_id.as_deref(),
+                        &ctx.mission_id,
+                    )
+                    .ok_or_else(|| Error::msg("mission event log unavailable"))?;
                     launch.prompt_channels(&log, &role.runtime)
                 } else {
-                    adapter.prompt_channels().split(
-                        router::prompt::SessionPromptKind::Worker,
-                        Some(router::prompt::compose_worker_first_turn(
-                            role.system_prompt.as_deref(),
-                            ctx.roster.file.crew_addendum.as_deref(),
-                        )),
+                    let log = open_mission_event_log(
+                        app_data_dir,
+                        ctx.crew_id.as_deref(),
+                        &ctx.mission_id,
+                    )
+                    .ok_or_else(|| Error::msg("mission event log unavailable"))?;
+                    let goal = (!ctx.roster.slots.iter().any(|member| member.slot.lead))
+                        .then(|| router::LaunchInputs::latest_mission_goal_text(&log));
+                    adapter.prompt_channels().worker(
+                        role.system_prompt.as_deref(),
+                        ctx.roster.file.crew_addendum.as_deref(),
+                        goal.as_deref(),
                     )
                 }
             } else {
@@ -2861,14 +2893,14 @@ impl SessionManager {
         };
 
         let resume_emit_ctx = mission_ctx.as_ref().and_then(|ctx| {
-            open_mission_event_log(app_data_dir, &ctx.crew_id, &ctx.mission_id).map(|event_log| {
-                ForwarderEmitCtx {
+            open_mission_event_log(app_data_dir, ctx.crew_id.as_deref(), &ctx.mission_id).map(
+                |event_log| ForwarderEmitCtx {
                     crew_id: ctx.crew_id.clone(),
                     mission_id: ctx.mission_id.clone(),
                     handle: ctx.slot_handle.clone(),
                     event_log,
-                }
-            })
+                },
+            )
         });
         self.start_antigravity_capture(
             &role.runtime,
@@ -2883,6 +2915,13 @@ impl SessionManager {
         self.install_handle(
             session_id,
             SessionHandle {
+                startup: snap.mission_id.as_ref().map(|_| {
+                    startup::StartupDelivery::new(
+                        &role.runtime,
+                        !plan.resuming && first_turn.is_some(),
+                        super::super::clock::now(),
+                    )
+                }),
                 #[cfg(windows)]
                 pending_first_turn: None,
                 id: session_id.to_string(),

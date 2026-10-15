@@ -209,7 +209,7 @@ mod tests {
         Event {
             id: id.to_string(),
             ts: chrono::Utc::now(),
-            crew_id: "c".into(),
+            crew_id: Some("c".into()),
             mission_id: "m".into(),
             kind: EventKind::Message,
             from: from.into(),

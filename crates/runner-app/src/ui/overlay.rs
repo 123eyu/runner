@@ -765,7 +765,7 @@ mod confirm_tests {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div().size_full().child(ConfirmDialog::new(
                 "Delete crew \"Backorder Unread Cleanup Trae\" permanently?",
-                "This removes all its slots and deletes its archived missions and session history. Crews with non-archived missions cannot be deleted until those missions are archived.",
+                "This removes the crew and its slots. Missions started from it keep their roster, sessions and history.",
                 "Delete crew",
                 "Deleting…",
                 false,

@@ -531,7 +531,7 @@ fn json_blob_columns_roundtrip() {
 }
 
 #[test]
-fn deleting_crew_cascades_slot_rows_only() {
+fn deleting_crew_requires_explicit_slot_cleanup() {
     // Runners are global templates — deleting a crew should strip
     // its slots but leave the role template intact so other
     // crews (or direct chats) can keep using it.
@@ -541,6 +541,10 @@ fn deleting_crew_cascades_slot_rows_only() {
     insert_role(&conn, "r1", "alpha").unwrap();
     insert_slot(&conn, "s1", "c1", "r1", "alpha", 0, 1).unwrap();
 
+    assert!(conn
+        .execute("DELETE FROM crews WHERE id = 'c1'", [])
+        .is_err());
+    crate::repo::slot::delete_for_crew(&conn, "c1").unwrap();
     conn.execute("DELETE FROM crews WHERE id = 'c1'", [])
         .unwrap();
     let role_count = i64::from(crate::repo::role::get(&conn, "r1").unwrap().is_some());
@@ -548,7 +552,7 @@ fn deleting_crew_cascades_slot_rows_only() {
         .unwrap()
         .len();
     assert_eq!(role_count, 1, "runner template must survive crew delete");
-    assert_eq!(slot_count, 0, "slots cascade with the crew");
+    assert_eq!(slot_count, 0, "slots explicitly deleted");
 }
 
 #[test]
@@ -844,8 +848,7 @@ fn seed_defaults_marker_prevents_reseed_after_user_deletes_everything() {
     let mut conn = pool.get().unwrap();
     seed_defaults(&mut conn).unwrap();
 
-    // User wipes the seeded data — slots cascade with the crew,
-    // Roles are global templates so we delete them explicitly.
+    conn.execute("DELETE FROM slots", []).unwrap();
     conn.execute("DELETE FROM crews", []).unwrap();
     crate::repo::role::delete_all(&conn).unwrap();
     let crew_count: i64 = conn
@@ -1177,7 +1180,7 @@ fn migration_0015_promotes_folder_children_in_place_and_drops_legacy_tables() {
 }
 
 #[test]
-fn migrations_0022_and_0023_preserve_data_and_role_cascades() {
+fn migrations_0022_and_0023_preserve_data_and_role_references() {
     {
         let mut conn = Connection::open_in_memory().unwrap();
         run_migrations_up_to(&mut conn, 21).unwrap();
@@ -1250,13 +1253,14 @@ fn migrations_0022_and_0023_preserve_data_and_role_cascades() {
         .unwrap();
     assert_eq!(violation_count, 0);
 
-    assert_eq!(crate::repo::role::delete(&conn, "r1").unwrap(), 1);
-    assert!(crate::repo::slot::list_for_crew(&conn, "c1")
-        .unwrap()
-        .is_empty());
+    assert!(crate::repo::role::delete(&conn, "r1").is_err());
+    assert_eq!(
+        crate::repo::slot::list_for_crew(&conn, "c1").unwrap().len(),
+        2
+    );
     assert!(crate::repo::session::get_row(&conn, "direct1")
         .unwrap()
-        .is_none());
+        .is_some());
     assert!(crate::repo::crew::get(&conn, "c1").unwrap().is_some());
 }
 
@@ -1760,4 +1764,126 @@ fn migration_0026_converts_all_launches_before_0027_drops_columns() {
         .next()
         .unwrap()
         .is_some());
+}
+
+#[test]
+fn foreign_keys_off_migration_preserves_children_and_restores_enforcement() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    super::init_connection(&mut conn).unwrap();
+    run_migrations(&mut conn).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE parent (id TEXT PRIMARY KEY);
+         CREATE TABLE child (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parent(id) ON DELETE CASCADE);
+         INSERT INTO parent VALUES ('p');
+         INSERT INTO child VALUES ('c', 'p');",
+    ).unwrap();
+    super::migrations::apply_migration(
+        &mut conn,
+        100,
+        "CREATE TABLE parent_new (id TEXT PRIMARY KEY);
+         INSERT INTO parent_new SELECT * FROM parent;
+         DROP TABLE parent;
+         ALTER TABLE parent_new RENAME TO parent;",
+        true,
+    )
+    .unwrap();
+    let parent: String = conn
+        .query_row("SELECT parent_id FROM child WHERE id = 'c'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(parent, "p");
+    for sql in ["DELETE FROM parent", "INVALID SQL"] {
+        assert!(super::migrations::apply_migration(&mut conn, 101, sql, true).is_err());
+        let enforced: bool = conn
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        assert!(enforced);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM parent", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE version = 101",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+    assert!(conn
+        .execute("INSERT INTO child VALUES ('bad', 'missing')", [])
+        .is_err());
+}
+
+#[test]
+fn migration_0028_preserves_every_row_column_and_mission_link() {
+    fn snapshot(conn: &Connection) -> BTreeMap<String, Vec<Vec<rusqlite::types::Value>>> {
+        [
+            "crews",
+            "roles",
+            "slots",
+            "missions",
+            "sessions",
+            "session_attention",
+            "projects",
+        ]
+        .into_iter()
+        .map(|table| {
+            let mut stmt = conn
+                .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+                .unwrap();
+            let count = stmt.column_count();
+            let rows = stmt
+                .query_map([], |row| (0..count).map(|i| row.get(i)).collect())
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap();
+            (table.to_string(), rows)
+        })
+        .collect()
+    }
+    let mut conn = Connection::open_in_memory().unwrap();
+    super::init_connection(&mut conn).unwrap();
+    run_migrations_up_to(&mut conn, 27).unwrap();
+    insert_crew(&conn, "c");
+    insert_role(&conn, "r", "worker").unwrap();
+    conn.execute_batch(
+        "INSERT INTO projects VALUES ('p', 'Project', '/tmp/project', 3, '2026-10-15T00:00:00Z');
+         INSERT INTO missions VALUES ('m', 'c', 'Mission', 'running', 'Goal', '/tmp/mission',
+            '2026-10-15T00:00:00Z', '2026-10-15T01:00:00Z', '2026-10-15T02:00:00Z', '2026-10-15T03:00:00Z', 'p');
+         INSERT INTO slots VALUES ('slot', 'c', 'r', 'worker', 4, 1, '2026-10-15T00:00:00Z',
+            'codex', 'gpt-5.5', 'high', '{\"version\":1,\"speed\":\"fast\"}');
+         INSERT INTO sessions VALUES ('s', 'm', 'r', 'slot', '/tmp/session', 'running', 123,
+            '2026-10-15T00:00:00Z', '2026-10-15T01:00:00Z', 'agent-key', '2026-10-15T02:00:00Z',
+            'Title', '2026-10-15T03:00:00Z', 'shell', 'sh', 'p', 100, 40, 1, 'Live title', '{\"version\":1}');
+         INSERT INTO sessions (id, status) VALUES ('direct', 'stopped');
+         INSERT INTO session_attention VALUES ('s', 123456789, '2026-10-15T01:00:00Z');
+         INSERT INTO session_attention VALUES ('direct', NULL, NULL);",
+    ).unwrap();
+    let before = snapshot(&conn);
+    run_migrations(&mut conn).unwrap();
+    assert_eq!(snapshot(&conn), before);
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap(),
+        0
+    );
+    assert!(conn
+        .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+        .unwrap());
+    for sql in [
+        "DELETE FROM crews WHERE id = 'c'",
+        "DELETE FROM roles WHERE id = 'r'",
+        "DELETE FROM sessions WHERE id = 's'",
+    ] {
+        assert!(conn.execute(sql, []).is_err(), "{sql}");
+    }
+    conn.execute("INSERT INTO missions (id, title, status, started_at) VALUES ('empty', 'Empty', 'running', '2026-10-15T00:00:00Z')", []).unwrap();
 }

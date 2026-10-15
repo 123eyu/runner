@@ -380,7 +380,7 @@ fn spawn_goldens() {
                 }
                 let mut mission = mission();
                 mission.cwd = configured.working_dir.clone();
-                mission.crew_id = "c".into();
+                mission.crew_id = Some("c".into());
                 let mut slot = slot_for(&configured);
                 slot.id = insert_crew_role(&pool, &mission.id, &configured.id);
                 slot.lead = lead;
@@ -410,6 +410,7 @@ fn spawn_goldens() {
                             Some(crate::router::prompt::compose_worker_first_turn(
                                 Some("GOLDEN_PERSONA"),
                                 Some("TEAM"),
+                                None,
                             )),
                         )
                     };

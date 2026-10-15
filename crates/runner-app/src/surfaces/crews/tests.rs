@@ -71,7 +71,7 @@ fn mission(
 ) -> Mission {
     Mission {
         id: id.into(),
-        crew_id: crew_id.into(),
+        crew_id: Some(crew_id.into()),
         project_id: None,
         title: format!("Mission {id}"),
         status,
@@ -88,7 +88,7 @@ fn summary(mission: Mission) -> MissionSummary {
     MissionSummary {
         session_statuses: Vec::new(),
         mission,
-        crew_name: "crew".into(),
+        crew_name: Some("crew".into()),
         pending_ask_count: 0,
         any_session_live: false,
         all_sessions_live: false,

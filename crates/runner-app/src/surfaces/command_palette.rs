@@ -179,22 +179,23 @@ fn palette_items(
         }
         _ => {}
     }
-    items.extend(
-        missions
-            .iter()
-            .enumerate()
-            .map(|(order, summary)| PaletteItem {
-                kind: PaletteKind::Mission,
-                runtime: None,
-                live: false,
-                id: summary.mission.id.clone(),
-                label: summary.mission.title.clone(),
-                destination: PaletteDestination::Mission(summary.mission.id.clone()),
-                search_text: format!("{} {}", summary.mission.title, summary.crew_name)
-                    .to_lowercase(),
-                order,
-            }),
-    );
+    items.extend(missions.iter().enumerate().map(|(order, summary)| {
+        PaletteItem {
+            kind: PaletteKind::Mission,
+            runtime: None,
+            live: false,
+            id: summary.mission.id.clone(),
+            label: summary.mission.title.clone(),
+            destination: PaletteDestination::Mission(summary.mission.id.clone()),
+            search_text: format!(
+                "{} {}",
+                summary.mission.title,
+                summary.crew_name.as_deref().unwrap_or_default()
+            )
+            .to_lowercase(),
+            order,
+        }
+    }));
     items.extend(chats.iter().enumerate().map(|(order, chat)| PaletteItem {
         kind: session_palette_kind(&chat.agent_runtime),
         runtime: Some(chat.agent_runtime.clone()),

@@ -552,7 +552,7 @@ mod tests {
 
     fn signal(from: &str, ty: &str, payload: serde_json::Value) -> EventDraft {
         EventDraft {
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             mission_id: "mission".into(),
             kind: EventKind::Signal,
             from: from.into(),
@@ -564,7 +564,7 @@ mod tests {
 
     fn message(from: &str, to: Option<&str>, text: &str) -> EventDraft {
         EventDraft {
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             mission_id: "mission".into(),
             kind: EventKind::Message,
             from: from.into(),
@@ -1072,7 +1072,7 @@ mod membership_tests {
         let mut live = BusState::new("m".into(), vec!["lead".into()]);
         let earlier = log
             .append(runner_core::EventDraft::message(
-                "c",
+                Some("c"),
                 "m",
                 "human",
                 None,
@@ -1081,7 +1081,7 @@ mod membership_tests {
             .unwrap();
         let directed = log
             .append(runner_core::EventDraft::message(
-                "c",
+                Some("c"),
                 "m",
                 "lead",
                 Some("worker".into()),
@@ -1091,7 +1091,7 @@ mod membership_tests {
         live.tick(&log, &capture).unwrap();
         for (from, kind) in [("worker", "role_joined"), ("human", "role_joined")] {
             log.append(runner_core::EventDraft::signal(
-                "c",
+                Some("c"),
                 "m",
                 from,
                 runner_core::SignalType::new(kind),
@@ -1103,12 +1103,16 @@ mod membership_tests {
         }
         let intro = log
             .append(runner_core::EventDraft::message(
-                "c", "m", "runner", None, "joined",
+                Some("c"),
+                "m",
+                "runner",
+                None,
+                "joined",
             ))
             .unwrap();
         live.tick(&log, &capture).unwrap();
         log.append(runner_core::EventDraft::signal(
-            "c",
+            Some("c"),
             "m",
             "worker",
             runner_core::SignalType::new("role_removed"),
@@ -1118,7 +1122,7 @@ mod membership_tests {
         live.tick(&log, &capture).unwrap();
         assert!(live.handles.contains(&"worker".into()));
         log.append(runner_core::EventDraft::signal(
-            "c",
+            Some("c"),
             "m",
             "human",
             runner_core::SignalType::new("role_removed"),
@@ -1127,12 +1131,16 @@ mod membership_tests {
         .unwrap();
         let departed = log
             .append(runner_core::EventDraft::message(
-                "c", "m", "runner", None, "left",
+                Some("c"),
+                "m",
+                "runner",
+                None,
+                "left",
             ))
             .unwrap();
         let late_direct = log
             .append(runner_core::EventDraft::message(
-                "c",
+                Some("c"),
                 "m",
                 "lead",
                 Some("worker".into()),

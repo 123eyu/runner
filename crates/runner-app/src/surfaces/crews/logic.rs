@@ -283,7 +283,7 @@ pub(super) fn picture_cells(slots: usize, tile: f32) -> Vec<PictureCell> {
 }
 
 /// The crew's picture: its slots' pixel avatars, in slot order.
-pub(super) fn crew_picture(handles: &[SharedString], tile: f32) -> AnyElement {
+pub(crate) fn crew_picture(handles: &[SharedString], tile: f32) -> AnyElement {
     div()
         .relative()
         .flex_none()
@@ -304,7 +304,7 @@ pub(super) fn crew_picture(handles: &[SharedString], tile: f32) -> AnyElement {
 }
 
 /// `5 slots · lead @lead`.
-pub(super) fn crew_summary(slots: usize, lead: Option<&str>) -> String {
+pub(crate) fn crew_summary(slots: usize, lead: Option<&str>) -> String {
     let count = match slots {
         0 => return "No slots yet".to_owned(),
         1 => "1 slot".to_owned(),
@@ -318,7 +318,7 @@ pub(super) fn crew_summary(slots: usize, lead: Option<&str>) -> String {
 
 /// What a slot runs once its overrides apply, and which values it overrides.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct SlotSetup {
+pub(crate) struct SlotSetup {
     pub(super) runtime: String,
     /// The slot pins a runtime, even one matching the role's: a pin keeps the
     /// slot on it when the role's runtime changes.
@@ -345,7 +345,7 @@ impl SlotSetup {
 
 /// A slot on its role's runtime inherits the role's model and effort; on
 /// another runtime it starts from that runtime's own defaults.
-pub(super) fn slot_setup(slot: &SlotWithRole) -> SlotSetup {
+pub(crate) fn slot_setup(slot: &SlotWithRole) -> SlotSetup {
     let set = |value: Option<&str>| {
         value
             .map(str::trim)
@@ -426,7 +426,7 @@ pub(super) fn crew_missions<'a>(missions: &'a [MissionSummary], crew_id: &str) -
     let mut missions = missions
         .iter()
         .map(|summary| &summary.mission)
-        .filter(|mission| mission.crew_id == crew_id)
+        .filter(|mission| mission.crew_id.as_deref() == Some(crew_id))
         .collect::<Vec<_>>();
     missions.sort_by(|a, b| b.started_at.cmp(&a.started_at).then(b.id.cmp(&a.id)));
     missions

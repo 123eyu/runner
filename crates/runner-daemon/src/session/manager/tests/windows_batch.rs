@@ -110,7 +110,7 @@ fn windows_batch_slot_restart_queues_first_turn_without_argv() {
         .clone();
     assert_eq!(
         body,
-        router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"))
+        router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None)
     );
     mgr.kill(&id).unwrap();
 }

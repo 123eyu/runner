@@ -576,8 +576,11 @@ fn codex_mission_resume_grants_event_log_dir_to_sandbox() {
     }
 
     let app_data = tempfile::tempdir().unwrap();
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), "c-codex-resume", &mission_id);
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        Some("c-codex-resume"),
+        &mission_id,
+    );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let spawned = mgr

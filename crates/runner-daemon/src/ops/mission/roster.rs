@@ -18,11 +18,11 @@ pub struct LoadedRoster {
     pub slots: Vec<SlotWithRole>,
 }
 
-pub fn snapshot(crew: &Crew, slots: &[SlotWithRole]) -> MissionRoster {
+pub fn snapshot(crew: Option<&Crew>, slots: &[SlotWithRole]) -> MissionRoster {
     MissionRoster {
         version: 2,
-        crew_name: crew.name.clone(),
-        crew_addendum: crew.system_prompt_addendum.clone(),
+        crew_name: crew.map(|crew| crew.name.clone()).unwrap_or_default(),
+        crew_addendum: crew.and_then(|crew| crew.system_prompt_addendum.clone()),
         slots: slots
             .iter()
             .map(|member| RosterSlot::from(&member.slot))
@@ -55,30 +55,31 @@ pub fn write(mission_dir: &Path, roster: &MissionRoster) -> Result<()> {
 }
 
 pub fn load(conn: &Connection, app_data_dir: &Path, mission: &Mission) -> Result<LoadedRoster> {
-    let dir = event_log::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
-    let value = match std::fs::read(dir.join("roster.json")) {
-        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
-            Ok(value) => Some(value),
-            Err(error) => {
-                log::warn!("mission {} roster is not valid JSON ({error}); falling back to current crew slots", mission.id);
-                None
+    let dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), &mission.id);
+    let loaded = std::fs::read(dir.join("roster.json"))
+        .map_err(Error::from)
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).map_err(Error::from));
+    let file: MissionRoster = match loaded {
+        Ok(value) => serde_json::from_value(value)?,
+        Err(error) => {
+            if matches!(&error, Error::Io(io) if io.kind() != std::io::ErrorKind::NotFound) {
+                return Err(error);
             }
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let Some(crew) = mission
+                .crew_id
+                .as_deref()
+                .map(|id| repo::crew::get(conn, id))
+                .transpose()?
+                .flatten()
+            else {
+                return Err(error);
+            };
             log::warn!(
-                "mission {} roster is missing; falling back to current crew slots",
+                "mission {} roster unavailable ({error}); falling back to current crew slots",
                 mission.id
             );
-            None
-        }
-        Err(error) => return Err(error.into()),
-    };
-    let file: MissionRoster = match value {
-        Some(value) => serde_json::from_value(value)?,
-        None => {
-            let crew = crew::get(conn, &mission.crew_id)?;
-            let slots = slot::list(conn, &mission.crew_id)?;
-            let file = snapshot(&crew, &slots);
+            let slots = slot::list(conn, &crew.id)?;
+            let file = snapshot(Some(&crew), &slots);
             write(&dir, &file)?;
             file
         }
@@ -97,7 +98,7 @@ pub fn load(conn: &Connection, app_data_dir: &Path, mission: &Mission) -> Result
         slots.push(SlotWithRole {
             slot: Slot {
                 id: entry.id.clone(),
-                crew_id: mission.crew_id.clone(),
+                crew_id: mission.crew_id.clone().unwrap_or_default(),
                 role_id: entry.role_id.clone(),
                 slot_handle: entry.handle.clone(),
                 position: entry.position,
@@ -122,7 +123,7 @@ pub fn convert_all(conn: &Connection, app_data_dir: &Path) -> Result<()> {
             lead: bool,
         }
 
-        let dir = event_log::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
+        let dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), &mission.id);
         let bytes = match std::fs::read(dir.join("roster.json")) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -141,8 +142,12 @@ pub fn convert_all(conn: &Connection, app_data_dir: &Path) -> Result<()> {
                 return Ok(());
             }
         };
-        let crew = crew::get(conn, &mission.crew_id)?;
-        let current = slot::list(conn, &mission.crew_id)?;
+        let crew_id = mission
+            .crew_id
+            .as_deref()
+            .ok_or_else(|| Error::msg("legacy mission roster has no crew"))?;
+        let crew = crew::get(conn, crew_id)?;
+        let current = slot::list(conn, crew_id)?;
         let mut seen = HashSet::new();
         let mut candidates = Vec::new();
         for session in repo::session::roster_rows_for_mission(conn, &mission.id)? {
@@ -417,7 +422,7 @@ mod tests {
                         .unwrap()
                         .push(serde_json::json!({"handle":"never-ran", "lead":false}));
                 }
-                let dir = event_log::mission_dir(data.path(), "c", "m");
+                let dir = event_log::mission_dir(data.path(), Some("c"), "m");
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(
                     dir.join("roster.json"),
@@ -497,7 +502,7 @@ mod tests {
             let conn = state.db.get().unwrap();
             let mission = seed(&conn, false);
             if let Some(bytes) = bytes {
-                let dir = event_log::mission_dir(data.path(), "c", "m");
+                let dir = event_log::mission_dir(data.path(), Some("c"), "m");
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(dir.join("roster.json"), bytes).unwrap();
             }
@@ -533,7 +538,7 @@ mod tests {
         let conn = pool.get().unwrap();
         let mission = seed(&conn, false);
         load(&conn, data.path(), &mission).unwrap();
-        let dir = event_log::mission_dir(data.path(), "c", "m");
+        let dir = event_log::mission_dir(data.path(), Some("c"), "m");
         std::fs::write(dir.join("roster.json"), b"bad-json").unwrap();
         conn.execute("UPDATE slots SET slot_handle='current' WHERE id='s1'", [])
             .unwrap();
@@ -544,17 +549,48 @@ mod tests {
     }
 
     #[test]
+    fn missing_and_invalid_json_cannot_fall_back_without_an_existing_crew() {
+        for crew_id in [None, Some("deleted-crew".to_owned())] {
+            for bytes in [None, Some(b"broken".as_slice())] {
+                let data = tempfile::tempdir().unwrap();
+                let pool = crate::db::open_in_memory().unwrap();
+                let conn = pool.get().unwrap();
+                let mut mission = seed(&conn, false);
+                mission.crew_id = crew_id.clone();
+                let dir =
+                    event_log::mission_dir(data.path(), mission.crew_id.as_deref(), &mission.id);
+                if let Some(bytes) = bytes {
+                    std::fs::create_dir_all(&dir).unwrap();
+                    std::fs::write(dir.join("roster.json"), bytes).unwrap();
+                }
+                let error = load(&conn, data.path(), &mission)
+                    .err()
+                    .expect("must not replace the missing roster");
+                if let Some(bytes) = bytes {
+                    assert!(matches!(error, Error::Json(_)));
+                    assert_eq!(std::fs::read(dir.join("roster.json")).unwrap(), bytes);
+                } else {
+                    assert!(
+                        matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound)
+                    );
+                    assert!(!dir.join("roster.json").exists());
+                }
+            }
+        }
+    }
+
+    #[test]
     fn valid_json_with_an_unsupported_version_or_invalid_shape_is_preserved() {
         let data = tempfile::tempdir().unwrap();
         let pool = crate::db::open_in_memory().unwrap();
         let conn = pool.get().unwrap();
         let mission = seed(&conn, false);
         let mut newer = snapshot(
-            &crew::get(&conn, "c").unwrap(),
+            Some(&crew::get(&conn, "c").unwrap()),
             &slot::list(&conn, "c").unwrap(),
         );
         newer.version = 3;
-        let dir = event_log::mission_dir(data.path(), "c", "m");
+        let dir = event_log::mission_dir(data.path(), Some("c"), "m");
         std::fs::create_dir_all(&dir).unwrap();
         for bytes in [
             serde_json::to_vec(&newer).unwrap(),
@@ -579,7 +615,7 @@ mod tests {
             let pool = crate::db::open_in_memory().unwrap();
             let conn = pool.get().unwrap();
             let mission = seed(&conn, false);
-            let dir = event_log::mission_dir(data.path(), "c", "m");
+            let dir = event_log::mission_dir(data.path(), Some("c"), "m");
             let target = dir.join("unreadable-roster");
             std::fs::create_dir_all(&target).unwrap();
             std::fs::write(target.join("original"), b"preserve me").unwrap();
@@ -620,7 +656,7 @@ mod tests {
                 &mut conn,
                 &start_dir,
                 StartMissionInput {
-                    crew_id: "c".into(),
+                    crew_id: Some("c".into()),
                     project_id: None,
                     title: "Concurrent start".into(),
                     goal_override: None,
@@ -665,10 +701,10 @@ mod tests {
         let conn = state.db.get().unwrap();
         seed(&conn, false);
         conn.execute("INSERT INTO missions (id, crew_id, title, status, started_at) VALUES ('bad', 'c', 'Bad', 'running', '2026-09-01T00:00:00Z')", []).unwrap();
-        let dir = event_log::mission_dir(data.path(), "c", "bad");
+        let dir = event_log::mission_dir(data.path(), Some("c"), "bad");
         std::fs::create_dir_all(dir.join("roster.json")).unwrap();
         convert_all(&conn, data.path()).unwrap();
-        assert!(event_log::mission_dir(data.path(), "c", "m")
+        assert!(event_log::mission_dir(data.path(), Some("c"), "m")
             .join("roster.json")
             .is_file());
         drop(conn);
@@ -677,7 +713,7 @@ mod tests {
             let summaries = client.mission_list_summary_impl(crew_id).unwrap();
             assert_eq!(summaries.len(), 1);
             assert_eq!(summaries[0].mission.id, "m");
-            assert_eq!(summaries[0].crew_name, "Original crew");
+            assert_eq!(summaries[0].crew_name.as_deref(), Some("Original crew"));
         }
     }
 
@@ -694,7 +730,7 @@ mod tests {
             conn.execute("INSERT INTO missions (id, crew_id, title, status, started_at, archived_at) VALUES ('archived', 'c', 'Archived', 'completed', '2026-10-01T00:00:00Z', '2026-10-01T00:00:01Z')", []).unwrap();
             conn.execute("INSERT INTO sessions (id, mission_id, slot_id, role_id, status, started_at) VALUES ('archived-session', 'archived', 's0', 's0', 'stopped', '2026-10-01T00:00:00Z')", []).unwrap();
             for id in ["m", "archived"] {
-                let dir = event_log::mission_dir(data.path(), "c", id);
+                let dir = event_log::mission_dir(data.path(), Some("c"), id);
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(
                     dir.join("roster.json"),
@@ -713,12 +749,14 @@ mod tests {
             data.path().join("logs"),
         );
         let core = crate::daemon::boot::boot(&paths, Vec::new(), false).unwrap();
-        assert_eq!(core.routers.get("m").unwrap().lead_handle(), "lead");
+        assert_eq!(core.routers.get("m").unwrap().lead_handle(), Some("lead"));
         assert!(core.routers.get("archived").is_none());
         for id in ["m", "archived"] {
             let file: MissionRoster = serde_json::from_slice(
-                &std::fs::read(event_log::mission_dir(data.path(), "c", id).join("roster.json"))
-                    .unwrap(),
+                &std::fs::read(
+                    event_log::mission_dir(data.path(), Some("c"), id).join("roster.json"),
+                )
+                .unwrap(),
             )
             .unwrap();
             assert_eq!(file.slots[0].handle, "lead");
@@ -773,7 +811,7 @@ mod tests {
                 .unwrap();
             let router = state.routers.get("m").unwrap();
             let mut events = state.events.subscribe();
-            assert_eq!(router.lead_handle(), "lead", "{edit}");
+            assert_eq!(router.lead_handle(), Some("lead"), "{edit}");
             assert_eq!(
                 router
                     .launch()
@@ -784,7 +822,8 @@ mod tests {
                 vec!["lead", "worker", "other"]
             );
             let log =
-                event_log::EventLog::open(&event_log::mission_dir(data.path(), "c", "m")).unwrap();
+                event_log::EventLog::open(&event_log::mission_dir(data.path(), Some("c"), "m"))
+                    .unwrap();
             let (_, body) = router.launch().prompt_channels(&log, "claude-code");
             let body = body.unwrap();
             assert!(body.contains("Original crew") && body.contains("ORIGINAL_RULES"));
@@ -898,9 +937,14 @@ mod tests {
             } else {
                 "Original crew"
             };
-            assert_eq!(status.crew.name, current_name);
+            assert_eq!(status.crew.as_ref().unwrap().name, current_name);
             assert_eq!(
-                status.crew.system_prompt_addendum.as_deref(),
+                status
+                    .crew
+                    .as_ref()
+                    .unwrap()
+                    .system_prompt_addendum
+                    .as_deref(),
                 Some(if edit == "addendum" {
                     "EDITED_RULES"
                 } else {
@@ -910,9 +954,12 @@ mod tests {
             let summaries = mission::mission_list_summary_impl(&state, None)
                 .await
                 .unwrap();
-            assert_eq!(summaries[0].crew_name, current_name);
+            assert_eq!(summaries[0].crew_name.as_deref(), Some(current_name));
             if edit == "addendum" {
-                assert!(status.crew.updated_at > status.crew.created_at);
+                assert!(
+                    status.crew.as_ref().unwrap().updated_at
+                        > status.crew.as_ref().unwrap().created_at
+                );
             }
             let conn = state.db.get().unwrap();
             assert_eq!(
@@ -942,11 +989,10 @@ mod tests {
         assert!(repo::session::get_row(&conn, "session-s1")
             .unwrap()
             .is_some());
-        assert!(crew::delete(&mut conn, "c").is_err());
+        crew::delete(&mut conn, "c").unwrap();
         repo::mission::complete_and_archive_if_running(&conn, &mission.id, chrono::Utc::now())
             .unwrap();
         crate::ops::role::delete(&mut conn, "s1").unwrap();
         assert!(repo::role::get(&conn, "s1").unwrap().is_none());
-        crew::delete(&mut conn, "c").unwrap();
     }
 }

@@ -172,14 +172,6 @@ pub fn update(conn: &Connection, id: &str, input: UpdateCrewInput) -> Result<Cre
 
 pub fn delete(conn: &mut Connection, id: &str) -> Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let mission_ids = repo::mission::unarchived_ids_for_crew(&tx, id)?;
-    if !mission_ids.is_empty() {
-        return Err(Error::msg(format!(
-            "crew {id} has non-archived missions; archive them before deleting this crew: {}",
-            mission_ids.join(", ")
-        )));
-    }
-    super::mission::delete_rows(&tx, &repo::mission::ids_for_crew(&tx, id)?)?;
     repo::slot::delete_for_crew(&tx, id)?;
     let affected = repo::crew::delete(&tx, id)?;
     if affected == 0 {
@@ -420,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_refuses_crew_with_any_non_archived_mission() {
+    fn delete_keeps_non_archived_missions() {
         let pool = ctx();
         let mut conn = pool.get().unwrap();
         let crew = create(
@@ -446,10 +438,17 @@ mod tests {
         )
         .unwrap();
 
-        let err = delete(&mut conn, &crew.id).unwrap_err().to_string();
-        assert!(err.contains("non-archived missions"));
-        assert!(err.contains("m-live"));
-        assert!(err.contains("m-aborted"));
+        delete(&mut conn, &crew.id).unwrap();
+        for id in ["m-live", "m-aborted"] {
+            assert_eq!(
+                repo::mission::get(&conn, id)
+                    .unwrap()
+                    .unwrap()
+                    .crew_id
+                    .as_deref(),
+                Some(crew.id.as_str())
+            );
+        }
         let crew_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM crews WHERE id = ?1",
@@ -457,11 +456,11 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(crew_count, 1, "crew must survive a refused delete");
+        assert_eq!(crew_count, 0);
     }
 
     #[test]
-    fn delete_removes_archived_mission_sessions_before_deleting_crew() {
+    fn delete_keeps_archived_missions_and_sessions() {
         let pool = ctx();
         let mut conn = pool.get().unwrap();
         let crew = create(
@@ -506,15 +505,12 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(session_count, 0, "app layer deletes mission sessions first");
-        assert_eq!(
-            mission_count, 0,
-            "crew delete still removes archived missions"
-        );
+        assert_eq!(session_count, 1);
+        assert_eq!(mission_count, 1, "crew deletion preserves mission history");
     }
 
     #[test]
-    fn delete_removes_missions_sessions_and_slots_with_foreign_keys_off() {
+    fn delete_removes_only_crew_and_slots_with_foreign_keys_off() {
         use crate::test_support::{foreign_keys_off, insert_test_slot, row_count};
         let pool = ctx();
         let mut conn = pool.get().unwrap();
@@ -583,13 +579,7 @@ mod tests {
 
         delete(&mut conn, &crew_ids[0]).unwrap();
 
-        for (table, column) in [
-            ("crews", "name"),
-            ("missions", "id"),
-            ("sessions", "id"),
-            ("session_attention", "session_id"),
-            ("slots", "id"),
-        ] {
+        for (table, column) in [("crews", "name"), ("slots", "id")] {
             let left: Vec<String> = conn
                 .prepare(&format!("SELECT {column} FROM {table}"))
                 .unwrap()
@@ -601,6 +591,12 @@ mod tests {
             assert!(left[0].starts_with("kept"), "{table}: {left:?}");
         }
         assert_eq!(row_count(&conn, "SELECT COUNT(*) FROM roles"), 1);
+        assert_eq!(row_count(&conn, "SELECT COUNT(*) FROM missions"), 3);
+        assert_eq!(row_count(&conn, "SELECT COUNT(*) FROM sessions"), 4);
+        assert_eq!(
+            row_count(&conn, "SELECT COUNT(*) FROM session_attention"),
+            4
+        );
     }
 
     #[test]

@@ -437,6 +437,9 @@ cli_cases! {
     mission_list => vec!["mission", "list", "--crew", "Peer"],
     mission_show => vec!["mission", "show", MISSION],
     mission_start => vec!["mission", "start", "--crew", "Peer", "--goal", "ship", "--cwd", "not-a-directory"],
+    mission_start_empty => vec!["mission", "start", "--title", "Empty mission"],
+    mission_start_goal_title => vec!["mission", "start", "--goal", "Shared goal"],
+    mission_start_empty_untitled => vec!["mission", "start"],
     mission_add_role => vec!["mission", "add-role", "mission-running", "reviewer", "--handle", "reviewer-2", "--task", "Review the change"],
     mission_remove_role => vec!["mission", "remove-role", "mission-running", "reviewer"],
     mission_add_role_stopped => vec!["mission", "add-role", MISSION, "reviewer"],
@@ -950,7 +953,7 @@ fn built_follower_receives_appends_and_reports_disconnect_with_its_last_cursor()
     let log = EventLog::open(&mission_dir).unwrap();
     let appended = log
         .append(EventDraft::signal(
-            CREW,
+            Some(CREW),
             "mission-running",
             "human",
             SignalType::new("fixture_event"),

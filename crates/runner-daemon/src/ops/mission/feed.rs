@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::model::SessionStatus;
-use crate::ops::{crew, mission, session};
+use crate::ops::{mission, session};
 use runner_core::event_log::{self, LogEntry, SkipReport};
 use runner_core::model::EventKind::Signal;
 use runner_core::protocol::*;
@@ -184,7 +184,7 @@ fn read_log_entries(
     offset: u64,
 ) -> Result<(Mission, Vec<LogEntry>, Vec<SkipReport>)> {
     let mission = mission::get(conn, mission_id)?;
-    let mission_dir = event_log::mission_dir(app_data_dir, &mission.crew_id, mission_id);
+    let mission_dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), mission_id);
     let log = event_log::EventLog::open(&mission_dir)?;
     let (entries, skipped) = log.read_from_lossy(offset)?;
     Ok((mission, entries, skipped))
@@ -210,7 +210,12 @@ pub fn mission_feed(state: &crate::AppCore, args: MissionFeedArgs) -> Result<Mis
 pub fn mission_status(state: &crate::AppCore, id: &str) -> Result<MissionStatusSnapshot> {
     let conn = state.db.get()?;
     let (mission, entries, skipped) = read_log_entries(&state.app_data_dir, &conn, id, 0)?;
-    let crew = crew::get(&conn, &mission.crew_id)?;
+    let crew = mission
+        .crew_id
+        .as_deref()
+        .map(|id| crate::repo::crew::get(&conn, id))
+        .transpose()?
+        .flatten();
     let sessions = session::list_for_mission(&conn, &state.app_data_dir, &mission.id)?;
     let projection = EventProjection::from_entries(&entries);
     let live_session_count = sessions
@@ -255,7 +260,7 @@ mod tests {
     use std::fs::OpenOptions;
     use std::io::Write;
     fn signal(from: &str, ty: &str, payload: serde_json::Value) -> EventDraft {
-        EventDraft::signal("crew", "mission", from, SignalType::new(ty), payload)
+        EventDraft::signal(Some("crew"), "mission", from, SignalType::new(ty), payload)
     }
 
     #[test]
@@ -400,7 +405,7 @@ mod tests {
             params![now],
         )
         .unwrap();
-        let mission_dir = event_log::mission_dir(app_data.path(), "crew", "mission");
+        let mission_dir = event_log::mission_dir(app_data.path(), Some("crew"), "mission");
         let log = EventLog::open(&mission_dir).unwrap();
         log.append(signal(
             "system",

@@ -20,6 +20,13 @@ fn known_types_csv() -> String {
 }
 
 pub fn run(env: &env::MissionEnv, ty: &str, payload: Option<&str>) -> i32 {
+    if ty == "ask_lead" {
+        eprintln!(
+            "runner signal: {}",
+            runner_core::model::ASK_LEAD_REMOVED_HINT
+        );
+        return 2;
+    }
     let Some(kind) = KnownSignalType::from_name(ty) else {
         eprintln!(
             "runner signal: unknown type {ty:?}. Known types: {}.",

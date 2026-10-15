@@ -4,20 +4,26 @@ use super::*;
 fn synthetic_wake_busy_updates_activity_and_allows_final_idle() {
     let pool = pool_with_schema();
     let mission = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
     let slot_id = insert_crew_role(&pool, &mission.id, &role.id);
     let mut slot = slot_for(&role);
     slot.id = slot_id;
-    slot.crew_id = mission.crew_id.clone();
+    slot.crew_id = mission.crew_id.clone().unwrap();
 
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let cap = capture_for(&mgr);
@@ -43,7 +49,7 @@ fn synthetic_wake_busy_updates_activity_and_allows_final_idle() {
     mgr.synthesize_wake_busy(
         &spawned.id,
         EventDraft::signal(
-            mission.crew_id.clone(),
+            mission.crew_id.clone().as_deref(),
             mission.id.clone(),
             role.handle.clone(),
             SignalType::new("session_status"),
@@ -103,20 +109,26 @@ fn synthetic_wake_busy_updates_activity_and_allows_final_idle() {
 fn suppressed_busy_then_agent_output_and_quiet_appends_final_idle() {
     let pool = pool_with_schema();
     let mission = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
     let slot_id = insert_crew_role(&pool, &mission.id, &role.id);
     let mut slot = slot_for(&role);
     slot.id = slot_id;
-    slot.crew_id = mission.crew_id.clone();
+    slot.crew_id = mission.crew_id.clone().unwrap();
 
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let cap = capture_for(&mgr);
@@ -154,7 +166,7 @@ fn suppressed_busy_then_agent_output_and_quiet_appends_final_idle() {
     mgr.synthesize_wake_busy(
         &spawned.id,
         EventDraft::signal(
-            mission.crew_id.clone(),
+            mission.crew_id.clone().as_deref(),
             mission.id.clone(),
             role.handle.clone(),
             SignalType::new("session_status"),
@@ -238,7 +250,7 @@ fn forwarder_status_emit_stays_bounded_under_event_log_contention() {
     blocker.lock_exclusive().unwrap();
 
     let ctx = ForwarderEmitCtx {
-        crew_id: "test-crew".into(),
+        crew_id: Some("test-crew".into()),
         mission_id: "test-mission".into(),
         handle: "tester".into(),
         event_log: Arc::clone(&event_log),
@@ -304,7 +316,7 @@ fn forwarder_status_emit_retries_brief_event_log_contention() {
     blocker.lock_exclusive().unwrap();
 
     let ctx = ForwarderEmitCtx {
-        crew_id: "test-crew".into(),
+        crew_id: Some("test-crew".into()),
         mission_id: "test-mission".into(),
         handle: "tester".into(),
         event_log: Arc::clone(&event_log),
@@ -380,7 +392,7 @@ fn manager_with_contended_wake_sink(event_log: Arc<EventLog>) -> Arc<SessionMana
     let mgr = manager_with_runtime(crate::shell_path::LoginShellEnv::default(), inert_runtime());
     let state = mgr.session_state_or_insert("session");
     state.lock().unwrap().mission_status_sink = Some(ForwarderEmitCtx {
-        crew_id: "crew".into(),
+        crew_id: Some("crew".into()),
         mission_id: "mission".into(),
         handle: "runner".into(),
         event_log,
@@ -401,7 +413,7 @@ fn assert_wake_completed_or_gave_up(result: crate::error::Result<()>) {
 
 fn wake_busy_draft() -> EventDraft {
     EventDraft::signal(
-        "crew",
+        Some("crew"),
         "mission",
         "runner",
         SignalType::new("session_status"),

@@ -435,10 +435,13 @@ fn fixture(
     let notifier: Arc<dyn RouterUiNotifier> = injector.clone();
     let router = Router::new(
         "mission-1".into(),
-        "crew-1".into(),
+        Some("crew-1".into()),
         "Crew One".into(),
         &roster,
-        vec![SignalType::new("mission_goal"), SignalType::new("ask_lead")],
+        vec![
+            SignalType::new("mission_goal"),
+            SignalType::new("ask_human"),
+        ],
         None,
         log.clone(),
         injector_dyn,
@@ -454,11 +457,23 @@ fn fixture(
 }
 
 fn signal(from: &str, ty: &str, payload: serde_json::Value) -> EventDraft {
-    EventDraft::signal("crew-1", "mission-1", from, SignalType::new(ty), payload)
+    EventDraft::signal(
+        Some("crew-1"),
+        "mission-1",
+        from,
+        SignalType::new(ty),
+        payload,
+    )
 }
 
 fn message(from: &str, to: Option<&str>, text: &str) -> EventDraft {
-    EventDraft::message("crew-1", "mission-1", from, to.map(String::from), text)
+    EventDraft::message(
+        Some("crew-1"),
+        "mission-1",
+        from,
+        to.map(String::from),
+        text,
+    )
 }
 
 fn read_signals(log: &EventLog) -> Vec<Event> {

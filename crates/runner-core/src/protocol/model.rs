@@ -132,7 +132,7 @@ pub enum MissionStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mission {
     pub id: String,
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     pub project_id: Option<String>,
     pub title: String,
     pub status: MissionStatus,

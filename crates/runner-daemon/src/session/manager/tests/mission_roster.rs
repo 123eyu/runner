@@ -69,7 +69,7 @@ async fn mission_start_spawns_the_snapshot_even_when_the_crew_changes() {
     let out = crate::ops::mission::mission_start_impl(
         &state,
         runner_core::protocol::mission::StartMissionInput {
-            crew_id,
+            crew_id: Some(crew_id),
             project_id: None,
             title: "Snapshot start".into(),
             goal_override: None,

@@ -306,7 +306,7 @@ fn render_mission_list(value: &Value) -> Vec<String> {
                         == Some("running")
                 })
                 .count();
-            let status = displayed_mission_status(row.get("status"), running);
+            let status = displayed_mission_status(row.get("status"), running, statuses.len());
             vec![
                 cell(row.get("id")),
                 cell(row.get("title")),
@@ -353,12 +353,16 @@ fn render_mission_show(value: &Value) -> Vec<String> {
             .get("live_session_count")
             .and_then(Value::as_u64)
             .unwrap_or_default() as usize,
+        value
+            .get("sessions")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
     ));
     let mut lines = key_values(&[
         ("ID", mission.get("id")),
         ("TITLE", mission.get("title")),
         ("STATUS", Some(&status)),
-        ("CREW", crew.get("name").or_else(|| mission.get("crew_id"))),
+        ("CREW", crew.get("name")),
         ("PROJECT", mission.get("project_id")),
         ("CWD", mission.get("cwd")),
         ("STARTED", mission.get("started_at")),
@@ -443,8 +447,13 @@ fn render_mission_show(value: &Value) -> Vec<String> {
     lines
 }
 
-fn displayed_mission_status(status: Option<&Value>, live_sessions: usize) -> String {
-    if status.and_then(Value::as_str) == Some("running") && live_sessions == 0 {
+fn displayed_mission_status(
+    status: Option<&Value>,
+    live_sessions: usize,
+    total_sessions: usize,
+) -> String {
+    if status.and_then(Value::as_str) == Some("running") && live_sessions == 0 && total_sessions > 0
+    {
         "stopped".into()
     } else {
         cell(status)
@@ -1052,12 +1061,51 @@ mod tests {
     }
 
     #[test]
+    fn mission_list_and_show_distinguish_empty_and_stopped_sessions() {
+        let cases: [(&str, &[&str], &str); 6] = [
+            ("running", &[], "running"),
+            ("running", &["stopped"], "stopped"),
+            ("running", &["error"], "stopped"),
+            ("running", &["running", "stopped"], "running"),
+            ("completed", &[], "completed"),
+            ("aborted", &[], "aborted"),
+        ];
+        for (status, lifecycles, expected) in cases {
+            let session_statuses: Vec<_> = lifecycles
+                .iter()
+                .map(|lifecycle| json!(["session", {"lifecycle": lifecycle}]))
+                .collect();
+            let sessions: Vec<_> = lifecycles
+                .iter()
+                .map(|lifecycle| json!({"id": "session", "status": lifecycle}))
+                .collect();
+            let summary = json!({
+                "id": "mission", "title": "CLI", "crew_name": null,
+                "status": status, "session_statuses": session_statuses
+            });
+            let list = render_default(View::MissionList, &json!([summary]));
+            assert_eq!(list[1].split_whitespace().nth(3), Some(expected));
+
+            let show = json!({
+                "mission": {"id": "mission", "status": status}, "crew": null,
+                "live_session_count": lifecycles.iter().filter(|&&state| state == "running").count(),
+                "sessions": sessions
+            });
+            assert!(render_default(View::MissionShow, &show)
+                .iter()
+                .any(|line| line
+                    .strip_prefix("STATUS")
+                    .is_some_and(|value| value.trim() == expected)));
+        }
+    }
+
+    #[test]
     fn stopped_mission_and_command_status_are_rendered_for_humans() {
         let show = json!({
             "mission": {"id": "mission-id", "title": "CLI", "status": "running", "crew_id": "crew-id", "project_id": null, "cwd": "/repo", "started_at": "2026-09-18T10:20:30Z"},
             "crew": {"name": "Peer"},
             "live_session_count": 0,
-            "sessions": [],
+            "sessions": [{"id": "session", "handle": "coder", "status": "stopped"}],
             "pending_asks": [],
             "recent_warnings": []
         });

@@ -36,7 +36,7 @@ fn human_said_routes_to_target_or_lead() {
 }
 
 #[test]
-fn ask_lead_injects_question_and_context_to_lead() {
+fn old_ask_lead_events_parse_but_inject_nothing() {
     let (router, injector, log, _dir) = fixture(
         vec![slot_with_role("lead", true), slot_with_role("impl", false)],
         &[("lead", "S-LEAD"), ("impl", "S-IMPL")],
@@ -50,14 +50,11 @@ fn ask_lead_injects_question_and_context_to_lead() {
         .unwrap();
     router.handle_event(&ev);
 
-    let pushes = injector.pushes_for("S-LEAD");
-    assert_eq!(pushes.len(), 1);
-    let text = &pushes[0];
-    assert!(text.contains("[ask_lead from @impl]"));
-    assert!(text.contains("use notify-debouncer-full?"));
-    assert!(text.contains("Pros:"));
-    // Worker stdin must not see the relayed question.
+    assert!(injector.pushes_for("S-LEAD").is_empty());
     assert!(injector.pushes_for("S-IMPL").is_empty());
+    router.reconstruct_from_log().unwrap();
+    router.handle_event(&ev);
+    assert!(injector.pushes_for("S-LEAD").is_empty());
 }
 
 #[test]
@@ -205,4 +202,67 @@ fn human_response_without_matching_question_emits_mission_warning() {
         })
         .collect();
     assert_eq!(warnings.len(), 1);
+}
+
+#[test]
+fn leadless_human_messages_and_answers_route_to_members() {
+    let (router, injector, log, _dir) = fixture(
+        vec![slot_with_role("one", false), slot_with_role("two", false)],
+        &[("one", "S-ONE"), ("two", "S-TWO")],
+    );
+    assert_eq!(router.lead_handle(), None);
+    let event = log
+        .append(signal(
+            "human",
+            "human_said",
+            serde_json::json!({"text": "hello team"}),
+        ))
+        .unwrap();
+    router.handle_event(&event);
+    assert!(injector.pushes_for("S-ONE")[0].contains("hello team"));
+    assert!(injector.pushes_for("S-TWO")[0].contains("hello team"));
+    let ask = log
+        .append(signal(
+            "one",
+            "ask_human",
+            serde_json::json!({"prompt": "Ship?", "choices": ["yes", "no"]}),
+        ))
+        .unwrap();
+    router.handle_event(&ask);
+    let card = read_signals(&log)
+        .into_iter()
+        .find(|event| {
+            event
+                .signal_type
+                .as_ref()
+                .is_some_and(|kind| kind.as_str() == "human_question")
+        })
+        .unwrap();
+    let answer = log
+        .append(signal(
+            "human",
+            "human_response",
+            serde_json::json!({"question_id": card.id, "choice": "yes"}),
+        ))
+        .unwrap();
+    router.handle_event(&answer);
+    wait_until(Duration::from_secs(2), || {
+        injector
+            .pushes_for("S-ONE")
+            .iter()
+            .any(|text| text.contains("[human_response] yes"))
+    });
+    assert!(!injector
+        .pushes_for("S-TWO")
+        .iter()
+        .any(|text| text.contains("human_response")));
+    router.record_slot_restart("one", "S-ONE", None).unwrap();
+    let notes: Vec<_> = log
+        .read_from(0)
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.event.from == "runner")
+        .collect();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].event.to.as_deref(), Some("two"));
 }

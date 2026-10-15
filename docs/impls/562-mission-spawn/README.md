@@ -10,9 +10,9 @@ Implementation record for [feature 562](../../features/562-mission-spawn.md) ([#
 | m2 | Each mission session independent of the others (Phase 2 decision 9, split out) | codex trio | Merged 2026-10-12 as [#874](https://github.com/yicheng47/runner/pull/874); QA passed five macOS checks, Windows unverified |
 | — | [#878](https://github.com/yicheng47/runner/issues/878): a session records its whole launch definition at spawn, so role edits never change it | codex trio | Merged 2026-10-13 as [#881](https://github.com/yicheng47/runner/pull/881) after live QA on macOS; it also fixed the feed's raw card for a stopped mission. Windows unverified |
 | m3 | Phase 2: add and remove roles while a mission runs, CLI and app | codex trio | Merged 2026-10-13 as [#889](https://github.com/yicheng47/runner/pull/889); ten selected macOS/Codex QA checks passed, post-#888 recheck waived at Jason’s call, native Windows unverified |
-| — | Phase 3: start a mission empty; roles join one at a time through add-role | — | Settled 2026-10-15; design in progress |
+| m4 | Phase 3: start a mission empty; roles join one at a time through add-role; with #849's Start mission redesign | codex trio | Implemented 2026-10-15; second review clean; selected macOS QA Incomplete (11 Passed, 0 Failed, 1 Blocked); open [#906](https://github.com/yicheng47/runner/pull/906) in five commits, CI tracked on the PR; brief [`562-m4-start-empty.md`](../briefs/562-m4-start-empty.md), running on `feat/562-start-empty` |
 
-Related issue: [#873](https://github.com/yicheng47/runner/issues/873) makes the mission lead optional; Phase 3 builds its no-lead paths, since an empty mission never has a lead.
+Related issue: [#873](https://github.com/yicheng47/runner/issues/873) makes the mission lead optional; Phase 3 builds its no-lead paths, since an empty mission has no lead.
 
 ## Decisions that bind
 
@@ -23,11 +23,12 @@ Related issue: [#873](https://github.com/yicheng47/runner/issues/873) makes the 
 - **Nothing assumes a mission has a lead** (2026-10-12). New code reads the lead from a slot's flag, so #873 stays a local change (plan, Phase 2 decision 14).
 - **Missions run on the codex trio** (Jason, 2026-10-12). `qa` runs the mission regression checks in the development app on macOS; Windows is Jason's.
 - **A mission can start empty** (Jason, 2026-10-15). A start names no roles; roles join one at a time through add-role, and a mission started empty has no lead. Start-from-roles is dropped.
+- **The database never deletes** (Jason, 2026-10-15). The app removes or unbinds every dependent row in code, as it has since `da4333ac`; Phase 3's migration turns every `ON DELETE CASCADE` into `RESTRICT`, so the foreign keys only refuse.
 - **The coordinator can sit outside the mission.** A chat that starts a mission drives it through the `runner` CLI; crews stay as templates for repeatable shapes.
 
 ## Open
 
 - Native Windows verification of m3 ([#889](https://github.com/yicheng47/runner/pull/889)). The [test record](../../tests/562-add-remove-roles.md) preserves the selected macOS matrix, failed fixture attempts, recheck waiver, evidence and cleanup; CI is tracked on the PR.
-- Phase 3's design sign-off, then its plan and brief.
+- Mission 4's [PR #906](https://github.com/yicheng47/runner/pull/906), then Jason's review, pre-existing-session upgrade-resume check and native Windows checks.
 - m1's light Windows check, at the next update of Jason's PC with existing missions ([record](../../tests/archive/562-mission-roster.md)).
 - The release that ships #881 and m3 gates on a Windows PC pass: back up the database, upgrade over 0.15.3 with real data, the suite's smoke cases, and the Windows checks deferred from m1, m2, #881 and m3.

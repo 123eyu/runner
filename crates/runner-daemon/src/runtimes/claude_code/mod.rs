@@ -161,6 +161,9 @@ impl RuntimeAdapter for ClaudeCode {
         crate::runtime_defaults::json_defaults(&settings_path(home), false)
     }
 
+    fn startup_delivery_uses_hooks(&self, _pending_turn: bool) -> bool {
+        true
+    }
     fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
         Some(&Hooks)
     }

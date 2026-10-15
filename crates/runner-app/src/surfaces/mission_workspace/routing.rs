@@ -173,9 +173,11 @@ impl NativeRoot {
         }
         self.dismiss_sidebar_transients(cx);
         self.set_route(AppRoute::Mission(mission_id.clone()), cx);
+        let archiving = self.sidebar_archiving_mission(&mission_id, cx);
         let workspace = self.mission_workspace.clone();
         workspace.update(cx, |workspace, workspace_cx| {
-            workspace.open_mission(mission_id, window, workspace_cx)
+            workspace.open_mission(mission_id.clone(), window, workspace_cx);
+            workspace.set_archiving(&mission_id, archiving, workspace_cx);
         });
         cx.notify();
     }

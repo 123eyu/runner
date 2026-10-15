@@ -4,13 +4,14 @@ use gpui::prelude::*;
 use gpui::{div, px, rems, svg, AnyElement, Entity, FontWeight, PathPromptOptions, Window};
 use runner_app::ui::{
     working_dir_text_field, Button, ButtonVariant, Field, IconButton, Modal, OverlayWidth,
-    SelectOption, StyledSelect, TextField, WorkingDirField,
+    RoleAvatar, SelectLeading, SelectOption, StyledSelect, TextField, WorkingDirField,
 };
 use runner_core::protocol::crew::CrewListItem;
 use runner_core::protocol::model::SlotWithRole;
 use runner_core::protocol::project::ProjectRow;
 use runner_core::protocol::project::ProjectScope;
 
+use crate::surfaces::crews::{crew_picture, crew_summary, lead_badge, slot_setup, slot_setup_line};
 use crate::*;
 
 pub(crate) struct StartMissionModalState {
@@ -23,13 +24,11 @@ pub(crate) struct StartMissionModalState {
     title: Entity<TextField>,
     goal: Entity<TextField>,
     cwd: Entity<TextField>,
-    advanced_open: bool,
     loading: bool,
     submitting: bool,
     error: Option<String>,
     close_focus: FocusHandle,
     browse_focus: FocusHandle,
-    advanced_focus: FocusHandle,
     cancel_focus: FocusHandle,
     submit_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -39,12 +38,12 @@ impl StartMissionModalState {
     fn can_submit(&self, cx: &App) -> bool {
         !self.submitting
             && !self.loading
-            && !self.crew_id.is_empty()
             && !self.title.read(cx).text().trim().is_empty()
-            && self
-                .crews
-                .iter()
-                .any(|crew| crew.crew.id == self.crew_id && crew.role_count > 0)
+            && (self.crew_id.is_empty()
+                || self
+                    .crews
+                    .iter()
+                    .any(|crew| crew.crew.id == self.crew_id && crew.role_count > 0))
     }
 
     fn is_composing(&self, cx: &App) -> bool {
@@ -110,9 +109,7 @@ impl NativeRoot {
                 }),
                 select_cx,
             )
-            .width(px(632.))
-            .min_menu_width(px(0.))
-            .detailed(true)
+            .picker(true)
             .placeholder("No crews yet")
         });
         let crew_focus = crew_select.read(cx).focus_handle();
@@ -130,13 +127,11 @@ impl NativeRoot {
             title,
             goal,
             cwd: cwd_input,
-            advanced_open: false,
             loading: true,
             submitting: false,
             error: None,
             close_focus: cx.focus_handle(),
             browse_focus: cx.focus_handle(),
-            advanced_focus: cx.focus_handle(),
             cancel_focus: cx.focus_handle(),
             submit_focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -170,10 +165,7 @@ impl NativeRoot {
                         modal.crews = crews;
                         modal.crew_id = preferred.clone();
                         modal.crew_select.update(cx, |select, select_cx| {
-                            select.set_options(
-                                start_mission_crew_options(&modal.crews, "", &[]),
-                                select_cx,
-                            );
+                            select.set_options(start_mission_crew_options(&modal.crews), select_cx);
                             select.set_value(preferred.clone(), select_cx);
                         });
                         if !preferred.is_empty() {
@@ -198,8 +190,10 @@ impl NativeRoot {
         modal.crew_id = crew_id.clone();
         modal.roster.clear();
         modal.error = None;
-        modal.loading = true;
-        self.load_start_mission_roster(crew_id, cx);
+        modal.loading = !crew_id.is_empty();
+        if !crew_id.is_empty() {
+            self.load_start_mission_roster(crew_id, cx);
+        }
         cx.notify();
     }
 
@@ -223,8 +217,7 @@ impl NativeRoot {
                 match result {
                     Ok(roster) => {
                         modal.roster = roster;
-                        let options =
-                            start_mission_crew_options(&modal.crews, &modal.crew_id, &modal.roster);
+                        let options = start_mission_crew_options(&modal.crews);
                         modal.crew_select.update(cx, |select, select_cx| {
                             select.set_options(options, select_cx)
                         });
@@ -320,7 +313,7 @@ impl NativeRoot {
             return;
         }
         let input = runner_core::protocol::mission::MissionStart {
-            crew_id: modal.crew_id.clone(),
+            crew_id: nonempty(&modal.crew_id),
             scope: ProjectScope::or_root(modal.project.as_ref().map(|project| project.id.clone())),
             title: modal.title.read(cx).text().trim().to_owned(),
             goal_override: nonempty(modal.goal.read(cx).text()),
@@ -369,14 +362,11 @@ impl NativeRoot {
             .iter()
             .find(|crew| crew.crew.id == modal.crew_id);
         let launchable = selected.is_some_and(|crew| crew.role_count > 0);
-        let role_count = selected.map_or(0, |crew| crew.role_count);
         let can_submit = modal.can_submit(cx);
         let lead = modal.roster.iter().find(|member| member.slot.lead);
         let root = cx.entity();
         let close_root = root.clone();
         let browse_root = root.clone();
-        let advanced_root = root.clone();
-        let advanced_key_root = root.clone();
         let cancel_root = root.clone();
         let submit_root = root.clone();
         let title = div()
@@ -400,7 +390,7 @@ impl NativeRoot {
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
-                            .child("Spawns a session per slot and opens the mission workspace."),
+                            .child("A team of agents on one goal, with a shared feed."),
                     ),
             )
             .child(
@@ -422,7 +412,7 @@ impl NativeRoot {
                 Field::new(
                     "start-mission-crew-field",
                     "Crew",
-                    modal.crew_select.clone(),
+                    start_mission_crew_card(modal),
                 )
                 .emphasized(true),
             )
@@ -443,7 +433,7 @@ impl NativeRoot {
                 .subtitle("Short label shown in the missions list and event log."),
             )
             .child(
-                Field::new("start-mission-goal-field", "Goal", modal.goal.clone())
+                Field::new("start-mission-goal-field", "Goal", modal.goal.clone()).tag("optional")
                     .emphasized(true)
                     .subtitle(
                         lead.map(|lead| {
@@ -452,7 +442,7 @@ impl NativeRoot {
                                 lead.slot.slot_handle
                             )
                         })
-                        .unwrap_or_else(|| "Delivered to the crew lead on mission start.".into()),
+                        .unwrap_or_else(|| if modal.crew_id.is_empty() { "Shared with every role that joins. Give each one its own task when you add it.".into() } else { "Delivered to the crew lead on mission start.".into() }),
                     ),
             )
             .child(
@@ -470,134 +460,42 @@ impl NativeRoot {
                     .browse_focus(modal.browse_focus.clone()),
                 )
                 .emphasized(true)
-                .subtitle("Each role starts here. Leave blank to use its default directory or your home directory."),
+                .subtitle(if modal.crew_id.is_empty() { "Every role you add starts here. Leave blank to use its default directory or your home directory." } else { "Each role starts here. Leave blank to use its default directory or your home directory." }),
             )
-            .child(
-                div()
-                    .id("start-mission-advanced")
-                    .rounded_md()
-                    .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
-                    .px_3()
-                    .py_3()
-                    .child(
-                        div()
-                            .id("start-mission-advanced-toggle")
-                            .track_focus(&modal.advanced_focus)
-                            .tab_index(0)
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .cursor_pointer()
-                            .text_size(theme::text_ui())
-                            .font_weight(FontWeight::MEDIUM)
-                            .on_click(move |_, _, cx| {
-                                advanced_root.update(cx, |this, cx| {
-                                    if let Some(modal) = this.start_mission_modal.as_mut() {
-                                        modal.advanced_open = !modal.advanced_open;
-                                        cx.notify();
-                                    }
-                                });
-                            })
-                            .on_key_down(move |event: &KeyDownEvent, _, cx| {
-                                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                                    cx.stop_propagation();
-                                    advanced_key_root.update(cx, |this, cx| {
-                                        if let Some(modal) = this.start_mission_modal.as_mut() {
-                                            modal.advanced_open = !modal.advanced_open;
-                                            cx.notify();
-                                        }
-                                    });
-                                }
-                            })
-                            .child(
-                                svg()
-                                    .flex_none()
-                                    .path(if modal.advanced_open {
-                                        "chevron-down.svg"
-                                    } else {
-                                        "chevron-right.svg"
-                                    })
-                                    .size(rems(14. / 16.))
-                                    .text_color(theme::muted()),
-                            )
-                            .child(div().flex_1().child("Advanced"))
-                            .child(
-                                div()
-                                    .text_size(theme::text_meta())
-                                    .font_weight(FontWeight::NORMAL)
-                                    .text_color(theme::faint())
-                                    .child("env overrides · per-role args · attach files"),
-                            ),
-                    )
-                    .children(modal.advanced_open.then(|| {
-                        div()
-                            .mt_3()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(theme::border())
-                            .bg(theme::panel())
-                            .px_3()
-                            .py_2()
-                            .text_size(theme::text_meta())
-                            .text_color(theme::faint())
-                            .child("Reserved for v0.x — custom env, dry-run mode. Inert in v0 MVP.")
-                    })),
-            );
-        let footer = div()
-            .w_full()
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .mr_auto()
-                    .text_size(theme::text_meta())
-                    .text_color(theme::faint())
-                    .child(if selected.is_some() {
-                        format!(
-                            "{role_count} session{} will spawn",
-                            if role_count == 1 { "" } else { "s" }
-                        )
-                    } else {
-                        String::new()
-                    }),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Button::new("cancel-start-mission", "Cancel")
-                            .shortcut("esc")
-                            .focus_handle(modal.cancel_focus.clone())
-                            .disabled(modal.submitting)
-                            .on_press(move |window, cx| {
-                                cancel_root.update(cx, |this, cx| {
-                                    this.close_start_mission_modal(window, cx)
-                                });
-                            }),
-                    )
-                    .child(
-                        Button::new(
-                            "submit-start-mission",
-                            if modal.submitting {
-                                "Starting…"
-                            } else {
-                                "Start mission"
-                            },
-                        )
-                        .shortcut(keymap::fixed_shortcut("cmd-enter"))
-                        .focus_handle(modal.submit_focus.clone())
-                        .variant(ButtonVariant::Primary)
-                        .disabled(!can_submit)
+            ;
+        let footer = div().w_full().flex().items_center().justify_end().child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    Button::new("cancel-start-mission", "Cancel")
+                        .shortcut("esc")
+                        .focus_handle(modal.cancel_focus.clone())
+                        .disabled(modal.submitting)
                         .on_press(move |window, cx| {
-                            submit_root
-                                .update(cx, |this, cx| this.submit_start_mission(window, cx));
+                            cancel_root
+                                .update(cx, |this, cx| this.close_start_mission_modal(window, cx));
                         }),
-                    ),
-            );
+                )
+                .child(
+                    Button::new(
+                        "submit-start-mission",
+                        if modal.submitting {
+                            "Starting…"
+                        } else {
+                            "Start mission"
+                        },
+                    )
+                    .shortcut(keymap::fixed_shortcut("cmd-enter"))
+                    .focus_handle(modal.submit_focus.clone())
+                    .variant(ButtonVariant::Primary)
+                    .disabled(!can_submit)
+                    .on_press(move |window, cx| {
+                        submit_root.update(cx, |this, cx| this.submit_start_mission(window, cx));
+                    }),
+                ),
+        );
         let close_modal_root = root;
         let modal_element = Modal::new(
             title,
@@ -607,7 +505,7 @@ impl NativeRoot {
             }),
         )
         .key_context("StartMission")
-        .width(OverlayWidth::Custom(680.))
+        .width(OverlayWidth::Custom(560.))
         .busy(modal.submitting)
         .focus_order(if modal.submitting {
             Vec::new()
@@ -619,7 +517,6 @@ impl NativeRoot {
                 modal.goal.read(cx).focus_handle(),
                 modal.cwd.read(cx).focus_handle(),
                 modal.browse_focus.clone(),
-                modal.advanced_focus.clone(),
                 modal.cancel_focus.clone(),
                 modal.submit_focus.clone(),
             ]
@@ -648,62 +545,123 @@ fn set_start_mission_fields_disabled(
     }
 }
 
-fn start_mission_crew_options(
-    crews: &[CrewListItem],
-    selected_id: &str,
-    roster: &[SlotWithRole],
-) -> Vec<SelectOption> {
-    crews
-        .iter()
-        .map(|crew| {
-            let description = if crew.crew.id == selected_id && !roster.is_empty() {
-                summarize_crew(crew, roster)
-            } else if crew.role_count == 0 {
-                "No roles in this crew.".into()
-            } else {
-                format!(
-                    "{} role{}",
-                    crew.role_count,
-                    if crew.role_count == 1 { "" } else { "s" }
-                )
-            };
-            SelectOption::new(crew.crew.id.clone(), crew.crew.name.clone()).description(description)
-        })
-        .collect()
+fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
+    div()
+        .w_full()
+        .min_w(px(0.))
+        .rounded(rems(8. / 16.))
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::bg())
+        .child(modal.crew_select.clone())
+        .children(modal.crew_id.is_empty().then(|| div().border_t_1().border_color(theme::border()).px_4().py_3()
+            .text_size(theme::text_ui()).text_color(theme::muted())
+            .child("No roles at start. Add them one at a time from the mission once it starts; each joins as a worker.")))
+        .children((!modal.roster.is_empty()).then(|| {
+            div()
+                .border_t_1()
+                .border_color(theme::border())
+                .px_4()
+                .py_2()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .children(modal.roster.iter().map(|member| {
+                    div()
+                        .debug_selector({
+                            let handle = member.slot.slot_handle.clone();
+                            move || format!("START_MISSION_SLOT {handle}")
+                        })
+                        .w_full()
+                        .min_w(px(0.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(RoleAvatar::new(member.slot.slot_handle.clone(), 24.))
+                        .child(
+                            div()
+                                .min_w(px(0.))
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .overflow_hidden()
+                                .child(
+                                    div()
+                                        .min_w(px(0.))
+                                        .truncate()
+                                        .font_family(theme::UI_MONOSPACE_FONT)
+                                        .text_size(theme::text_ui())
+                                        .text_color(
+                                            runner_app::ui::avatar::hue_for_seed(
+                                                &member.slot.slot_handle,
+                                            )
+                                            .color(),
+                                        )
+                                        .child(format!("@{}", member.slot.slot_handle)),
+                                )
+                                .children(member.slot.lead.then(lead_badge))
+                                .child(
+                                    div()
+                                        .min_w(px(0.))
+                                        .truncate()
+                                        .text_size(theme::text_meta())
+                                        .text_color(theme::muted())
+                                        .child(member.role.display_name.clone()),
+                                ),
+                        )
+                        .child(
+                            slot_setup_line(&slot_setup(member))
+                                .max_w(rems(250. / 16.))
+                                .min_w(px(0.)),
+                        )
+                }))
+        }))
 }
 
-fn summarize_crew(crew: &CrewListItem, roster: &[SlotWithRole]) -> String {
-    let Some(lead) = roster.iter().find(|member| member.slot.lead) else {
-        return format!(
-            "{} slot{}",
-            crew.role_count,
-            if crew.role_count == 1 { "" } else { "s" }
-        );
-    };
-    let workers = roster
-        .iter()
-        .filter(|member| !member.slot.lead)
-        .collect::<Vec<_>>();
-    if workers.is_empty() {
-        return format!("lead: @{}", lead.slot.slot_handle);
-    }
-    let shown = workers
-        .iter()
-        .take(3)
-        .map(|member| format!("@{}", member.slot.slot_handle))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let tail = if workers.len() > 3 {
-        format!(", +{}", workers.len() - 3)
-    } else {
-        String::new()
-    };
-    format!(
-        "lead: @{} · {} worker{}: {shown}{tail}",
-        lead.slot.slot_handle,
-        workers.len(),
-        if workers.len() == 1 { "" } else { "s" }
-    )
+fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
+    let empty = SelectOption::new("", "No crew")
+        .description("start empty · add roles from the mission")
+        .trigger_description("start empty")
+        .leading(SelectLeading::new("no-crew", |size| {
+            div()
+                .flex_none()
+                .size(rems(size / 16.))
+                .rounded(rems(8. / 16.))
+                .bg(theme::raised())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path("user-plus.svg")
+                        .size(rems(size * 0.5 / 16.))
+                        .text_color(theme::muted()),
+                )
+                .into_any_element()
+        }));
+    std::iter::once(empty)
+        .chain(crews.iter().enumerate().map(|(index, crew)| {
+            let handles: Vec<SharedString> = crew
+                .members
+                .iter()
+                .map(|member| member.slot_handle.clone().into())
+                .collect();
+            let key = format!("crew:{}:{handles:?}", crew.crew.id);
+            SelectOption::new(crew.crew.id.clone(), crew.crew.name.clone())
+                .separator_before(index == 0)
+                .description(crew_summary(
+                    crew.role_count as usize,
+                    crew.members
+                        .iter()
+                        .find(|member| member.lead)
+                        .map(|member| member.slot_handle.as_str()),
+                ))
+                .leading(SelectLeading::new(key, move |size| {
+                    crew_picture(&handles, size)
+                }))
+        }))
+        .collect()
 }
 
 fn nonempty(value: &str) -> Option<String> {
@@ -768,10 +726,7 @@ mod keyboard_tests {
             ];
             form.crew_id = crew.id.clone();
             form.crew_select.update(cx, |select, cx| {
-                select.set_options(
-                    start_mission_crew_options(&form.crews, &form.crew_id, &[]),
-                    cx,
-                );
+                select.set_options(start_mission_crew_options(&form.crews), cx);
                 select.set_value(crew.id, cx);
             });
             form.title
@@ -784,8 +739,79 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn crew_picker_and_five_read_only_roster_rows_use_the_crew_setup() {
+        let mut harness = mission_harness();
+        harness.act(|root, _, cx| {
+            let modal = root.start_mission_modal.as_mut().unwrap();
+            modal.roster = (0..5).map(|index| serde_json::from_value::<SlotWithRole>(serde_json::json!({
+                "id": format!("slot-{index}"), "crew_id": modal.crew_id, "role_id": "r", "slot_handle": format!("worker-{index}"), "position": index, "lead": index == 0, "runtime_override": "codex", "model_override": "gpt-5.5", "effort_override": "high", "added_at": "2026-10-15T00:00:00Z",
+                "role": {"id": "r", "handle": "role", "display_name": "Implementation", "runtime": "claude-code", "command": "claude", "args": [], "env": {}, "created_at": "2026-10-15T00:00:00Z", "updated_at": "2026-10-15T00:00:00Z"}
+            })).unwrap()).collect();
+            modal.crews[0].role_count = 5;
+            modal.crews[0].members = modal.roster.iter().map(|member| runner_core::protocol::crew::CrewMemberPreview {
+                slot_handle: member.slot.slot_handle.clone(), role_handle: member.role.handle.clone(), runtime: "codex".into(), lead: member.slot.lead,
+            }).collect();
+            let options = start_mission_crew_options(&modal.crews);
+            assert_eq!(options[1].description.as_deref(), Some("5 slots · lead @worker-0"));
+            assert!(options[1].leading.is_some());
+            modal.crew_select.update(cx, |select, cx| select.set_options(options, cx));
+            cx.notify();
+        });
+        let modal = harness.visual.debug_bounds("START_MISSION_MODAL").unwrap();
+        for selector in [
+            "START_MISSION_SLOT worker-0",
+            "START_MISSION_SLOT worker-1",
+            "START_MISSION_SLOT worker-2",
+            "START_MISSION_SLOT worker-3",
+            "START_MISSION_SLOT worker-4",
+        ] {
+            let row = harness.visual.debug_bounds(selector).unwrap();
+            assert!(row.left() >= modal.left() && row.right() <= modal.right());
+        }
+    }
+
+    #[test]
+    fn no_crew_is_first_and_starts_an_empty_workspace_at_minimum_size() {
+        let mut harness = modal_harness(640., 480., Vec::new(), Vec::new(), ChatMode::Runtime);
+        harness.act(|root, window, cx| {
+            root.start_chat_modal = None;
+            for crew in root.core(cx).crew_list(1, 10_000, "").unwrap().items {
+                root.core(cx).crew_delete(&crew.crew.id).unwrap();
+            }
+            root.new_mission_action(&NewMission, window, cx);
+        });
+        harness.act(|root, _, cx| {
+            let form = root.start_mission_modal.as_ref().unwrap();
+            assert!(form.crews.is_empty());
+            assert!(form.crew_id.is_empty());
+            let options = start_mission_crew_options(&form.crews);
+            assert_eq!(options[0].label, "No crew");
+            assert_eq!(
+                options[0].description.as_deref(),
+                Some("start empty · add roles from the mission")
+            );
+            form.title
+                .update(cx, |field, cx| field.set_text("Empty mission", cx));
+            form.goal
+                .update(cx, |field, cx| field.set_text("Shared goal", cx));
+            assert!(form.can_submit(cx));
+        });
+        harness
+            .visual
+            .simulate_keystrokes(&keymap::platform_default("cmd-enter"));
+        harness.act(|root, _, cx| {
+            assert!(root.start_mission_modal.is_none());
+            let AppRoute::Mission(id) = &root.route else {
+                panic!("mission not opened");
+            };
+            assert!(root.core(cx).mission_get(id).unwrap().crew_id.is_none());
+            assert!(root.core(cx).session_list(id).unwrap().is_empty());
+        });
+    }
+
+    #[test]
     fn mission_confirm_dispatches_from_every_control_including_an_open_select_and_textarea() {
-        for control in 0..9 {
+        for control in 0..8 {
             let mut harness = mission_harness();
             let mut original_crew = String::new();
             harness.act(|root, window, cx| {
@@ -797,9 +823,8 @@ mod keyboard_tests {
                     2 => form.goal.read(cx).focus_handle(),
                     3 => form.cwd.read(cx).focus_handle(),
                     4 => form.browse_focus.clone(),
-                    5 => form.advanced_focus.clone(),
-                    6 => form.cancel_focus.clone(),
-                    7 => form.submit_focus.clone(),
+                    5 => form.cancel_focus.clone(),
+                    6 => form.submit_focus.clone(),
                     _ => form.close_focus.clone(),
                 };
                 focus.focus(window, cx);
@@ -833,7 +858,7 @@ mod keyboard_tests {
                 match condition {
                     0 => form.loading = true,
                     1 => form.submitting = true,
-                    2 => form.crew_id.clear(),
+                    2 => form.crew_id = "missing-crew".into(),
                     3 => form.title.update(cx, |field, cx| field.set_text("", cx)),
                     4 => form.crews[0].role_count = 0,
                     _ => form.goal.update(cx, |field, cx| {

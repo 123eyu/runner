@@ -87,7 +87,12 @@ fn team(slots: &[RosterSlot]) -> String {
     )
 }
 
-fn leave(log: &EventLog, change: &MissionRoleChange, slot_id: &str, crew_id: &str) -> Result<()> {
+fn leave(
+    log: &EventLog,
+    change: &MissionRoleChange,
+    slot_id: &str,
+    crew_id: Option<&str>,
+) -> Result<()> {
     log.append(EventDraft::signal(crew_id, &change.mission_id, "human", SignalType::new("role_removed"),
         serde_json::json!({"handle": change.handle, "slot_id": slot_id, "session_id": change.session_id})))?;
     Ok(())
@@ -120,7 +125,7 @@ fn add_checked(
             role::get(&conn, &input.role_id)?,
         )
     };
-    let dir = event_log::mission_dir(&state.app_data_dir, &mission.crew_id, &mission.id);
+    let dir = event_log::mission_dir(&state.app_data_dir, mission.crew_id.as_deref(), &mission.id);
     let log = EventLog::open(&dir)?;
     let removed = removed_handles(&log)?;
     let existing: HashSet<_> = loaded
@@ -142,7 +147,7 @@ fn add_checked(
     let member = SlotWithRole {
         slot: Slot {
             id: ulid::Ulid::new().to_string(),
-            crew_id: mission.crew_id.clone(),
+            crew_id: mission.crew_id.clone().unwrap_or_default(),
             role_id: role.id.clone(),
             slot_handle: handle.clone(),
             lead: false,
@@ -169,12 +174,12 @@ fn add_checked(
             .as_deref()
             .unwrap_or(&member.role.runtime),
     );
-    let (system_prompt, first_turn) = adapter.prompt_channels().split(
-        crate::router::prompt::SessionPromptKind::Worker,
-        Some(crate::router::prompt::compose_worker_first_turn(
-            member.role.system_prompt.as_deref(),
-            loaded.file.crew_addendum.as_deref(),
-        )),
+    let goal = (!loaded.slots.iter().any(|member| member.slot.lead))
+        .then(|| crate::router::LaunchInputs::latest_mission_goal_text(&log));
+    let (system_prompt, first_turn) = adapter.prompt_channels().worker(
+        member.role.system_prompt.as_deref(),
+        loaded.file.crew_addendum.as_deref(),
+        goal.as_deref(),
     );
     if let Some(body) = &first_turn {
         super::ensure_first_turn_fits(&handle, body)?;
@@ -202,7 +207,7 @@ fn add_checked(
         session_id: pending.session_id.clone(),
     };
     let definition = &pending.launch_definition;
-    let joined = log.append(EventDraft::signal(&mission.crew_id, &mission.id, "human", SignalType::new("role_joined"),
+    let joined = log.append(EventDraft::signal(mission.crew_id.as_deref(), &mission.id, "human", SignalType::new("role_joined"),
         serde_json::json!({"handle": change.handle, "slot_id": member.slot.id, "session_id": change.session_id,
             "role_id": member.role.id, "lead": false, "runtime": member.slot.runtime_override.as_deref().unwrap_or(&member.role.runtime),
             "model": definition.model, "effort": definition.effort, "speed": definition.codex_speed})));
@@ -214,7 +219,7 @@ fn add_checked(
     let previous = loaded.file.clone();
     loaded.file.slots.push(RosterSlot::from(&member.slot));
     if let Err(error) = roster::write(&dir, &loaded.file) {
-        let leave_result = leave(&log, &change, &member.slot.id, &mission.crew_id);
+        let leave_result = leave(&log, &change, &member.slot.id, mission.crew_id.as_deref());
         let restore_result = roster::write(&dir, &previous);
         router.remove_roster_member(&change.handle);
         let delete_result =
@@ -242,7 +247,7 @@ fn add_checked(
     let text = format!("@{} joined the mission as a worker: {}, on {}. The team is now {}. `runner mission show` lists the current team.", change.handle, member.role.display_name, runtime_name, team(&loaded.file.slots));
     let notices = (|| -> Result<()> {
         log.append(EventDraft::message(
-            &mission.crew_id,
+            mission.crew_id.as_deref(),
             &mission.id,
             "runner",
             None,
@@ -250,7 +255,7 @@ fn add_checked(
         ))?;
         if let Some(task) = input.task.filter(|task| !task.trim().is_empty()) {
             log.append(EventDraft::message(
-                &mission.crew_id,
+                mission.crew_id.as_deref(),
                 &mission.id,
                 "human",
                 Some(change.handle.clone()),
@@ -260,7 +265,7 @@ fn add_checked(
         Ok(())
     })();
     if let Err(error) = notices {
-        let leave_result = leave(&log, &change, &member.slot.id, &mission.crew_id);
+        let leave_result = leave(&log, &change, &member.slot.id, mission.crew_id.as_deref());
         let restore_result = roster::write(&dir, &previous);
         router.remove_roster_member(&change.handle);
         let delete_result =
@@ -322,7 +327,7 @@ pub fn remove_role(state: &AppCore, mission_id: &str, handle: &str) -> Result<Mi
     let _guard = lock.lock().unwrap();
     let mission = checked_mission(state, mission_id)?;
     let mut loaded = roster::load(&*state.db.get()?, &state.app_data_dir, &mission)?;
-    let dir = event_log::mission_dir(&state.app_data_dir, &mission.crew_id, &mission.id);
+    let dir = event_log::mission_dir(&state.app_data_dir, mission.crew_id.as_deref(), &mission.id);
     let log = EventLog::open(&dir)?;
     let slot = loaded
         .file
@@ -368,7 +373,7 @@ pub fn remove_role(state: &AppCore, mission_id: &str, handle: &str) -> Result<Mi
         handle: handle.into(),
         session_id,
     };
-    if let Err(error) = leave(&log, &change, &slot.id, &mission.crew_id) {
+    if let Err(error) = leave(&log, &change, &slot.id, mission.crew_id.as_deref()) {
         roster::write(&dir, &previous)?;
         if let Some(router) = state.routers.get(mission_id) {
             if let Some(member) = loaded.slots.iter().find(|member| member.slot.id == slot.id) {
@@ -378,7 +383,7 @@ pub fn remove_role(state: &AppCore, mission_id: &str, handle: &str) -> Result<Mi
         }
         return Err(error);
     }
-    log.append(EventDraft::message(&mission.crew_id, mission_id, "runner", None,
+    log.append(EventDraft::message(mission.crew_id.as_deref(), mission_id, "runner", None,
         format!("@{handle} left the mission. Messages to @{handle} are refused from now on. The team is now {}. `runner mission show` lists the current team.", team(&loaded.file.slots))))?;
     Ok(change)
 }

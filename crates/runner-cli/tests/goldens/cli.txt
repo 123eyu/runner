@@ -283,7 +283,7 @@ $ runner mission list --crew Peer
 exit 0
 ID               TITLE            CREW  STATUS     LIVE  ASKS  PROJECT
 mission-fixture  Fixture mission  Peer  completed  0/1   1     project-fixture
-mission-running  Active fixture   Peer  stopped    0/0   0     -
+mission-running  Active fixture   Peer  running    0/0   0     -
 
 $ runner mission list --crew Peer --json
 exit 0
@@ -322,6 +322,44 @@ STARTED  <TIMESTAMP>
 $ runner mission start --crew Peer --goal ship --cwd not-a-directory --json
 exit 0
 {"mission":{"id":"<ULID_1>","crew_id":"crew-fixture","project_id":"project-fixture","title":"ship","status":"running","goal_override":"ship","cwd":"<ROOT>/not-a-directory","started_at":"<TIMESTAMP>","stopped_at":null,"pinned_at":null,"archived_at":null},"goal":"ship"}
+
+$ runner mission start --title 'Empty mission'
+exit 0
+ID       <ULID_1>
+TITLE    Empty mission
+STATUS   running
+CREW     -
+PROJECT  project-fixture
+CWD      <ROOT>
+STARTED  <TIMESTAMP>
+
+$ runner mission start --title 'Empty mission' --json
+exit 0
+{"mission":{"id":"<ULID_1>","crew_id":null,"project_id":"project-fixture","title":"Empty mission","status":"running","goal_override":null,"cwd":"<ROOT>","started_at":"<TIMESTAMP>","stopped_at":null,"pinned_at":null,"archived_at":null},"goal":""}
+
+$ runner mission start --goal 'Shared goal'
+exit 0
+ID       <ULID_1>
+TITLE    Shared goal
+STATUS   running
+CREW     -
+PROJECT  project-fixture
+CWD      <ROOT>
+STARTED  <TIMESTAMP>
+
+$ runner mission start --goal 'Shared goal' --json
+exit 0
+{"mission":{"id":"<ULID_1>","crew_id":null,"project_id":"project-fixture","title":"Shared goal","status":"running","goal_override":"Shared goal","cwd":"<ROOT>","started_at":"<TIMESTAMP>","stopped_at":null,"pinned_at":null,"archived_at":null},"goal":"Shared goal"}
+
+$ runner mission start
+exit 2
+[stderr]
+an empty mission needs --title or --goal
+
+$ runner mission start --json
+exit 2
+[stderr]
+an empty mission needs --title or --goal
 
 $ runner mission add-role mission-running reviewer --handle reviewer-2 --task 'Review the change'
 exit 0
@@ -641,24 +679,24 @@ exit 2
 runner msg read is available only inside a mission; use runner mission feed <mission>
 
 $ runner signal ask_lead --mission mission-fixture --as coder --payload '{"question":"Review?"}'
-exit 1
+exit 2
 [stderr]
-mission mission-fixture is not running (status = Completed); cannot post signals
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner signal ask_lead --mission mission-fixture --as coder --payload '{"question":"Review?"}' --json
-exit 1
+exit 2
 [stderr]
-mission mission-fixture is not running (status = Completed); cannot post signals
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner ask 'Review?' --context 'Checks pass' --mission mission-fixture --as coder
-exit 1
+exit 2
 [stderr]
-mission mission-fixture is not running (status = Completed); cannot post signals
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner ask 'Review?' --context 'Checks pass' --mission mission-fixture --as coder --json
-exit 1
+exit 2
 [stderr]
-mission mission-fixture is not running (status = Completed); cannot post signals
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner ask --human 'Ship?' --choices 'yes,no' --mission mission-fixture --as coder
 exit 1
@@ -700,20 +738,24 @@ exit 0
 {"id":"<ULID_1>","ts":"<TIMESTAMP>","crew_id":"crew-fixture","mission_id":"mission-running","kind":"message","from":"human","to":null,"payload":{"text":"Hello"}}
 
 $ runner signal ask_lead --mission mission-running --as coder --payload '{"question":"Review?"}'
-exit 0
-Posted signal <ULID_1>
+exit 2
+[stderr]
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner signal ask_lead --mission mission-running --as coder --payload '{"question":"Review?"}' --json
-exit 0
-{"id":"<ULID_1>","ts":"<TIMESTAMP>","crew_id":"crew-fixture","mission_id":"mission-running","kind":"signal","from":"coder","to":null,"type":"ask_lead","payload":{"question":"Review?"}}
+exit 2
+[stderr]
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner ask 'Review?' --mission mission-running --as coder
-exit 0
-Posted question <ULID_1>
+exit 2
+[stderr]
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner ask 'Review?' --mission mission-running --as coder --json
-exit 0
-{"id":"<ULID_1>","ts":"<TIMESTAMP>","crew_id":"crew-fixture","mission_id":"mission-running","kind":"signal","from":"coder","to":null,"type":"ask_lead","payload":{"question":"Review?"}}
+exit 2
+[stderr]
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner ask --human 'Ship?' --choices 'yes,no' --mission mission-running --as coder
 exit 0
@@ -792,14 +834,14 @@ exit 1
 @ghost is not in the mission roster
 
 $ runner signal ask_lead --mission mission-fixture --as ghost
-exit 1
+exit 2
 [stderr]
-@ghost is not in the mission roster
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner signal ask_lead --mission mission-fixture --as ghost --json
-exit 1
+exit 2
 [stderr]
-@ghost is not in the mission roster
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 $ runner mission feed mission-fixture --since 0 --limit 1
 exit 0
@@ -920,19 +962,27 @@ exit 0
 
 # context: inside mission
 $ runner signal ask_lead --payload '{"question":"Review?"}'
-exit 0
+exit 2
+[stderr]
+runner signal: ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 # context: inside mission
 $ runner signal ask_lead --payload '{"question":"Review?"}' --json
-exit 0
+exit 2
+[stderr]
+runner signal: ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 # context: inside mission
 $ runner ask 'Review?'
-exit 0
+exit 2
+[stderr]
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 # context: inside mission
 $ runner ask 'Review?' --json
-exit 0
+exit 2
+[stderr]
+ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
 
 # context: inside mission
 $ runner ask --human 'Ship?' --choices 'yes,no'
@@ -1054,6 +1104,9 @@ REFERENCES
   A mission or chat started inside a project's directory belongs to it; --project overrides.
 
 COMMON FLOW
+  mission=$(runner mission start --title "Small task" -q)
+  runner mission add-role "$mission" <role> --task-file - < task.md
+  # Or start from a reusable crew:
   runner crew list --json
   mission=$(runner mission start --crew <crew> --goal-file - -q < brief.md)
   runner mission feed "$mission" --follow --json
@@ -1061,7 +1114,7 @@ COMMON FLOW
   runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
-  # Use the HANDLE from the LEAD row in mission show.
+  # Use the HANDLE from the LEAD row in mission show, or any member when there is no lead.
   runner msg post --mission "$mission" --to <lead_handle> "message"
   runner mission stop "$mission"
   runner mission archive "$mission"
@@ -1548,7 +1601,7 @@ $ runner mission start --help
 exit 0
 Start a mission
 
-Usage: runner mission start [OPTIONS] --crew <CREW>
+Usage: runner mission start [OPTIONS]
 
 Options:
       --crew <CREW>            Crew ID or exact name
@@ -1881,40 +1934,4 @@ Options:
   -q                       Print only result IDs
       --as <FROM>          Attribute the signal to this roster handle
   -h, --help               Print help
-
-# context: not running
-$ runner ask --help
-exit 0
-Ask the lead, or ask the person with --human
-
-Usage: runner ask [OPTIONS] [QUESTION]
-
-Arguments:
-  [QUESTION]  Question for the mission lead
-
-Options:
-      --context <CONTEXT>  Additional context for a lead question
-      --json               Print the tool result as exact JSON
-      --human <HUMAN>      Ask the person at the app instead of the lead
-  -q                       Print only result IDs
-      --choices <CHOICES>  Comma-separated choices for --human
-      --mission <MISSION>  Mission ID or unique prefix; required outside a mission
-      --as <FROM>          Attribute the question to this roster handle
-  -h, --help               Print help
-
-# context: not running
-$ runner call --help
-exit 0
-Call any registered socket tool
-
-Usage: runner call [OPTIONS] <TOOL> [ARGUMENTS]
-
-Arguments:
-  <TOOL>       
-  [ARGUMENTS]  
-
-Options:
-      --json  Print the tool result as exact JSON
-  -q          Print only result IDs
-  -h, --help  Print help
 

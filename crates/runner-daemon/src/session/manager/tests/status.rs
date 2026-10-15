@@ -255,6 +255,7 @@ fn direct_input_gate_timeout_is_bounded_and_does_not_pin_the_queue() {
     let state = mgr.session_state_or_insert(session_id);
     let gate = state.lock().unwrap().delivery_gate.clone();
     state.lock().unwrap().handle = Some(SessionHandle {
+        startup: None,
         #[cfg(windows)]
         pending_first_turn: None,
         id: session_id.into(),
@@ -300,7 +301,7 @@ fn direct_input_gate_timeout_is_bounded_and_does_not_pin_the_queue() {
 fn mission_status_transition_appends_once_and_matches_incremental_status() {
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
@@ -316,13 +317,19 @@ fn mission_status_transition_appends_once_and_matches_incremental_status() {
     };
     let mut slot = slot_for(&role);
     slot.id = slot_id;
-    slot.crew_id = mission.crew_id.clone();
+    slot.crew_id = mission.crew_id.clone().unwrap();
 
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
 
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
@@ -380,7 +387,7 @@ fn mission_status_transition_appends_once_and_matches_incremental_status() {
 fn mission_typing_stays_idle_until_submit() {
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
@@ -396,13 +403,19 @@ fn mission_typing_stays_idle_until_submit() {
     };
     let mut slot = slot_for(&role);
     slot.id = slot_id;
-    slot.crew_id = mission.crew_id.clone();
+    slot.crew_id = mission.crew_id.clone().unwrap();
 
     let app_data = tempfile::tempdir().unwrap();
-    let events_log_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &mission.crew_id, &mission.id);
+    let events_log_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
 
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));

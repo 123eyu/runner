@@ -46,6 +46,7 @@ use crate::session::runtime::{
 mod lifecycle;
 mod output;
 mod spawn;
+mod startup;
 pub mod terminal;
 #[cfg(windows)]
 pub(crate) mod windows_shutdown;
@@ -95,7 +96,7 @@ const RESIZE_SETTLE_MS: u64 = 175;
 pub(crate) struct ForwarderEmitCtx {
     /// `mission.crew_id` — needed for the `EventDraft.crew_id`
     /// field so the appended row matches the event-log schema.
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     /// Mission id, redundant with the forwarder's outer
     /// `mission_id` argument but copied here so this struct is
     /// self-contained.
@@ -118,7 +119,7 @@ pub(crate) struct ForwarderEmitCtx {
 /// can't surface its events.
 fn open_mission_event_log(
     app_data_dir: &Path,
-    crew_id: &str,
+    crew_id: Option<&str>,
     mission_id: &str,
 ) -> Option<Arc<EventLog>> {
     let mission_dir = runner_core::event_log::path::mission_dir(app_data_dir, crew_id, mission_id);
@@ -156,7 +157,7 @@ impl ForwarderEmitCtx {
             SessionActivityState::Idle => "idle",
         };
         EventDraft::signal(
-            self.crew_id.clone(),
+            self.crew_id.as_deref(),
             self.mission_id.clone(),
             self.handle.clone(),
             SignalType::new("session_status"),
@@ -473,6 +474,7 @@ pub struct WarningEvent {
 pub use runner_core::protocol::session::SpawnedSession;
 
 struct SessionHandle {
+    startup: Option<startup::StartupDelivery>,
     #[cfg(windows)]
     pending_first_turn: Option<PendingFirstTurn>,
     id: String,
@@ -737,7 +739,6 @@ pub struct PendingMissionSpawn {
     size_source: &'static str,
     plan: router::runtime::ResumePlan,
     first_turn_delivered_via_argv: bool,
-    #[cfg(windows)]
     first_turn: Option<String>,
     resolved_cwd: Option<String>,
     row_started_at: String,
@@ -1021,7 +1022,10 @@ impl SessionManager {
         let gate = session.lock().unwrap().delivery_gate.clone();
         let delivery = gate.state.lock().unwrap();
         let session = session.lock().unwrap();
-        session.handle.is_some()
+        session
+            .handle
+            .as_ref()
+            .is_some_and(|handle| handle.startup.is_none())
             && !session.model.status().observation.needs_you()
             && !delivery.in_flight
             && delivery.next_ticket == delivery.next_served
@@ -1058,6 +1062,13 @@ impl SessionManager {
         let session = session.lock().unwrap();
         if session.handle.is_none() {
             return Ok(router::DeliveryReservation::Unavailable);
+        }
+        if session
+            .handle
+            .as_ref()
+            .is_some_and(|handle| handle.startup.is_some())
+        {
+            return Ok(router::DeliveryReservation::Starting);
         }
         if session.model.status().observation.needs_you() {
             return Ok(router::DeliveryReservation::HumanInteraction);
@@ -1581,7 +1592,8 @@ impl SessionManager {
         let Some(session) = self.session_state(session_id) else {
             return Default::default();
         };
-        let (status, sink, effects) = {
+        let bridge_failed = matches!(event, SessionEvent::BridgeFailed { .. });
+        let (status, sink, effects, startup_ready) = {
             let mut session = session.lock().unwrap();
             if launch.is_some_and(|launch| {
                 launch.load(Ordering::Acquire)
@@ -1600,10 +1612,26 @@ impl SessionManager {
                 _ => {}
             }
             let effects = session.model.apply(event, super::clock::state_now());
+            let status = session.model.status().clone();
+            let startup_ready = session.handle.as_mut().is_some_and(|handle| {
+                let Some(startup) = handle.startup.as_mut() else {
+                    return false;
+                };
+                if bridge_failed {
+                    startup.bridge_failed();
+                }
+                if startup.observation(&status.observation) {
+                    handle.startup = None;
+                    true
+                } else {
+                    false
+                }
+            });
             (
-                session.model.status().clone(),
+                status,
                 session.mission_status_sink.clone(),
                 effects,
+                startup_ready,
             )
         };
         if let Some((state, source)) = effects.publication {
@@ -1620,6 +1648,9 @@ impl SessionManager {
                     log::warn!("publish hook observation: {error:?}");
                 }
             }
+        }
+        if startup_ready {
+            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::StartupReady);
         }
         if effects.input_cleared {
             self.notify_delivery_event(session_id, router::SessionDeliveryEvent::InputCleared);

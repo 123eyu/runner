@@ -98,7 +98,7 @@ enum Command {
         #[arg(long = "as")]
         from: Option<String>,
     },
-    /// Ask the lead, or ask the person with --human.
+    /// Ask the person with --human.
     Ask(AskArgs),
     /// Call any registered socket tool.
     Call {
@@ -318,7 +318,7 @@ enum MissionCommand {
     Start {
         /// Crew ID or exact name.
         #[arg(long)]
-        crew: String,
+        crew: Option<String>,
         /// Mission goal text.
         #[arg(long, conflicts_with = "goal_file")]
         goal: Option<String>,
@@ -488,10 +488,10 @@ enum MsgCommand {
 struct AskArgs {
     /// Question for the mission lead.
     question: Option<String>,
-    /// Additional context for a lead question.
+    /// Legacy context flag; direct lead questions use msg post --to.
     #[arg(long)]
     context: Option<String>,
-    /// Ask the person at the app instead of the lead.
+    /// Ask the person at the app.
     #[arg(long, conflicts_with = "question")]
     human: Option<String>,
     /// Comma-separated choices for --human.
@@ -808,6 +808,9 @@ fn validate_remote(cli: &Cli, context: &BusContext) -> Result<(), CliError> {
             mission,
             ..
         } => {
+            if r#type == "ask_lead" {
+                return Err(CliError::usage(runner_core::model::ASK_LEAD_REMOVED_HINT));
+            }
             if runner_core::model::KnownSignalType::from_name(r#type).is_none() {
                 return Err(CliError::usage(format!(
                     "runner signal: unknown type {:?}",
@@ -1485,18 +1488,25 @@ async fn run_mission(
             project,
             cwd,
         } => {
-            let crew = resolve_named(client, "crew", "crew_list", crew).await?;
+            let crew = match crew {
+                Some(crew) => Some(resolve_named(client, "crew", "crew_list", crew).await?),
+                None => None,
+            };
             let goal = read_text(goal.as_deref(), goal_file.as_deref(), "goal")?;
-            let title = title.clone().unwrap_or_else(|| {
-                goal.as_deref()
-                    .and_then(|goal| goal.lines().find(|line| !line.trim().is_empty()))
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| {
+            let title = title
+                .clone()
+                .or_else(|| {
+                    goal.as_deref()
+                        .and_then(|goal| goal.lines().find(|line| !line.trim().is_empty()))
+                        .map(str::trim)
+                        .map(str::to_owned)
+                })
+                .or_else(|| {
+                    crew.as_ref().map(|crew| {
                         format!("{} {}", crew.name, chrono::Local::now().format("%Y-%m-%d"))
                     })
-            });
+                })
+                .ok_or_else(|| CliError::usage("an empty mission needs --title or --goal"))?;
             let project_id = match project {
                 Some(project) => Some(
                     resolve_named(client, "project", "project_list", project)
@@ -1514,7 +1524,7 @@ async fn run_mission(
                 client,
                 "mission_start",
                 json!({
-                    "crew_id": crew.id,
+                    "crew_id": crew.map(|crew| crew.id),
                     "project_id": project_id,
                     "title": title,
                     "goal_override": goal,
@@ -2101,14 +2111,7 @@ async fn run_ask(
 
 fn ask_signal(args: &AskArgs) -> Result<(&'static str, Value), CliError> {
     match (&args.question, &args.human) {
-        (Some(question), None) => {
-            if args.choices.is_some() {
-                return Err(CliError::usage("runner ask: --choices requires --human"));
-            }
-            let mut payload = json!({"question": question});
-            insert_string(&mut payload, "context", args.context.as_deref());
-            Ok(("ask_lead", payload))
-        }
+        (Some(_), None) => Err(CliError::usage(runner_core::model::ASK_LEAD_REMOVED_HINT)),
         (None, Some(prompt)) => {
             if args.context.is_some() {
                 return Err(CliError::usage(
@@ -2178,6 +2181,9 @@ async fn mission_lifecycle(
         .and_then(Value::as_str)
         .map(str::to_owned);
     if let Some(crew_id) = crew_id {
+        if let Some(mission) = mission_value_mut(&mut response.value).as_object_mut() {
+            mission.insert("crew_name".into(), Value::Null);
+        }
         if let Ok(crews) = list(client, "crew_list", json!({})).await {
             if let Some(name) = crews
                 .iter()
@@ -2850,7 +2856,7 @@ mod tests {
         ])
         .is_err());
         let context = BusContext::Mission(MissionEnv {
-            crew_id: "c".into(),
+            crew_id: Some("c".into()),
             mission_id: "m".into(),
             handle: "lead".into(),
             event_log: "events.ndjson".into(),
@@ -3666,13 +3672,10 @@ mod tests {
             mission: None,
             from: None,
         };
-        assert_eq!(
-            ask_signal(&lead).unwrap(),
-            (
-                "ask_lead",
-                json!({"question": "Ship?", "context": "Tests pass"})
-            )
-        );
+        assert!(ask_signal(&lead)
+            .unwrap_err()
+            .message
+            .contains(runner_core::model::ASK_LEAD_REMOVED_HINT));
         let human = AskArgs {
             question: None,
             context: None,
@@ -3775,7 +3778,7 @@ mod tests {
     #[test]
     fn own_mission_prefix_stays_on_the_local_event_log_path() {
         let mission = MissionEnv {
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             mission_id: "01M00000000000000000000000".into(),
             handle: "coder".into(),
             event_log: PathBuf::from("events.ndjson"),
@@ -4248,7 +4251,7 @@ mod tests {
             (
                 vec![
                     "signal",
-                    "ask_lead",
+                    "ask_human",
                     "--mission",
                     "01M",
                     "--as",
@@ -4259,27 +4262,8 @@ mod tests {
                 vec!["mission_list", "mission_signal"],
                 json!({
                     "mission_id": MISSION_ID,
-                    "signal_type": "ask_lead",
+                    "signal_type": "ask_human",
                     "payload": {},
-                    "from": "coder",
-                }),
-            ),
-            (
-                vec![
-                    "ask",
-                    "Question?",
-                    "--context",
-                    "Context",
-                    "--mission",
-                    "01M",
-                    "--as",
-                    "coder",
-                ],
-                vec!["mission_list", "mission_signal"],
-                json!({
-                    "mission_id": MISSION_ID,
-                    "signal_type": "ask_lead",
-                    "payload": {"question": "Question?", "context": "Context"},
                     "from": "coder",
                 }),
             ),

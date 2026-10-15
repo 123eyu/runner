@@ -29,15 +29,14 @@ fn every_delete_leaves_foreign_key_check_empty_on_a_real_database() {
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     let expected = [
-        ("missions", "crew_id", "crews", "CASCADE"),
         ("missions", "project_id", "projects", "SET NULL"),
         ("nodes", "parent_id", "nodes", "RESTRICT"),
-        ("session_attention", "session_id", "sessions", "CASCADE"),
+        ("session_attention", "session_id", "sessions", "RESTRICT"),
         ("sessions", "mission_id", "missions", "SET NULL"),
         ("sessions", "project_id", "projects", "SET NULL"),
-        ("sessions", "role_id", "roles", "CASCADE"),
-        ("slots", "crew_id", "crews", "CASCADE"),
-        ("slots", "role_id", "roles", "CASCADE"),
+        ("sessions", "role_id", "roles", "RESTRICT"),
+        ("slots", "crew_id", "crews", "RESTRICT"),
+        ("slots", "role_id", "roles", "RESTRICT"),
     ]
     .map(|(a, b, c, d)| (a.to_owned(), b.to_owned(), c.to_owned(), d.to_owned()));
     assert_eq!(foreign_keys, expected);
@@ -153,10 +152,10 @@ fn every_delete_leaves_foreign_key_check_empty_on_a_real_database() {
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
-    assert_eq!(survivors, ["chat-of-project"]);
+    assert_eq!(survivors, ["chat-of-project", "m-of-crew-lead"]);
     assert_eq!(
         row_count(&conn, "SELECT COUNT(*) FROM session_attention"),
-        1
+        2
     );
     assert_eq!(
         row_count(

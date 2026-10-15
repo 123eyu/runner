@@ -116,6 +116,18 @@ fn runtime_update_spec_allows_live_sessions_without_stopping_or_restarting_them(
 }
 
 #[test]
+fn empty_mission_env_cannot_inherit_a_crew_from_the_shell_or_role() {
+    let env = spawn::agent_env(
+        BTreeMap::from([("RUNNER_CREW_ID".into(), "shell-crew".into())]),
+        &HashMap::from([("RUNNER_CREW_ID".into(), "role-crew".into())]),
+        BTreeMap::from([("RUNNER_MISSION_ID".into(), "empty-mission".into())]),
+        "shell",
+    );
+    assert!(!env.contains_key("RUNNER_CREW_ID"));
+    assert_eq!(env["RUNNER_MISSION_ID"], "empty-mission");
+}
+
+#[test]
 fn sessions_keep_the_quiet_flags_the_update_drops() {
     let claude = spawn::agent_env(
         BTreeMap::new(),

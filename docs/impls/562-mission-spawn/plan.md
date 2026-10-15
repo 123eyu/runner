@@ -166,4 +166,137 @@ Mission 3, on the codex trio (coder, reviewer, qa), at Jason's call on 2026-10-1
 
 ## Phase 3 — start empty
 
-Not planned yet. Settled on 2026-10-15: a mission starts with no roles, roles join one at a time through add-role, and a mission started empty builds [#873](https://github.com/yicheng47/runner/issues/873)'s no-lead paths. The spec's Phase 3 has the scope. Its frames are drawn in `design/specs/562-mission-spawn.pen` before the plan is written here.
+A mission can start with no crew and no roles; roles join one at a time through Phase 2's add-role. Settled by Jason on 2026-10-15, replacing start-from-roles; the spec's Phase 3 has the scope. An empty mission has no lead, so this phase builds [#873](https://github.com/yicheng47/runner/issues/873)'s no-lead paths for it. It also builds [#849](https://github.com/yicheng47/runner/issues/849)'s Start mission redesign, since the No crew entry lives in that dialog's picker.
+
+### Design
+
+`design/specs/562-mission-spawn.pen`, row at y 3400, signed off by Jason on 2026-10-15 (`12bef39f`):
+
+| Frame | Id | Shows |
+| --- | --- | --- |
+| Mission — no roles yet | `PhtPw` | The workspace right after an empty start. The goal is posted with no target. The feed shows "No roles yet" with a primary **Add role**, in place of the Mission paused overlay; the rail shows "No roles yet." above its **+ Add role**; the composer is in place but disabled, "Add a role to start messaging". |
+| Start mission — from a crew | `AVJ15` | 849's dialog: no mode switch; a **Crew** card whose top row is the picker (crew picture, name, `3 slots · lead @architect`, chevron) over read-only roster rows (avatar, handle, LEAD, role, runtime · model · effort with override dots); Mission title, Goal (optional) and Working directory with Browse; footer Cancel (`esc`) and Start mission (`⌘↵`). |
+| Start mission — No crew | `m2Noaa` | No crew picked: the card's top row is a `user-plus` tile, "No crew", `start empty`, and the card body says roles join from the mission one at a time, each as a worker. The Goal hint reads "Shared with every role that joins. Give each one its own task when you add it." |
+| Start mission — crew picker open | `iJuGG` | The picker's menu: **No crew** first ("start empty · add roles from the mission"), a divider, then the crews with picture, name and summary; the current crew is checked. |
+| Mission — first role joined, no lead | `BsErp` | `@impl` joined: its card has no LEAD badge; the join divider, the system introduction ("The team is now @impl."), and the person's task to `@impl`; the composer reads "Message everyone — @handle to address one". |
+| Mission info — no Crew row | `blE2u` | The info panel for every mission: Mission ID, Goal, Working dir, Permissions, Started. The Crew row is gone. |
+
+### Decisions that bind
+
+1. **A start names no roles** (spec decision 2). `mission_start` takes an optional crew. Without one, `start` writes a version 2 `roster.json` with no slots, an empty `crew_name` and no addendum, appends `mission_start` and `mission_goal` as today, and spawns nothing. The mission is `running` until it is stopped or archived, like any mission.
+2. **An empty mission has no lead, and its members work together without one** (spec decision 3; Jason, 2026-10-15). Members address each other with `runner msg post --to`, broadcast, read their inbox, see the team in `runner mission show`, and ask the person with `ask_human`. None of these goes through a lead today: `message_nudge`, `ask_human` and `human_response` route by handle and by asker (`router/handlers.rs` 100–197). Add role keeps adding workers. The lead stays optional rather than fixed at none: setting or clearing a lead while a mission runs is [#873](https://github.com/yicheng47/runner/issues/873)'s, which may make the lead optional for every mission. A crew start still requires and keeps exactly one lead.
+3. **A mission's directory is fixed when it starts and never moves.** A crew start keeps `crews/<crew_id>/missions/<mission_id>/`. An empty start uses `missions/<mission_id>/`, the directory that already holds its `runner` shims (`cli_install.rs` 53). One resolver, `event_log::mission_dir(app_data, crew_id: Option<&str>, mission_id)`, picks between them, and every caller passes the mission's `crew_id`. Recommended over the alternative of moving every mission's log into `missions/<id>/` at `runnerd` start: that would make paths crew-free, but it moves every existing mission's files, the cost Phase 1 declined, and gains nothing a fixed path does not already give.
+4. **`missions.crew_id` becomes nullable provenance with no foreign key.** It names the crew a mission started from, or nothing for an empty start. It is not a foreign key, because decision 3 needs a deleted crew's missions to keep finding their logs under its id, and `ON DELETE SET NULL` would lose that. This refines the spec's rule 4: deleting a crew leaves its missions' `crew_id` pointing at a crew that no longer exists, which every reader must treat as "no crew": `mission_list_summary` already does, and `mission_status` is made to (`MissionStatusSnapshot.crew` becomes optional), while the Crew row is gone (decision 12). Deleting a crew deletes only the crew and its slots: it stops refusing while missions are unarchived (`ops/crew.rs` 175–181) and stops deleting archived missions (182).
+5. **The rebuild of `missions` needs the migration runner to turn foreign keys off first** (`migrations/README.md`, DDL rules). `sessions.mission_id` references `missions` with `ON DELETE SET NULL`, so dropping the old table inside a foreign-keys-on transaction would detach every session. The runner gains a per-migration flag that applies it with `PRAGMA foreign_keys = OFF` set before its transaction opens, runs `PRAGMA foreign_key_check` before commit and fails the migration on any row, and turns foreign keys back on. That lands as its own commit, then `0028_optional_mission_crew_restrict_deletes.sql` rebuilds `missions` with `crew_id TEXT` (nullable, no reference), copying every row and recreating `idx_missions_project`.
+6. **The database never deletes: every `ON DELETE CASCADE` becomes `RESTRICT`** (Jason, 2026-10-15). Since `da4333ac` (2026-09-24) every delete path removes or unbinds its dependent rows in code, and each has a test with foreign keys off, so the cascades never act; `RESTRICT` turns the backstop from deleting into refusing. The same migration rebuilds `slots` (`crew_id`, `role_id`), `sessions` (`role_id`) and `session_attention` (`session_id`) with `RESTRICT`, following SQLite's documented table-change procedure under decision 5's foreign-keys-off mode, and copying every column. The `SET NULL` keys (`missions.project_id`, `sessions.mission_id`, `sessions.project_id`) stay: they clear a link rather than delete a row, and the app already unbinds those rows itself. `migrations/README.md`'s DDL rules change with it: the app owns every delete, a foreign key is `RESTRICT` or `SET NULL` and never `CASCADE`, and a referenced table is rebuilt through the foreign-keys-off mode.
+7. **An empty mission's envelopes and environment carry no crew.** `Event.crew_id` and `EventDraft.crew_id` become `Option<String>`, `#[serde(default, skip_serializing_if = "Option::is_none")]`, so existing logs still parse and a crew-less event omits the field. Its sessions get no `RUNNER_CREW_ID`, in the PTY environment and in the shim. The CLI's environment check (`runner-cli/src/env.rs` 43–60) stops requiring `RUNNER_CREW_ID`.
+8. **The no-lead branches** ([#873](https://github.com/yicheng47/runner/issues/873)'s table, for missions without a lead only):
+   - The goal: a lead-less member's first turn carries it, in a `== Mission goal ==` section after the preamble, omitted when the goal is empty. A crew mission's workers get no goal section; their prompt changes only as decision 16 says.
+   - The worker preamble: a lead-less variant that says "team", not "crew", and points a member at the person with the lead prompt's `ask_human` line for decisions it cannot make.
+   - `human_said` with no target, which today falls back to the lead (`router/handlers.rs` 49–66), is delivered to every live member. The app's composer is not on this path: without a recipient it already posts a broadcast `message` (`ops/mission.rs` `post_message` 437), which nudges every member.
+   - A slot's restart (`Router::record_slot_restart`, `router/mod.rs` 1353) tells every other member, as it already does when the lead restarts.
+   - `LaunchInputs.lead` becomes `Option<LeadRow>` (`router/mod.rs` 167, built at 1545–1576), and `Router::lead_handle()` returns `Option<&str>`. The lead's launch prompt (`prompt_channels`, 1578) is only composed for a mission that has one.
+9. **The composer is disabled while the roster is empty.** Its placeholder is "Add a role to start messaging" then. In a mission without a lead it reads "Message everyone — @handle to address one"; a crew mission keeps "Message the crew — @handle to address one session" (`mission_workspace/state.rs` 63).
+10. **An empty roster is not a paused mission.** The Mission paused overlay (`view.rs` 879–884, `terminal_pane.rs` 314) requires at least one roster slot. An empty roster shows the feed's empty state and the rail's, as in `PhtPw`.
+11. **#849 is built in this mission.** The redesign is the dialog the No crew entry goes into, and drawing them together settled both. It lands as its own commit, closing #849, before the commit that adds No crew. #849's spec's Design line points at `562-mission-spawn.pen` (`AVJ15`, `iJuGG`); its other states (five or more slots, a crew with no slots) follow the same card in code without separate frames.
+12. **The mission info panel drops its Crew row for every mission** (spec decision 14). `mission_workspace/attach.rs` stops loading the crew (88, 130), and `rail.rs` loses the section (705–740) and its `open_crew_editor` click.
+13. **No fallback for a crew-less roster.** `roster::load` falls back to the crew's current slots when `roster.json` is missing or not JSON (`ops/mission/roster.rs` 80, 145). A mission without a crew, or whose crew was deleted, has nothing to fall back to, so that case returns the load error. The version 1 conversion at `runnerd` start (`daemon/boot.rs` 98) never sees one, since no version 1 file exists without a crew.
+14. **A mission an agent starts does not take focus** (spec decision 13). That is today's behaviour: only the app's Start mission dialog opens the mission it starts (`start_mission.rs` 345); one started over the client protocol refreshes the sidebar through `mission/changed`. Nothing changes; a live check pins it.
+15. **The CLI starts empty without `--crew`.** `runner mission start` takes `--crew` as optional. Without it the title defaults from the goal's first line, and with neither `--title` nor `--goal` the start is refused: "an empty mission needs --title or --goal". `runner --help`'s COMMON FLOW and the embedded `runner` skill teach delegation as `mission=$(runner mission start --title … -q)` followed by `runner mission add-role "$mission" <role> --task-file - < task.md`.
+16. **`ask_lead` is removed from every mission** (Jason, 2026-10-15). It predates the inbox: it pastes a worker's question into the lead's terminal, while `runner msg post --to <lead>` reaches the same agent through the path every other message uses, with a nudge and a feed entry. The lead still escalates to the person with `ask_human` on a worker's behalf (`on_behalf_of`). So: `KnownSignalType::AskLead` goes (`runner-core/src/model.rs` 53, 65, 77) and with it the router's handler; `runner ask "<question>"` and `runner signal ask_lead` are refused with "ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`"; the crew worker preamble's `ask_lead` line becomes "Questions for the lead go to it with `runner msg post --to <lead>`; `runner mission show` names it."; the lead prompt's "Workers escalate to you via `ask_lead`." becomes "Workers message you with questions." Old `ask_lead` events stay in their logs and keep rendering in the feed (`mission_workspace/feed.rs` 575) and the CLI. This replaces the lead-less refusal the plan first had, since no mission has `ask_lead` any more.
+
+### Where Phase 3 lands
+
+Line numbers are as of `cf839e16`.
+
+**`runner-core`**
+
+- `event_log/path.rs` (17–25): `mission_dir` and `events_path` take `crew_id: Option<&str>` (decision 3).
+- `model.rs` `Event` (106) and `EventDraft` (123): `crew_id: Option<String>` (decision 7); the `EventDraft::signal` and `message` constructors take `Option<&str>`.
+- `model.rs` `KnownSignalType::AskLead` (53, 65, 77) removed (decision 16); old events keep their `type` string and still parse.
+- `protocol/model.rs` `Mission` (133): `crew_id: Option<String>`. `protocol/mission.rs`: `StartMissionInput.crew_id` (7) and `MissionStart.crew_id` (28) become `Option<String>`; `MissionSummary.crew_name` (74) becomes `Option<String>`.
+- `mission_roster.rs`: unchanged format; an empty start writes `slots: []`.
+
+**`runner-daemon`**
+
+- `db/migrations.rs` and `db/mod.rs` (69): the foreign-keys-off migration flag and its `foreign_key_check` (decision 5), in its own commit with a test that a rebuild of a referenced table keeps its children.
+- `migrations/0028_optional_mission_crew_restrict_deletes.sql`, registered in `MIGRATIONS` (72), and `schema.sql` regenerated: `missions` without the `crew_id` reference (decision 4) and `slots`, `sessions` and `session_attention` with `RESTRICT` (decision 6). A test with `run_migrations_up_to(27)` and populated crews, roles, slots, missions, sessions and attention rows checks that every row, every column and every `sessions.mission_id` survives and that `foreign_key_check` is empty.
+- `ops/tests.rs` `every_delete_leaves_foreign_key_check_empty_on_a_real_database` (17–45): the pinned foreign-key list loses `missions.crew_id` and reads `RESTRICT` for the four former cascades; every delete path still passes with the pragma on.
+- `migrations/README.md`: the DDL rules of decision 6.
+- `ops/mission.rs` `start` (165–277): the crew checks (183–200) only when a crew is given; `roster::snapshot` for no crew; the directory from decision 3 (237). `mission_start_impl_with_size` (532) spawns nothing for an empty roster and mounts the router and bus with no handles. `ensure_mission_router_mounted` (around 977–1010) mounts an empty or lead-less roster. Every other `mission_dir` and `events_path` caller (`stop` 314, `read_events` 346, 423, `post_message` 478, `delete_archived` 1234, `mission_list_summary` 1450 and 1465) passes `mission.crew_id.as_deref()`; `mission_list_summary` resolves `crew_name` only when the crew exists (1429).
+- `ops/mission/roles.rs` (add and remove): unchanged logic; paths and envelopes through the new signatures, and a lead-less member's first turn per decision 8.
+- `ops/mission/roster.rs` `load` (57): no fallback without a crew or with a deleted one (decision 13), at the `crew::get` calls (79, 144).
+- `ops/mission/feed.rs` `mission_status` (213): the crew is looked up, not required; `MissionStatusSnapshot.crew` becomes `Option<Crew>`, so `runner mission show`, which lead-less members use to see their team (decision 2), works for an empty mission and for one whose crew was deleted.
+- `ops/crew.rs` `delete` (173–190): delete the crew and its slots only (decision 4).
+- `router/mod.rs`: `LaunchInputs` (164–188, 1545–1576) with an optional lead; `lead_handle` (529); `record_slot_restart` (1353); `prompt_channels` (1578) for a mission with a lead.
+- `router/handlers.rs`: `human_said` (49) per decision 8; `ask_lead` (69) and its dispatch arm in `router/mod.rs` (around 557) removed (decision 16).
+- `router/prompt.rs`: the lead-less worker preamble beside `WORKER_COORDINATION_PREAMBLE` (109) and the goal section in `compose_worker_first_turn` (66); the crew preamble's `ask_lead` line (115) and the lead's "Workers escalate to you via `ask_lead`" (183) per decision 16. The literal contract tests (`compose_launch_prompt_matches_established_literal_contract` with its 338 literal, `established_runtimes_keep_composed_bodies_byte_identical`) take exactly those line changes and nothing else.
+- `session/manager/spawn.rs` (846, 2640) and `cli_install.rs` (45–80, 128): no `RUNNER_CREW_ID` without a crew.
+- `docs/arch/arch.md`: §3 and §10 for an optional crew and the `missions/<id>/` directory, §7 for an event without `crew_id`, §8 for a mission without a lead.
+
+**`runner-cli`**
+
+- `command.rs` `MissionCommand::Start` (318–339) and its handler (1480–1526): `--crew` optional, the title rule (decision 15).
+- `env.rs` (11–60): `crew_id: Option<String>`.
+- `command.rs` `ask_signal` (2100–2115): `runner ask "<question>"` without `--human` is refused with decision 16's hint; `runner ask --human` is unchanged. `runner signal ask_lead` is refused as an unknown type once `AskLead` leaves `KnownSignalType`, with the same hint. `output.rs` keeps rendering old `ask_lead` events, as its test at 1137–1146 pins; the CLI goldens (`tests/goldens/cli.txt`) and `help.rs`'s `AGENT_GUIDE` follow.
+- `output.rs` (313, 339, 361): an empty crew renders as `—`.
+- `help.rs` `AGENT_GUIDE` COMMON FLOW (78–88), which the embedded `runner` skill carries: the start-then-add-role pair beside the crew start, and the `--to <lead_handle>` line (86) saying that a mission without a lead is addressed by any member's handle from `mission show`.
+
+**`runner-app`**
+
+- `surfaces/start_mission.rs`: #849's redesign in its own commit (crew card, picker menu, roster rows, fields, footer; the Advanced section and session count removed), reusing `crew_picture`, `RoleAvatar`, `lead_badge` and `slot_setup_line` from `surfaces/crews/` as `pub(crate)`. Then the **No crew** entry first in the picker, its card, the Goal hint, picking it when there are no crews, and `MissionStart { crew_id: None, … }`.
+- `mission_workspace/view.rs` (878–884): the paused overlay only with a non-empty roster (decision 10), and the feed's empty state with **Add role** for an empty roster.
+- `mission_workspace/rail.rs`: "No roles yet." above **+ Add role** for an empty roster; the Crew section removed (705–740, decision 12).
+- `mission_workspace/composer.rs` and `state.rs` (63): disabled with an empty roster; the lead-less placeholder (decision 9).
+- `mission_workspace/feed.rs` (524–533): the goal row shows no `→ @target` without a lead.
+- `mission_workspace/attach.rs` (88, 130): no crew load.
+- `command_palette.rs` (193): search text without a crew name.
+
+**Docs**
+
+- The spec's status line, rule 4 refined by decision 4, and Phase 3's scope where this plan sharpened it, on this branch.
+- `docs/tests/562-start-empty.md`: the test record with the live checks.
+- `docs/tests/regression/missions.md`: MIS-ASK-01 rewritten without `ask_lead` (decision 16).
+
+### Tests
+
+Daemon tests use `runtime: "shell"` roles and temporary app data; a `runnerd` restart is an unmount followed by `ensure_mission_router_mounted`.
+
+- Start empty: the mission row has no `crew_id`, the log is in `missions/<id>/` with `mission_start` and `mission_goal` events that omit `crew_id`, `roster.json` has no slots, no session is created, and the router and bus mount; a re-mount works.
+- First add: the newcomer's first turn carries the lead-less preamble and the goal section, and no mention of `ask_lead`; its environment has no `RUNNER_CREW_ID`; it posts with `runner msg post` and a second added role receives it. A crew mission's worker and lead prompts differ from today's only in decision 16's lines.
+- Members without a lead: two added roles exchange a direct message each way and a broadcast, and one's `ask_human` answer returns to it and not to the other. `human_said` without a target reaches every live member; a restart notice reaches every other member.
+- `ask_lead` removed (decision 16): `runner ask "<question>"` and `runner signal ask_lead` are refused with the hint in every mission; a log holding old `ask_lead` events still renders in the app's feed and in `runner mission feed`, and replaying it injects nothing.
+- Refusals: `mission_start` with an unknown crew, a crew with no slots or no lead, as today; the CLI without `--crew`, `--title` and `--goal`.
+- Crew deletion: deleting a crew with a running mission and an archived one keeps both rows, their logs and their sessions; the running mission still posts, adds a role, and re-mounts.
+- Migration: decision 5's runner test, and 0028 against a populated version 27 database. With `RESTRICT`, deleting a crew, role, mission or session that still has dependents straight through `repo` fails, while every `ops` delete succeeds.
+- Events: a log written before this change parses; a crew-less event serializes without `crew_id`.
+- `mission_status` and `runner mission show` for an empty mission, a lead-less one with members, and one whose crew was deleted: the team is listed and the crew renders as `—`.
+- CLI: parsing, help and golden output for a start without `--crew`; `env.rs` without `RUNNER_CREW_ID`.
+- App: the picker's entries and order, No crew's card and hint, picking No crew with no crews, the start input without a crew; #849's roster rows for a crew with overrides and the keyboard order without Advanced; the empty workspace instead of the paused overlay; the composer disabled and its placeholders; the info panel without a Crew row.
+
+### Live checks
+
+Run on macOS by the trio's `qa` slot in the development app, under the standing authorization in `AGENTS.md`; Windows is Jason's. Recorded in `docs/tests/562-start-empty.md`. Selected because Phase 3 changes how a mission starts, its directory and envelope, and every lead fallback:
+
+- Upgrade the development database: start the candidate on the existing development data and compare counts of crews, slots, roles, missions, sessions and attention rows, and sessions with a mission, before and after. Existing missions and chats resume.
+- Start a mission from the dialog with **No crew**. It opens on the empty state with no paused overlay; the composer is disabled. Add a role with a task: it boots with the goal, reads the task and posts. Add a second; a composer message without a recipient reaches both, and the two coordinate with each other through `--to` with no lead in the mission.
+- Restart `runnerd` with one empty mission and one with a single added role. Both come back; the second resumes.
+- From a direct chat, delegate with `runner mission start --title … -q` and `runner mission add-role … --task-file -`. The mission appears in the sidebar without taking focus.
+- Delete a crew while a mission started from it runs. The mission keeps running, posting and adding roles, and its info panel has no Crew row.
+- In any mission, `runner ask "<question>"` is refused with its hint, and `runner ask --human` reaches the person's card. An existing mission whose log has `ask_lead` events still opens and renders them.
+- The affected regression cases: MIS-CREW-01 (a crew start through the redesigned dialog), MIS-LIFE-01, MIS-MSG-02 (the composer's default target), MIS-ASK-01 (rewritten in `docs/tests/regression/missions.md`: the worker messages the lead with `--to`, the lead escalates with `runner ask --human` on its behalf, and the answer returns), MIS-ROSTER-01 and MIS-FEED-01. New cases for an empty start and crew deletion go into the test record and are promoted at the release sweep.
+
+### Mission shape
+
+Mission 4, on the codex trio (coder, reviewer, qa), on `feat/562-start-empty` in `.worktrees/feat-562-start-empty`, ending in one pull request against `main` in five commits that each build and pass their tests: the migration runner's foreign-keys-off flag; migration 0028 (`crew_id` optional, `RESTRICT` instead of `CASCADE`) with the README's rules; the crew-optional start, envelope, directory and no-lead paths across core, daemon and CLI; #849's Start mission redesign; the No crew entry, the empty workspace and the info panel. The brief goes to `docs/impls/briefs/562-m4-start-empty.md` once this plan is signed off, and is folded into a commit. The coder and reviewer never run the dev app.
+
+### Risks
+
+- **0028 rebuilds four tables, two of them referenced** (`missions` by `sessions`, `sessions` by `session_attention`), and `sessions` is the largest table. Decision 5 guards it with `foreign_key_check`, the version 27 test proves no row or column is lost, and the live upgrade check runs it on real data; a failure rolls the migration back and the next start retries it.
+- **`RESTRICT` turns a missed cleanup into an error.** A delete path that forgets a dependent now fails instead of being saved by a cascade. Every path already has a foreign-keys-off test, and `ops/tests.rs` runs them all with the pragma on.
+- **A dangling `crew_id`.** After a crew is deleted its missions name a crew that does not exist. Every reader must treat that as no crew; the Crew row's removal leaves `mission_list_summary`, `mission_status` and the CLI's `CREW` column as the readers; the first falls back already, and the plan makes the other two.
+- **Envelope shape.** Events of an empty mission omit `crew_id`. The bundled CLI and the app read through `runner-core`'s type; any outside script that parses `events.ndjson` and expects the field breaks, which this accepts.
+- **New prompt text.** The lead-less preamble and the goal section are new words agents act on, and decision 16 changes one line of every crew mission's worker and lead prompts; the live checks read them from the agent's saved conversation, as #881's QA learned to.
+- **A lead now reads questions from its inbox.** Without `ask_lead` a worker's question reaches the lead as an `[inbox]` nudge rather than inline text, one `runner msg read` later. MIS-ASK-01 checks the lead still picks it up.
+- **An empty mission never ends by itself.** It stays `running` in the sidebar until the person stops or archives it, as a mission whose sessions all exited does today.
+- **#849 widens the app commit.** It is presentation only and its own commit, so review can take it apart from Phase 3's behaviour.

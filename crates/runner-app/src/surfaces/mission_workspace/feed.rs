@@ -3,7 +3,7 @@ use gpui::{
     div, px, rems, svg, AnyElement, ClipboardItem, CursorStyle, FontWeight, KeyDownEvent,
     MouseButton, SharedString, Window,
 };
-use runner_app::ui::{RoleAvatar, Tooltip};
+use runner_app::ui::{Button, ButtonVariant, RoleAvatar, Tooltip};
 use runner_core::protocol::model::{Event, EventKind};
 
 use super::*;
@@ -245,6 +245,16 @@ impl MissionWorkspace {
                     .flex_col()
                     .gap(rems(18. / 16.))
                     .children(rows)
+                    .children(
+                        (self.roster.is_empty()
+                            && !self.loading
+                            && mission_slot_actions_available(
+                                self.mission.as_ref().map(|mission| mission.status),
+                                self.archived(),
+                                self.secondary,
+                            ))
+                        .then(|| self.render_empty_mission(cx)),
+                    )
                     .on_action(cx.listener(Self::copy_feed_selection))
                     .on_key_down(cx.listener(Self::on_feed_key_down))
                     .on_mouse_up(MouseButton::Left, move |_, _, cx| {
@@ -291,6 +301,63 @@ impl MissionWorkspace {
                     )
             }));
         pane.into_any_element()
+    }
+
+    fn render_empty_mission(&self, _cx: &mut Context<Self>) -> AnyElement {
+        let shell = self.shell.clone();
+        let mission = self.mission.clone();
+        let events = self.events.clone();
+        let description = "Roles join one at a time, each as a worker. Every role gets the goal; give each one its own task when you add it.";
+        div()
+            .debug_selector(|| "MISSION_NO_ROLES".into())
+            .flex_1()
+            .min_h(rems(220. / 16.))
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(
+                svg()
+                    .path("user-plus.svg")
+                    .size(rems(28. / 16.))
+                    .text_color(theme::faint()),
+            )
+            .child(
+                div()
+                    .text_size(theme::text_heading())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::text())
+                    .child("No roles yet"),
+            )
+            .child(
+                div()
+                    .max_w(rems(360. / 16.))
+                    .text_center()
+                    .text_size(theme::text_ui())
+                    .line_height(rems(20. / 16.))
+                    .text_color(theme::muted())
+                    .child(description),
+            )
+            .child(
+                Button::new("empty-mission-add-role", "Add role")
+                    .variant(ButtonVariant::Primary)
+                    .icon("plus.svg")
+                    .on_press(move |window, cx| {
+                        if let Some(mission) = mission.clone() {
+                            let _ = shell.update(cx, |this, cx| {
+                                this.open_add_role_modal(
+                                    mission,
+                                    Vec::new(),
+                                    events.clone(),
+                                    window,
+                                    cx,
+                                )
+                            });
+                        }
+                    }),
+            )
+            .into_any_element()
     }
 
     pub(super) fn clear_feed_selection(&mut self) {
@@ -472,9 +539,16 @@ impl MissionWorkspace {
         let human = author == "human";
         let system = author == "runner";
         let author = if system { "system".to_owned() } else { author };
-        let target = message_target(first, &self.askers_by_question);
         let goal = first.kind == EventKind::Signal
             && first.signal_type.as_ref().map(|kind| kind.as_str()) == Some("mission_goal");
+        let target = if goal {
+            self.roster
+                .iter()
+                .find(|member| member.slot.lead)
+                .map(|member| member.slot.slot_handle.clone())
+        } else {
+            message_target(first, &self.askers_by_question)
+        };
         div()
             .id(SharedString::from(format!(
                 "mission-message-group-{}",
@@ -525,6 +599,7 @@ impl MissionWorkspace {
                             }))
                             .children(target.map(|target| {
                                 div()
+                                    .debug_selector(|| format!("MISSION_MESSAGE_TARGET {target}"))
                                     .truncate()
                                     .font_family(theme::UI_MONOSPACE_FONT)
                                     .text_size(theme::text_meta())
