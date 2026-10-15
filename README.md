@@ -10,7 +10,7 @@
   <a href="https://github.com/yicheng47/runner/releases"><img src="https://img.shields.io/github/downloads/yicheng47/runner/total?style=flat-square&label=downloads" alt="Downloads" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/yicheng47/runner?style=flat-square&cacheSeconds=86400" alt="License" /></a>
   <a href="#community"><img src="https://img.shields.io/badge/WeChat-user%20group-07C160?style=flat-square&logo=wechat&logoColor=white" alt="WeChat user group" /></a>
-  <a href="#download"><img src="https://img.shields.io/badge/macOS%20%7C%20Windows-native-2ea44f?style=flat-square" alt="macOS and Windows" /></a>
+  <a href="https://runnersh.dev/downloads/"><img src="https://img.shields.io/badge/macOS%20%7C%20Windows-native-2ea44f?style=flat-square" alt="macOS and Windows" /></a>
 </p>
 
 <p align="center">
@@ -34,9 +34,9 @@
 </p>
 
 <p align="center">
-  <a href="#about">About</a>
-  ·
   <a href="#features">Features</a>
+  ·
+  <a href="#demo">Demo</a>
   ·
   <a href="#supported-agents">Agents</a>
   ·
@@ -44,44 +44,14 @@
   ·
   <a href="#example-crew">Crew example</a>
   ·
-  <a href="#download">Download</a>
-  ·
   <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
 
-> Status: alpha, actively shipping. Native macOS (Apple Silicon) and Windows (x64), with Windows support starting in 0.8.0.
+> Alpha · Native macOS (Apple Silicon) and Windows (x64).
 
-## About
-
-Runner is a native desktop app for running CLI coding agents **together**. Running several at once is already easy — give each one a terminal and they work in parallel, isolated from one another. Runner is for the other thing: one task, different roles, a shared feed, and one lead who pulls you in when the decision is yours. It is opinionated about the workflow and neutral about the provider, so your coder can be Claude Code and your reviewer Codex.
-
-- **Role** — a reusable agent configuration: runtime, system prompt, working directory.
-- **Crew** — roles composed into named slots with one lead, plus the team conventions every mission inherits.
-- **Mission** — a crew working one goal: one live terminal per slot, coordinating over an event feed that persists and replays, with `ask_human` when a decision is yours.
-- **Chat** — a single agent in a real terminal, no mission required; split a tab as far as the window allows.
-- **CLI** — everything above is a command too, so agents, scripts, and people at a terminal can drive Runner themselves.
-
-Written in Rust on [Zed](https://zed.dev)'s GPUI through [gpui-pre](https://github.com/longbridge/gpui-kit), with `alacritty_terminal` for the grid and SQLite for state. No webview. A background service, `runnerd`, owns the sessions, so your agents keep working while the app is closed; the app and the `runner` command are its clients. Everything runs and persists on your machine.
-
-## Prerequisites
-
-Runner runs the agent CLIs you already use; it does not install them. Install and sign in to at least one of Claude Code, Codex, Antigravity CLI, GitHub Copilot CLI or pi before you start, and Runner finds it on your `PATH`. On Windows, Claude Code and pi's bash tool need Git for Windows, and npm-installed CLIs need Node.js.
-
-## Download
-
-Grab the latest build from the [downloads page](https://runnersh.dev/downloads/): a signed and notarized `.dmg` for macOS on Apple Silicon, and a signed `Runner-Setup-…-x64.exe` installer for Windows 10 version 1809 or later. Intel Macs, Windows ARM64, and Linux are not supported.
-
-Both platforms update in place, macOS through Sparkle and Windows through the update icon beside Settings, and keep your settings, chats, and missions. An update restarts running agents, and each resumes its own conversation. On Windows, SmartScreen may still warn on a fresh release while the certificate builds reputation; **More info → Run anyway** continues.
-
-## Demo
-
-A quick tour of reusable roles, crew setup, split terminals, and coder/reviewer/QA coordination in a live mission.
-
-https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
+Runner brings CLI coding agents together in reusable crews, with real terminals and a shared mission feed. Your sessions and history stay on your machine.
 
 ## Features
-
-[runnersh.dev](https://runnersh.dev/) shows each of these in the app.
 
 <table>
   <tr>
@@ -137,6 +107,16 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 - **MCP servers and skills in one place** — **Settings → MCP** and **Settings → Skills** list each agent's own config and switch entries off per agent, changing only the entry you touched.
 - **Projects** — Bind a working directory once; chats and missions started in it inherit the cwd and group in the sidebar.
 - **Light and dark** — Carbon and Runner Light, plus Catppuccin, with an app palette and a terminal palette per mode. Claude Code follows the switch live.
+
+## Demo
+
+A quick tour of reusable roles, crew setup, split terminals, and coder/reviewer/QA coordination in a live mission.
+
+https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
+
+## Prerequisites
+
+Runner runs the agent CLIs you already use; it does not install them. Install and sign in to at least one of Claude Code, Codex, Antigravity CLI, GitHub Copilot CLI or pi before you start, and Runner finds it on your `PATH`. On Windows, Claude Code and pi's bash tool need Git for Windows, and npm-installed CLIs need Node.js.
 
 ## Drive Runner from your agents
 
