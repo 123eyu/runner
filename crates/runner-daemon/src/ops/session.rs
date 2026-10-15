@@ -845,7 +845,10 @@ pub fn session_resume_on_launch(
             log::warn!("session_resume: launch claim connection failed for {session_id}: {error}");
         }
     }
-    let spawned = result.map_err(|error| Error::msg(format!("session_resume: {error}")))?;
+    let spawned = result.map_err(|error| {
+        log::warn!("session_resume: automatic resume of {session_id} failed: {error}");
+        Error::msg(format!("session_resume: {error}"))
+    })?;
     state.events.emit(
         "session/updated",
         &crate::session::manager::SessionUpdatedEvent {
