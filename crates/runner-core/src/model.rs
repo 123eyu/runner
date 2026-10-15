@@ -40,6 +40,9 @@ impl From<String> for SignalType {
     }
 }
 
+pub const ASK_LEAD_REMOVED_HINT: &str =
+    "ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`";
+
 /// Closed set of signal types the CLI recognizes for `runner signal
 /// <type>`. The router still dispatches on `SignalType` (the open
 /// string newtype) so future user-defined types can pass through the
@@ -50,7 +53,6 @@ impl From<String> for SignalType {
 pub enum KnownSignalType {
     MissionGoal,
     HumanSaid,
-    AskLead,
     AskHuman,
     HumanQuestion,
     HumanResponse,
@@ -62,7 +64,6 @@ impl KnownSignalType {
     pub const ALL: &'static [KnownSignalType] = &[
         KnownSignalType::MissionGoal,
         KnownSignalType::HumanSaid,
-        KnownSignalType::AskLead,
         KnownSignalType::AskHuman,
         KnownSignalType::HumanQuestion,
         KnownSignalType::HumanResponse,
@@ -74,7 +75,6 @@ impl KnownSignalType {
         match self {
             KnownSignalType::MissionGoal => "mission_goal",
             KnownSignalType::HumanSaid => "human_said",
-            KnownSignalType::AskLead => "ask_lead",
             KnownSignalType::AskHuman => "ask_human",
             KnownSignalType::HumanQuestion => "human_question",
             KnownSignalType::HumanResponse => "human_response",
@@ -106,7 +106,8 @@ pub enum EventKind {
 pub struct Event {
     pub id: Ulid,
     pub ts: Timestamp,
-    pub crew_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crew_id: Option<String>,
     pub mission_id: String,
     pub kind: EventKind,
     pub from: String,
@@ -122,7 +123,7 @@ pub struct Event {
 /// stay monotonic.
 #[derive(Debug, Clone)]
 pub struct EventDraft {
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     pub mission_id: String,
     pub kind: EventKind,
     pub from: String,
@@ -133,14 +134,14 @@ pub struct EventDraft {
 
 impl EventDraft {
     pub fn signal(
-        crew_id: impl Into<String>,
+        crew_id: Option<&str>,
         mission_id: impl Into<String>,
         from: impl Into<String>,
         signal_type: impl Into<SignalType>,
         payload: serde_json::Value,
     ) -> Self {
         Self {
-            crew_id: crew_id.into(),
+            crew_id: crew_id.map(str::to_owned),
             mission_id: mission_id.into(),
             kind: EventKind::Signal,
             from: from.into(),
@@ -151,14 +152,14 @@ impl EventDraft {
     }
 
     pub fn message(
-        crew_id: impl Into<String>,
+        crew_id: Option<&str>,
         mission_id: impl Into<String>,
         from: impl Into<String>,
         to: Option<String>,
         text: impl Into<String>,
     ) -> Self {
         Self {
-            crew_id: crew_id.into(),
+            crew_id: crew_id.map(str::to_owned),
             mission_id: mission_id.into(),
             kind: EventKind::Message,
             from: from.into(),
@@ -216,7 +217,7 @@ mod tests {
         let evt = Event {
             id: "01HGMSG".into(),
             ts: Utc::now(),
-            crew_id: "c".into(),
+            crew_id: Some("c".into()),
             mission_id: "m".into(),
             kind: EventKind::Message,
             from: "lead".into(),

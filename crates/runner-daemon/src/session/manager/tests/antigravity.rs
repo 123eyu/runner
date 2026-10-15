@@ -350,7 +350,7 @@ fn antigravity_slot_resume_uses_the_conversation_or_starts_fresh_with_its_turn()
         )
         .unwrap();
     let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &crew_id, &mission_id);
+        runner_core::event_log::path::mission_dir(app_data.path(), Some(&crew_id), &mission_id);
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, fake.clone());
 
@@ -388,7 +388,7 @@ fn antigravity_slot_resume_uses_the_conversation_or_starts_fresh_with_its_turn()
         &args[args.len() - 2..],
         [
             "-i".to_owned(),
-            router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES")),
+            router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None),
         ]
     );
     assert_eq!(session_key(&pool, &id), None);

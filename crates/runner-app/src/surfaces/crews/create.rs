@@ -146,7 +146,7 @@ impl NativeRoot {
         let cancel_root = root;
         ConfirmDialog::new(
             format!("Delete crew \"{}\" permanently?", confirm.name),
-            "This removes all its slots and deletes its archived missions and session history. Crews with non-archived missions cannot be deleted until those missions are archived.",
+            "This removes the crew and its slots. Missions started from it keep their roster, sessions and history.",
             "Delete crew",
             "Deleting…",
             self.crew_surfaces.delete_busy,

@@ -490,7 +490,7 @@ fn slot_for(role: &Role) -> crate::model::Slot {
 fn mission() -> Mission {
     Mission {
         id: ulid::Ulid::new().to_string(),
-        crew_id: "crew-ignored-in-tests".into(),
+        crew_id: Some("crew-ignored-in-tests".into()),
         project_id: None,
         title: "t".into(),
         status: MissionStatus::Running,
@@ -633,7 +633,7 @@ fn install_test_session_handle(manager: &SessionManager, session_id: &str) {
 /// re-reads the row) rebuilds the same runtime and args.
 fn seed_mission_rows(pool: &DbPool, role: &Role) -> (Mission, crate::model::Slot) {
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let slot_id = insert_crew_role(pool, &mission_base.id, &role.id);
@@ -675,7 +675,7 @@ fn assert_chat_has_no_permission_flags(args: &[String]) {
 /// `register_mission_session`.
 fn single_slot_mission(pool: &DbPool) -> (Mission, Role, crate::model::Slot) {
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
@@ -787,6 +787,17 @@ fn slot_respawn_fixture(runtime: &str, lead: bool) -> (Arc<DbPool>, tempfile::Te
         params![lead, slot.id],
     )
     .unwrap();
+    if !lead {
+        crate::test_support::insert_test_slot(
+            &conn,
+            "other-lead",
+            mission.crew_id.as_deref().unwrap(),
+            &role.id,
+            "lead",
+            1,
+            true,
+        );
+    }
     let mut row = crate::repo::session::SessionRowDb::new_running("slot-session".into());
     row.mission_id = Some(mission.id.clone());
     row.slot_id = Some(slot.id);
@@ -795,9 +806,10 @@ fn slot_respawn_fixture(runtime: &str, lead: bool) -> (Arc<DbPool>, tempfile::Te
     row.cwd = Some(app_data.path().to_string_lossy().into_owned());
     row.agent_session_key = Some(uuid::Uuid::new_v4().to_string());
     crate::test_support::insert_session_row(&conn, &row).unwrap();
-    let log = open_mission_event_log(app_data.path(), &mission.crew_id, &mission.id).unwrap();
+    let log =
+        open_mission_event_log(app_data.path(), mission.crew_id.as_deref(), &mission.id).unwrap();
     log.append(runner_core::model::EventDraft::signal(
-        mission.crew_id,
+        mission.crew_id.as_deref(),
         mission.id,
         "human",
         runner_core::model::SignalType::new("mission_goal"),

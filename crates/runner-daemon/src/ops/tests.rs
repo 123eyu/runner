@@ -152,10 +152,10 @@ fn every_delete_leaves_foreign_key_check_empty_on_a_real_database() {
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
-    assert_eq!(survivors, ["chat-of-project"]);
+    assert_eq!(survivors, ["chat-of-project", "m-of-crew-lead"]);
     assert_eq!(
         row_count(&conn, "SELECT COUNT(*) FROM session_attention"),
-        1
+        2
     );
     assert_eq!(
         row_count(

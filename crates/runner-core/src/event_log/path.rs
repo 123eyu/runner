@@ -14,13 +14,14 @@ pub fn crew_dir(app_data: &Path, crew_id: &str) -> PathBuf {
     app_data.join("crews").join(crew_id)
 }
 
-pub fn mission_dir(app_data: &Path, crew_id: &str, mission_id: &str) -> PathBuf {
-    crew_dir(app_data, crew_id)
-        .join("missions")
-        .join(mission_id)
+pub fn mission_dir(app_data: &Path, crew_id: Option<&str>, mission_id: &str) -> PathBuf {
+    let root = crew_id
+        .map(|id| crew_dir(app_data, id))
+        .unwrap_or_else(|| app_data.to_path_buf());
+    root.join("missions").join(mission_id)
 }
 
-pub fn events_path(app_data: &Path, crew_id: &str, mission_id: &str) -> PathBuf {
+pub fn events_path(app_data: &Path, crew_id: Option<&str>, mission_id: &str) -> PathBuf {
     mission_dir(app_data, crew_id, mission_id).join(EVENTS_FILENAME)
 }
 
@@ -33,7 +34,7 @@ mod tests {
     fn layout_matches_arch_section_10_2() {
         let root = PathBuf::from("/tmp/rtest");
         assert_eq!(
-            events_path(&root, "C", "M"),
+            events_path(&root, Some("C"), "M"),
             PathBuf::from("/tmp/rtest/crews/C/missions/M/events.ndjson")
         );
     }

@@ -320,7 +320,7 @@ impl NativeRoot {
             return;
         }
         let input = runner_core::protocol::mission::MissionStart {
-            crew_id: modal.crew_id.clone(),
+            crew_id: Some(modal.crew_id.clone()),
             scope: ProjectScope::or_root(modal.project.as_ref().map(|project| project.id.clone())),
             title: modal.title.read(cx).text().trim().to_owned(),
             goal_override: nonempty(modal.goal.read(cx).text()),

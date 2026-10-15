@@ -2571,7 +2571,7 @@ mod client_tests {
                 &conn,
                 &crate::repo::mission::MissionRow {
                     id: "mission".into(),
-                    crew_id: "crew".into(),
+                    crew_id: Some("crew".into()),
                     project_id: None,
                     title: "Speed".into(),
                     status: crate::model::MissionStatus::Running,

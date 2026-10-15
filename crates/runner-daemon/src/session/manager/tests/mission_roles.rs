@@ -52,7 +52,7 @@ fn added_slot_records_overrides_resumes_restarts_and_removal_stops_it() {
     assert_eq!(definition.model.as_deref(), Some("override-model"));
     assert_eq!(definition.effort.as_deref(), Some("xhigh"));
     assert_eq!(definition.codex_speed, Some(crate::model::CodexSpeed::Fast));
-    let log = open_mission_event_log(data.path(), "c", "m").unwrap();
+    let log = open_mission_event_log(data.path(), Some("c"), "m").unwrap();
     let (entries, _) = log.read_from_lossy(0).unwrap();
     let joined = entries
         .iter()
@@ -278,6 +278,196 @@ fn removal_claim_excludes_resume_and_restart_from_stop_through_publication() {
     assert!(!stops.is_empty());
     assert!(stops.iter().all(|id| id == "worker"));
     drop(stops);
+    core.buses.unmount("m");
+    core.routers.unregister("m");
+}
+
+#[test]
+fn empty_mission_mounts_adds_workers_and_remounts_without_a_crew() {
+    let data = tempfile::tempdir().unwrap();
+    let fake = fake_runtime();
+    let mut core = crate::test_support::test_core_in(data.path().into());
+    core.sessions = mgr_with_fake(None, fake.clone());
+    let out = crate::daemon::block_on(crate::ops::mission::mission_start_impl_with_size(
+        &core,
+        runner_core::protocol::MissionStart {
+            crew_id: None,
+            scope: runner_core::protocol::ProjectScope::Root,
+            title: "Empty test".into(),
+            goal_override: Some("SHARED_GOAL".into()),
+            cwd: Some(data.path().to_string_lossy().into_owned()),
+        },
+        None,
+    ))
+    .unwrap();
+    let id = &out.mission.id;
+    assert!(out.mission.crew_id.is_none());
+    assert_eq!(fake.spawn_count(), 0);
+    assert!(core.routers.get(id).unwrap().lead_handle().is_none());
+    assert!(core.buses.get(id).is_some());
+    let dir = runner_core::event_log::mission_dir(data.path(), None, id);
+    assert_eq!(dir, data.path().join("missions").join(id));
+    let roster: runner_core::mission_roster::MissionRoster =
+        serde_json::from_slice(&std::fs::read(dir.join("roster.json")).unwrap()).unwrap();
+    assert!(roster.slots.is_empty());
+    assert!(roster.crew_name.is_empty());
+    assert!(roster.crew_addendum.is_none());
+    let log = runner_core::EventLog::open(&dir).unwrap();
+    let events = log.read_from(0).unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(
+        events[0].event.signal_type.as_ref().unwrap().as_str(),
+        "mission_start"
+    );
+    assert_eq!(
+        events[1].event.signal_type.as_ref().unwrap().as_str(),
+        "mission_goal"
+    );
+    assert!(events.iter().all(|entry| serde_json::to_value(&entry.event)
+        .unwrap()
+        .get("crew_id")
+        .is_none()));
+    core.buses.unmount(id);
+    core.routers.unregister(id);
+    crate::daemon::block_on(crate::ops::mission::ensure_mission_router_mounted(
+        &core, id,
+    ))
+    .unwrap();
+    assert!(core.routers.get(id).unwrap().lead_handle().is_none());
+    for role in ["one", "two"] {
+        crate::test_support::insert_test_role(
+            &core.db.get().unwrap(),
+            role,
+            role,
+            "shell",
+            "fixture-shell",
+        );
+        let change = crate::ops::mission::roles::add_role(
+            &core,
+            MissionAddRoleInput {
+                mission_id: id.clone(),
+                role_id: role.into(),
+                handle: None,
+                runtime: None,
+                model: None,
+                effort: None,
+                speed: None,
+                task: Some(format!("TASK_{role}")),
+            },
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while core.sessions.has_pending_mission_spawns(id) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!core.sessions.has_pending_mission_spawns(id));
+        assert!(core
+            .sessions
+            .live_session_ids()
+            .contains(&change.session_id));
+        assert!(!fake
+            .last_spawn_spec()
+            .unwrap()
+            .env
+            .contains_key("RUNNER_CREW_ID"));
+        let shim =
+            std::fs::read_to_string(dir.join("shims").join(role).join("bin/runner")).unwrap();
+        assert!(shim.contains("unset RUNNER_CREW_ID"));
+        assert!(!shim.contains("export RUNNER_CREW_ID"));
+        assert!(log
+            .read_from(0)
+            .unwrap()
+            .iter()
+            .any(|entry| entry.event.to.as_deref() == Some(role)
+                && entry.event.payload["text"] == format!("TASK_{role}")));
+    }
+    let status = crate::ops::mission::feed::mission_status(&core, id).unwrap();
+    assert!(status.crew.is_none());
+    assert_eq!(status.sessions.len(), 2);
+    for (from, to) in [("one", Some("two")), ("two", Some("one")), ("one", None)] {
+        crate::daemon::block_on(crate::ops::mission::mission_post_impl(
+            &core,
+            runner_core::protocol::PostMessageInput {
+                mission_id: id.clone(),
+                from: Some(from.into()),
+                to: to.map(str::to_owned),
+                text: "Hello team".into(),
+            },
+        ))
+        .unwrap();
+    }
+    core.buses.unmount(id);
+    core.routers.unregister(id);
+    crate::daemon::block_on(crate::ops::mission::ensure_mission_router_mounted(
+        &core, id,
+    ))
+    .unwrap();
+    assert!(core.routers.get(id).unwrap().lead_handle().is_none());
+    assert_eq!(
+        crate::ops::mission::mission_roster(&core, id)
+            .unwrap()
+            .len(),
+        2
+    );
+    for session in status.sessions {
+        core.sessions.kill(&session.session.id).unwrap();
+    }
+    core.buses.unmount(id);
+    core.routers.unregister(id);
+}
+
+#[test]
+fn deleting_a_crew_keeps_its_mission_roster_status_and_add_role() {
+    let (_data, core, fake) = removal_race_fixture();
+    crate::ops::mission::mission_resume(&core, "m").unwrap();
+    let before = core.sessions.live_session_ids();
+    crate::ops::crew::delete(&mut core.db.get().unwrap(), "c").unwrap();
+    assert_eq!(core.sessions.live_session_ids(), before);
+    let status = crate::ops::mission::feed::mission_status(&core, "m").unwrap();
+    assert!(status.crew.is_none());
+    assert_eq!(status.mission.crew_id.as_deref(), Some("c"));
+    assert_eq!(status.sessions.len(), 2);
+    crate::daemon::block_on(crate::ops::mission::mission_post_impl(
+        &core,
+        runner_core::protocol::PostMessageInput {
+            mission_id: "m".into(),
+            from: Some("worker".into()),
+            to: Some("lead".into()),
+            text: "still here".into(),
+        },
+    ))
+    .unwrap();
+    let added = crate::ops::mission::roles::add_role(
+        &core,
+        MissionAddRoleInput {
+            mission_id: "m".into(),
+            role_id: "worker".into(),
+            handle: None,
+            runtime: None,
+            model: None,
+            effort: None,
+            speed: None,
+            task: None,
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.sessions.has_pending_mission_spawns("m") && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!core.sessions.has_pending_mission_spawns("m"));
+    assert_eq!(fake.spawn_count(), 3);
+    assert!(core.sessions.live_session_ids().contains(&added.session_id));
+    core.buses.unmount("m");
+    core.routers.unregister("m");
+    crate::daemon::block_on(crate::ops::mission::ensure_mission_router_mounted(
+        &core, "m",
+    ))
+    .unwrap();
+    assert_eq!(core.routers.get("m").unwrap().lead_handle(), Some("lead"));
+    for id in core.sessions.live_session_ids() {
+        core.sessions.kill(&id).unwrap();
+    }
     core.buses.unmount("m");
     core.routers.unregister("m");
 }

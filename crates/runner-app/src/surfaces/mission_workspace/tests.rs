@@ -169,7 +169,7 @@ fn signal(signal_type: &str, payload: serde_json::Value) -> Event {
     Event {
         id: signal_type.into(),
         ts: Utc::now(),
-        crew_id: "crew".into(),
+        crew_id: Some("crew".into()),
         mission_id: "mission".into(),
         kind: EventKind::Signal,
         from: "system".into(),
@@ -1545,7 +1545,7 @@ fn notification_clicks_select_slot_and_feed_and_visible_slots_stay_silent() {
     cx.run_until_parked();
     let events = core.events.clone();
     events.emit("event/appended", &serde_json::json!({"mission_id":"test-mission", "event": Event {
-        id: "q".into(), ts: chrono::Utc::now(), crew_id: "test-crew".into(), mission_id: "test-mission".into(), kind: EventKind::Signal, from: "app".into(), to: None, signal_type: Some(runner_core::model::SignalType::new("human_question")), payload: serde_json::json!({"prompt":"Ship?"}),
+        id: "q".into(), ts: chrono::Utc::now(), crew_id: Some("test-crew".into()), mission_id: "test-mission".into(), kind: EventKind::Signal, from: "app".into(), to: None, signal_type: Some(runner_core::model::SignalType::new("human_question")), payload: serde_json::json!({"prompt":"Ship?"}),
     }, "next_offset":1}));
     cx.run_until_parked();
     assert_eq!(cx.delivered_system_notifications().len(), 1);
@@ -1673,7 +1673,7 @@ fn asynchronous_slot_removal_withdraws_a_question_when_it_reveals_the_feed() {
     visual.deactivate_window();
     cx.run_until_parked();
     core.events.emit("event/appended", &serde_json::json!({"mission_id":"test-mission", "event": Event {
-        id: "removed-slot-question".into(), ts: chrono::Utc::now(), crew_id: "test-crew".into(), mission_id: "test-mission".into(), kind: EventKind::Signal, from: "app".into(), to: None, signal_type: Some(runner_core::model::SignalType::new("human_question")), payload: serde_json::json!({"prompt":"Ship?"}),
+        id: "removed-slot-question".into(), ts: chrono::Utc::now(), crew_id: Some("test-crew".into()), mission_id: "test-mission".into(), kind: EventKind::Signal, from: "app".into(), to: None, signal_type: Some(runner_core::model::SignalType::new("human_question")), payload: serde_json::json!({"prompt":"Ship?"}),
     }, "next_offset":1}));
     cx.run_until_parked();
     assert_eq!(cx.delivered_system_notifications().len(), 1);

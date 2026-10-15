@@ -95,7 +95,7 @@ const RESIZE_SETTLE_MS: u64 = 175;
 pub(crate) struct ForwarderEmitCtx {
     /// `mission.crew_id` — needed for the `EventDraft.crew_id`
     /// field so the appended row matches the event-log schema.
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     /// Mission id, redundant with the forwarder's outer
     /// `mission_id` argument but copied here so this struct is
     /// self-contained.
@@ -118,7 +118,7 @@ pub(crate) struct ForwarderEmitCtx {
 /// can't surface its events.
 fn open_mission_event_log(
     app_data_dir: &Path,
-    crew_id: &str,
+    crew_id: Option<&str>,
     mission_id: &str,
 ) -> Option<Arc<EventLog>> {
     let mission_dir = runner_core::event_log::path::mission_dir(app_data_dir, crew_id, mission_id);
@@ -156,7 +156,7 @@ impl ForwarderEmitCtx {
             SessionActivityState::Idle => "idle",
         };
         EventDraft::signal(
-            self.crew_id.clone(),
+            self.crew_id.as_deref(),
             self.mission_id.clone(),
             self.handle.clone(),
             SignalType::new("session_status"),

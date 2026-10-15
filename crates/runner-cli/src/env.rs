@@ -1,5 +1,5 @@
-// Resolve the four `RUNNER_*` env vars that locate the caller in the
-// coordination bus. Mission sessions set all four (see
+// Resolve the `RUNNER_*` env vars that locate the caller in the
+// coordination bus. Crew provenance is optional. Mission sessions set the other three (see
 // `SessionManager::spawn`); agent direct chats set only RUNNER_HANDLE,
 // while terminals and ordinary shells set none. Anything else is a bug.
 //
@@ -15,7 +15,7 @@ const VAR_LOG: &str = "RUNNER_EVENT_LOG";
 
 /// Per-process env after presence resolution.
 pub enum BusContext {
-    /// All four vars present — proceed normally.
+    /// Mission, handle and log present — proceed normally.
     Mission(MissionEnv),
     /// None set, or only a direct-chat handle set — off the mission bus.
     OffBus,
@@ -26,7 +26,7 @@ pub enum BusContext {
 
 #[derive(Clone, Debug)]
 pub struct MissionEnv {
-    pub crew_id: String,
+    pub crew_id: Option<String>,
     pub mission_id: String,
     pub handle: String,
     pub event_log: PathBuf,
@@ -46,7 +46,7 @@ pub fn resolve_from<F: Fn(&str) -> Option<String>>(get: F) -> BusContext {
         get(VAR_LOG),
     ) {
         (None, None, None, None) | (None, None, Some(_), None) => BusContext::OffBus,
-        (Some(crew_id), Some(mission_id), Some(handle), Some(event_log)) => {
+        (crew_id, Some(mission_id), Some(handle), Some(event_log)) => {
             BusContext::Mission(MissionEnv {
                 crew_id,
                 mission_id,
@@ -54,9 +54,8 @@ pub fn resolve_from<F: Fn(&str) -> Option<String>>(get: F) -> BusContext {
                 event_log: PathBuf::from(event_log),
             })
         }
-        (crew, mission, handle, log) => {
+        (_, mission, handle, log) => {
             let missing = [
-                (VAR_CREW, crew.is_none()),
                 (VAR_MISSION, mission.is_none()),
                 (VAR_HANDLE, handle.is_none()),
                 (VAR_LOG, log.is_none()),
@@ -89,10 +88,23 @@ mod tests {
         let BusContext::Mission(env) = resolve_from(lookup(map)) else {
             panic!("expected Mission");
         };
-        assert_eq!(env.crew_id, "c");
+        assert_eq!(env.crew_id.as_deref(), Some("c"));
         assert_eq!(env.mission_id, "m");
         assert_eq!(env.handle, "impl");
         assert_eq!(env.event_log, PathBuf::from("/tmp/events.ndjson"));
+    }
+
+    #[test]
+    fn a_mission_without_a_crew_is_on_bus() {
+        let map = HashMap::from([
+            (VAR_MISSION, "m"),
+            (VAR_HANDLE, "worker"),
+            (VAR_LOG, "/tmp/events.ndjson"),
+        ]);
+        let BusContext::Mission(env) = resolve_from(lookup(map)) else {
+            panic!("expected mission");
+        };
+        assert!(env.crew_id.is_none());
     }
 
     #[test]

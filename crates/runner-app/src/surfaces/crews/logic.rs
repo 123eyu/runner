@@ -426,7 +426,7 @@ pub(super) fn crew_missions<'a>(missions: &'a [MissionSummary], crew_id: &str) -
     let mut missions = missions
         .iter()
         .map(|summary| &summary.mission)
-        .filter(|mission| mission.crew_id == crew_id)
+        .filter(|mission| mission.crew_id.as_deref() == Some(crew_id))
         .collect::<Vec<_>>();
     missions.sort_by(|a, b| b.started_at.cmp(&a.started_at).then(b.id.cmp(&a.id)));
     missions

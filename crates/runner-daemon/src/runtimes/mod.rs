@@ -80,6 +80,23 @@ impl PromptChannels {
             }
         }
     }
+    pub fn worker(
+        &self,
+        system_prompt: Option<&str>,
+        crew_addendum: Option<&str>,
+        leadless_goal: Option<&str>,
+    ) -> (Option<String>, Option<String>) {
+        let body = Some(crate::router::prompt::compose_worker_first_turn(
+            system_prompt,
+            crew_addendum,
+            leadless_goal,
+        ));
+        if leadless_goal.is_some() {
+            (None, body)
+        } else {
+            self.split(SessionPromptKind::Worker, body)
+        }
+    }
     pub fn lead(&self, input: &LaunchPromptInput<'_>) -> (Option<String>, Option<String>) {
         if !self.system_prompt {
             return (

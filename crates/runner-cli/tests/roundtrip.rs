@@ -118,7 +118,10 @@ fn ask_shortcuts_append_directly_inside_a_mission() {
         .cmd("impl", &["ask", "Ship?", "--context", "Checks pass"])
         .output()
         .unwrap();
-    assert!(lead.status.success());
+    assert_eq!(lead.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&lead.stderr).contains(runner_core::model::ASK_LEAD_REMOVED_HINT)
+    );
     let human = f
         .cmd("impl", &["ask", "--human", "Ship?", "--choices", "yes,no"])
         .output()
@@ -126,20 +129,19 @@ fn ask_shortcuts_append_directly_inside_a_mission() {
     assert!(human.status.success());
 
     let events = f.read_log();
-    assert_eq!(events.len(), 2);
-    assert_eq!(events[0].signal_type.as_ref().unwrap().as_str(), "ask_lead");
+    assert_eq!(events.len(), 1);
     assert_eq!(
-        events[0].payload,
-        serde_json::json!({"question": "Ship?", "context": "Checks pass"})
-    );
-    assert_eq!(
-        events[1].signal_type.as_ref().unwrap().as_str(),
+        events[0].signal_type.as_ref().unwrap().as_str(),
         "ask_human"
     );
     assert_eq!(
-        events[1].payload,
+        events[0].payload,
         serde_json::json!({"prompt": "Ship?", "choices": ["yes", "no"]})
     );
+    let removed = f.cmd("impl", &["signal", "ask_lead"]).output().unwrap();
+    assert_eq!(removed.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&removed.stderr)
+        .contains(runner_core::model::ASK_LEAD_REMOVED_HINT));
 }
 
 #[test]
@@ -306,7 +308,7 @@ fn i2_5_msg_read_prints_inbox_in_order_and_emits_inbox_read() {
     use runner_core::model::EventDraft;
     let m1 = log
         .append(EventDraft::message(
-            "C",
+            Some("C"),
             "M",
             "lead",
             Some("impl".into()),
@@ -314,7 +316,7 @@ fn i2_5_msg_read_prints_inbox_in_order_and_emits_inbox_read() {
         ))
         .unwrap();
     log.append(EventDraft::message(
-        "C",
+        Some("C"),
         "M",
         "impl",
         None,
@@ -323,7 +325,7 @@ fn i2_5_msg_read_prints_inbox_in_order_and_emits_inbox_read() {
     .unwrap();
     let m2 = log
         .append(EventDraft::message(
-            "C",
+            Some("C"),
             "M",
             "lead",
             Some("impl".into()),
@@ -371,7 +373,7 @@ fn i2_5c_msg_read_with_from_filter_does_not_emit_inbox_read() {
     let log = EventLog::open(&f.mission_dir).unwrap();
     use runner_core::model::EventDraft;
     log.append(EventDraft::message(
-        "C",
+        Some("C"),
         "M",
         "lead",
         Some("impl".into()),
@@ -379,7 +381,7 @@ fn i2_5c_msg_read_with_from_filter_does_not_emit_inbox_read() {
     ))
     .unwrap();
     log.append(EventDraft::message(
-        "C",
+        Some("C"),
         "M",
         "reviewer",
         Some("impl".into()),
@@ -387,7 +389,7 @@ fn i2_5c_msg_read_with_from_filter_does_not_emit_inbox_read() {
     ))
     .unwrap();
     log.append(EventDraft::message(
-        "C",
+        Some("C"),
         "M",
         "lead",
         Some("impl".into()),

@@ -180,23 +180,29 @@ pub fn start(
 
     // Validate crew exists and is launchable.
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let crew = crew::get(&tx, &input.crew_id)?;
-    let roster = slot::list(&tx, &input.crew_id)?;
-    if roster.is_empty() {
-        return Err(Error::msg(format!(
-            "crew {} has no slots; cannot start mission",
-            crew.name
-        )));
-    }
-    // The slot commands enforce one-lead-per-crew (clear-others-then-set
-    // inside a transaction). Defense in depth: still check at least one
-    // slot carries the flag in case a path leaves a crew leaderless.
-    if !roster.iter().any(|m| m.slot.lead) {
-        return Err(Error::msg(format!(
-            "crew {} has no lead slot; cannot start mission",
-            crew.name
-        )));
-    }
+    let crew = input
+        .crew_id
+        .as_deref()
+        .map(|id| crew::get(&tx, id))
+        .transpose()?;
+    let slots = if let Some(crew) = &crew {
+        let slots = slot::list(&tx, &crew.id)?;
+        if slots.is_empty() {
+            return Err(Error::msg(format!(
+                "crew {} has no slots; cannot start mission",
+                crew.name
+            )));
+        }
+        if slots.iter().filter(|m| m.slot.lead).count() != 1 {
+            return Err(Error::msg(format!(
+                "crew {} must have exactly one lead slot; cannot start mission",
+                crew.name
+            )));
+        }
+        slots
+    } else {
+        Vec::new()
+    };
 
     // Everything below is done under a DB transaction so that if any of the
     // filesystem or event-log writes fail, the mission row is rolled back
@@ -219,7 +225,7 @@ pub fn start(
         &tx,
         &repo::mission::MissionRow {
             id: id.clone(),
-            crew_id: crew.id.clone(),
+            crew_id: input.crew_id.clone(),
             project_id: project_id.clone(),
             title: title.clone(),
             status: MissionStatus::Running,
@@ -234,10 +240,10 @@ pub fn start(
     // Sidebar node, under the project's node when bound (feature 44).
     repo::node::ensure_mission_node(&tx, &id, project_id.as_deref())?;
 
-    let mission_dir = event_log::mission_dir(app_data_dir, &crew.id, &id);
+    let mission_dir = event_log::mission_dir(app_data_dir, input.crew_id.as_deref(), &id);
     std::fs::create_dir_all(&mission_dir)?;
 
-    roster::write(&mission_dir, &roster::snapshot(&crew, &roster))?;
+    roster::write(&mission_dir, &roster::snapshot(crew.as_ref(), &slots))?;
 
     // The mission states its own goal.
     let goal_text = input.goal_override.clone().unwrap_or_default();
@@ -245,7 +251,7 @@ pub fn start(
     // Open the event log and emit the two opening events.
     let log = EventLog::open(&mission_dir)?;
     log.append(EventDraft {
-        crew_id: crew.id.clone(),
+        crew_id: input.crew_id.clone(),
         mission_id: id.clone(),
         kind: EventKind::Signal,
         from: "system".into(),
@@ -258,7 +264,7 @@ pub fn start(
         }),
     })?;
     log.append(EventDraft {
-        crew_id: crew.id.clone(),
+        crew_id: input.crew_id.clone(),
         mission_id: id.clone(),
         kind: EventKind::Signal,
         from: "human".into(),
@@ -311,7 +317,7 @@ pub fn stop(conn: &mut Connection, app_data_dir: &Path, id: &str) -> Result<Miss
     let mission = get(&tx, id)?;
 
     if was_running {
-        let mission_dir = event_log::mission_dir(app_data_dir, &mission.crew_id, id);
+        let mission_dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), id);
         let log = EventLog::open(&mission_dir)?;
         log.append(EventDraft {
             crew_id: mission.crew_id.clone(),
@@ -343,7 +349,7 @@ pub fn read_events(
     mission_id: &str,
 ) -> Result<Vec<runner_core::model::Event>> {
     let mission = get(conn, mission_id)?;
-    let mission_dir = event_log::mission_dir(app_data_dir, &mission.crew_id, mission_id);
+    let mission_dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), mission_id);
     let log = EventLog::open(&mission_dir)?;
     let (entries, _skipped) = log.read_from_lossy(0)?;
     Ok(entries.into_iter().map(|e| e.event).collect())
@@ -378,6 +384,9 @@ pub async fn mission_signal_impl(
     state: &AppCore,
     input: PostSignalInput,
 ) -> Result<runner_core::model::Event> {
+    if input.signal_type == "ask_lead" {
+        return Err(Error::msg(runner_core::model::ASK_LEAD_REMOVED_HINT));
+    }
     let (mission, from) = {
         let conn = state.db.get()?;
         let mission = get(&conn, &input.mission_id)?;
@@ -420,7 +429,8 @@ pub async fn mission_signal_impl(
         )));
     }
 
-    let mission_dir = event_log::mission_dir(&state.app_data_dir, &mission.crew_id, &mission.id);
+    let mission_dir =
+        event_log::mission_dir(&state.app_data_dir, mission.crew_id.as_deref(), &mission.id);
     let log = EventLog::open(&mission_dir)?;
     let event = log.append(EventDraft {
         crew_id: mission.crew_id.clone(),
@@ -475,10 +485,10 @@ fn post_message(
         }
     }
 
-    let mission_dir = event_log::mission_dir(app_data_dir, &mission.crew_id, &mission.id);
+    let mission_dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), &mission.id);
     let log = EventLog::open(&mission_dir)?;
     let event = log.append(EventDraft::message(
-        mission.crew_id,
+        mission.crew_id.as_deref(),
         mission.id,
         input.from.unwrap_or_else(|| "human".to_owned()),
         input.to,
@@ -555,7 +565,7 @@ pub async fn mission_start_impl_with_size(
         )?
     };
     log::info!(
-        "mission starting: id={} crew={} title={:?}",
+        "mission starting: id={} crew={:?} title={:?}",
         out.mission.id,
         out.mission.crew_id,
         out.mission.title,
@@ -576,8 +586,11 @@ pub async fn mission_start_impl_with_size(
     let crew_addendum = loaded.file.crew_addendum;
     let roster = loaded.slots;
     let allowed_signals = all_known_signals();
-    let events_log_path =
-        event_log::events_path(&state.app_data_dir, &out.mission.crew_id, &out.mission.id);
+    let events_log_path = event_log::events_path(
+        &state.app_data_dir,
+        out.mission.crew_id.as_deref(),
+        &out.mission.id,
+    );
 
     // Effective mission goal — the same text as the `mission_goal`
     // event opened by `start()` above (the override, else "").
@@ -624,12 +637,11 @@ pub async fn mission_start_impl_with_size(
                             crew_addendum: crew_addendum.as_deref(),
                         })
                 } else {
-                    adapter.prompt_channels().split(
-                        crate::router::prompt::SessionPromptKind::Worker,
-                        Some(crate::router::prompt::compose_worker_first_turn(
-                            m.role.system_prompt.as_deref(),
-                            crew_addendum.as_deref(),
-                        )),
+                    adapter.prompt_channels().worker(
+                        m.role.system_prompt.as_deref(),
+                        crew_addendum.as_deref(),
+                        (!roster.iter().any(|member| member.slot.lead))
+                            .then_some(goal_text.as_str()),
                     )
                 }
             })
@@ -655,8 +667,11 @@ pub async fn mission_start_impl_with_size(
     // Build the router up front (opens the log, validates the lead, holds
     // empty state). It does NOT subscribe to the bus yet — see ordering
     // below.
-    let mission_dir =
-        event_log::mission_dir(&state.app_data_dir, &out.mission.crew_id, &out.mission.id);
+    let mission_dir = event_log::mission_dir(
+        &state.app_data_dir,
+        out.mission.crew_id.as_deref(),
+        &out.mission.id,
+    );
     let log_arc = match open_log_for_mission(&mission_dir) {
         Ok(l) => l,
         Err(e) => {
@@ -974,7 +989,8 @@ pub(crate) async fn ensure_mission_router_mounted(state: &AppCore, mission_id: &
         out
     };
 
-    let mission_dir = event_log::mission_dir(&state.app_data_dir, &mission.crew_id, &mission.id);
+    let mission_dir =
+        event_log::mission_dir(&state.app_data_dir, mission.crew_id.as_deref(), &mission.id);
     let log_arc = open_log_for_mission(&mission_dir)?;
     let injector: Arc<dyn StdinInjector> = Arc::clone(&state.sessions) as Arc<dyn StdinInjector>;
     let router = Router::new(
@@ -1231,7 +1247,7 @@ pub(crate) fn delete_archived(
     }
     delete_rows(&tx, &[id.to_owned()])?;
     tx.commit()?;
-    let mission_dir = event_log::mission_dir(app_data_dir, &mission.crew_id, id);
+    let mission_dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), id);
     let scratch_dir = app_data_dir.join("missions").join(id);
     for dir in [mission_dir, scratch_dir] {
         if let Err(e) = std::fs::remove_dir_all(&dir) {
@@ -1426,10 +1442,11 @@ pub async fn mission_list_summary_impl(
 
     let mut summaries = Vec::with_capacity(missions.len());
     for m in missions {
-        let crew_name = match crew::get(&conn, &m.crew_id) {
-            Ok(crew) => crew.name,
-            Err(_) => String::new(),
-        };
+        let crew_name = m
+            .crew_id
+            .as_deref()
+            .and_then(|id| crew::get(&conn, id).ok())
+            .map(|crew| crew.name);
         let sessions = match super::session::list_for_mission(&conn, &state.app_data_dir, &m.id) {
             Ok(sessions) => sessions,
             Err(error) => {
@@ -1447,7 +1464,8 @@ pub async fn mission_list_summary_impl(
         let pending_ask_count = match state.routers.get(&m.id) {
             Some(router) => router.pending_ask_count(),
             None => {
-                let mission_dir = event_log::mission_dir(&state.app_data_dir, &m.crew_id, &m.id);
+                let mission_dir =
+                    event_log::mission_dir(&state.app_data_dir, m.crew_id.as_deref(), &m.id);
                 count_pending_asks_from_log(&mission_dir)
             }
         };
@@ -1462,7 +1480,8 @@ pub async fn mission_list_summary_impl(
         let any_session_live = !live_handles.is_empty();
         let all_sessions_live = all_mission_sessions_live(&conn, &m.id).unwrap_or(false);
         let activity = if any_session_live {
-            let mission_dir = event_log::mission_dir(&state.app_data_dir, &m.crew_id, &m.id);
+            let mission_dir =
+                event_log::mission_dir(&state.app_data_dir, m.crew_id.as_deref(), &m.id);
             mission_activity_from_log(&mission_dir, &live_handles)
         } else {
             None
@@ -1581,7 +1600,7 @@ mod tests {
             app_data_dir,
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "Message mission".into(),
                 goal_override: Some("Ship it".into()),
                 cwd: None,
@@ -1601,7 +1620,7 @@ mod tests {
         state: &str,
     ) {
         log.append(EventDraft::signal(
-            crew_id.to_string(),
+            Some(crew_id),
             mission_id.to_string(),
             handle,
             SignalType::new("session_status"),
@@ -1651,7 +1670,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "Try".into(),
                 goal_override: Some(oversized),
                 cwd: None,
@@ -1675,7 +1694,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "Try".into(),
                 goal_override: None,
                 cwd: None,
@@ -1703,7 +1722,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "   ".into(),
                 goal_override: None,
                 cwd: None,
@@ -1734,14 +1753,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(event.kind, EventKind::Message);
-        assert_eq!(event.crew_id, crew_id);
+        assert_eq!(event.crew_id.as_deref(), Some(crew_id.as_str()));
         assert_eq!(event.mission_id, mission_id);
         assert_eq!(event.from, "human");
         assert_eq!(event.to, None);
         assert_eq!(event.signal_type, None);
         assert_eq!(event.payload, serde_json::json!({ "text": "Heads up" }));
 
-        let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &event.mission_id);
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &event.mission_id);
         let entries = EventLog::open(&mission_dir).unwrap().read_from(0).unwrap();
         assert_eq!(entries.last().unwrap().event.id, event.id);
     }
@@ -1836,7 +1855,7 @@ mod tests {
             PostSignalInput {
                 mission_id: mission_id.clone(),
                 from: Some("reviewer".into()),
-                signal_type: "ask_lead".into(),
+                signal_type: "ask_human".into(),
                 payload: serde_json::json!({"question": "ready?"}),
             },
         )
@@ -1849,7 +1868,7 @@ mod tests {
             PostSignalInput {
                 mission_id: mission_id.clone(),
                 from: Some("missing".into()),
-                signal_type: "ask_lead".into(),
+                signal_type: "ask_human".into(),
                 payload: serde_json::json!({}),
             },
         )
@@ -1893,7 +1912,7 @@ mod tests {
                 &mut conn,
                 &state.app_data_dir,
                 StartMissionInput {
-                    crew_id,
+                    crew_id: Some(crew_id),
                     project_id: None,
                     title: "Resume mission".into(),
                     goal_override: None,
@@ -1944,7 +1963,7 @@ mod tests {
                 &mut conn,
                 &state.app_data_dir,
                 StartMissionInput {
-                    crew_id,
+                    crew_id: Some(crew_id),
                     project_id: None,
                     title: "Partial resume mission".into(),
                     goal_override: None,
@@ -2123,7 +2142,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: Some(project.id.clone()),
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "first mission".into(),
                 goal_override: None,
                 cwd: None,
@@ -2140,7 +2159,7 @@ mod tests {
         assert_eq!(out.goal, "");
 
         // Event log has mission_start + mission_goal.
-        let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &out.mission.id);
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
         let log = EventLog::open(&mission_dir).unwrap();
         let entries = log.read_from(0).unwrap();
         assert_eq!(entries.len(), 2, "expected two opening events");
@@ -2193,7 +2212,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "inferred project".into(),
                 goal_override: None,
                 cwd: Some(cwd.to_string_lossy().into_owned()),
@@ -2232,7 +2251,7 @@ mod tests {
             &mut conn,
             tmp.path(),
             MissionStart {
-                crew_id,
+                crew_id: Some(crew_id),
                 scope: ProjectScope::Root,
                 title: "recents mission".into(),
                 goal_override: None,
@@ -2266,7 +2285,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: Some(project.id),
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "override cwd".into(),
                 goal_override: None,
                 cwd: Some("/override".into()),
@@ -2292,7 +2311,7 @@ mod tests {
                 tmp.path(),
                 StartMissionInput {
                     project_id: None,
-                    crew_id: crew_id.clone(),
+                    crew_id: Some(crew_id.clone()),
                     title: format!("{mode:?}"),
                     goal_override: None,
                     cwd: None,
@@ -2300,7 +2319,7 @@ mod tests {
                 mode,
             )
             .unwrap();
-            let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &out.mission.id);
+            let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
             let entries = EventLog::open(&mission_dir).unwrap().read_from(0).unwrap();
             let first = &entries[0].event;
             assert_eq!(
@@ -2331,7 +2350,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: Some("missing".into()),
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "unknown project".into(),
                 goal_override: None,
                 cwd: None,
@@ -2364,7 +2383,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "m".into(),
                 goal_override: Some("override goal".into()),
                 cwd: None,
@@ -2389,7 +2408,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -2411,7 +2430,7 @@ mod tests {
         .unwrap();
         let log = EventLog::open(&event_log::mission_dir(
             tmp.path(),
-            &crew_id,
+            Some(&crew_id),
             &out.mission.id,
         ))
         .unwrap();
@@ -2437,7 +2456,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -2452,7 +2471,7 @@ mod tests {
 
         let log = EventLog::open(&event_log::mission_dir(
             tmp.path(),
-            &crew_id,
+            Some(&crew_id),
             &out.mission.id,
         ))
         .unwrap();
@@ -2479,7 +2498,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -2511,7 +2530,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -2534,14 +2553,14 @@ mod tests {
         // On-disk footprint: the event-log dir (created by start) and
         // the per-slot shim scratch dir (created at spawn — faked here,
         // the bookkeeping-layer start doesn't spawn PTYs).
-        let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &id);
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &id);
         assert!(mission_dir.exists());
         let scratch_dir = tmp.path().join("missions").join(&id);
         std::fs::create_dir_all(scratch_dir.join("shims").join("lead").join("bin")).unwrap();
 
         let deleted = delete_archived(&mut conn, tmp.path(), &id).unwrap();
         assert_eq!(deleted.id, id);
-        assert_eq!(deleted.crew_id, crew_id);
+        assert_eq!(deleted.crew_id, Some(crew_id));
 
         let missions: i64 = conn
             .query_row(
@@ -2685,7 +2704,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -2718,7 +2737,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -2759,7 +2778,7 @@ mod tests {
             "re-archive must drop the sidebar node"
         );
 
-        let log = EventLog::open(&event_log::mission_dir(tmp.path(), &crew_id, &id)).unwrap();
+        let log = EventLog::open(&event_log::mission_dir(tmp.path(), Some(&crew_id), &id)).unwrap();
         let stops = log
             .read_from(0)
             .unwrap()
@@ -2793,7 +2812,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: a.clone(),
+                crew_id: Some(a.clone()),
                 title: "first".into(),
                 goal_override: Some("x".into()),
                 cwd: None,
@@ -2815,7 +2834,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: a.clone(),
+                crew_id: Some(a.clone()),
                 title: "second".into(),
                 goal_override: Some("y".into()),
                 cwd: None,
@@ -2829,7 +2848,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: b,
+                crew_id: Some(b),
                 title: "other crew".into(),
                 goal_override: Some("z".into()),
                 cwd: None,
@@ -2865,7 +2884,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "first".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -2879,7 +2898,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "second".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -2946,7 +2965,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -2991,7 +3010,7 @@ mod tests {
         assert_eq!((ok_count, err_count), (1, 1));
 
         // Log has exactly one `mission_stopped` event.
-        let log = EventLog::open(&event_log::mission_dir(tmp.path(), &crew_id, &id)).unwrap();
+        let log = EventLog::open(&event_log::mission_dir(tmp.path(), Some(&crew_id), &id)).unwrap();
         let stopped_events = log
             .read_from(0)
             .unwrap()
@@ -3020,7 +3039,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -3056,7 +3075,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -3064,7 +3083,7 @@ mod tests {
             MissionPermissionMode::Bypass,
         )
         .unwrap();
-        let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &out.mission.id);
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
         let log = EventLog::open(&mission_dir).unwrap();
         let live_handles = vec!["lead".to_string(), "reviewer".to_string()];
 
@@ -3108,7 +3127,7 @@ mod tests {
         );
 
         log.append(EventDraft::signal(
-            crew_id.clone(),
+            Some(&crew_id),
             out.mission.id.clone(),
             "lead",
             SignalType::new("runner_status"),
@@ -3136,7 +3155,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -3177,7 +3196,7 @@ mod tests {
             "one stopped slot keeps the mission-level live state false"
         );
 
-        let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &out.mission.id);
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
         let log = EventLog::open(&mission_dir).unwrap();
         append_session_status(&log, &crew_id, &out.mission.id, "lead", "idle");
         append_session_status(&log, &crew_id, &out.mission.id, "worker", "busy");
@@ -3217,7 +3236,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: None,
                 cwd: None,
@@ -3226,7 +3245,7 @@ mod tests {
         )
         .unwrap();
 
-        let mission_dir = event_log::mission_dir(tmp.path(), &crew_id, &out.mission.id);
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
         assert_eq!(
             count_pending_asks_from_log(&mission_dir),
             0,
@@ -3236,7 +3255,7 @@ mod tests {
         let log = EventLog::open(&mission_dir).unwrap();
         let q1 = log
             .append(EventDraft::signal(
-                crew_id.clone(),
+                Some(&crew_id),
                 out.mission.id.clone(),
                 "router",
                 SignalType::new("human_question"),
@@ -3245,7 +3264,7 @@ mod tests {
             .unwrap();
         let _q2 = log
             .append(EventDraft::signal(
-                crew_id.clone(),
+                Some(&crew_id),
                 out.mission.id.clone(),
                 "router",
                 SignalType::new("human_question"),
@@ -3256,7 +3275,7 @@ mod tests {
 
         // Resolve only the first question.
         log.append(EventDraft {
-            crew_id: crew_id.clone(),
+            crew_id: Some(crew_id.clone()),
             mission_id: out.mission.id.clone(),
             kind: EventKind::Signal,
             from: "human".into(),
@@ -3302,7 +3321,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -3339,7 +3358,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "live".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -3388,7 +3407,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -3421,7 +3440,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "m".into(),
                 goal_override: Some("go".into()),
                 cwd: None,
@@ -3467,7 +3486,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "old".into(),
                 goal_override: Some("g".into()),
                 cwd: None,
@@ -3527,7 +3546,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "running-1".into(),
                 goal_override: Some("g".into()),
                 cwd: None,
@@ -3542,7 +3561,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "running-2".into(),
                 goal_override: Some("g".into()),
                 cwd: None,
@@ -3557,7 +3576,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id: crew_id.clone(),
+                crew_id: Some(crew_id.clone()),
                 title: "completed".into(),
                 goal_override: Some("g".into()),
                 cwd: None,
@@ -3577,7 +3596,7 @@ mod tests {
             tmp.path(),
             StartMissionInput {
                 project_id: None,
-                crew_id,
+                crew_id: Some(crew_id),
                 title: "running-archived".into(),
                 goal_override: Some("g".into()),
                 cwd: None,

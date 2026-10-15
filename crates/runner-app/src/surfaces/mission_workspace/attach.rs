@@ -85,7 +85,10 @@ impl MissionWorkspace {
             let events = core
                 .mission_events_replay(&load_id)
                 .map_err(|error| error.to_string())?;
-            let crew = core.crew_get(&mission.crew_id).ok();
+            let crew = mission
+                .crew_id
+                .as_deref()
+                .and_then(|id| core.crew_get(id).ok());
             let roster = core.mission_roster(&mission.id).unwrap_or_default();
             Ok::<_, String>(MissionLoadResult {
                 mission,

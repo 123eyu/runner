@@ -704,7 +704,7 @@ fn controller_handles_slots_and_live_question_events() {
     let event = |id: &str, kind: &str, payload| Event {
         id: id.into(),
         ts: chrono::Utc::now(),
-        crew_id: "test-crew".into(),
+        crew_id: Some("test-crew".into()),
         mission_id: "test-mission".into(),
         kind: EventKind::Signal,
         from: "lead".into(),
@@ -806,7 +806,7 @@ fn questions_wait_for_mission_metadata_and_responses_cancel_pending_posts() {
     let event = |id: &str, kind: &str, payload| Event {
         id: id.into(),
         ts: chrono::Utc::now(),
-        crew_id: "test-crew".into(),
+        crew_id: Some("test-crew".into()),
         mission_id: "test-mission".into(),
         kind: EventKind::Signal,
         from: "lead".into(),
@@ -970,7 +970,7 @@ fn foreground_routes_suppress_all_kinds_without_background_replay() {
                     Event {
                         id: id.into(),
                         ts: chrono::Utc::now(),
-                        crew_id: "test-crew".into(),
+                        crew_id: Some("test-crew".into()),
                         mission_id: "test-mission".into(),
                         kind: EventKind::Signal,
                         from: "lead".into(),
@@ -1170,7 +1170,7 @@ fn mission_switches_are_independent_and_reenabling_never_replays() {
                     Event {
                         id: id.into(),
                         ts: chrono::Utc::now(),
-                        crew_id: "test-crew".into(),
+                        crew_id: Some("test-crew".into()),
                         mission_id: "test-mission".into(),
                         kind: EventKind::Signal,
                         from: "lead".into(),
@@ -1369,13 +1369,13 @@ fn joined_mission_slot_uses_current_handle_and_counts_in_idle_projection() {
     let core = store.read_with(&cx, |store, _| store.test_core.clone());
     let log = EventLog::open(&runner_core::event_log::mission_dir(
         &core.app_data_dir,
-        "test-crew",
+        Some("test-crew"),
         "test-mission",
     ))
     .unwrap();
     for handle in ["agent", "shell"] {
         log.append(EventDraft::signal(
-            "test-crew",
+            Some("test-crew"),
             "test-mission",
             handle,
             SignalType::new("session_status"),
@@ -1416,7 +1416,11 @@ fn joined_mission_slot_uses_current_handle_and_counts_in_idle_projection() {
             .slots
             .push(runner_core::mission_roster::RosterSlot::from(&joined));
         runner_daemon::ops::mission::roster::write(
-            &runner_core::event_log::mission_dir(&core.app_data_dir, "test-crew", "test-mission"),
+            &runner_core::event_log::mission_dir(
+                &core.app_data_dir,
+                Some("test-crew"),
+                "test-mission",
+            ),
             &roster,
         )
         .unwrap();
@@ -1443,7 +1447,7 @@ fn joined_mission_slot_uses_current_handle_and_counts_in_idle_projection() {
         "@buddy · Test"
     );
     log.append(EventDraft::signal(
-        "test-crew",
+        Some("test-crew"),
         "test-mission",
         "buddy",
         SignalType::new("session_status"),

@@ -253,7 +253,7 @@ fn install_replay_handle(
         stop: Arc::new(AtomicBool::new(false)),
     };
     let sink = ForwarderEmitCtx {
-        crew_id: "scenario-crew".into(),
+        crew_id: Some("scenario-crew".into()),
         mission_id: "scenario-mission".into(),
         handle: "scenario-slot".into(),
         event_log: log.clone(),
@@ -471,7 +471,7 @@ fn replay(path: &Path) -> Value {
                             .synthesize_wake_busy(
                                 ID,
                                 EventDraft::signal(
-                                    "scenario-crew",
+                                    Some("scenario-crew"),
                                     "scenario-mission",
                                     "scenario-slot",
                                     SignalType::new("session_status"),

@@ -76,6 +76,9 @@ REFERENCES
   A mission or chat started inside a project's directory belongs to it; --project overrides.
 
 COMMON FLOW
+  mission=$(runner mission start --title "Small task" -q)
+  runner mission add-role "$mission" <role> --task-file - < task.md
+  # Or start from a reusable crew:
   runner crew list --json
   mission=$(runner mission start --crew <crew> --goal-file - -q < brief.md)
   runner mission feed "$mission" --follow --json
@@ -83,7 +86,7 @@ COMMON FLOW
   runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
-  # Use the HANDLE from the LEAD row in mission show.
+  # Use the HANDLE from the LEAD row in mission show, or any member when there is no lead.
   runner msg post --mission "$mission" --to <lead_handle> "message"
   runner mission stop "$mission"
   runner mission archive "$mission"

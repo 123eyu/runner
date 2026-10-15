@@ -178,12 +178,12 @@ fn concurrent_missions_on_same_crew_keep_session_state_isolated() {
 
     let mission_row_a = Mission {
         id: mission_a.clone(),
-        crew_id: crew_id.clone(),
+        crew_id: Some(crew_id.clone()),
         ..mission()
     };
     let mission_row_b = Mission {
         id: mission_b.clone(),
-        crew_id: crew_id.clone(),
+        crew_id: Some(crew_id.clone()),
         ..mission()
     };
 
@@ -501,7 +501,7 @@ async fn mission_start_spawn_failure_leaves_live_siblings_and_spawns_later_slots
     let out = crate::ops::mission::mission_start_impl(
         &state,
         runner_core::protocol::mission::StartMissionInput {
-            crew_id,
+            crew_id: Some(crew_id),
             project_id: None,
             title: "Independent slots".into(),
             goal_override: None,
@@ -775,7 +775,7 @@ fn kill_many_stops_sessions_concurrently() {
     let slot_id = insert_crew_role(&pool, &mission_id, &role_id);
     let mission = Mission {
         id: mission_id,
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let mut role = role("/bin/cat", &[]);
@@ -827,7 +827,7 @@ fn kill_all_for_mission_attempts_every_session_and_aggregates_failures() {
     let slot_id = insert_crew_role(&pool, &mission_id, &role_id);
     let mission = Mission {
         id: mission_id.clone(),
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let mut role = role("/bin/cat", &[]);

@@ -4,7 +4,7 @@ use super::*;
 fn mission_registration_preserves_initial_terminal_size() {
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
@@ -49,7 +49,7 @@ fn hinted_mission_start_forks_slots_at_the_hint() {
     let (size, source) = crate::ops::mission::mission_fork_size(None, Some((161, 45)));
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
@@ -214,7 +214,7 @@ fn unhinted_mission_start_still_forks_at_default() {
     let (size, source) = crate::ops::mission::mission_fork_size(None, None);
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);
@@ -271,7 +271,7 @@ fn mission_registration_defaults_to_80x24_when_unsized() {
     // grid hint must still fork — at DEFAULT_PTY_SIZE, as before.
     let pool = pool_with_schema();
     let mission_base = Mission {
-        crew_id: "c".into(),
+        crew_id: Some("c".into()),
         ..mission()
     };
     let role = role("/bin/cat", &[]);

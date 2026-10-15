@@ -261,7 +261,7 @@ fn refuse_pending_spawns_lead_and_bad_handles_without_changes() {
 fn failed_roster_write_rolls_back_join_session_and_router() {
     use std::os::unix::fs::PermissionsExt;
     let fixture = Fixture::new();
-    let dir = event_log::mission_dir(&fixture.state.app_data_dir, "c", "m");
+    let dir = event_log::mission_dir(&fixture.state.app_data_dir, Some("c"), "m");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
     let result = fixture.add(None);
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();

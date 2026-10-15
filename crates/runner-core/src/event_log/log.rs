@@ -542,7 +542,7 @@ mod tests {
 
     fn draft_signal(ty: &str) -> EventDraft {
         EventDraft {
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             mission_id: "mission".into(),
             kind: EventKind::Signal,
             from: "coder".into(),
@@ -554,7 +554,7 @@ mod tests {
 
     fn draft_message(to: Option<&str>, text: &str) -> EventDraft {
         EventDraft {
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             mission_id: "mission".into(),
             kind: EventKind::Message,
             from: "lead".into(),

@@ -13,7 +13,8 @@ fn worker_restart_reuses_row_replaces_claude_key_and_delivers_first_turn_once() 
         .restart(&id, None, None, app_data.path(), pool.clone(), capture())
         .unwrap();
     let spec = fake.last_spawn_spec().unwrap();
-    let body = router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"));
+    let body =
+        router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None);
     assert_eq!(spec.args.last(), Some(&body));
     assert!(!spec.args.iter().any(|arg| arg == "--resume"));
     assert_eq!(out.id, id);
@@ -89,7 +90,7 @@ fn missing_worker_conversation_resume_delivers_cold_start_first_turn() {
         .unwrap();
         let spec = fake.last_spawn_spec().unwrap();
         let body =
-            router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"));
+            router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None);
         assert!(
             spec.args.last().unwrap().starts_with(&body),
             "{runtime}: {:?}",
@@ -309,7 +310,7 @@ fn restart_notification_failure_warns_without_failing_the_completed_restart() {
     let mission_id = row.mission_id.unwrap();
     let conn = pool.get().unwrap();
     let mission = crate::ops::mission::get(&conn, &mission_id).unwrap();
-    let crew = crate::ops::crew::get(&conn, &mission.crew_id).unwrap();
+    let crew = crate::ops::crew::get(&conn, mission.crew_id.as_deref().unwrap()).unwrap();
     let roster = crate::ops::slot::list(&conn, &crew.id).unwrap();
     drop(conn);
     let log = Arc::new(
@@ -317,7 +318,7 @@ fn restart_notification_failure_warns_without_failing_the_completed_restart() {
     );
     let router = router::Router::new(
         mission_id.clone(),
-        crew.id,
+        Some(crew.id),
         crew.name,
         &roster,
         crate::ops::mission::all_known_signals(),

@@ -164,7 +164,7 @@ pub use crate::session::runtime::SessionActivityState;
 /// doesn't need to know about the join shape.
 pub(crate) struct LaunchInputs {
     crew_name: String,
-    lead: LeadRow,
+    lead: Option<LeadRow>,
     roster: Mutex<Vec<RosterRow>>,
     allowed_signals: Vec<SignalType>,
     /// `crew.system_prompt_addendum` snapshot at mount/resume time
@@ -332,7 +332,7 @@ impl ReconciliationClock {
 /// subscriber so `handle_event` runs on every appended envelope.
 pub struct Router {
     mission_id: String,
-    crew_id: String,
+    crew_id: Option<String>,
     log: Arc<EventLog>,
     injector: Arc<dyn StdinInjector>,
     ui_notifier: Arc<dyn RouterUiNotifier>,
@@ -348,7 +348,7 @@ impl Router {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         mission_id: String,
-        crew_id: String,
+        crew_id: Option<String>,
         crew_name: String,
         roster: &[SlotWithRole],
         allowed_signals: Vec<SignalType>,
@@ -526,8 +526,8 @@ impl Router {
         Ok(())
     }
 
-    pub fn lead_handle(&self) -> &str {
-        &self.launch.lead.handle
+    pub fn lead_handle(&self) -> Option<&str> {
+        self.launch.lead.as_ref().map(|lead| lead.handle.as_str())
     }
 
     /// Single dispatcher entry point. Bus calls this for every appended
@@ -556,7 +556,6 @@ impl Router {
                 match signal.as_str() {
                     "mission_goal" => handlers::mission_goal(self, event),
                     "human_said" => handlers::human_said(self, event),
-                    "ask_lead" => handlers::ask_lead(self, event),
                     "ask_human" => handlers::ask_human(self, event),
                     "human_response" => handlers::human_response(self, event),
                     "session_status" | "runner_status" => handlers::session_status(self, event),
@@ -619,7 +618,7 @@ impl Router {
             return;
         };
         let draft = EventDraft::signal(
-            self.crew_id.clone(),
+            self.crew_id.as_deref(),
             self.mission_id.clone(),
             handle,
             SignalType::new("session_status"),
@@ -1357,7 +1356,7 @@ impl Router {
         prior_agent_session_key: Option<&str>,
     ) -> Result<()> {
         self.log.append(EventDraft::signal(
-            &self.crew_id,
+            self.crew_id.as_deref(),
             &self.mission_id,
             "human",
             SignalType::new("slot_restarted"),
@@ -1372,7 +1371,7 @@ impl Router {
         let recipients: Vec<String> = rows
             .iter()
             .filter(|slot| {
-                if restarting_lead {
+                if restarting_lead || self.lead_handle().is_none() {
                     slot.handle() != handle
                 } else {
                     slot.is_lead()
@@ -1382,7 +1381,7 @@ impl Router {
             .collect();
         for recipient in recipients {
             self.log.append(EventDraft::message(
-                &self.crew_id,
+                self.crew_id.as_deref(),
                 &self.mission_id,
                 "runner",
                 Some(recipient.to_string()),
@@ -1425,7 +1424,7 @@ impl Router {
     pub(crate) fn warn(&self, message: impl Into<String>) {
         let message = message.into();
         let draft = runner_core::model::EventDraft::signal(
-            self.crew_id.clone(),
+            self.crew_id.as_deref(),
             self.mission_id.clone(),
             "router",
             SignalType::new("mission_warning"),
@@ -1472,7 +1471,7 @@ impl Router {
             );
         }
         let draft = runner_core::model::EventDraft::signal(
-            self.crew_id.clone(),
+            self.crew_id.as_deref(),
             self.mission_id.clone(),
             "router",
             SignalType::new("human_question"),
@@ -1548,15 +1547,11 @@ impl LaunchInputs {
         allowed_signals: Vec<SignalType>,
         crew_addendum: Option<String>,
     ) -> Result<Self> {
-        let lead = roster
-            .iter()
-            .find(|m| m.slot.lead)
-            .map(|m| LeadRow {
-                handle: m.slot.slot_handle.clone(),
-                display_name: m.role.display_name.clone(),
-                system_prompt: m.role.system_prompt.clone(),
-            })
-            .ok_or_else(|| crate::error::Error::msg("mission crew has no lead slot"))?;
+        let lead = roster.iter().find(|m| m.slot.lead).map(|m| LeadRow {
+            handle: m.slot.slot_handle.clone(),
+            display_name: m.role.display_name.clone(),
+            system_prompt: m.role.system_prompt.clone(),
+        });
         let roster_rows = roster
             .iter()
             .map(|m| RosterRow {
@@ -1580,6 +1575,9 @@ impl LaunchInputs {
         log: &EventLog,
         runtime_key: &str,
     ) -> (Option<String>, Option<String>) {
+        let Some(lead) = self.lead() else {
+            return (None, None);
+        };
         let goal = Self::latest_mission_goal_text(log);
         let rows = self.roster();
         let roster: Vec<crate::router::prompt::RosterEntry> = rows
@@ -1594,9 +1592,9 @@ impl LaunchInputs {
             .prompt_channels()
             .lead(&crate::router::prompt::LaunchPromptInput {
                 lead: crate::router::prompt::LeadView {
-                    handle: self.lead().handle(),
-                    display_name: self.lead().display_name(),
-                    system_prompt: self.lead().system_prompt(),
+                    handle: lead.handle(),
+                    display_name: lead.display_name(),
+                    system_prompt: lead.system_prompt(),
                 },
                 crew_name: self.crew_name(),
                 mission_goal: &goal,
@@ -1606,7 +1604,7 @@ impl LaunchInputs {
             })
     }
 
-    fn latest_mission_goal_text(log: &EventLog) -> String {
+    pub(crate) fn latest_mission_goal_text(log: &EventLog) -> String {
         let (entries, _skipped) = match log.read_from_lossy(0) {
             Ok(out) => out,
             Err(_) => return String::new(),
@@ -1634,8 +1632,8 @@ impl LaunchInputs {
     pub(crate) fn crew_name(&self) -> &str {
         &self.crew_name
     }
-    pub(crate) fn lead(&self) -> &LeadRow {
-        &self.lead
+    pub(crate) fn lead(&self) -> Option<&LeadRow> {
+        self.lead.as_ref()
     }
     pub(crate) fn roster(&self) -> Vec<RosterRow> {
         self.roster.lock().unwrap().clone()

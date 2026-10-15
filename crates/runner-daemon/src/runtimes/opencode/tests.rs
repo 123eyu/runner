@@ -196,9 +196,8 @@ esac
     let mut env = crate::shell_path::LoginShellEnv::default();
     env.vars
         .insert("SMOKE_ROOT".into(), root.path().display().to_string());
-    let result =
-        models::query_with_timeout(executable.to_str().unwrap(), &env, Duration::from_secs(3))
-            .unwrap();
+    // Process startup competes with the full suite; use the production success budget.
+    let result = models::query(executable.to_str().unwrap(), &env).unwrap();
     assert_eq!(result.models[0].value, "test/settled");
     assert_eq!(
         std::fs::read_to_string(root.path().join("count"))
@@ -217,14 +216,22 @@ esac
         Some(libc::ESRCH)
     );
 
+    std::fs::remove_file(root.path().join("pid")).unwrap();
+    std::fs::remove_file(root.path().join("count")).unwrap();
     env.vars.insert("EMPTY_FOREVER".into(), "yes".into());
-    assert_eq!(
-        models::query_with_timeout(
-            executable.to_str().unwrap(),
-            &env,
-            Duration::from_millis(500)
-        ),
-        Err(crate::runtime_status::models::Reason::EmptyCatalog)
+    // Expiry between polls reports EmptyCatalog; expiry inside a query reports Timeout.
+    assert!(matches!(
+        models::query_with_timeout(executable.to_str().unwrap(), &env, Duration::from_secs(3)),
+        Err(crate::runtime_status::models::Reason::EmptyCatalog
+            | crate::runtime_status::models::Reason::Timeout)
+    ));
+    assert!(
+        std::fs::read_to_string(root.path().join("count"))
+            .unwrap()
+            .trim()
+            .parse::<usize>()
+            .unwrap()
+            > 0
     );
     let pid: i32 = std::fs::read_to_string(root.path().join("pid"))
         .unwrap()

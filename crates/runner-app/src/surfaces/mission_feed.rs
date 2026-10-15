@@ -224,7 +224,7 @@ mod tests {
         Event {
             id: id.into(),
             ts: chrono::Utc::now() + Duration::seconds(seconds),
-            crew_id: "crew".into(),
+            crew_id: Some("crew".into()),
             mission_id: "mission".into(),
             kind,
             from: from.into(),

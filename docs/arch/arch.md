@@ -150,9 +150,9 @@ Crews are composed of **slots**, not roles directly. A slot is the indirection t
 
 **Why slot vs role.** Users curate a small library of roles and re-use them across crews and direct chats. Tying the in-crew handle and lead flag to the role would force duplicating configs every time a role shows up in a new crew.
 
-**Lead is also the default HITL gateway.** When a worker needs human input, it does not ask the human directly — it emits an `ask_lead` signal. The router wakes the lead, who decides whether to answer from their own context or escalate via `ask_human`. The human's answer flows back to the lead, who forwards it to the original worker as a directed message. See §8.3. Workers *may* emit `ask_human` directly as a fallback, but the worker preamble (§6) instructs them to go through the lead.
+**A crew's lead is the default HITL gateway.** Workers send questions to the lead with `runner msg post --to <lead>`. The lead answers or escalates with `ask_human`, optionally naming the worker in `on_behalf_of`; the answer returns to the asker. Members of a mission without a lead ask the person directly. The retired `ask_lead` signal still parses and renders in old logs but is refused on send and has no router side effect.
 
-### 3.4 Mission — *one live run of its own roster, seeded from a crew*
+### 3.4 Mission — *one live run of its own roster*
 
 A mission is the only runtime container in the system. Everything alive at runtime lives *inside* a mission and dies with it:
 
@@ -170,13 +170,15 @@ Lifecycle:
 
 **Mission cwd is authoritative.** Each mission carries its own `cwd` column. Spawned slots inherit `mission.cwd` regardless of what the role's `working_dir` says — that field is only used in direct chats. Starting from a project copies the project's cwd into the row.
 
-The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, lead flags, order, role ids and overrides. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Display surfaces keep reading the crew's current name and metadata. Roles remain linked by id; Resume replays the recorded launch definition, and Restart uses the current role and roster overrides. A role cannot be deleted while an unarchived mission has a session for it. No database schema changes are needed.
+The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, lead flags, order, role ids and overrides. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Crew provenance is optional; status readers return no crew when the template was deleted. Roles remain linked by id; Resume replays the recorded launch definition, and Restart uses the current role and roster overrides. A role cannot be deleted while an unarchived mission has a session for it.
+
+A start without a crew writes an empty version 2 roster, mounts the bus and router with no members, and remains running. Each added role is a worker; when there is no lead its first turn includes the shared goal and the team preamble. `missions.crew_id` is nullable provenance without a foreign key: deleting a crew removes its slots, keeps every mission, and retains the original crew id for locating the files. A crew start still requires exactly one lead.
 
 While a mission runs, the person can add a configured worker or remove a worker from the rail or CLI. One mutex per mission serializes these operations. Both refuse any pending mission spawn; add registers cancellation immediately after its checks. Added slots persist their overrides in the roster and record a launch definition as at cold start. Removal stops the session and drops its roster slot without archiving or deleting its historical session row; session lists and Resume all keep only roster slots. A worker's exit or failed spawn leaves the rest of the mission running.
 
 The bus replays the log from offset zero and learns broadcast membership from human `role_joined` and `role_removed` signals. Its initial team is the file's handles minus mid-mission joins; a newcomer's unread count starts at its join. Directed messages always project to their addressee, including before a join. `runner msg read` still scans the entire log and includes earlier broadcasts. The router's mutable roster is changed directly by the operations; broadcasts and Restart prompts read that current roster.
 
-Before mounting routers at daemon startup, Runner converts every legacy version 1 roster, including archived missions. It preserves the file's handles, order and lead flags, matches current session-slot handles first and then unmatched session slots by first-start order, and uses the session's configuration when its slot was deleted. A handle without a session uses the crew's matching slot; one with neither is dropped with a warning. Version 2 files are left alone. A missing file or one that is not valid JSON falls back to the crew's current slots, writes version 2 and logs a warning. Other read errors, unsupported versions and invalid roster shapes return an error without rewriting the file; one mission's conversion failure does not block startup.
+Before mounting routers at daemon startup, Runner converts every legacy version 1 roster, including archived missions. It preserves the file's handles, order and lead flags, matches current session-slot handles first and then unmatched session slots by first-start order, and uses the session's configuration when its slot was deleted. A handle without a session uses the crew's matching slot; one with neither is dropped with a warning. Version 2 files are left alone. A missing file or one that is not valid JSON falls back to the crew's current slots only when that crew still exists, writes version 2 and logs a warning. Without a crew, the original load error is returned. Other read errors, unsupported versions and invalid roster shapes return an error without rewriting the file; one mission's conversion failure does not block startup.
 
 Concurrent missions on the same crew are allowed — a crew is a reusable template, and per-mission state (sessions, the bus, the runner-CLI shim path, the roster sidecar) is fully namespaced by `mission_id`.
 
@@ -247,7 +249,7 @@ Crew members don't share a programming model; they share an IM-like surface.
 
 ### 4.1 Signal — *"something happened, please wake the right surface"*
 
-Short, typed, router-visible. Grammar: past-tense verb (or asker verbs like `ask_lead`, `ask_human`). The router has fixed handlers keyed to built-in signal types (§8.1). A signal carries an optional `payload` (JSON) for the router and UI. Human-readable conversation belongs in messages.
+Short, typed, router-visible. Grammar: past-tense verb (or asker verbs like `ask_human`). The router has fixed handlers keyed to built-in signal types (§8.1). A signal carries an optional `payload` (JSON) for the router and UI. Human-readable conversation belongs in messages.
 
 ### 4.2 Message — *"here's what I think"*
 
@@ -279,7 +281,7 @@ Every coordination primitive is persisted as an **event** — one line in the pe
 {
   "id":         "01HG3K1YRG7RQ3N9...",  // ULID: time-sortable, monotonic within ms
   "ts":         "2026-04-21T12:34:56.123Z",
-  "crew_id":    "01HG...",
+  "crew_id":    "01HG...",                       // omitted for a crew-less mission
   "mission_id": "01HG...",
   "kind":       "signal",                // signal | message
   "from":       "coder",                 // slot handle | "human" | "router"
@@ -517,11 +519,10 @@ Add records `role_joined` before publishing `roster.json`, then updates the rout
 | Event | Fixed handler |
 |---|---|
 | `mission_goal` | No runtime side effect; the launch prompt was composed before spawn and this event remains the durable goal record. |
-| `human_said` | Inject CLI-provided `payload.text` to `payload.target` if present, otherwise to the lead. |
-| `ask_lead` | Inject the worker's `{ question, context }` to the lead. |
+| `human_said` | Inject CLI-provided `payload.text` to `payload.target` if present, otherwise to the lead, or every live member if there is no lead. |
 | `ask_human` | Append a `human_question` event for the UI. |
 | `human_response` | Look up the matching `question_id` and inject the answer to the session that emitted the original `ask_human`. |
-| `session_status` | Update the latest-status map from `payload.state`; `runner_status`, the row's name before #632, is read the same way. If a non-lead reports `idle`, inject a short availability update to the lead. |
+| `session_status` | Update the latest-status map from `payload.state`; `runner_status`, the row's name before #632, is read the same way. |
 | message (any) | Inject a one-line inbox nudge to the recipient (directed) or to every other roster member (broadcast); a message to the virtual `human` handle is rendered in the feed and not nudged. |
 | `inbox_read` | Internal — owned by the bus's projection layer to track read watermarks. |
 
@@ -562,7 +563,7 @@ Causality is carried in-payload rather than on the envelope. The canonical `ques
 
 ### 8.3 Lead-mediated asks (the canonical pattern)
 
-1. **Worker asks the lead.** Worker emits `ask_lead`; the router injects `{ question, context }` to the lead.
+1. **Worker asks the lead.** Worker sends `runner msg post --to <lead>`; the router nudges the lead to read its inbox.
 2. **Lead decides.** Answer from own context via a directed message (pull-based, plus the nudge), or escalate with `ask_human` and `payload.on_behalf_of: "<handle>"`; the UI shows the attribution chain (*@impl → @architect → you*).
 3. **Human responds.** The router injects the result into the lead's stdin; the lead forwards it to the worker as a directed message.
 
@@ -720,8 +721,8 @@ roles (
 
 slots (
   id TEXT PRIMARY KEY,
-  crew_id TEXT NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
-  role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  crew_id TEXT NOT NULL REFERENCES crews(id) ON DELETE RESTRICT,
+  role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
   slot_handle TEXT NOT NULL,          -- in-crew handle; unique within crew
   position INTEGER NOT NULL,
   lead INTEGER NOT NULL DEFAULT 0,
@@ -756,7 +757,7 @@ nodes (
 
 missions (
   id TEXT PRIMARY KEY,
-  crew_id TEXT NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
+  crew_id TEXT,                        -- optional origin; retained after crew deletion
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   status TEXT NOT NULL,               -- running | completed | aborted
@@ -769,7 +770,7 @@ sessions (
   id TEXT PRIMARY KEY,
   mission_id TEXT REFERENCES missions(id) ON DELETE SET NULL,   -- NULL = direct chat
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-  role_id TEXT REFERENCES roles(id) ON DELETE CASCADE,
+  role_id TEXT REFERENCES roles(id) ON DELETE RESTRICT,
   slot_id TEXT,
   cwd TEXT,
   status TEXT NOT NULL,               -- running | stopped | crashed
@@ -786,13 +787,13 @@ sessions (
 );
 
 session_attention (
-  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE RESTRICT,
   unread_since INTEGER,               -- ms epoch: finished while its tab was not viewed
   error_acknowledged_at TEXT
 );
 ```
 
-Migrations live in `crates/runner-daemon/migrations/` (`0001_init.sql` … `0023_roles.sql`) and are forward-only: an older Runner cannot open a database a newer one has migrated, which the 0023 table rename accepted deliberately. Two rules from that rename hold for every table. Every SQL statement that names a table lives behind a `repo/` function, so `ops/`, `session/` and `mcp/` speak only in domain terms; the gate is a grep for the table and column names inside SQL strings, which must hit only `repo/` and the migrations. A persisted value whose spelling changes is written in the new form and read in both, with nothing frozen under the old name for compatibility's sake: `role-default` reads `runner-default`, the start-chat mode `role` reads `runner`, the saved route `/roles` reads `/runners`.
+Migrations live in `crates/runner-daemon/migrations/` (`0001_init.sql` … `0028_optional_mission_crew_restrict_deletes.sql`) and are forward-only: an older Runner cannot open a database a newer one has migrated, which the 0023 table rename accepted deliberately. Two rules from that rename hold for every table. Every SQL statement that names a table lives behind a `repo/` function, so `ops/`, `session/` and `mcp/` speak only in domain terms; the gate is a grep for the table and column names inside SQL strings, which must hit only `repo/` and the migrations. A persisted value whose spelling changes is written in the new form and read in both, with nothing frozen under the old name for compatibility's sake: `role-default` reads `runner-default`, the start-chat mode `role` reads `runner`, the saved route `/roles` reads `/runners`.
 
 ### 10.2 Filesystem
 
@@ -813,23 +814,27 @@ Migrations live in `crates/runner-daemon/migrations/` (`0001_init.sql` … `0023
 ~/Library/Logs/com.wycstudios.runner/runner.log   # rotating app log + panic backtraces
 ```
 
+A mission's directory is fixed at start: `crews/<crew_id>/missions/<id>/` for a crew start, `missions/<id>/` for an empty start. Deleting a crew never moves its missions. Session shims stay under `missions/<id>/shims/<handle>/bin/`; crew-less sessions omit `RUNNER_CREW_ID` in both the PTY environment and the shim. `event_log::mission_dir` is the shared resolver.
+
 The data directory has been the same since the Tauri app, so every upgrade finds its roles, crews, missions and sessions in place. Startup removes the stale legacy bridge executable from `bin/` best-effort. Direct chats are off-disk beyond their row in `sessions`; mission sessions share their mission's directory, with `events.ndjson` and `roster.json` as durable artifacts. Screen state lives in memory (§5.8).
 
 ### 10.3 Deletion
 
 What a delete takes with it is decided in code, not by the `REFERENCES` clauses in §10.1 ([#619](https://github.com/yicheng47/runner/issues/619)). A repository delete removes rows from its own table; the owning delete in `ops/` removes or unbinds every dependent row first, inside the transaction the operation already holds. The constraints and `PRAGMA foreign_keys = ON` stay as a backstop that nothing relies on: each delete path has a test that runs it with the pragma off, and one test in `ops/tests.rs` runs them all on a real database and checks that `PRAGMA foreign_key_check` stays empty. That test also pins the list of foreign keys, so a new one fails it until its owning delete handles it.
 
+Foreign keys never cascade-delete: the delete actions are `RESTRICT` or `SET NULL`. Migration 0028 rebuilds referenced tables with enforcement disabled before the transaction and requires `foreign_key_check` to pass before committing; the runner restores enforcement on success or failure.
+
 | Entity | Owning delete | Deletes first | Unbinds | Refused when |
 |---|---|---|---|---|
 | Role | `ops::role::delete` | its sessions | — | a crew has a slot for it; it has an unarchived direct chat; an unarchived mission has a session for it |
-| Crew | `ops::crew::delete` | its missions, then its slots | — | it has a mission that is not archived |
+| Crew | `ops::crew::delete` | its slots | — | — |
 | Slot | `ops::slot::delete` | — | — | — |
 | Mission | `ops::mission::delete_rows` | its sessions | — | Settings delete: it is not archived |
 | Session | `ops::session::delete_rows` | its `session_attention` row | — | Settings delete: it is not archived, or it belongs to a mission. Close: it is not a shell |
 | Project | `ops::project::project_delete_impl` | its tabs, archiving chats and deleting terminals | `sessions.project_id`, `missions.project_id` | a session in one of its tabs is missing, bound to a mission, or still running; then, its node still has a child once the tabs are gone. The socket tool also refuses running members unless forced |
 | Node | `repo::node::delete` | — | — | it has children, with SQLite's own `FOREIGN KEY constraint failed` |
 
-Dependents go through their own entity's delete, so deleting a crew deletes its missions through `ops::mission::delete_rows`, which deletes their sessions and attention rows through `ops::session::delete_rows`. Both take a list of ids and issue one statement per table, however many rows go. A mission's sessions are deleted, not unbound: a mission-scoped row with no mission would surface as a direct chat, so the `ON DELETE SET NULL` on `sessions.mission_id` never fires. Role delete refuses instead of taking the role's slots with it: a slot is part of its crew, so a crew only loses a member through slot delete, which promotes a new lead and repacks positions. The sessions a role delete does take are its archived chats and the sessions of missions whose slot for it was removed since. The node refusal is the one guard in the repository layer, because the sidebar tree is a single table that references itself.
+Dependents go through their own entity's delete: deleting a mission through `ops::mission::delete_rows` removes its sessions and attention rows through `ops::session::delete_rows`. Crew deletion removes only its slots and preserves mission history. Both take a list of ids and issue one statement per table, however many rows go. A mission's sessions are deleted, not unbound: a mission-scoped row with no mission would surface as a direct chat, so the `ON DELETE SET NULL` on `sessions.mission_id` never fires. Role delete refuses instead of taking the role's slots with it: a slot is part of its crew, so a crew only loses a member through slot delete, which promotes a new lead and repacks positions. The sessions a role delete does take are its archived chats and the sessions of missions whose slot for it was removed since. The node refusal is the one guard in the repository layer, because the sidebar tree is a single table that references itself.
 
 A refused delete rolls back its transaction, including any dependents it had already removed. Work committed before that transaction stays committed: a project delete archives its member missions one by one first, so a delete refused later can leave them archived, as it always could. `ops/` also owns what is product rather than integrity: a new lead and dense positions after a slot delete, and removing a mission's directories after commit. Live processes stop before the transaction opens. Role delete kills the role's sessions, in both `ops::role::role_delete` and the socket tool. Mission delete closes its drawer shells. Project delete archives its missions and kills its running chats before its final transaction. References with no foreign key behind them, `sessions.slot_id`, `nodes.ref_id` and the session ids inside `nodes.layout`, are handled where they always were: `repo::node::remove_session`, `delete_mission_node` and the `ensure_active_sessions` repair.
 

@@ -386,12 +386,12 @@ fn assert_status_uses_existing_direct_and_mission_consumers(source: &'static str
         let app_data = tempfile::tempdir().unwrap();
         let events_path = runner_core::event_log::path::events_path(
             app_data.path(),
-            &mission.crew_id,
+            mission.crew_id.as_deref(),
             &mission.id,
         );
         let mission_dir = runner_core::event_log::path::mission_dir(
             app_data.path(),
-            &mission.crew_id,
+            mission.crew_id.as_deref(),
             &mission.id,
         );
         let fake = fake_runtime();
@@ -546,10 +546,16 @@ fn mission_spawn_seeds_status_and_allows_hook_takeover() {
     let pool = pool_with_schema();
     let (mission, role, slot) = single_slot_mission(&pool);
     let app_data = tempfile::tempdir().unwrap();
-    let events_path =
-        runner_core::event_log::path::events_path(app_data.path(), &mission.crew_id, &mission.id);
-    let mission_dir =
-        runner_core::event_log::path::mission_dir(app_data.path(), &mission.crew_id, &mission.id);
+    let events_path = runner_core::event_log::path::events_path(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
+    let mission_dir = runner_core::event_log::path::mission_dir(
+        app_data.path(),
+        mission.crew_id.as_deref(),
+        &mission.id,
+    );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let cap = capture();

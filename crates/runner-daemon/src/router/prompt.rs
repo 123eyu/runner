@@ -66,6 +66,7 @@ pub struct LaunchPromptInput<'a> {
 pub fn compose_worker_first_turn(
     system_prompt: Option<&str>,
     crew_addendum: Option<&str>,
+    leadless_goal: Option<&str>,
 ) -> String {
     let addendum = crew_addendum
         .map(str::trim)
@@ -76,7 +77,15 @@ pub fn compose_worker_first_turn(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let mut out = String::new();
-    out.push_str(WORKER_COORDINATION_PREAMBLE);
+    out.push_str(if leadless_goal.is_some() {
+        TEAM_COORDINATION_PREAMBLE
+    } else {
+        WORKER_COORDINATION_PREAMBLE
+    });
+    if let Some(goal) = leadless_goal.map(str::trim).filter(|goal| !goal.is_empty()) {
+        out.push_str("\n\n== Mission goal ==\n");
+        out.push_str(goal);
+    }
     if let Some(addendum) = addendum {
         out.push_str("\n\n== Team conventions ==\n");
         out.push_str(&addendum);
@@ -112,7 +121,17 @@ pub(crate) const WORKER_COORDINATION_PREAMBLE: &str = r#"You are a worker in a c
 - `runner msg read` — read your inbox (pull-based: new messages do NOT auto-print). Run this when you see an `[inbox]` notification or any time you suspect new traffic.
 - `runner msg post --to <handle> "<text>"` — direct message to a specific handle. Valid handles: any slot in this crew.
 - `runner msg post "<text>"` — broadcast to the crew (no `--to`).
-- `runner signal ask_lead --payload '{"question":"…","context":"…"}'` — escalate to the lead when a load-bearing decision is genuinely ambiguous.
+- Questions for the lead go to it with `runner msg post --to <lead>`; `runner mission show` names it.
+- The team can change while the mission runs; your inbox announces every join and leave, and `runner mission show` lists the current team.
+- Busy/idle is inferred from your terminal activity."#;
+
+pub(crate) const TEAM_COORDINATION_PREAMBLE: &str = r#"You are a member of a team coordinated by the bundled `runner` CLI. The CLI is on your PATH and talks to the rest of the team via a shared event bus. This mission has no lead. Use these verbs to participate; do not invent your own conventions.
+
+== Coordination ==
+- `runner msg read` — read your inbox (pull-based: new messages do NOT auto-print). Run this when you see an `[inbox]` notification or any time you suspect new traffic.
+- `runner msg post --to <handle> "<text>"` — direct message to a specific handle. Valid handles: any member of this team.
+- `runner msg post "<text>"` — broadcast to the team (no `--to`).
+- Escalate to the human (with structured choices) via `runner signal ask_human --payload '{"prompt":"…","choices":["yes","no"],"on_behalf_of":"<asker>"}'`.
 - The team can change while the mission runs; your inbox announces every join and leave, and `runner mission show` lists the current team.
 - Busy/idle is inferred from your terminal activity."#;
 
@@ -180,7 +199,7 @@ pub(crate) fn compose_launch_prompt_sections(
 
     after_mission.push_str("== Coordination ==\n");
     after_mission
-        .push_str("- You are the human's counterpart. Workers escalate to you via `ask_lead`.\n");
+        .push_str("- You are the human's counterpart. Workers message you with questions.\n");
     after_mission.push_str(
         "- Reply to a worker with `runner msg post --to <handle> \"…\"`; broadcasts omit `--to`.\n",
     );
@@ -257,7 +276,7 @@ mod tests {
     #[test]
     fn established_runtimes_keep_composed_bodies_byte_identical() {
         let direct = compose_direct_first_turn(Some("  persona  "));
-        let worker = Some(compose_worker_first_turn(Some("brief"), Some("team")));
+        let worker = Some(compose_worker_first_turn(Some("brief"), Some("team"), None));
         let lead = Some(launch_fixture());
         for runtime in [
             Runtime::ClaudeCode,
@@ -335,7 +354,7 @@ Goal: Implement feature
 - `tester` (Tester)
 
 == Coordination ==
-- You are the human's counterpart. Workers escalate to you via `ask_lead`.
+- You are the human's counterpart. Workers message you with questions.
 - Reply to a worker with `runner msg post --to <handle> "…"`; broadcasts omit `--to`.
 - The operator watches the terminals and types directly into a runner's pane.
 - Read your inbox with `runner msg read` — it's pull-based.
@@ -449,7 +468,7 @@ Goal: Implement feature
 
     #[test]
     fn composed_prompts_omit_reply_to_human_protocol() {
-        let worker = compose_worker_first_turn(None, None);
+        let worker = compose_worker_first_turn(None, None, None);
         let lead = compose_launch_prompt(&LaunchPromptInput {
             lead: lead("lead", None),
             crew_name: "A",
@@ -503,8 +522,8 @@ Goal: Implement feature
         // addendum set) must produce byte-identical output to the
         // pre-#54 composer, so seeded Build squad rows / any crew that
         // leaves the addendum NULL keep the exact prompt they had.
-        let with_brief = compose_worker_first_turn(Some("WORKER_BRIEF"), None);
-        let without_brief = compose_worker_first_turn(None, None);
+        let with_brief = compose_worker_first_turn(Some("WORKER_BRIEF"), None, None);
+        let without_brief = compose_worker_first_turn(None, None, None);
 
         assert!(with_brief.starts_with(WORKER_COORDINATION_PREAMBLE));
         assert!(with_brief.contains("== Your brief =="));
@@ -516,7 +535,7 @@ Goal: Implement feature
 
     #[test]
     fn worker_first_turn_splices_addendum_between_preamble_and_brief() {
-        let body = compose_worker_first_turn(Some("WORKER_BRIEF"), Some("TEAM_TEXT"));
+        let body = compose_worker_first_turn(Some("WORKER_BRIEF"), Some("TEAM_TEXT"), None);
         assert!(body.contains(WORKER_COORDINATION_PREAMBLE));
         assert!(
             body.contains("== Team conventions =="),
@@ -544,8 +563,8 @@ Goal: Implement feature
 
     #[test]
     fn worker_first_turn_whitespace_only_addendum_collapses_to_none() {
-        let with_blanks = compose_worker_first_turn(Some("BRIEF"), Some("   \n\t  "));
-        let baseline = compose_worker_first_turn(Some("BRIEF"), None);
+        let with_blanks = compose_worker_first_turn(Some("BRIEF"), Some("   \n\t  "), None);
+        let baseline = compose_worker_first_turn(Some("BRIEF"), None, None);
         assert_eq!(
             with_blanks, baseline,
             "whitespace-only addendum must be treated as None",
@@ -594,5 +613,28 @@ Goal: Implement feature
         });
         assert_eq!(whitespace, baseline);
         assert!(!baseline.contains("TEAM_TEXT"));
+    }
+}
+
+#[cfg(test)]
+mod leadless_tests {
+    use super::*;
+    #[test]
+    fn every_runtime_delivers_the_leadless_preamble_and_goal_as_the_first_turn() {
+        for runtime in ["shell", "claude-code", "codex", "copilot", "pi"] {
+            let (system, turn) = crate::runtimes::for_key(runtime).prompt_channels().worker(
+                Some("ROLE_BRIEF"),
+                None,
+                Some("SHARED_GOAL"),
+            );
+            assert!(system.is_none());
+            let body = turn.unwrap();
+            assert!(body.starts_with(TEAM_COORDINATION_PREAMBLE));
+            assert!(body
+                .contains("\n\n== Mission goal ==\nSHARED_GOAL\n\n== Your brief ==\nROLE_BRIEF"));
+            assert!(!body.contains("ask_lead"));
+        }
+        assert!(!compose_worker_first_turn(None, None, Some(" ")).contains("== Mission goal =="));
+        assert!(!compose_worker_first_turn(None, None, None).contains("== Mission goal =="));
     }
 }

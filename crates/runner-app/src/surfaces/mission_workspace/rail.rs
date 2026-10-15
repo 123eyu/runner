@@ -709,7 +709,7 @@ impl MissionWorkspace {
             .as_ref()
             .map(|crew| crew.name.clone())
             .unwrap_or_else(|| "…".into());
-        let crew_id = mission.crew_id.clone();
+        let crew_id = mission.crew_id.clone().unwrap_or_default();
         panel
             .child(meta_section(
                 "Crew",

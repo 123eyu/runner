@@ -44,7 +44,7 @@ pub use runner_core::cli_install::{install_runner_cli, remove_stale_mcp_cli, MCP
 /// resumes of the same slot.
 pub fn install_session_runner_shim(
     app_data_dir: &Path,
-    crew_id: &str,
+    crew_id: Option<&str>,
     mission_id: &str,
     handle: &str,
     event_log: &Path,
@@ -67,7 +67,11 @@ pub fn install_session_runner_shim(
     script.push_str("#!/bin/sh\n");
     script
         .push_str("# Auto-generated session shim. See cli_install::install_session_runner_shim.\n");
-    script.push_str(&format!("export RUNNER_CREW_ID='{}'\n", sh_escape(crew_id)));
+    if let Some(crew_id) = crew_id {
+        script.push_str(&format!("export RUNNER_CREW_ID='{}'\n", sh_escape(crew_id)));
+    } else {
+        script.push_str("unset RUNNER_CREW_ID\n");
+    }
     script.push_str(&format!(
         "export RUNNER_MISSION_ID='{}'\n",
         sh_escape(mission_id)
@@ -116,7 +120,7 @@ pub fn install_session_runner_shim(
 #[cfg(windows)]
 fn windows_cmd_shim(
     real_runner: &Path,
-    crew_id: &str,
+    crew_id: Option<&str>,
     mission_id: &str,
     handle: &str,
     event_log: &str,
@@ -124,8 +128,11 @@ fn windows_cmd_shim(
 ) -> Result<String> {
     let real_runner = real_runner.to_string_lossy();
     let mut script = String::from("@echo off\r\nsetlocal\r\n");
+    if crew_id.is_none() {
+        script.push_str("set \"RUNNER_CREW_ID=\"\r\n");
+    }
     for (name, value) in [
-        ("RUNNER_CREW_ID", Some(crew_id)),
+        ("RUNNER_CREW_ID", crew_id),
         ("RUNNER_MISSION_ID", Some(mission_id)),
         ("RUNNER_HANDLE", Some(handle)),
         ("RUNNER_EVENT_LOG", Some(event_log)),
@@ -1062,7 +1069,7 @@ mod tests {
 
         let dir_a = install_session_runner_shim(
             app_data.path(),
-            "crew-1",
+            Some("crew-1"),
             "m-a",
             "architect",
             &event_log_a,
@@ -1071,7 +1078,7 @@ mod tests {
         .unwrap();
         let dir_b = install_session_runner_shim(
             app_data.path(),
-            "crew-1",
+            Some("crew-1"),
             "m-b",
             "architect",
             &event_log_b,
@@ -1125,7 +1132,7 @@ mod tests {
         let event_log = app_data.path().join("events.ndjson");
         let shim_dir = install_session_runner_shim(
             app_data.path(),
-            "crew-1",
+            Some("crew-1"),
             "mission-1",
             "coder",
             &event_log,
@@ -1166,7 +1173,7 @@ mod tests {
         for cwd in [Some(r"C:\Agent Tools\repo"), None] {
             let shim_dir = install_session_runner_shim(
                 app_data.path(),
-                "crew-1",
+                Some("crew-1"),
                 "mission-1",
                 "coder",
                 &event_log,
@@ -1198,7 +1205,7 @@ mod tests {
             assert!(
                 windows_cmd_shim(
                     Path::new(values[0]),
-                    values[1],
+                    Some(values[1]),
                     values[2],
                     values[3],
                     values[4],
@@ -1217,7 +1224,8 @@ mod tests {
         let runner = dir.path().join("agent%helper.cmd");
         fs::write(&runner, "@echo off\r\necho %RUNNER_CREW_ID%\r\necho %RUNNER_MISSION_ID%\r\necho %RUNNER_HANDLE%\r\necho %RUNNER_EVENT_LOG%\r\necho %MISSION_CWD%\r\n").unwrap();
         let value = r"C:\a%b\repo";
-        let script = windows_cmd_shim(&runner, value, value, value, value, Some(value)).unwrap();
+        let script =
+            windows_cmd_shim(&runner, Some(value), value, value, value, Some(value)).unwrap();
         for name in [
             "RUNNER_CREW_ID",
             "RUNNER_MISSION_ID",
@@ -1249,7 +1257,7 @@ mod tests {
         let event_log = app_data.path().join("events.ndjson");
         let error = install_session_runner_shim(
             app_data.path(),
-            "crew",
+            Some("crew"),
             "mission",
             "coder",
             &event_log,
