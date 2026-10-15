@@ -83,20 +83,57 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 
 每项功能的界面演示见 [runnersh.dev](https://runnersh.dev/)。
 
-- **Crew 与 mission** — crew 把角色放进有名字的槽位，指定一个 lead，并带上共同的团队约定；mission 为每个槽位开一个实时终端，再加一条 feed，crew 在这里协作，问你的问题也在这里等你。单个槽位可以单独停止、恢复或重启，不影响其他槽位。[架构 →](./docs/arch/arch.md)
+<table>
+  <tr>
+    <td width="50%" valign="middle">
+      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew 详情页展示 coder 和 reviewer 槽位、lead 标记、单槽位配置覆盖和共享团队约定" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>可复用的 Crew</h3>
+      <p>把保存的角色组合成 crew，指定一个 lead，并设定共享的团队约定。查看各槽位使用的 agent 和模型，按需覆盖配置，之后随时用同一支团队发起 mission。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="middle">
+      <a href="assets/mission_feed.png"><img src="assets/mission_feed.png" alt="mission feed 中 coder、reviewer 和 QA 在协作，一个问题正等待你回答" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>Mission 与协作</h3>
+      <p>每个 mission 为 crew 的各个槽位提供实时终端和共享 feed，agent 在这里协作，需要你决定的问题也会出现在这里。单个槽位可以单独停止、恢复或重启，不影响其他槽位。<a href="./docs/arch/arch.md">架构 →</a></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="middle">
+      <a href="assets/mission_terminal.png"><img src="assets/mission_terminal.png" alt="mission 里一个槽位自己的终端：coder 的 Codex 会话，旁边是 crew 的会话卡片" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>真实终端</h3>
+      <p>每个 agent 都在真实 PTY 里保留自己的 TUI，跑在 GPU 绘制的 <code>alacritty_terminal</code> 网格上：鼠标上报、输入法（包括拼音）、文件路径粘贴和点击打开，每个 chat 和 mission 下面还有一个终端抽屉。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="middle">
+      <a href="assets/chat_split.png"><img src="assets/chat_split.png" alt="一个标签页分成四栏：Codex、Claude Code、Antigravity CLI 和 pi 并排运行" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>分栏与多窗口</h3>
+      <p>标签页可以一直分栏到窗口放不下为止，拖动各栏重新排列，把标签页归进文件夹，用 <code>⇧⌘N</code> 或 <code>Ctrl+Shift+N</code> 打开更多窗口。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="middle">
+      <a href="assets/notifications.png"><img src="assets/notifications.png" alt="Settings → Notifications：选择哪些 chat 和 mission 事件发送桌面通知" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>桌面通知</h3>
+      <p>Runner 在后台时，agent 需要输入、完成一轮回复或失败都可以发通知，点击后打开对应的 chat 或 mission。在 <strong>Settings → Notifications</strong> 中选择通知事件；chat 通知默认开启，mission 通知需要手动开启。</p>
+    </td>
+  </tr>
+</table>
 
-  <img src="assets/mission_terminal.png" alt="mission 里一个槽位自己的终端：coder 的 Codex 会话，旁边是 crew 的会话卡片" width="100%" />
+**更多功能：**
 
-- **真实终端** — 每个 agent 都在真实 PTY 里保留自己的 TUI，跑在 GPU 绘制的 `alacritty_terminal` 网格上：鼠标上报、输入法（包括拼音）、文件路径粘贴和点击打开，每个 chat 和 mission 下面还有一个终端抽屉。
 - **Runner 关闭后 agent 照样工作** — 会话跑在 Runner 的后台服务 `runnerd` 里。退出应用或者应用崩溃，重新打开后会接回同一批正在运行的终端；停止的 agent 会在下次启动时各自接着原来的对话。
-- **桌面通知** — Runner 在后台时，agent 需要输入、完成一轮回复或失败都可以发通知，点击后打开对应的 chat 或 mission。在 **Settings → Notifications** 中选择通知事件；chat 通知默认开启，mission 通知需要手动开启。
-
-  <img src="assets/notifications.png" alt="Settings → Notifications：选择哪些 chat 和 mission 事件发送桌面通知" width="100%" />
-
-- **分栏与多窗口** — 标签页可以一直分栏到窗口放不下为止，拖动各栏重新排列，把标签页归进文件夹，用 `⇧⌘N` 或 `Ctrl+Shift+N` 打开更多窗口。
-
-  <img src="assets/chat_split.png" alt="一个标签页分成四栏：Codex、Claude Code、Antigravity CLI 和 pi 并排运行" width="100%" />
-
 - **在一个地方管理 MCP 服务与技能** — **Settings → MCP** 和 **Settings → Skills** 按 agent 列出它自己的配置，可以按 agent 单独关掉某一项，只改动你碰过的那一条。
 - **项目** — 绑定一次工作目录；在项目里发起的 chat 和 mission 会继承它的 cwd，并在侧边栏里归在一起。
 - **浅色与深色** — Carbon 和 Runner Light，外加 Catppuccin，每种模式各有一套应用配色和终端配色。Claude Code 会实时跟着切换。
