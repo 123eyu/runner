@@ -86,11 +86,20 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 <table>
   <tr>
     <td width="50%" valign="middle">
+      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew 详情页展示 coder 和 reviewer 槽位、lead 标记、单槽位配置覆盖和共享团队约定" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>可复用的 Crew</h3>
+      <p>把保存的角色组合成 crew，指定一个 lead，并设定共享的团队约定。查看各槽位使用的 agent 和模型，按需覆盖配置，之后随时用同一支团队发起 mission。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="middle">
       <a href="assets/mission_feed.png"><img src="assets/mission_feed.png" alt="mission feed 中 coder、reviewer 和 QA 在协作，一个问题正等待你回答" width="100%" /></a>
     </td>
     <td width="50%" valign="middle">
-      <h3>Crew 与 mission</h3>
-      <p>crew 把角色放进有名字的槽位，指定一个 lead，并带上共同的团队约定；mission 为每个槽位开一个实时终端，再加一条 feed，crew 在这里协作，问你的问题也在这里等你。单个槽位可以单独停止、恢复或重启，不影响其他槽位。<a href="./docs/arch/arch.md">架构 →</a></p>
+      <h3>Mission 与协作</h3>
+      <p>每个 mission 为 crew 的各个槽位提供实时终端和共享 feed，agent 在这里协作，需要你决定的问题也会出现在这里。单个槽位可以单独停止、恢复或重启，不影响其他槽位。<a href="./docs/arch/arch.md">架构 →</a></p>
     </td>
   </tr>
   <tr>

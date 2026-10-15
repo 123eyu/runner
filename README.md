@@ -86,11 +86,20 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 <table>
   <tr>
     <td width="50%" valign="middle">
+      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew detail page with coder and reviewer slots, a lead badge, per-slot overrides and shared team conventions" width="100%" /></a>
+    </td>
+    <td width="50%" valign="middle">
+      <h3>Reusable crews</h3>
+      <p>Compose saved roles into a crew, choose a lead, and define shared team conventions. Review each slot's agent and model, adjust overrides, then launch a mission with the same team whenever you need it.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="middle">
       <a href="assets/mission_feed.png"><img src="assets/mission_feed.png" alt="A mission feed with coder, reviewer and QA coordinating, and a question waiting for your input" width="100%" /></a>
     </td>
     <td width="50%" valign="middle">
-      <h3>Crews and missions</h3>
-      <p>A crew is roles in named slots with one lead and shared conventions; a mission gives each slot a live terminal and a feed where the crew coordinates and its questions wait for you. Stop, resume or restart one slot without touching the rest. <a href="./docs/arch/arch.md">Architecture →</a></p>
+      <h3>Missions and coordination</h3>
+      <p>Each mission gives every crew slot a live terminal and a shared feed where agents coordinate and bring questions to you. Stop, resume or restart one slot without touching the rest. <a href="./docs/arch/arch.md">Architecture →</a></p>
     </td>
   </tr>
   <tr>
