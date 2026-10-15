@@ -1761,3 +1761,57 @@ fn migration_0026_converts_all_launches_before_0027_drops_columns() {
         .unwrap()
         .is_some());
 }
+
+#[test]
+fn foreign_keys_off_migration_preserves_children_and_restores_enforcement() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    super::init_connection(&mut conn).unwrap();
+    run_migrations(&mut conn).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE parent (id TEXT PRIMARY KEY);
+         CREATE TABLE child (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parent(id) ON DELETE CASCADE);
+         INSERT INTO parent VALUES ('p');
+         INSERT INTO child VALUES ('c', 'p');",
+    ).unwrap();
+    super::migrations::apply_migration(
+        &mut conn,
+        100,
+        "CREATE TABLE parent_new (id TEXT PRIMARY KEY);
+         INSERT INTO parent_new SELECT * FROM parent;
+         DROP TABLE parent;
+         ALTER TABLE parent_new RENAME TO parent;",
+        true,
+    )
+    .unwrap();
+    let parent: String = conn
+        .query_row("SELECT parent_id FROM child WHERE id = 'c'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(parent, "p");
+    for sql in ["DELETE FROM parent", "INVALID SQL"] {
+        assert!(super::migrations::apply_migration(&mut conn, 101, sql, true).is_err());
+        let enforced: bool = conn
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        assert!(enforced);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM parent", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE version = 101",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+    assert!(conn
+        .execute("INSERT INTO child VALUES ('bad', 'missing')", [])
+        .is_err());
+}

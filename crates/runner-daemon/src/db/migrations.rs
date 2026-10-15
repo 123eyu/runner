@@ -69,87 +69,129 @@ use crate::error::Result;
 // 0024: runtime_options_json on roles, slots and sessions; sessions drops it in 0027.
 // 0026: records launch definitions, with a Rust conversion in the same transaction.
 // 0027: drops six process-host columns and three session override columns.
-pub(super) const MIGRATIONS: &[(i64, &str)] = &[
-    (1, include_str!("../../migrations/0001_init.sql")),
+pub(super) const MIGRATIONS: &[(i64, &str, bool)] = &[
+    (1, include_str!("../../migrations/0001_init.sql"), false),
     (
         2,
         include_str!("../../migrations/0002_persona_only_seeds.sql"),
+        false,
     ),
-    (3, include_str!("../../migrations/0003_session_runtime.sql")),
+    (
+        3,
+        include_str!("../../migrations/0003_session_runtime.sql"),
+        false,
+    ),
     (
         4,
         include_str!("../../migrations/0004_mission_archived_at.sql"),
+        false,
     ),
     (
         5,
         include_str!("../../migrations/0005_crew_system_prompt_addendum.sql"),
+        false,
     ),
     (
         6,
         include_str!("../../migrations/0006_drop_crews_signal_types.sql"),
+        false,
     ),
     (
         7,
         include_str!("../../migrations/0007_direct_runtime_sessions.sql"),
+        false,
     ),
     (
         8,
         include_str!("../../migrations/0008_drop_crews_orchestrator_policy.sql"),
+        false,
     ),
-    (9, include_str!("../../migrations/0009_folders_tabs.sql")),
-    (10, include_str!("../../migrations/0010_tab_attention.sql")),
-    (11, include_str!("../../migrations/0011_projects.sql")),
+    (
+        9,
+        include_str!("../../migrations/0009_folders_tabs.sql"),
+        false,
+    ),
+    (
+        10,
+        include_str!("../../migrations/0010_tab_attention.sql"),
+        false,
+    ),
+    (
+        11,
+        include_str!("../../migrations/0011_projects.sql"),
+        false,
+    ),
     (
         12,
         include_str!("../../migrations/0012_drop_collapsed_view_state.sql"),
+        false,
     ),
     (
         13,
         include_str!("../../migrations/0013_slot_runtime_override.sql"),
+        false,
     ),
-    (14, include_str!("../../migrations/0014_nodes.sql")),
-    (15, include_str!("../../migrations/0015_retire_folders.sql")),
+    (14, include_str!("../../migrations/0014_nodes.sql"), false),
+    (
+        15,
+        include_str!("../../migrations/0015_retire_folders.sql"),
+        false,
+    ),
     (
         16,
         include_str!("../../migrations/0016_session_last_size.sql"),
+        false,
     ),
     (
         17,
         include_str!("../../migrations/0017_session_resume_on_launch.sql"),
+        false,
     ),
     (
         18,
         include_str!("../../migrations/0018_slot_model_override.sql"),
+        false,
     ),
     (
         19,
         include_str!("../../migrations/0019_session_agent_options.sql"),
+        false,
     ),
     (
         20,
         include_str!("../../migrations/0020_slot_effort_override.sql"),
+        false,
     ),
     (
         21,
         include_str!("../../migrations/0021_session_attention.sql"),
+        false,
     ),
     (
         22,
         include_str!("../../migrations/0022_session_live_title.sql"),
+        false,
     ),
-    (23, include_str!("../../migrations/0023_roles.sql")),
-    (24, include_str!("../../migrations/0024_codex_speed.sql")),
+    (23, include_str!("../../migrations/0023_roles.sql"), false),
+    (
+        24,
+        include_str!("../../migrations/0024_codex_speed.sql"),
+        false,
+    ),
     (
         25,
         include_str!("../../migrations/0025_drop_crew_purpose_goal.sql"),
+        false,
     ),
     (
         26,
         include_str!("../../migrations/0026_session_launch_definition.sql"),
+        false,
     ),
     (
         27,
         include_str!("../../migrations/0027_drop_unused_session_columns.sql"),
+        false,
     ),
 ];
 
@@ -175,29 +217,58 @@ pub(super) fn run_migrations_up_to(conn: &mut Connection, max_version: i64) -> R
     // IMMEDIATE transaction: a crash mid-apply rolls back the DDL so the next
     // startup retries the same version instead of replaying it onto a
     // partially-migrated schema (which would fail on `CREATE TABLE crews`).
-    for (version, sql) in MIGRATIONS {
+    for (version, sql, foreign_keys_off) in MIGRATIONS {
         if *version > current && *version <= max_version {
-            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            tx.execute_batch(sql)?;
-            // Data backfills that need Rust (JSON parsing, cross-table
-            // resolution) run inside the migration's transaction.
-            if *version == 14 {
-                backfill_0014_nodes(&tx)?;
-            }
-            if *version == 15 {
-                backfill_0015_retire_folders(&tx)?;
-            }
-            if *version == 26 {
-                backfill_0026_launch_definitions(&tx)?;
-            }
-            tx.execute(
-                "INSERT INTO _migrations (version, applied_at) VALUES (?1, ?2)",
-                params![version, chrono::Utc::now().to_rfc3339()],
-            )?;
-            tx.commit()?;
+            apply_migration(conn, *version, sql, *foreign_keys_off)?;
         }
     }
     Ok(())
+}
+
+pub(super) fn apply_migration(
+    conn: &mut Connection,
+    version: i64,
+    sql: &str,
+    foreign_keys_off: bool,
+) -> Result<()> {
+    if foreign_keys_off {
+        conn.pragma_update(None, "foreign_keys", false)?;
+    }
+    let result = (|| {
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute_batch(sql)?;
+        if version == 14 {
+            backfill_0014_nodes(&tx)?;
+        }
+        if version == 15 {
+            backfill_0015_retire_folders(&tx)?;
+        }
+        if version == 26 {
+            backfill_0026_launch_definitions(&tx)?;
+        }
+        if foreign_keys_off {
+            let mut check = tx.prepare("PRAGMA foreign_key_check")?;
+            let mut rows = check.query([])?;
+            if let Some(row) = rows.next()? {
+                let table: String = row.get(0)?;
+                let parent: String = row.get(2)?;
+                return Err(crate::error::Error::msg(format!(
+                    "migration {version}: foreign key violation in {table} referencing {parent}"
+                )));
+            }
+        }
+        tx.execute(
+            "INSERT INTO _migrations (version, applied_at) VALUES (?1, ?2)",
+            params![version, chrono::Utc::now().to_rfc3339()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    })();
+    // The transaction has committed or rolled back before changing the pragma.
+    if foreign_keys_off {
+        conn.pragma_update(None, "foreign_keys", true)?;
+    }
+    result
 }
 
 /// Replace each root folder with its children while preserving the
