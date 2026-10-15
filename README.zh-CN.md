@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/hero.png" alt="Runner — coder、reviewer 和 QA 在 mission feed 中协作，成员侧栏提供 Add role 入口" width="100%" />
+  <img src="assets/hero.png" alt="Runner 起始页 — 在同一个工作区新建聊天、终端或 crew mission" width="100%" />
 </p>
 
 <p align="center">
@@ -152,7 +152,7 @@ runner mission stop "$mission"
 
 ⁵ Grok 的聊天、mission 和停止后恢复通过了 macOS 原生验证；完整重启 app 后的会话恢复尚未验证。
 
-本地 fork 已加入默认启用的 **OpenCode v2** runtime，接入原生 PTY 聊天、角色与 crew，以及精确会话 ID、动态模型、skills 和 MCP 设置。macOS 与 Windows 原生实测尚待完成，详见 [OpenCode 规格](./docs/features/archive/592-opencode-runtime.md) 和 [针对性验证](./docs/tests/archive/592-opencode-runtime.md)。暂不提供 Fork、用量/配额或更新按钮。
+**OpenCode v2** 默认启用，已在 Runner 中通过实测，支持原生 PTY 聊天、角色与 crew，以及精确会话 ID、动态模型、skills 和 MCP 设置。详见 [OpenCode 规格](./docs/features/archive/592-opencode-runtime.md) 和 [针对性验证](./docs/tests/archive/592-opencode-runtime.md)。暂不提供 Fork、用量/配额或更新按钮。
 
 Claude Code、Codex 和 Antigravity CLI 是主要支持的 agent。Claude Code 和 Codex 的启动和催促时序做过调优。GitHub Copilot CLI 需要 Copilot 订阅。pi 使用你已经配置好的模型提供商。Antigravity CLI 使用 Google 账号登录，并在启动时自行更新，所以没有 **Update** 按钮。Cursor 默认启用，当前能力详见 [Cursor 规格](./docs/features/archive/723-cursor-agent-runtime.md)。Grok Build 使用你已有的 grok.com 登录，自行更新，默认启用；各平台证据见 [Grok 规格](./docs/features/archive/723-grok-build-runtime.md) 和 [验证记录](./docs/tests/archive/723-grok-build-runtime.md)。TRAE CLI 可以在 Settings → Agents 中手动启用。欢迎提 [issue](https://github.com/yicheng47/runner/issues)。
 

@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/hero.png" alt="Runner — coder, reviewer and QA coordinating in a mission feed, with Add role in the sessions rail" width="100%" />
+  <img src="assets/hero.png" alt="Runner start screen — start a new chat, terminal or crew mission from one workspace" width="100%" />
 </p>
 
 <p align="center">
@@ -152,7 +152,7 @@ runner mission stop "$mission"
 
 ⁵ Grok chats, missions and stop/resume passed native macOS checks; full app-relaunch persistence remains unverified.
 
-This local fork includes **OpenCode v2** as an enabled runtime for native PTY chats, roles and crews, with exact session IDs, dynamic models, skills and MCP settings. macOS and Windows native smoke remains pending; see the [OpenCode spec](./docs/features/archive/592-opencode-runtime.md) and [focused validation](./docs/tests/archive/592-opencode-runtime.md). Fork, usage/quota and update controls are unavailable.
+**OpenCode v2** is enabled by default and has been tested in Runner. It supports native PTY chats, roles and crews, exact session IDs, dynamic models, skills and MCP settings; see the [OpenCode spec](./docs/features/archive/592-opencode-runtime.md) and [focused validation](./docs/tests/archive/592-opencode-runtime.md). Fork, usage/quota and update controls are unavailable.
 
 Claude Code, Codex and Antigravity CLI are the primary agents. Claude Code and Codex have tuned launch and nudge timing. GitHub Copilot CLI needs a Copilot subscription. pi brings your own configured model provider. Antigravity CLI signs in with a Google account and updates itself when it starts, so it has no **Update** button. Cursor is enabled by default; see the [Cursor spec](./docs/features/archive/723-cursor-agent-runtime.md) for its current capabilities. Grok Build uses your existing grok.com sign-in, updates itself, and is enabled by default; see the [Grok spec](./docs/features/archive/723-grok-build-runtime.md) and [validation record](./docs/tests/archive/723-grok-build-runtime.md) for platform evidence. TRAE CLI is available as an opt-in runtime in Settings → Agents. [Issues](https://github.com/yicheng47/runner/issues) are welcome.
 
