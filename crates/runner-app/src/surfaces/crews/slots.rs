@@ -438,7 +438,7 @@ impl NativeRoot {
 }
 
 /// The LEAD badge beside a slot handle.
-pub(super) fn lead_badge() -> AnyElement {
+pub(crate) fn lead_badge() -> AnyElement {
     div()
         .flex_none()
         .rounded(rems(3. / 16.))
@@ -455,7 +455,7 @@ pub(super) fn lead_badge() -> AnyElement {
 
 /// A slot's effective runtime with its mark, then its model, effort, and Speed, each
 /// with a dot when the slot overrides it.
-pub(super) fn slot_setup_line(setup: &SlotSetup) -> gpui::Div {
+pub(crate) fn slot_setup_line(setup: &SlotSetup) -> gpui::Div {
     let icon = ChatIcon::for_runtime(&setup.runtime);
     let separator = || div().flex_none().text_color(theme::faint()).child("·");
     let value = |text: String, overridden: bool| {

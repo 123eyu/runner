@@ -1,3 +1,5 @@
+pub(crate) use logic::{crew_picture, crew_summary, slot_setup};
+pub(crate) use slots::{lead_badge, slot_setup_line};
 mod add_slot;
 mod create;
 mod editor;
