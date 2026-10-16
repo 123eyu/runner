@@ -23,17 +23,23 @@ impl QuitBehavior {
         }
     }
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Ask => "Ask",
-            Self::Keep => "Keep running",
-            Self::Stop => "Stop sessions",
-        }
+        crate::i18n::text(self.label_key())
     }
     pub fn description(self) -> &'static str {
+        crate::i18n::text(self.description_key())
+    }
+    pub fn label_key(self) -> &'static str {
         match self {
-            Self::Ask => "Ask each time sessions are running",
-            Self::Keep => "Sessions keep going in the background",
-            Self::Stop => "Stop them; they resume on next launch",
+            Self::Ask => "ui.ask",
+            Self::Keep => "ui.keep_running",
+            Self::Stop => "ui.stop_sessions",
+        }
+    }
+    pub fn description_key(self) -> &'static str {
+        match self {
+            Self::Ask => "ui.ask_each_time_sessions_are_running",
+            Self::Keep => "ui.sessions_keep_going_in_the_background",
+            Self::Stop => "ui.stop_them_they_resume_on_next_launch",
         }
     }
 }
@@ -133,23 +139,23 @@ pub struct SessionSummary {
 }
 impl SessionSummary {
     pub fn caption(&self) -> String {
-        format!(
-            "{} session{} running · {} working",
+        crate::i18n::tnf(
+            "format.session_running_working",
             self.live,
-            if self.live == 1 { "" } else { "s" },
-            self.working.len()
+            &[("working_count", (self.working.len()).to_string())],
         )
     }
     pub fn stop_description(&self) -> String {
-        let mut text = "They resume the next time you open Runner.".to_owned();
+        let mut text = crate::i18n::text("ui.they_resume_the_next_time_you_open_runner").to_owned();
         match self.working.as_slice() {
             [] => {}
-            [title] => text.push_str(&format!(
-                " \"{title}\" is working and loses its current turn."
+            [title] => text.push_str(&crate::i18n::tf(
+                "format.is_working_and_loses_its_current_turn",
+                &[("title", (title).to_string())],
             )),
-            agents => text.push_str(&format!(
-                " {} agents are working and lose their current turns.",
-                agents.len()
+            agents => text.push_str(&crate::i18n::tf(
+                "format.agents_are_working_and_lose_their_current_turns",
+                &[("working_count", (agents.len()).to_string())],
             )),
         }
         text
@@ -157,22 +163,24 @@ impl SessionSummary {
 }
 
 pub fn working_caption(count: usize) -> Option<String> {
-    (count > 0).then(|| format!("{count} agent{} working", if count == 1 { "" } else { "s" }))
+    (count > 0).then(|| crate::i18n::tnf("format.agent_working", count, &[]))
 }
 
-pub fn restart_message(count: usize, version: &str) -> Option<String> {
+pub fn restart_message(count: usize, version: &str) -> Option<crate::i18n::Text> {
     (count > 0).then(|| {
-        format!(
-            "Restarted {count} session{} in Runner {version}",
-            if count == 1 { "" } else { "s" }
+        crate::i18n::message_count(
+            "format.restarted_session_in_runner",
+            count,
+            &[("version", (version).to_string())],
         )
     })
 }
 
-pub fn crash_recovery_message(count: usize) -> String {
-    format!(
-        "Background service restarted · {count} session{} stopped",
-        if count == 1 { "" } else { "s" }
+pub fn crash_recovery_message(count: usize) -> crate::i18n::Text {
+    crate::i18n::message_count(
+        "format.background_service_restarted_session_stopped",
+        count,
+        &[],
     )
 }
 
@@ -248,17 +256,36 @@ mod tests {
     #[test]
     fn crash_recovery_counts_use_singular_and_plural_sessions() {
         assert_eq!(
-            crash_recovery_message(0),
+            crash_recovery_message(0).resolve(),
             "Background service restarted · 0 sessions stopped"
         );
         assert_eq!(
-            crash_recovery_message(1),
+            crash_recovery_message(1).resolve(),
             "Background service restarted · 1 session stopped"
         );
         assert_eq!(
-            crash_recovery_message(3),
+            crash_recovery_message(3).resolve(),
             "Background service restarted · 3 sessions stopped"
         );
+    }
+
+    #[test]
+    fn existing_recovery_notice_resolves_again_after_switching() {
+        use crate::i18n::{self, Locale};
+        i18n::testing::with_locale(Locale::English, || {
+            let message = crash_recovery_message(3);
+            assert_eq!(
+                message.resolve(),
+                "Background service restarted · 3 sessions stopped"
+            );
+            i18n::set_active_locale(Locale::SimplifiedChinese);
+            assert_eq!(message.resolve(), "后台服务已重启 · 3 个会话已停止");
+            i18n::set_active_locale(Locale::English);
+            assert_eq!(
+                message.resolve(),
+                "Background service restarted · 3 sessions stopped"
+            );
+        });
     }
 
     #[test]
@@ -268,7 +295,9 @@ mod tests {
         assert_eq!(working_caption(3).as_deref(), Some("3 agents working"));
         assert_eq!(restart_message(0, "0.13.1"), None);
         assert_eq!(
-            restart_message(3, "0.13.1").as_deref(),
+            restart_message(3, "0.13.1")
+                .map(|message| message.resolve().to_string())
+                .as_deref(),
             Some("Restarted 3 sessions in Runner 0.13.1")
         );
     }

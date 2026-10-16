@@ -273,14 +273,14 @@ impl Sidebar {
                                     .tabs()
                                     .iter()
                                     .find(|layout| layout.id == *node_id)
-                                    .map(|layout| shell.tab_label(layout, cx))
+                                    .map(|layout| shell.tab_label_source(layout, cx))
                             })
-                            .unwrap_or_else(|| "Chat tab".into());
+                            .unwrap_or_else(|| crate::i18n::message("ui.chat_tab"));
                         (original.clone(), placeholder)
                     }
                     SidebarRenameTarget::Project { original, .. }
                     | SidebarRenameTarget::Mission { original, .. } => {
-                        (original.clone(), original.clone())
+                        (original.clone(), crate::i18n::Text::from(original.clone()))
                     }
                 };
                 self.begin_sidebar_rename(target, value, placeholder, window, cx);
@@ -392,18 +392,19 @@ pub(super) fn tab_menu_entries(
         .map(|combo| keymap::format_combo(&combo).into());
     let mut entries = vec![
         (
-            UiMenuItem::new(if pinned { "Unpin" } else { "Pin" }).icon(if pinned {
-                "pin-off.svg"
+            UiMenuItem::new(if pinned {
+                crate::i18n::message("ui.unpin")
             } else {
-                "pin.svg"
-            }),
+                crate::i18n::message("ui.pin")
+            })
+            .icon(if pinned { "pin-off.svg" } else { "pin.svg" }),
             SidebarMenuAction::TogglePin {
                 node_id: node_id.to_owned(),
                 pinned,
             },
         ),
         (
-            UiMenuItem::new("Rename tab").icon("pencil.svg"),
+            UiMenuItem::new(crate::i18n::message("ui.rename_tab")).icon("pencil.svg"),
             SidebarMenuAction::Rename(SidebarRenameTarget::Tab {
                 node_id: node_id.to_owned(),
                 original,
@@ -412,7 +413,7 @@ pub(super) fn tab_menu_entries(
         ),
     ];
     if let Some(target) = fork_target {
-        let mut item = UiMenuItem::new("Fork chat")
+        let mut item = UiMenuItem::new(crate::i18n::message("ui.fork_chat_action"))
             .icon("git-fork.svg")
             .disabled(fork_pending || target.disabled);
         if let Some(reason) = target.reason {
@@ -421,7 +422,7 @@ pub(super) fn tab_menu_entries(
         entries.push((item, SidebarMenuAction::ForkChat(target.session_id)));
     }
     if !chat_session_ids.is_empty() {
-        let mut item = UiMenuItem::new("Archive")
+        let mut item = UiMenuItem::new(crate::i18n::message("ui.archive"))
             .icon("archive.svg")
             .destructive(true);
         item.shortcut = close_shortcut;
@@ -437,7 +438,7 @@ pub(super) fn tab_menu_entries(
             },
         ));
     } else if let Some(session_id) = terminal_session_id {
-        let mut item = UiMenuItem::new("Close terminal")
+        let mut item = UiMenuItem::new(crate::i18n::message("ui.close_terminal"))
             .icon("close.svg")
             .destructive(true);
         item.shortcut = close_shortcut;
@@ -468,25 +469,26 @@ pub(super) fn mission_menu_entries(
 ) -> Vec<(UiMenuItem, SidebarMenuAction)> {
     vec![
         (
-            UiMenuItem::new(if pinned { "Unpin" } else { "Pin" }).icon(if pinned {
-                "pin-off.svg"
+            UiMenuItem::new(if pinned {
+                crate::i18n::message("ui.unpin")
             } else {
-                "pin.svg"
-            }),
+                crate::i18n::message("ui.pin")
+            })
+            .icon(if pinned { "pin-off.svg" } else { "pin.svg" }),
             SidebarMenuAction::TogglePin {
                 node_id: node_id.to_owned(),
                 pinned,
             },
         ),
         (
-            UiMenuItem::new("Rename").icon("pencil.svg"),
+            UiMenuItem::new(crate::i18n::message("ui.rename")).icon("pencil.svg"),
             SidebarMenuAction::Rename(SidebarRenameTarget::Mission {
                 mission_id: mission_id.to_owned(),
                 original,
             }),
         ),
         (
-            UiMenuItem::new("Archive")
+            UiMenuItem::new(crate::i18n::message("ui.archive"))
                 .icon("archive.svg")
                 .destructive(true),
             SidebarMenuAction::ArchiveMission(mission_id.to_owned()),
@@ -514,19 +516,19 @@ fn create_menu_entries(
     [
         (
             "new-chat",
-            "New chat",
+            crate::i18n::message("ui.new_chat"),
             "message-square-plus.svg",
             SidebarMenuAction::NewChat(scope.clone()),
         ),
         (
             "new-mission",
-            "New mission",
+            crate::i18n::message("ui.new_mission"),
             "flag.svg",
             SidebarMenuAction::NewMission(scope.clone()),
         ),
         (
             "new-terminal",
-            "New terminal",
+            crate::i18n::message("ui.new_terminal"),
             "square-terminal.svg",
             SidebarMenuAction::NewTerminal(scope),
         ),
@@ -548,14 +550,14 @@ pub(super) fn project_menu_entries(
 ) -> Vec<(UiMenuItem, SidebarMenuAction)> {
     vec![
         (
-            UiMenuItem::new("Rename project").icon("pencil.svg"),
+            UiMenuItem::new(crate::i18n::message("ui.rename_project")).icon("pencil.svg"),
             SidebarMenuAction::Rename(SidebarRenameTarget::Project {
                 project_id: project_id.clone(),
                 original: project_name,
             }),
         ),
         (
-            UiMenuItem::new("Delete project")
+            UiMenuItem::new(crate::i18n::message("ui.delete_project"))
                 .icon("trash.svg")
                 .separator_before(true)
                 .destructive(true),

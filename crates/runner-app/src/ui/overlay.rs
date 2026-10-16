@@ -621,7 +621,7 @@ impl RenderOnce for ConfirmDialog {
                             .debug_selector(|| "CONFIRM_DIALOG_FOOTER".into())
                             .child(confirm_action_button(
                                 "confirm-cancel",
-                                "Cancel".into(),
+                                crate::i18n::text("ui.cancel").into(),
                                 ButtonVariant::Secondary,
                                 busy,
                                 self.on_cancel,

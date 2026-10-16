@@ -142,8 +142,8 @@ impl Render for UpdatesPane {
             .flex_col()
             .gap_5()
             .child(PaneHeader::new(
-                "Updates",
-                "Check for new versions and choose how Runner checks.",
+                crate::i18n::text("ui.updates"),
+                crate::i18n::text("ui.check_for_new_versions_and_choose_how_runner_checks"),
             ))
             .child(
                 div()
@@ -199,22 +199,19 @@ impl Render for UpdatesPane {
                                         div()
                                             .text_size(theme::text_ui())
                                             .text_color(theme::muted())
-                                            .child(format!(
-                                                "Update available: {}",
-                                                runner_app::version::version_label(&version)
-                                            ))
+                                            .child(crate::i18n::tf("format.update_available", &[("version", (runner_app::version::version_label(&version)).to_string())]))
                                     }))
                                     .children(updater_controls_unavailable.then(|| {
                                         div()
                                             .text_size(theme::text_ui())
                                             .text_color(theme::muted())
                                             .child(
-                                                "Update controls are available in bundled builds.",
+                                                crate::i18n::text("ui.update_controls_are_available_in_bundled_builds"),
                                             )
                                     })),
                             )
                             .child(
-                                Button::new("updates-check", "Check for updates")
+                                Button::new("updates-check", crate::i18n::text("ui.check_for_updates_action"))
                                     .icon("refresh-cw.svg")
                                     .size(ButtonSize::Sm)
                                     .disabled(!updater_available)
@@ -226,7 +223,7 @@ impl Render for UpdatesPane {
             )
             .child(SettingsCard::new([
                 SettingsRow::new(
-                    "Automatically check for updates",
+                    crate::i18n::text("ui.automatically_check_for_updates"),
                     Toggle::new("updates-auto-check", automatically_checks)
                         .disabled(!updater_available)
                         .on_change(move |enabled, _, cx| {
@@ -248,16 +245,16 @@ impl Render for UpdatesPane {
                             });
                         }),
                 )
-                .subtitle("Let Sparkle check GitHub for a newer signed release when due.")
+                .subtitle(crate::i18n::text("ui.let_sparkle_check_github_for_a_newer_signed_release_when_due"))
                 .into_any_element(),
                 SettingsRow::new(
-                    "Last checked",
+                    crate::i18n::text("ui.last_checked"),
                     div()
                         .text_size(theme::text_ui())
                         .text_color(theme::muted())
                         .child(last_checked),
                 )
-                .subtitle("Sparkle’s most recent update check.")
+                .subtitle(crate::i18n::text("ui.sparkle_s_most_recent_update_check"))
                 .into_any_element(),
             ]))
     }
@@ -266,8 +263,12 @@ impl Render for UpdatesPane {
 fn format_last_checked(checked_at: Option<SystemTime>) -> String {
     checked_at
         .map(DateTime::<Local>::from)
-        .map(|checked_at| checked_at.format("%b %-d, %Y at %-I:%M %p").to_string())
-        .unwrap_or_else(|| "Never".into())
+        .map(|checked_at| {
+            checked_at
+                .format(crate::i18n::text("date.checked"))
+                .to_string()
+        })
+        .unwrap_or_else(|| crate::i18n::text("ui.never").into())
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ impl MissionWorkspace {
             .core(cx)
             .mark_direct_sessions_viewed(std::slice::from_ref(session_id))
         {
-            self.error = Some(error.to_string());
+            self.error = Some(error.to_string().into());
         }
     }
 
@@ -149,7 +149,7 @@ impl MissionWorkspace {
         crate::notifications::view_changed(cx);
         self.mark_active_session_viewed(window, cx);
         if let Err(error) = self.ensure_mission_terminals_attached(window, cx) {
-            self.error = Some(error.to_string());
+            self.error = Some(error.to_string().into());
         }
         self.focus_active_mission_terminal(window, cx);
         cx.notify();
@@ -238,7 +238,7 @@ impl MissionWorkspace {
             }
             Ok(false) => {}
             Err(error) => {
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
                 cx.stop_propagation();
                 cx.notify();
             }
@@ -295,7 +295,7 @@ impl MissionWorkspace {
                 };
                 let input = runner_app::terminal_paste::image_paste_shortcut(runtime);
                 if let Err(error) = chat.terminal.write_user_bytes(input) {
-                    self.error = Some(error.to_string());
+                    self.error = Some(error.to_string().into());
                 }
             }
             runner_app::terminal_paste::TerminalPaste::Text(text) => {
@@ -303,7 +303,7 @@ impl MissionWorkspace {
                     return;
                 };
                 if let Err(error) = chat.terminal.paste(&text) {
-                    self.error = Some(error.to_string());
+                    self.error = Some(error.to_string().into());
                 }
             }
         }
@@ -319,13 +319,13 @@ impl MissionWorkspace {
             return;
         }
         let Some(chat) = self.attached.get(session_id) else {
-            self.error = Some("Terminal is not attached.".into());
+            self.error = Some(crate::i18n::message("ui.terminal_is_not_attached"));
             cx.notify();
             return;
         };
         let terminal = Arc::clone(&chat.terminal);
         if let Err(error) = terminal.send_key("enter", false, false, false, None) {
-            self.error = Some(error.to_string());
+            self.error = Some(error.to_string().into());
             cx.notify();
             return;
         }

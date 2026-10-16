@@ -102,24 +102,33 @@ fn footer(
         Phase::Starting => Footer {
             busy: true,
             ..line(
-                format!("Starting {}…", request.command_label()),
+                crate::i18n::tf(
+                    "format.starting",
+                    &[("command", (request.command_label()).to_string())],
+                ),
                 FooterTone::Muted,
             )
         },
         Phase::Running if waiting => line(
-            "Waiting for input in the terminal.".into(),
+            crate::i18n::text("ui.waiting_for_input_in_the_terminal").into(),
             FooterTone::Warning,
         ),
         Phase::Running => Footer {
             busy: true,
             ..line(
-                format!("Running {}…", request.command_label()),
+                crate::i18n::tf(
+                    "format.running",
+                    &[("command", (request.command_label()).to_string())],
+                ),
                 FooterTone::Muted,
             )
         },
         Phase::Verifying => Footer {
             busy: true,
-            ..line("Checking the installed version…".into(), FooterTone::Muted)
+            ..line(
+                crate::i18n::text("ui.checking_the_installed_version").into(),
+                FooterTone::Muted,
+            )
         },
         Phase::Succeeded {
             version,
@@ -127,16 +136,29 @@ fn footer(
         } => {
             let mut lines = vec![(
                 version.as_ref().map_or_else(
-                    || format!("{} update finished.", request.display_name),
-                    |version| format!("{} is now {version}.", request.display_name),
+                    || {
+                        crate::i18n::tf(
+                            "format.update_finished",
+                            &[("runtime", (request.display_name).to_string())],
+                        )
+                    },
+                    |version| {
+                        crate::i18n::tf(
+                            "format.is_now",
+                            &[
+                                ("runtime", (request.display_name).to_string()),
+                                ("version", (version).to_string()),
+                            ],
+                        )
+                    },
                 ),
                 FooterTone::Text,
             )];
             if *running_sessions > 0 {
                 lines.push((
-                    format!(
-                        "Running sessions keep {} until they relaunch.",
-                        request.installed
+                    crate::i18n::tf(
+                        "format.running_sessions_keep_until_they_relaunch",
+                        &[("version", (request.installed).to_string())],
                     ),
                     FooterTone::Muted,
                 ));
@@ -144,11 +166,11 @@ fn footer(
             Footer {
                 lines,
                 busy: false,
-                button: Some("Done"),
+                button: Some(crate::i18n::text("ui.done")),
             }
         }
         Phase::Failed(message) => Footer {
-            button: Some("Close"),
+            button: Some(crate::i18n::text("ui.close")),
             ..line(message.clone(), FooterTone::Danger)
         },
     };
@@ -162,8 +184,8 @@ fn footer(
 
 fn exit_message(exit_code: Option<i32>) -> String {
     match exit_code {
-        Some(code) => format!("Exited with code {code}."),
-        None => "The update ended without an exit code.".into(),
+        Some(code) => crate::i18n::tf("format.exited_with_code", &[("code", (code).to_string())]),
+        None => crate::i18n::text("ui.the_update_ended_without_an_exit_code").into(),
     }
 }
 
@@ -569,7 +591,7 @@ impl AgentUpdateDialog {
                 div().debug_selector(|| "AGENT_UPDATE_CLOSE".into()).child(
                     Button::new("agent-update-close", label)
                         .size(ButtonSize::Sm)
-                        .variant(if label == "Done" {
+                        .variant(if label == crate::i18n::text("ui.done") {
                             ButtonVariant::Primary
                         } else {
                             ButtonVariant::Secondary
@@ -656,7 +678,10 @@ impl Render for AgentUpdateDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let style = terminal_style_for(&self.app_store.read(cx).settings);
         let mark = ChatIcon::for_runtime(self.request.runtime.key());
-        let title = format!("Updating {}", self.request.display_name);
+        let title = crate::i18n::tf(
+            "format.updating",
+            &[("runtime", (self.request.display_name).to_string())],
+        );
         let subtitle = format!(
             "{} → {} · {}",
             self.request.installed,

@@ -28,18 +28,18 @@ impl TextFieldKind {
 pub enum FieldValidation {
     #[default]
     Valid,
-    Error(SharedString),
+    Error(crate::i18n::Text),
 }
 
 impl FieldValidation {
-    pub fn error(message: impl Into<SharedString>) -> Self {
+    pub fn error(message: impl Into<crate::i18n::Text>) -> Self {
         Self::Error(message.into())
     }
 
-    pub fn message(&self) -> Option<&SharedString> {
+    pub fn message(&self) -> Option<SharedString> {
         match self {
             Self::Valid => None,
-            Self::Error(message) => Some(message),
+            Self::Error(message) => Some(message.resolve()),
         }
     }
 
@@ -52,15 +52,17 @@ impl TextField {
     pub fn new(
         focus_handle: FocusHandle,
         text: impl Into<String>,
-        placeholder: impl Into<SharedString>,
+        placeholder: impl Into<crate::i18n::Text>,
         monospace: bool,
     ) -> Self {
+        let placeholder_source = placeholder.into();
         let mut buffer = TextBuffer::default();
         buffer.reset(text);
         Self {
             focus_handle,
             buffer,
-            placeholder: placeholder.into(),
+            placeholder: placeholder_source.resolve(),
+            placeholder_source,
             placeholder_as_value: false,
             monospace,
             fill_height: false,
@@ -91,7 +93,7 @@ impl TextField {
     pub fn textarea(
         focus_handle: FocusHandle,
         text: impl Into<String>,
-        placeholder: impl Into<SharedString>,
+        placeholder: impl Into<crate::i18n::Text>,
         rows: u8,
         monospace: bool,
     ) -> Self {
@@ -223,12 +225,17 @@ impl TextField {
         cx.notify();
     }
 
+    pub fn placeholder(&self) -> &str {
+        &self.placeholder
+    }
+
     pub fn set_placeholder(
         &mut self,
-        placeholder: impl Into<SharedString>,
+        placeholder: impl Into<crate::i18n::Text>,
         cx: &mut Context<Self>,
     ) {
-        let placeholder = placeholder.into();
+        self.placeholder_source = placeholder.into();
+        let placeholder = self.placeholder_source.resolve();
         if self.placeholder != placeholder {
             self.placeholder = placeholder;
             cx.notify();

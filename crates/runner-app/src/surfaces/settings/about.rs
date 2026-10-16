@@ -19,7 +19,10 @@ impl Render for AboutPane {
             .flex()
             .flex_col()
             .gap_5()
-            .child(PaneHeader::new("About", "Version, credits, and links."))
+            .child(PaneHeader::new(
+                crate::i18n::text("ui.about"),
+                crate::i18n::text("ui.version_credits_and_links"),
+            ))
             .child(
                 div()
                     .overflow_hidden()
@@ -75,7 +78,9 @@ impl Render for AboutPane {
                                             .truncate()
                                             .text_size(theme::text_ui())
                                             .text_color(theme::muted())
-                                            .child("Local cockpit for coding agents."),
+                                            .child(crate::i18n::text(
+                                                "ui.local_cockpit_for_coding_agents",
+                                            )),
                                     ),
                             ),
                     ),
@@ -91,11 +96,17 @@ impl Render for AboutPane {
                 link_row(
                     "about-documentation",
                     "book-text.svg",
-                    "Documentation",
+                    crate::i18n::text("ui.documentation"),
                     Some("https://github.com/yicheng47/runner#readme"),
                     None,
                 ),
-                link_row("about-license", "scale.svg", "License", None, Some("MIT")),
+                link_row(
+                    "about-license",
+                    "scale.svg",
+                    crate::i18n::text("ui.license"),
+                    None,
+                    Some("MIT"),
+                ),
             ]))
             .child(
                 div()

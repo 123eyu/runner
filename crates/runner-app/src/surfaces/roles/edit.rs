@@ -145,7 +145,7 @@ impl NativeRoot {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Pick a working directory".into()),
+            prompt: Some(crate::i18n::text("ui.pick_a_working_directory").into()),
         });
         cx.spawn(async move |weak, cx| {
             let result = selected

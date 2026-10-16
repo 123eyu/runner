@@ -239,8 +239,9 @@ mod native {
 
     fn background_check_declined_error() -> Retained<NSError> {
         let domain = NSString::from_str(RUNNER_UPDATE_ERROR_DOMAIN);
-        let description =
-            NSString::from_str("Runner recorded an update during a background check.");
+        let description = NSString::from_str(crate::i18n::text(
+            "ui.runner_recorded_an_update_during_a_background_check",
+        ));
         let user_info =
             NSDictionary::from_slices(&[NSError::NSLocalizedDescriptionKey()], &[&*description]);
         unsafe {

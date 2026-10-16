@@ -43,8 +43,8 @@ impl DuplicateSubjectOverlay {
 impl RenderOnce for DuplicateSubjectOverlay {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let noun = match self.kind {
-            DuplicateSubjectKind::Mission => "mission",
-            DuplicateSubjectKind::Chat => "chat",
+            DuplicateSubjectKind::Mission => crate::i18n::text("noun.mission"),
+            DuplicateSubjectKind::Chat => crate::i18n::text("noun.chat"),
         };
         let focus = Rc::clone(&self.on_focus);
         let focus_key = Rc::clone(&self.on_focus);
@@ -112,7 +112,7 @@ impl RenderOnce for DuplicateSubjectOverlay {
                                     .text_center()
                                     .text_size(theme::text_lead())
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Open in another window"),
+                                    .child(crate::i18n::text("ui.open_in_another_window")),
                             )
                             .child(
                                 div()
@@ -124,7 +124,7 @@ impl RenderOnce for DuplicateSubjectOverlay {
                                     .text_size(theme::text_body())
                                     .line_height(rems(20. / 16.))
                                     .text_color(theme::muted())
-                                    .child(format!("Another window is already driving this {noun}. Only one window can own the terminal at a time, so this view is read-only until you focus it here.")),
+                                    .child(crate::i18n::tf("format.another_window_is_already_driving_this_only_one_window_can_own_the_terminal_at", &[("noun", (noun).to_string())])),
                             ),
                     )
                     .child(
@@ -177,7 +177,7 @@ impl RenderOnce for DuplicateSubjectOverlay {
                                             .size(rems(14. / 16.))
                                             .text_color(theme::accent_ink()),
                                     )
-                                    .child("Focus that window"),
+                                    .child(crate::i18n::text("ui.focus_that_window")),
                             )
                             .child(
                                 div()
@@ -199,7 +199,7 @@ impl RenderOnce for DuplicateSubjectOverlay {
                                             stay_key(window, cx);
                                         }
                                     })
-                                    .child("Stay here"),
+                                    .child(crate::i18n::text("ui.stay_here")),
                             ),
                     ),
             )

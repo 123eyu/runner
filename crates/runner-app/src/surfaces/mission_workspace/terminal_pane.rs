@@ -56,7 +56,7 @@ impl MissionWorkspace {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child("Attaching terminal…")
+                    .child(crate::i18n::text("ui.attaching_terminal"))
                     .into_any_element(),
             };
         };
@@ -217,16 +217,21 @@ impl MissionWorkspace {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::warning())
                     .child(if unread_count > 1 {
-                        format!("Inbox waiting ({unread_count})")
+                        crate::i18n::tf(
+                            "format.inbox_waiting",
+                            &[("unread_count", (unread_count).to_string())],
+                        )
                     } else {
-                        "Inbox waiting".into()
+                        crate::i18n::text("ui.inbox_waiting").into()
                     }),
             )
             .children((!narrow).then(|| {
                 div().text_color(theme::muted()).child(if needs_you {
-                    "— respond to the agent’s prompt to release delivery"
+                    crate::i18n::text("ui.respond_to_the_agent_s_prompt_to_release_delivery")
                 } else {
-                    "— a draft in the composer is holding delivery; submit or clear it"
+                    crate::i18n::text(
+                        "ui.a_draft_in_the_composer_is_holding_delivery_submit_or_clear_it",
+                    )
                 })
             }))
             .children(idle.then(|| {
@@ -255,7 +260,7 @@ impl MissionWorkspace {
                             this.submit_or_clear_mission_input(&session_id, window, cx)
                         });
                     })
-                    .child("Submit / clear")
+                    .child(crate::i18n::text("ui.submit_clear"))
                     .child(
                         div()
                             .text_size(theme::text_caption())
@@ -320,7 +325,7 @@ impl MissionWorkspace {
         let archive_root = root;
         SessionOverlay::ended(
             "mission-paused",
-            "All slots are paused. Resume to respawn every slot and pick up the conversation — the event log is preserved.",
+            crate::i18n::text("ui.all_slots_are_paused_resume_to_respawn_every_slot_and_pick_up_the_conversation_the_event_l"),
             move |window, cx| {
                 resume_root.update(cx, |this, cx| this.resume_open_mission(window, cx));
             },
@@ -328,7 +333,7 @@ impl MissionWorkspace {
                 archive_root.update(cx, |this, cx| this.archive_open_mission(window, cx));
             },
         )
-        .title("Mission paused")
+        .title(crate::i18n::text("ui.mission_paused"))
             .into_any_element()
     }
 

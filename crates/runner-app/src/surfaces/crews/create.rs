@@ -17,14 +17,21 @@ impl NativeRoot {
         let return_route = self.route.clone();
         self.enter_entity_route(AppRoute::NewCrew, window, cx);
         let name = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "Crew name", false)
-                .text_size(theme::text_display())
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.crew_name"),
+                false,
+            )
+            .text_size(theme::text_display())
         });
         let conventions = cx.new(|input_cx| {
             let mut input = TextField::textarea(
                 input_cx.focus_handle(),
                 "",
-                "How this crew works together: branches, reviews, reporting. Markdown works.",
+                crate::i18n::message(
+                    "ui.how_this_crew_works_together_branches_reviews_reporting_markdown_works",
+                ),
                 6,
                 true,
             )
@@ -95,7 +102,7 @@ impl NativeRoot {
         };
         let name = form.name.read(cx).text().trim().to_owned();
         if name.is_empty() {
-            form.error = Some("Name is required".into());
+            form.error = Some(crate::i18n::message("ui.name_is_required"));
             cx.notify();
             return;
         }
@@ -124,7 +131,7 @@ impl NativeRoot {
                     Err(error) => {
                         if let Some(form) = this.crew_surfaces.create.as_mut() {
                             form.submitting = false;
-                            form.error = Some(error);
+                            form.error = Some(error.into());
                         }
                     }
                 }
@@ -145,10 +152,10 @@ impl NativeRoot {
         let confirm_root = root.clone();
         let cancel_root = root;
         ConfirmDialog::new(
-            format!("Delete crew \"{}\" permanently?", confirm.name),
-            "This removes the crew and its slots. Missions started from it keep their roster, sessions and history.",
-            "Delete crew",
-            "Deleting…",
+            crate::i18n::tf("format.delete_crew_permanently", &[("crew", (confirm.name).to_string())]),
+            crate::i18n::text("ui.this_removes_the_crew_and_its_slots_missions_started_from_it_keep_their_roster_sessions_an"),
+            crate::i18n::text("ui.delete_crew"),
+            crate::i18n::text("ui.deleting"),
             self.crew_surfaces.delete_busy,
             Rc::new(move |_, cx| {
                 confirm_root.update(cx, |this, cx| this.advance_crew_delete(cx));

@@ -42,7 +42,7 @@ impl MissionWorkspace {
                 let layout = self.layout.clone();
                 if let Err(error) = self.resume_visible_drawer_shell_on_launch(&layout, window, cx)
                 {
-                    self.error = Some(error.to_string());
+                    self.error = Some(error.to_string().into());
                 }
                 if self.layout.drawer.open() {
                     if let Some(session_id) = self.layout.drawer.active_shell() {
@@ -54,7 +54,7 @@ impl MissionWorkspace {
             }
             Err(error) => {
                 self.layout = original;
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
             }
         }
         cx.notify();
@@ -76,13 +76,13 @@ impl MissionWorkspace {
                 let layout = self.layout.clone();
                 if let Err(error) = self.resume_visible_drawer_shell_on_launch(&layout, window, cx)
                 {
-                    self.error = Some(error.to_string());
+                    self.error = Some(error.to_string().into());
                 }
                 self.focus_mission_drawer_terminal(session_id, window, cx);
             }
             Err(error) => {
                 self.layout = original;
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
             }
         }
         cx.notify();
@@ -156,7 +156,7 @@ impl MissionWorkspace {
                 self.layout = original;
                 let _ = self.persist_mission_layout(cx);
                 self.refresh_store(StoreRefreshKind::All, cx);
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
             }
         }
         cx.notify();
@@ -229,13 +229,13 @@ impl MissionWorkspace {
                             cx,
                         ) {
                             this.transitions.remove(&target);
-                            this.error = Some(error.to_string());
+                            this.error = Some(error.to_string().into());
                         }
                         this.focus_mission_drawer_terminal(&target, window, cx);
                     }
                     Err(error) => {
                         this.transitions.remove(&target);
-                        this.error = Some(error);
+                        this.error = Some(error.into());
                         this.refresh_store(StoreRefreshKind::All, cx);
                     }
                 }
@@ -278,7 +278,7 @@ impl MissionWorkspace {
                         if let Err(error) =
                             this.resume_visible_drawer_shell_on_launch(&layout, window, cx)
                         {
-                            this.error = Some(error.to_string());
+                            this.error = Some(error.to_string().into());
                         }
                         if let Some(active) = this.layout.drawer.active_shell().map(str::to_owned) {
                             this.focus_mission_drawer_terminal(&active, window, cx);
@@ -286,7 +286,7 @@ impl MissionWorkspace {
                             this.focus_active_mission_terminal(window, cx);
                         }
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => this.error = Some(error.into()),
                 }
                 cx.notify();
             });
@@ -321,7 +321,7 @@ impl MissionWorkspace {
             }
             Ok(false) => self.close_terminal_drawer_shell(session_id, window, cx),
             Err(error) => {
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
                 cx.notify();
             }
         }
@@ -345,7 +345,7 @@ impl MissionWorkspace {
         }
         self.drawer_resizing = false;
         if let Err(error) = self.persist_mission_layout(cx) {
-            self.error = Some(error.to_string());
+            self.error = Some(error.to_string().into());
         }
         cx.notify();
     }

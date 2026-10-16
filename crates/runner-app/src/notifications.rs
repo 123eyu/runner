@@ -36,14 +36,16 @@ impl Reason {
             Self::Input(WaitReason::Unknown) => StatusKind::NeedsYou,
             Self::Error(code) => {
                 return code.map_or_else(
-                    || "Error".into(),
-                    |code| format!("Error · exit code {code}"),
+                    || crate::i18n::text("ui.error").into(),
+                    |code| {
+                        crate::i18n::tf("format.error_exit_code", &[("code", (code).to_string())])
+                    },
                 )
             }
             Self::Failed => StatusKind::ResponseFailed,
-            Self::Finished => return "Finished".into(),
-            Self::Question => return "Asked you".into(),
-            Self::MissionIdle => return "Every crew member is idle".into(),
+            Self::Finished => return crate::i18n::text("ui.finished").into(),
+            Self::Question => return crate::i18n::text("ui.asked_you").into(),
+            Self::MissionIdle => return crate::i18n::text("ui.every_crew_member_is_idle").into(),
         };
         StatusPresentation {
             kind,
@@ -183,8 +185,21 @@ fn question_content(
         tag: tag.to_owned().into(),
         title: asker
             .map_or_else(
-                || format!("A crew member asked you · {mission}"),
-                |asker| format!("@{asker} asked you · {mission}"),
+                || {
+                    crate::i18n::tf(
+                        "format.a_crew_member_asked_you",
+                        &[("mission", (mission).to_string())],
+                    )
+                },
+                |asker| {
+                    crate::i18n::tf(
+                        "format.asked_you",
+                        &[
+                            ("asker", (asker).to_string()),
+                            ("mission", (mission).to_string()),
+                        ],
+                    )
+                },
             )
             .into(),
         body: prompt.to_owned().into(),
@@ -802,7 +817,7 @@ pub(crate) fn open(tag: &str, cx: &mut App) {
                             Ok(()) => {
                                 root.open_chat_session(&id, window, cx);
                             }
-                            Err(error) => root.chat_error = Some(error.to_string()),
+                            Err(error) => root.chat_error = Some(error.to_string().into()),
                         }
                     }
                 }

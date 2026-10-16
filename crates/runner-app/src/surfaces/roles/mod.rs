@@ -152,8 +152,8 @@ impl RoleSurfaces {
         let search = cx.new(move |search_cx| {
             SearchInput::new(
                 "",
-                "Search roles",
-                "Search roles…",
+                crate::i18n::message("ui.roles_search_label"),
+                crate::i18n::message("ui.roles_search_placeholder"),
                 Rc::new(move |query, cx| {
                     search_root.update(cx, |this, cx| this.set_role_query(query, cx));
                 }),

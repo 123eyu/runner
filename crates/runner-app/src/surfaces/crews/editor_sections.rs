@@ -20,7 +20,7 @@ use crate::surfaces::profile_page::{
 use crate::*;
 
 const CONVENTIONS_CAPTION: &str =
-    "Added to every slot's prompt when this crew runs a mission. Direct chats ignore it.";
+    "ui.added_to_every_slot_s_prompt_when_this_crew_runs_a_mission_direct_chats_ignore_it";
 
 impl NativeRoot {
     /// The right column: the team conventions, their caption, and the crew's
@@ -36,7 +36,7 @@ impl NativeRoot {
             } else {
                 self.render_conventions_card(crew.unwrap(), cx)
             })
-            .child(caption(CONVENTIONS_CAPTION))
+            .child(caption(crate::i18n::text(CONVENTIONS_CAPTION)))
             .children(crew.map(|crew| {
                 div()
                     .mt(rems(20. / 16.))
@@ -56,7 +56,9 @@ impl NativeRoot {
                 .text_size(theme::text_body())
                 .italic()
                 .text_color(theme::faint())
-                .child("No team conventions yet. Edit the crew to add them.")
+                .child(crate::i18n::text(
+                    "ui.no_team_conventions_yet_edit_the_crew_to_add_them",
+                ))
                 .into_any_element(),
             Some(text) => clamped_markdown(
                 &format!("crew-conventions-{}", crew.id),
@@ -167,7 +169,9 @@ impl NativeRoot {
                 .py_3()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child("No missions yet. Start one to see it here.")
+                .child(crate::i18n::text(
+                    "ui.no_missions_yet_start_one_to_see_it_here",
+                ))
                 .into_any_element()
         } else {
             div()
@@ -182,7 +186,7 @@ impl NativeRoot {
         let toggle_root = root;
         card(
             "flag.svg",
-            "Missions",
+            crate::i18n::text("ui.missions"),
             Some(missions_header(&missions)),
             div().into_any_element(),
         )
@@ -249,7 +253,13 @@ impl NativeRoot {
 }
 
 fn conventions_card(header_right: AnyElement) -> Div {
-    card("file-text.svg", "Team conventions", None, header_right).when(cfg!(test), |card| {
+    card(
+        "file-text.svg",
+        crate::i18n::text("ui.team_conventions"),
+        None,
+        header_right,
+    )
+    .when(cfg!(test), |card| {
         card.debug_selector(|| "CREW_CONVENTIONS_CARD".into())
     })
 }

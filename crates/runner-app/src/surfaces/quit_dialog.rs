@@ -127,12 +127,15 @@ impl Render for QuitDialog {
         for (choice, title, description) in [
             (
                 QuitChoice::Keep,
-                "Keep them running",
-                "Agents keep working in the background. Open Runner to see them again.".to_owned(),
+                crate::i18n::text("ui.keep_them_running"),
+                crate::i18n::text(
+                    "ui.agents_keep_working_in_the_background_open_runner_to_see_them_again",
+                )
+                .to_owned(),
             ),
             (
                 QuitChoice::Stop,
-                "Stop them",
+                crate::i18n::text("ui.stop_them"),
                 self.summary.stop_description(),
             ),
         ] {
@@ -275,7 +278,7 @@ impl Render for QuitDialog {
                                 div()
                                     .text_size(theme::text_title())
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Quit Runner"),
+                                    .child(crate::i18n::text("ui.quit_runner")),
                             ),
                     )
                     .child(
@@ -283,11 +286,7 @@ impl Render for QuitDialog {
                             .text_size(theme::text_body())
                             .text_color(theme::muted())
                             .child(if self.stopping {
-                                format!(
-                                    "Stopping {} session{}…",
-                                    self.summary.live,
-                                    if self.summary.live == 1 { "" } else { "s" }
-                                )
+                                crate::i18n::tnf("format.stopping_session", self.summary.live, &[])
                             } else {
                                 self.summary.caption()
                             }),
@@ -333,18 +332,18 @@ impl Render for QuitDialog {
                                         div()
                                             .text_size(theme::text_body())
                                             .text_color(theme::muted())
-                                            .child("Don't ask again"),
+                                            .child(crate::i18n::text("ui.don_t_ask_again")),
                                     ),
                             )
                             .child(div().flex_1())
                             .child(
-                                Button::new("quit-cancel", "Cancel")
+                                Button::new("quit-cancel", crate::i18n::text("ui.cancel"))
                                     .variant(ButtonVariant::Secondary)
                                     .disabled(self.stopping)
                                     .on_press(move |window, cx| cancel(window, cx)),
                             )
                             .child(
-                                Button::new("quit-confirm", "Quit")
+                                Button::new("quit-confirm", crate::i18n::text("ui.quit"))
                                     .variant(ButtonVariant::Primary)
                                     .loading(self.stopping)
                                     .on_press({

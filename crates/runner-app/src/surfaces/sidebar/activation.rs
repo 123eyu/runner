@@ -4,7 +4,11 @@ use crate::*;
 
 impl NativeRoot {
     pub(crate) fn tab_label(&self, layout: &PaneLayout, cx: &App) -> String {
-        super::elements::tab_label_live(layout, &self.app_store.read(cx).sessions, |id| {
+        self.tab_label_source(layout, cx).resolve().to_string()
+    }
+
+    pub(crate) fn tab_label_source(&self, layout: &PaneLayout, cx: &App) -> crate::i18n::Text {
+        super::elements::tab_label_source(layout, &self.app_store.read(cx).sessions, |id| {
             self.attached_title(id, cx)
         })
     }
@@ -108,7 +112,7 @@ impl NativeRoot {
                     .update(cx, |store, store_cx| store.replace_node(updated, store_cx));
             }
             Ok(None) => {}
-            Err(error) => self.error = Some(error.to_string()),
+            Err(error) => self.error = Some(error.to_string().into()),
         }
     }
 
@@ -214,7 +218,7 @@ impl NativeRoot {
                 .persist_active_tab(cx)
                 .and_then(|_| self.ensure_active_tab_attached(window, cx))
             {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
             } else {
                 self.focus_drawer_terminal(session_id, window, cx);
             }

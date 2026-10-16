@@ -37,7 +37,7 @@ mod pointer;
 mod text_field;
 mod working_dir;
 
-pub use form::{BrowseField, Field, FieldError, Label};
+pub use form::{slot_handle_error, BrowseField, Field, FieldError, Label};
 pub use text_field::{FieldValidation, TextFieldKind};
 pub(crate) use working_dir::{compact_path_candidates, pick_compact_path};
 pub use working_dir::{
@@ -168,6 +168,7 @@ pub struct TextField {
     focus_handle: FocusHandle,
     buffer: TextBuffer,
     placeholder: SharedString,
+    placeholder_source: crate::i18n::Text,
     placeholder_as_value: bool,
     monospace: bool,
     fill_height: bool,
@@ -210,6 +211,7 @@ impl Focusable for TextField {
 
 impl Render for TextField {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.placeholder = self.placeholder_source.resolve();
         let focused = self.focus_handle.is_focused(window);
         let compact_shown = self
             .compact_path_shown(focused)

@@ -48,17 +48,24 @@ impl NativeRoot {
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .child(section_label(format!("Slots · {}", slots.len())))
+                    .child(section_label(crate::i18n::tf(
+                        "format.crew_slots_heading",
+                        &[("slot_count", (slots.len()).to_string())],
+                    )))
                     .child(if creating {
                         div()
                             .text_size(theme::text_ui())
                             .text_color(theme::faint())
-                            .child("+ Add slot")
+                            .child(crate::i18n::text("ui.add_slot_inline_action"))
                             .into_any_element()
                     } else {
-                        text_action("add-crew-slot", "+ Add slot", move |window, cx| {
-                            add_root.update(cx, |this, cx| this.open_add_slot(window, cx));
-                        })
+                        text_action(
+                            "add-crew-slot",
+                            crate::i18n::text("ui.add_slot_inline_action"),
+                            move |window, cx| {
+                                add_root.update(cx, |this, cx| this.open_add_slot(window, cx));
+                            },
+                        )
                     }),
             )
             .child(if creating {
@@ -68,20 +75,23 @@ impl NativeRoot {
                     .gap_1()
                     .text_size(theme::text_body())
                     .text_color(theme::muted())
-                    .child("Add roles as slots once the crew exists.")
+                    .child(crate::i18n::text(
+                        "ui.add_roles_as_slots_once_the_crew_exists",
+                    ))
                     .child(
                         div()
                             .text_color(theme::faint())
-                            .child("The first slot leads."),
+                            .child(crate::i18n::text("ui.the_first_slot_leads")),
                     )
                     .into_any_element()
             } else {
                 self.render_slot_list(slots, slot_text_width(column), cx)
             })
             .children(any_override.then(|| {
-                dot_note("overridden for this slot").when(cfg!(test), |legend| {
-                    legend.debug_selector(|| "CREW_SLOT_LEGEND".into())
-                })
+                dot_note(crate::i18n::text("ui.overridden_for_this_slot"))
+                    .when(cfg!(test), |legend| {
+                        legend.debug_selector(|| "CREW_SLOT_LEGEND".into())
+                    })
             }))
             .into_any_element()
     }
@@ -102,7 +112,9 @@ impl NativeRoot {
                 .py_5()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child("No slots yet. The first slot you add leads the crew.")
+                .child(crate::i18n::text(
+                    "ui.no_slots_yet_the_first_slot_you_add_leads_the_crew",
+                ))
                 .into_any_element();
         }
         let total = slots.len();
@@ -408,18 +420,18 @@ impl NativeRoot {
         let confirm_root = root.clone();
         let cancel_root = root;
         let body = if confirm.slot.slot.lead {
-            "As the LEAD, leadership will pass to the next slot by position."
+            crate::i18n::text("ui.as_the_lead_leadership_will_pass_to_the_next_slot_by_position")
         } else {
             ""
         };
         ConfirmDialog::new(
-            format!(
-                "Remove slot @{} from this crew?",
-                confirm.slot.slot.slot_handle,
+            crate::i18n::tf(
+                "format.remove_slot_from_this_crew",
+                &[("handle", (confirm.slot.slot.slot_handle).to_string())],
             ),
             body,
-            "Remove from crew",
-            "Removing…",
+            crate::i18n::text("ui.remove_from_crew"),
+            crate::i18n::text("ui.removing"),
             self.crew_surfaces.slot_remove_busy,
             Rc::new(move |_, cx| {
                 confirm_root.update(cx, |this, cx| this.confirm_slot_remove(cx));
@@ -449,7 +461,7 @@ pub(crate) fn lead_badge() -> AnyElement {
         .text_size(theme::text_micro())
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::faint())
-        .child("LEAD")
+        .child(crate::i18n::text("heading.lead"))
         .into_any_element()
 }
 
@@ -492,12 +504,19 @@ pub(crate) fn slot_setup_line(setup: &SlotSetup) -> gpui::Div {
             div()
                 .flex_none()
                 .text_color(theme::faint())
-                .child("defaults"),
+                .child(crate::i18n::text("word.defaults")),
         );
     }
     for (text, overridden) in [
         (setup.model.clone(), setup.model_overridden),
-        (setup.effort.clone(), setup.effort_overridden),
+        (
+            setup.effort.as_ref().map(|effort| {
+                runner_app::ui::select::effort_label(effort, effort)
+                    .resolve()
+                    .to_string()
+            }),
+            setup.effort_overridden,
+        ),
     ] {
         if let Some(text) = text {
             line = line.child(separator()).child(value(text, overridden));
@@ -505,8 +524,8 @@ pub(crate) fn slot_setup_line(setup: &SlotSetup) -> gpui::Div {
     }
     if let Some(speed) = setup.speed {
         let label = match speed {
-            runner_core::protocol::model::CodexSpeed::Standard => "Standard",
-            runner_core::protocol::model::CodexSpeed::Fast => "Fast",
+            runner_core::protocol::model::CodexSpeed::Standard => crate::i18n::text("ui.standard"),
+            runner_core::protocol::model::CodexSpeed::Fast => crate::i18n::text("ui.fast"),
         };
         line = line.child(separator()).child(
             value(label.into(), setup.speed_overridden).when(cfg!(test), |item| {
@@ -543,10 +562,16 @@ fn slot_text(slot: &SlotWithRole, setup: &SlotSetup, width: f32) -> AnyElement {
         )
         .child(slot_setup_line(setup))
         .child(
-            column_text(format!("role @{}", slot.role.handle), width)
-                .font_family(theme::UI_MONOSPACE_FONT)
-                .text_size(theme::text_caption())
-                .text_color(theme::faint()),
+            column_text(
+                crate::i18n::tf(
+                    "format.role_handle",
+                    &[("handle", (slot.role.handle).to_string())],
+                ),
+                width,
+            )
+            .font_family(theme::UI_MONOSPACE_FONT)
+            .text_size(theme::text_caption())
+            .text_color(theme::faint()),
         )
         .into_any_element()
 }

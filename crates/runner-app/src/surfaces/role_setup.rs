@@ -14,7 +14,7 @@ impl NativeRoot {
         }
         let mut field = Field::new(
             "start-chat-role-field",
-            "Role",
+            crate::i18n::text("ui.role"),
             div()
                 .flex()
                 .flex_col()
@@ -25,7 +25,9 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_meta())
                             .text_color(theme::warning())
-                            .child("No roles yet. Create one from the Roles page first."),
+                            .child(crate::i18n::text(
+                                "ui.no_roles_yet_create_one_from_the_roles_page_first",
+                            )),
                     )
                 }),
         )
@@ -33,9 +35,11 @@ impl NativeRoot {
         .emphasized(true);
         if role.is_some() {
             field = field.subtitle(if modal.mission_role.is_some() {
-                "Starts with the role's settings. Change any of them for this agent only."
+                crate::i18n::text(
+                    "ui.starts_with_the_role_s_settings_change_any_of_them_for_this_agent_only",
+                )
             } else {
-                ROLE_HINT
+                crate::i18n::text(ROLE_HINT)
             });
         }
         field.into_any_element()
@@ -63,7 +67,7 @@ impl NativeRoot {
                 override_note(
                     label,
                     third,
-                    format!("role: {value}"),
+                    crate::i18n::tf("format.role", &[("setting", (value).to_string())]),
                     reset_action(&root, &modal.reset_focus[kind as usize], kind),
                 )
             })
@@ -72,10 +76,10 @@ impl NativeRoot {
         let controls = row()
             .child(setup_field(
                 third,
-                "Runtime",
+                crate::i18n::text("ui.runtime"),
                 modal.role_runtime_select.clone(),
                 note(
-                    "Runtime",
+                    crate::i18n::text("ui.runtime"),
                     ResetKind::Runtime,
                     overrides.runtime,
                     runtime_display_name(&modal.runtimes, &role.runtime),
@@ -83,25 +87,28 @@ impl NativeRoot {
             ))
             .child(setup_field(
                 third,
-                "Model",
+                crate::i18n::text("ui.model"),
                 div().w_full().child(modal.model_field.clone()),
                 note(
-                    "Model",
+                    crate::i18n::text("ui.model"),
                     ResetKind::Model,
                     overrides.model,
-                    model_placeholder(Some(role)),
+                    model_placeholder(Some(role)).resolve().to_string(),
                 ),
             ))
             .when(effort_available, |controls| {
                 controls.child(setup_field(
                     third,
-                    "Effort",
+                    crate::i18n::text("ui.effort"),
                     modal.effort_select.clone(),
                     note(
-                        "Effort",
+                        crate::i18n::text("ui.effort"),
                         ResetKind::Effort,
                         overrides.effort,
-                        role_setting_label(Some(&modal.baseline_effort())).0,
+                        crate::surfaces::roles::logic::role_effort_label(Some(
+                            &modal.baseline_effort(),
+                        ))
+                        .0,
                     ),
                 ))
             });
@@ -115,7 +122,7 @@ impl NativeRoot {
                     modal,
                     third,
                     note(
-                        "Speed",
+                        crate::i18n::text("ui.speed"),
                         ResetKind::Speed,
                         overrides.speed,
                         speed_label(role.codex_speed).into(),

@@ -86,7 +86,7 @@ pub(super) fn pane_close_after_archive<'a>(
 pub(crate) fn archive_all_confirmation_body(
     session_ids: &[String],
     sessions: &[DirectSessionEntry],
-) -> Option<String> {
+) -> Option<crate::i18n::Text> {
     let (chats, terminals) = archive_session_plan(session_ids, sessions, None)
         .into_iter()
         .fold(
@@ -99,19 +99,20 @@ pub(crate) fn archive_all_confirmation_body(
     if terminals == 0 {
         return None;
     }
-    let terminal_action = format!(
-        "permanently closes {terminals} terminal{}",
-        if terminals == 1 { "" } else { "s" }
-    );
+    let terminal_action =
+        crate::i18n::message_count("format.permanently_closes_terminal", terminals, &[]);
     if chats == 0 {
-        return Some(format!(
-            "This {terminal_action}. Closed terminals cannot be restored."
+        return Some(crate::i18n::message_with(
+            "format.this_closed_terminals_cannot_be_restored",
+            &[("terminal_action", terminal_action.clone())],
         ));
     }
-    Some(format!(
-        "This archives {chats} chat{} and {terminal_action}. Archived chats can be restored from Settings → Archived; closed terminals cannot.",
-        if chats == 1 { "" } else { "s" },
-    ))
+    Some(crate::i18n::Text::Catalog {
+        key:
+            "format.this_archives_chat_and_archived_chats_can_be_restored_from_settings_archived_c",
+        count: Some(chats),
+        arguments: vec![("terminal_action", terminal_action)],
+    })
 }
 
 impl NativeRoot {
@@ -259,8 +260,8 @@ impl NativeRoot {
                 .map(|refresh_error| refresh_error.to_string())
         });
         match error_target {
-            ArchiveErrorTarget::App => self.error = error,
-            ArchiveErrorTarget::Chat => self.chat_error = error,
+            ArchiveErrorTarget::App => self.error = error.map(Into::into),
+            ArchiveErrorTarget::Chat => self.chat_error = error.map(Into::into),
         }
         if refresh_ok {
             for pending in pane_closes {
@@ -293,7 +294,7 @@ impl NativeRoot {
             self.reload_tabs(cx)
         });
         if let Err(error) = result {
-            self.chat_error = Some(error.to_string());
+            self.chat_error = Some(error.to_string().into());
         }
         cx.notify();
     }

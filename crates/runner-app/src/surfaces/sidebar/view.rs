@@ -98,7 +98,7 @@ impl Sidebar {
                 div()
                     .flex()
                     .flex_col()
-                    .child(section_title("PINNED"))
+                    .child(section_title(crate::i18n::text("heading.pinned")))
                     .child(
                         div()
                             .px_3()
@@ -140,7 +140,7 @@ impl Sidebar {
                 .flex()
                 .flex_col()
                 .child(self.render_section_header(
-                    "PROJECTS",
+                    crate::i18n::text("heading.projects"),
                     projects_open,
                     (!projects_open).then(|| {
                         self.render_status_attention(
@@ -149,7 +149,7 @@ impl Sidebar {
                             cx,
                         )
                     }),
-                    "Add project",
+                    crate::i18n::text("ui.add_project"),
                     move |this, cx| {
                         let open = !this.settings(cx).sidebar_projects_open;
                         this.update_app_settings(cx, true, |settings| {
@@ -176,7 +176,7 @@ impl Sidebar {
                         .flex_col()
                         .gap(rems(2. / 16.))
                         .children(if project_nodes.is_empty() {
-                            vec![empty_sidebar_label("No projects yet.")]
+                            vec![empty_sidebar_label(crate::i18n::text("ui.no_projects_yet"))]
                         } else {
                             project_nodes
                                 .into_iter()
@@ -248,9 +248,9 @@ impl Sidebar {
                                 .child(
                                     div()
                                         .min_w(px(0.))
-                                        .text_size(theme::text_caption())
+                                        .text_size(theme::text_ui())
                                         .font_weight(FontWeight::SEMIBOLD)
-                                        .child("RECENTS"),
+                                        .child(crate::i18n::text("heading.recents")),
                                 )
                                 .child(
                                     svg()
@@ -305,7 +305,7 @@ impl Sidebar {
                         .flex_col()
                         .gap(rems(2. / 16.))
                         .children(if root_rows.is_empty() {
-                            vec![empty_sidebar_label("No chats yet.")]
+                            vec![empty_sidebar_label(crate::i18n::text("ui.no_chats_yet"))]
                         } else {
                             root_rows
                                 .into_iter()
@@ -334,7 +334,8 @@ impl Sidebar {
                                 this.open_sidebar_context_menu(
                                     event.position,
                                     vec![(
-                                        UiMenuItem::new("New chat").icon("message-square-plus.svg"),
+                                        UiMenuItem::new(crate::i18n::message("ui.new_chat"))
+                                            .icon("message-square-plus.svg"),
                                         SidebarMenuAction::NewChat(ProjectScope::Root),
                                     )],
                                     window,
@@ -364,8 +365,12 @@ impl Sidebar {
                         }
                     })
                 }
-                WorkspaceEntry::Role => {
-                    workspace_row("workspace-role", "user.svg", "role", active, {
+                WorkspaceEntry::Role => workspace_row(
+                    "workspace-role",
+                    "user.svg",
+                    crate::i18n::text("noun.role"),
+                    active,
+                    {
                         let shell = self.shell.clone();
                         move |window, cx| {
                             if let Some(shell) = shell.upgrade() {
@@ -374,10 +379,14 @@ impl Sidebar {
                                 });
                             }
                         }
-                    })
-                }
-                WorkspaceEntry::Crew => {
-                    workspace_row("workspace-crew", "users.svg", "crew", active, {
+                    },
+                ),
+                WorkspaceEntry::Crew => workspace_row(
+                    "workspace-crew",
+                    "users.svg",
+                    crate::i18n::text("noun.crew"),
+                    active,
+                    {
                         let shell = self.shell.clone();
                         move |window, cx| {
                             if let Some(shell) = shell.upgrade() {
@@ -386,8 +395,8 @@ impl Sidebar {
                                 });
                             }
                         }
-                    })
-                }
+                    },
+                ),
             }
         });
         div()
@@ -399,7 +408,7 @@ impl Sidebar {
             .pb_3()
             .child(
                 crate::platform_ui::sidebar_section()
-                    .child(section_title("WORKSPACE"))
+                    .child(section_title(crate::i18n::text("heading.workspace")))
                     .child(
                         div()
                             .px_3()
@@ -462,7 +471,7 @@ impl Sidebar {
                     .hover(|header| header.text_color(theme::muted()))
                     .child(
                         div()
-                            .text_size(theme::text_caption())
+                            .text_size(theme::text_ui())
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(label),
                     )

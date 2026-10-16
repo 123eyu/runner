@@ -2,6 +2,14 @@
 
 Choose how Runner follows light and dark mode, then set the app and terminal palettes independently. Text size and window material have their own controls.
 
+## Display language
+
+Open **Settings → General** and use the **Language** dropdown to choose **System**, **English**, or **简体中文**. Changes apply immediately to all open Runner windows, including menus and search labels. Drafts, terminal contents and running sessions are preserved. Runner remembers your choice after relaunch.
+
+**System** is the default for new and existing settings. It follows the first preferred operating-system UI language: Chinese resolves to Simplified Chinese; other or unavailable languages resolve to English. Runner checks this at startup, when you select System, and when a window becomes active. System appears as **跟随系统** in Chinese; the two explicit choices retain their own language names.
+
+The setting covers Runner's interface and date displays. Agent output, user-authored names and prompts, backend error details, CLI output and documentation keep their original text. Native operating-system dialogs follow the operating system's language.
+
 ## Theme and palettes
 
 Open **Settings → Appearance**. **Theme** follows the operating system or pins Runner to light or dark mode. Each mode has two selections:

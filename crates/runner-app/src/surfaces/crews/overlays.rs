@@ -79,7 +79,10 @@ impl NativeRoot {
                     Ok(()) => {
                         this.load_crew_page(cx);
                         this.show_toast(
-                            format!("Deleted crew \"{name}\"."),
+                            crate::i18n::messagef(
+                                "format.deleted_crew",
+                                &[("name", (name).to_string())],
+                            ),
                             crate::toast::ToastTone::Success,
                             cx,
                         );

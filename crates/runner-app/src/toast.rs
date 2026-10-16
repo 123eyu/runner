@@ -24,6 +24,7 @@ impl ToastTone {
 pub struct Toast {
     pub id: u64,
     pub message: String,
+    source: runner_app::i18n::Text,
     pub tone: ToastTone,
     pub duration_ms: Option<u64>,
     pub single_line: bool,
@@ -40,26 +41,34 @@ impl ToastHost {
         self.active.as_ref()
     }
 
-    pub fn show(&mut self, message: impl Into<String>, tone: ToastTone) -> u64 {
+    pub fn show(&mut self, message: impl Into<runner_app::i18n::Text>, tone: ToastTone) -> u64 {
         self.show_with_duration(message, tone, Some(DEFAULT_TOAST_DURATION_MS))
     }
 
     pub fn show_with_duration(
         &mut self,
-        message: impl Into<String>,
+        message: impl Into<runner_app::i18n::Text>,
         tone: ToastTone,
         duration_ms: Option<u64>,
     ) -> u64 {
+        let source = message.into();
         self.next_id += 1;
         let id = self.next_id;
         self.active = Some(Toast {
             id,
-            message: message.into(),
+            message: source.resolve().to_string(),
+            source,
             tone,
             duration_ms,
             single_line: false,
         });
         id
+    }
+
+    pub fn relocalize(&mut self) {
+        if let Some(toast) = &mut self.active {
+            toast.message = toast.source.resolve().to_string();
+        }
     }
 
     pub fn make_single_line(&mut self) {
@@ -134,5 +143,33 @@ mod lifecycle_tests {
         assert_eq!(ToastTone::Info.icon(), "info.svg");
         assert_eq!(ToastTone::Success.icon(), "circle-check.svg");
         assert_eq!(ToastTone::Error.icon(), "circle-x.svg");
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod localization_tests {
+    use super::*;
+    use runner_app::i18n::{testing::with_locale, Locale};
+
+    #[test]
+    fn existing_toast_relocalizes_while_literal_backend_text_is_preserved() {
+        with_locale(Locale::English, || {
+            let mut host = ToastHost::default();
+            let id = host.show(
+                runner_app::lifecycle::restart_message(2, "0.16.3").unwrap(),
+                ToastTone::Restart,
+            );
+            with_locale(Locale::SimplifiedChinese, || {
+                host.relocalize();
+                assert_eq!(
+                    host.active().unwrap().message,
+                    "已在 Runner 0.16.3 中重启 2 个会话"
+                );
+                assert_eq!(host.active().unwrap().id, id);
+                host.show("backend {count} 用户", ToastTone::Error);
+                host.relocalize();
+                assert_eq!(host.active().unwrap().message, "backend {count} 用户");
+            });
+        });
     }
 }

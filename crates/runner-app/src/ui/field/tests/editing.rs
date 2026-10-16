@@ -188,7 +188,7 @@ fn field_validation_exposes_only_error_messages() {
 
     let error = FieldValidation::error("Required");
     assert!(error.is_error());
-    assert_eq!(error.message().map(SharedString::as_ref), Some("Required"));
+    assert_eq!(error.message().as_deref(), Some("Required"));
     assert_eq!(input_border_color(&error, false), theme::danger());
     assert_eq!(input_border_color(&error, true), theme::danger());
     assert_eq!(
@@ -243,5 +243,67 @@ fn range_replacement_refuses_active_composition_invalid_ranges_and_disabled_inpu
             assert!(!input.replace_range(0..input.text().len(), "", cx));
             assert_eq!(input.buffer, before);
         });
+    });
+}
+
+#[test]
+fn cached_placeholder_changes_language_without_resetting_the_buffer_or_caret() {
+    use crate::i18n::{self, Locale};
+    i18n::testing::with_locale(Locale::English, || {
+        let (mut visual, input) = open_field(300., |focus| {
+            TextField::new(
+                focus,
+                "literal {name} 中文",
+                i18n::message("ui.search_settings"),
+                false,
+            )
+        });
+        input.update(&mut visual, |field, cx| field.select_all(cx));
+        let caret = input.read_with(&visual, |field, _| field.caret_offset());
+        i18n::testing::with_locale(Locale::SimplifiedChinese, || {
+            visual.update(|_, cx| cx.refresh_windows());
+            visual.run_until_parked();
+            input.read_with(&visual, |field, _| {
+                assert_eq!(field.placeholder, "搜索设置…");
+                assert_eq!(field.text(), "literal {name} 中文");
+                assert_eq!(field.caret_offset(), caret);
+            });
+        });
+        visual.update(|_, cx| cx.refresh_windows());
+        visual.run_until_parked();
+        input.read_with(&visual, |field, _| {
+            assert_eq!(field.placeholder, "Search settings…")
+        });
+    });
+}
+
+#[test]
+fn saved_slot_validation_translates_without_changing_handles_or_revalidating() {
+    use crate::i18n::{self, Locale};
+    use std::collections::HashSet;
+    i18n::testing::with_locale(Locale::English, || {
+        let existing = HashSet::from(["coder".into(), "reviewer-2".into()]);
+        let removed = HashSet::from(["reviewer".into()]);
+        let duplicate = FieldValidation::error(
+            slot_handle_error("coder", &existing, &HashSet::new(), "crew").unwrap(),
+        );
+        let removed = FieldValidation::error(
+            slot_handle_error("reviewer", &existing, &removed, "mission").unwrap(),
+        );
+        assert_eq!(
+            duplicate.message().as_deref(),
+            Some("'coder' is already used in this crew.")
+        );
+        i18n::set_active_locale(Locale::SimplifiedChinese);
+        assert_eq!(
+            duplicate.message().as_deref(),
+            Some("此小队已使用“coder”。")
+        );
+        assert_eq!(
+            removed.message().as_deref(),
+            Some("@reviewer 已从此任务移除，标识不可重复使用。请尝试 @reviewer-3。")
+        );
+        i18n::set_active_locale(Locale::English);
+        assert_eq!(removed.message().as_deref(), Some("@reviewer was removed from this mission, and a handle isn't reused. Try @reviewer-3."));
     });
 }

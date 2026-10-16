@@ -26,8 +26,8 @@ impl NativeRoot {
             },
         ];
         let items = vec![
-            UiMenuItem::new("Edit details").icon("pencil.svg"),
-            UiMenuItem::new("Delete role")
+            UiMenuItem::new(crate::i18n::message("ui.edit_details")).icon("pencil.svg"),
+            UiMenuItem::new(crate::i18n::message("ui.delete_role"))
                 .icon("trash.svg")
                 .destructive(true),
         ];
@@ -141,7 +141,7 @@ impl NativeRoot {
                                     cx,
                                 );
                             }
-                            Err(error) => this.error = Some(error.to_string()),
+                            Err(error) => this.error = Some(error.to_string().into()),
                         }
                     }
                     Err(error)

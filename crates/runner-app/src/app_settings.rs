@@ -218,7 +218,7 @@ impl FileLinkEditor {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::DefaultApp => "Default app",
+            Self::DefaultApp => crate::i18n::text("ui.default_app"),
             Self::Zed => "Zed",
             Self::VsCode => "VS Code",
             Self::Cursor => "Cursor",
@@ -238,9 +238,13 @@ impl FileLinkEditor {
     /// Where the editor's own UI installs that CLI.
     pub fn install_hint(self) -> Option<&'static str> {
         match self {
-            Self::Zed => Some("in Zed, run Zed → Install CLI"),
-            Self::VsCode => Some("in VS Code, run “Shell Command: Install 'code' command in PATH”"),
-            Self::Cursor => Some("in Cursor, run “Shell Command: Install 'cursor' command”"),
+            Self::Zed => Some(crate::i18n::text("ui.in_zed_run_zed_install_cli")),
+            Self::VsCode => Some(crate::i18n::text(
+                "ui.in_vs_code_run_shell_command_install_code_command_in_path",
+            )),
+            Self::Cursor => Some(crate::i18n::text(
+                "ui.in_cursor_run_shell_command_install_cursor_command",
+            )),
             Self::DefaultApp => None,
         }
     }
@@ -283,6 +287,7 @@ pub struct MissionNotifications {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    pub language: runner_app::i18n::Language,
     pub notifications: NotificationSettings,
     pub app_theme: ThemeIntent,
     pub window_material: runner_app::appearance::WindowMaterial,
@@ -329,6 +334,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            language: runner_app::i18n::Language::System,
             notifications: NotificationSettings::default(),
             app_theme: ThemeIntent::Auto,
             window_material: Default::default(),
@@ -518,6 +524,38 @@ pub fn clamp_mission_rail_width(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_defaults_migrates_and_persists_intent() {
+        use runner_app::i18n::{Language, Locale};
+        let old: AppSettings = serde_json::from_str(r#"{"appZoom":1.2}"#).unwrap();
+        assert_eq!(old.language, Language::System);
+        assert_eq!(old.app_zoom, 1.2);
+        let unknown: AppSettings = serde_json::from_str(r#"{"language":"future"}"#).unwrap();
+        assert_eq!(unknown.language, Language::System);
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        for (intent, saved) in [
+            (Language::System, "system"),
+            (Language::English, "en"),
+            (Language::SimplifiedChinese, "zh-hans"),
+        ] {
+            let settings = AppSettings {
+                language: intent,
+                ..old.clone()
+            };
+            settings.save(&path).unwrap();
+            let json: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(json["language"], saved);
+            assert_eq!(AppSettings::load(&path).unwrap(), settings);
+        }
+        assert_eq!(
+            Language::System.resolve(Some("zh-Hans")),
+            Locale::SimplifiedChinese
+        );
+        assert_eq!(serde_json::to_value(Language::System).unwrap(), "system");
+    }
 
     #[test]
     fn file_link_editor_defaults_to_the_default_app_for_pre_feature_settings() {

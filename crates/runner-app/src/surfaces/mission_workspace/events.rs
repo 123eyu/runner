@@ -123,7 +123,7 @@ impl MissionWorkspace {
                         .payload
                         .get("message")
                         .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned);
+                        .map(|message| message.to_owned().into());
                     cx.notify();
                 }
             }
@@ -148,7 +148,9 @@ impl MissionWorkspace {
                         .payload
                         .get("message")
                         .and_then(serde_json::Value::as_str)
-                        .map(|message| action_failure("write to the terminal", message));
+                        .map(|message| {
+                            action_failure(crate::i18n::message("action.write_terminal"), message)
+                        });
                     cx.notify();
                 }
             }
@@ -252,7 +254,7 @@ impl MissionWorkspace {
                                     if let Err(error) = self.ensure_mission_terminal_attached(
                                         session_id, status, window, cx,
                                     ) {
-                                        self.error = Some(error.to_string());
+                                        self.error = Some(error.to_string().into());
                                     }
                                 }
                             }
@@ -319,7 +321,10 @@ impl MissionWorkspace {
                         this.rebuild_event_projection();
                     }
                     Err(error) => {
-                        this.warning = Some(action_failure("resync the mission feed", error));
+                        this.warning = Some(action_failure(
+                            crate::i18n::message("action.resync_feed"),
+                            error,
+                        ));
                     }
                 }
                 cx.notify();
@@ -424,10 +429,10 @@ impl MissionWorkspace {
                         }
                         this.sync_mission_copy_entities(cx);
                         if let Err(error) = this.ensure_mission_terminals_attached(window, cx) {
-                            this.error = Some(error.to_string());
+                            this.error = Some(error.to_string().into());
                         }
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => this.error = Some(error.into()),
                 }
                 cx.notify();
             });

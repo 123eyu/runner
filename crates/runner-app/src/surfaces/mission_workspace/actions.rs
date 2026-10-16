@@ -24,13 +24,17 @@ impl MissionWorkspace {
         self.action_menu.update(cx, |menu, menu_cx| {
             menu.set_items(
                 vec![
-                    UiMenuItem::new(if pinned { "Unpin" } else { "Pin" })
-                        .icon(if pinned { "pin-off.svg" } else { "pin.svg" })
-                        .disabled(busy),
-                    UiMenuItem::new("Rename")
+                    UiMenuItem::new(if pinned {
+                        crate::i18n::message("ui.unpin")
+                    } else {
+                        crate::i18n::message("ui.pin")
+                    })
+                    .icon(if pinned { "pin-off.svg" } else { "pin.svg" })
+                    .disabled(busy),
+                    UiMenuItem::new(crate::i18n::message("ui.rename"))
                         .icon("square-pen.svg")
                         .disabled(busy),
-                    UiMenuItem::new("Archive")
+                    UiMenuItem::new(crate::i18n::message("ui.archive"))
                         .icon("archive.svg")
                         .destructive(true)
                         .disabled(busy),
@@ -81,7 +85,10 @@ impl MissionWorkspace {
                         this.refresh_store(StoreRefreshKind::All, cx);
                     }
                     Err(error) => {
-                        this.error = Some(action_failure("update the mission pin", error));
+                        this.error = Some(action_failure(
+                            crate::i18n::message("action.update_pin"),
+                            error,
+                        ));
                     }
                 }
                 cx.notify();
@@ -146,14 +153,14 @@ impl MissionWorkspace {
         let cancel = confirm.clone();
         let restart_id = session_id.clone();
         runner_app::ui::ConfirmDialog::new(
-            format!("Restart @{handle}?"),
+            crate::i18n::tf("format.restart", &[("handle", (handle).to_string())]),
             restart_confirm_body(
                 &handle,
                 lead_handle,
                 target.is_some_and(|session| session.lead),
             ),
-            "Restart",
-            "Restarting…",
+            crate::i18n::text("ui.restart"),
+            crate::i18n::text("ui.restarting"),
             false,
             Rc::new(move |window, cx| {
                 confirm.update(cx, |this, cx| {
@@ -202,9 +209,9 @@ impl MissionWorkspace {
         let confirm = cx.entity();
         let cancel = confirm.clone();
         runner_app::ui::ConfirmDialog::new(
-            format!("Remove @{handle} from the mission?"),
-            format!("Its session stops and it leaves the team. Its messages stay in the feed, messages to @{handle} are refused from now on, and the handle isn't reused in this mission."),
-            "Remove", "Removing…", false,
+            crate::i18n::tf("format.remove_from_the_mission", &[("handle", (handle).to_string())]),
+            crate::i18n::tf("format.its_session_stops_and_it_leaves_the_team_its_messages_stay_in_the_feed_message", &[("handle", (handle).to_string())]),
+            crate::i18n::text("ui.remove"), crate::i18n::text("ui.removing"), false,
             Rc::new(move |window, cx| confirm.update(cx, |this, cx| {
                 this.remove_confirm = None;
                 this.remove_role(&session_id, &handle, window, cx);
@@ -258,7 +265,10 @@ impl MissionWorkspace {
                 }
                 this.slot_actions.remove(&session_id);
                 if let Err(error) = result {
-                    this.warning = Some(action_failure("remove the role", error));
+                    this.warning = Some(action_failure(
+                        crate::i18n::message("action.remove_role"),
+                        error,
+                    ));
                 }
                 this.refresh_open_mission(window, cx);
                 cx.notify();
@@ -336,9 +346,13 @@ impl MissionWorkspace {
                     if !is_concurrent_resume_error(&error) {
                         this.error = Some(action_failure(
                             match action {
-                                SessionControlKind::Stop => "stop the slot",
-                                SessionControlKind::Restart => "restart the slot",
-                                _ => "resume the slot",
+                                SessionControlKind::Stop => {
+                                    crate::i18n::message("action.stop_slot")
+                                }
+                                SessionControlKind::Restart => {
+                                    crate::i18n::message("action.restart_slot")
+                                }
+                                _ => crate::i18n::message("action.resume_slot"),
                             },
                             error,
                         ));
@@ -371,9 +385,9 @@ impl MissionWorkspace {
                     .filter(|session| session.session.status == SessionStatus::Running)
                     .count(),
             ),
-            STOP_ALL_BODY,
-            "Stop all",
-            "Stopping…",
+            crate::i18n::text(STOP_ALL_BODY),
+            crate::i18n::text("ui.stop_all"),
+            crate::i18n::text("ui.stopping"),
             false,
             Rc::new(move |window, cx| {
                 confirm.update(cx, |this, cx| {
@@ -438,7 +452,10 @@ impl MissionWorkspace {
                         this.refresh_store(StoreRefreshKind::All, cx);
                     }
                     Err(error) => {
-                        this.error = Some(action_failure("stop the mission", error));
+                        this.error = Some(action_failure(
+                            crate::i18n::message("action.stop_mission"),
+                            error,
+                        ));
                     }
                 }
                 this.focus_active_mission_terminal(window, cx);
@@ -532,18 +549,24 @@ impl MissionWorkspace {
                             }
                         }
                         if let Some(error) = error {
-                            this.error = Some(action_failure("resume the mission", error));
+                            this.error = Some(action_failure(
+                                crate::i18n::message("action.resume_mission"),
+                                error,
+                            ));
                         } else {
                             this.error = None;
                         }
                         this.sync_mission_copy_entities(cx);
                         if let Err(error) = this.ensure_mission_terminals_attached(window, cx) {
-                            this.error = Some(error.to_string());
+                            this.error = Some(error.to_string().into());
                         }
                         this.refresh_store(StoreRefreshKind::All, cx);
                     }
                     Err(error) => {
-                        this.error = Some(action_failure("resume the mission", error));
+                        this.error = Some(action_failure(
+                            crate::i18n::message("action.resume_mission"),
+                            error,
+                        ));
                     }
                 }
                 this.focus_active_mission_terminal(window, cx);
@@ -591,7 +614,10 @@ impl MissionWorkspace {
                     }
                     Err(error) => {
                         this.archiving = false;
-                        this.error = Some(action_failure("archive the mission", error));
+                        this.error = Some(action_failure(
+                            crate::i18n::message("action.archive_mission"),
+                            error,
+                        ));
                         cx.notify();
                     }
                 }
@@ -609,7 +635,7 @@ impl MissionWorkspace {
             TextField::new(
                 input_cx.focus_handle(),
                 original.clone(),
-                "Mission name",
+                crate::i18n::message("ui.mission_name"),
                 false,
             )
             .text_size(theme::text_body())

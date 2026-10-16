@@ -26,10 +26,10 @@ use crate::theme;
 use crate::NativeRoot;
 
 const NO_INSTALLED_AGENTS: &str =
-    "No agents installed. Install one of the agents below to get started.";
-const ALL_AGENTS_INSTALLED: &str = "All supported agents are installed.";
+    "ui.no_agents_installed_install_one_of_the_agents_below_to_get_started";
+const ALL_AGENTS_INSTALLED: &str = "ui.all_supported_agents_are_installed";
 const BROWSE_EXECUTABLE_HINT: &str =
-    "Use Browse to select an executable Runner did not find on PATH.";
+    "ui.use_browse_to_select_an_executable_runner_did_not_find_on_path";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BadgeTone {
@@ -46,7 +46,7 @@ struct RuntimePresentation {
     tone: BadgeTone,
     spinning: bool,
     caption: Option<String>,
-    auto_path: String,
+    auto_path: crate::i18n::Text,
     show_reset: bool,
 }
 
@@ -92,7 +92,10 @@ impl AgentsPane {
                 TextField::new(
                     input_cx.focus_handle(),
                     "",
-                    format!("Auto — {} not found on PATH", runtime.command),
+                    crate::i18n::messagef(
+                        "format.auto_not_found_on_path",
+                        &[("command", (runtime.command).to_string())],
+                    ),
                     true,
                 )
                 .text_size(theme::text_meta())
@@ -537,7 +540,13 @@ impl AgentsPane {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some(format!("Choose {display_name} executable").into()),
+            prompt: Some(
+                crate::i18n::tf(
+                    "format.choose_executable",
+                    &[("display_name", (display_name).to_string())],
+                )
+                .into(),
+            ),
         });
         cx.spawn(async move |weak, cx| {
             let result = selected
@@ -585,13 +594,17 @@ impl AgentsPane {
             .flex_col()
             .gap_2()
             .child(
-                runtime_section_header("Installed", count)
+                runtime_section_header(crate::i18n::text("ui.installed"), count)
                     .debug_selector(|| "AGENTS_INSTALLED_HEADER".into())
                     .child(div().flex_1())
                     .child(
                         Button::new(
                             "agents-refresh",
-                            if checking { "Checking…" } else { "Refresh" },
+                            if checking {
+                                crate::i18n::text("ui.checking")
+                            } else {
+                                crate::i18n::text("ui.refresh")
+                            },
                         )
                         .icon("refresh-cw.svg")
                         .size(ButtonSize::Sm)
@@ -636,7 +649,7 @@ impl AgentsPane {
                             .size(rems(11. / 16.))
                             .text_color(theme::accent()),
                     )
-                    .child("Default")
+                    .child(crate::i18n::text("ui.default"))
                     .into_any_element(),
             )
         } else {
@@ -647,7 +660,7 @@ impl AgentsPane {
                     .child(
                         Button::new(
                             SharedString::from(format!("agent-set-default-{runtime}")),
-                            "Set as default",
+                            crate::i18n::text("ui.set_as_default"),
                         )
                         .size(ButtonSize::Sm)
                         .variant(ButtonVariant::Secondary)
@@ -674,7 +687,7 @@ impl AgentsPane {
                 }),
             )
             .browse_id(SharedString::from(format!("agent-browse-{runtime}")))
-            .browse_label("Browse")
+            .browse_label(crate::i18n::text("ui.browse"))
         })
     }
 
@@ -711,8 +724,14 @@ impl AgentsPane {
                     .filter(|entry| !entry.description.is_empty() || !entry.install_url.is_empty())
                     .map(|entry| {
                         let description = (!entry.description.is_empty()).then(|| {
-                            runtime_section_caption(entry.description.clone())
-                                .debug_selector(|| format!("AGENT_DESCRIPTION_{}", runtime.name))
+                            runtime_section_caption(
+                                runner_app::ui::select::runtime_description(
+                                    entry.name,
+                                    &entry.description,
+                                )
+                                .resolve(),
+                            )
+                            .debug_selector(|| format!("AGENT_DESCRIPTION_{}", runtime.name))
                         });
                         let install = (!entry.install_url.is_empty()).then(|| {
                             let url = entry.install_url.clone();
@@ -724,7 +743,7 @@ impl AgentsPane {
                                             "agent-install-{}",
                                             runtime.name
                                         )),
-                                        "Install instructions",
+                                        crate::i18n::text("ui.install_instructions"),
                                     )
                                     .icon("external-link.svg")
                                     .size(ButtonSize::Sm)
@@ -800,7 +819,7 @@ impl AgentsPane {
                 .child(
                     Button::new(
                         SharedString::from(format!("agent-update-{}", runtime.name)),
-                        "Update",
+                        crate::i18n::text("ui.update"),
                     )
                     .size(ButtonSize::Sm)
                     .variant(ButtonVariant::Secondary)
@@ -871,7 +890,11 @@ impl AgentsPane {
                                         )),
                                         format!(
                                             "{} {}",
-                                            if enabled { "Disable" } else { "Enable" },
+                                            if enabled {
+                                                crate::i18n::text("ui.disable")
+                                            } else {
+                                                crate::i18n::text("ui.enable")
+                                            },
                                             runtime.display_name
                                         ),
                                         Toggle::new(
@@ -905,7 +928,7 @@ impl AgentsPane {
                     .children(presentation.show_reset.then(|| {
                         Button::new(
                             SharedString::from(format!("agent-reset-{}", runtime.name)),
-                            "Reset",
+                            crate::i18n::text("ui.reset"),
                         )
                         .variant(ButtonVariant::Ghost)
                         .disabled(saving)
@@ -917,13 +940,17 @@ impl AgentsPane {
                     })),
             )
             .children(runtime_defaults_visible(runtime).then(|| {
-                runtime_property_line(runtime.name, "MODEL", "Model")
+                runtime_property_line(runtime.name, "MODEL", crate::i18n::text("ui.model"))
                     .child(runtime_property_value(runtime_default_value(
                         runtime.default_model.as_deref(),
                     )))
                     .child(div().text_color(theme::muted()).child("·"))
-                    .child(div().text_color(theme::muted()).child("Effort"))
-                    .child(runtime_property_value(runtime_default_value(
+                    .child(
+                        div()
+                            .text_color(theme::muted())
+                            .child(crate::i18n::text("ui.effort")),
+                    )
+                    .child(runtime_property_value(runtime_default_effort_value(
                         runtime.default_effort.as_deref(),
                     )))
             }))
@@ -982,6 +1009,10 @@ fn runtime_property_value(value: String) -> Div {
     div()
         .font_family(theme::UI_MONOSPACE_FONT)
         .text_color(theme::text())
+        .when(cfg!(test), |property| {
+            let value = value.clone();
+            property.debug_selector(move || format!("AGENT_PROPERTY_VALUE {value}"))
+        })
         .child(value)
 }
 
@@ -1015,7 +1046,7 @@ impl Render for AgentsPane {
                         .child(self.render_installed_header(Some(installed.len()), cx))
                         .when(installed.is_empty(), |section| {
                             section.child(
-                                runtime_section_caption(NO_INSTALLED_AGENTS)
+                                runtime_section_caption(crate::i18n::text(NO_INSTALLED_AGENTS))
                                     .debug_selector(|| "AGENTS_INSTALLED_EMPTY".into()),
                             )
                         })
@@ -1025,7 +1056,7 @@ impl Render for AgentsPane {
                 )
                 .children(if not_installed.is_empty() {
                     (!status.shell.checking).then(|| {
-                        runtime_section_caption(ALL_AGENTS_INSTALLED)
+                        runtime_section_caption(crate::i18n::text(ALL_AGENTS_INSTALLED))
                             .debug_selector(|| "AGENTS_NOT_INSTALLED_EMPTY".into())
                     })
                 } else {
@@ -1042,12 +1073,14 @@ impl Render for AgentsPane {
                                     .gap_2()
                                     .child(
                                         runtime_section_header(
-                                            "Not installed",
+                                            crate::i18n::text("ui.not_installed"),
                                             Some(not_installed.len()),
                                         )
                                         .debug_selector(|| "AGENTS_NOT_INSTALLED_HEADER".into()),
                                     )
-                                    .child(runtime_section_caption(BROWSE_EXECUTABLE_HINT)),
+                                    .child(runtime_section_caption(crate::i18n::text(
+                                        BROWSE_EXECUTABLE_HINT,
+                                    ))),
                             )
                             .children(not_installed.into_iter().map(|runtime| {
                                 SettingsCard::new([self.render_not_installed_row(runtime, cx)])
@@ -1077,8 +1110,8 @@ impl Render for AgentsPane {
             .flex_col()
             .gap_5()
             .child(PaneHeader::new(
-                "Agents",
-                "Discover, enable, and override built-in agent executables.",
+                crate::i18n::text("ui.agents"),
+                crate::i18n::text("ui.discover_enable_and_override_built_in_agent_executables"),
             ))
             .child(sections)
             .child(
@@ -1086,12 +1119,12 @@ impl Render for AgentsPane {
                     .text_size(theme::text_ui())
                     .line_height(rems(18. / 16.))
                     .text_color(theme::faint())
-                    .child("Disabled agents stay configured but are hidden from agent pickers. Overrides apply to new sessions that use the agent's default command; roles with a custom command keep it."),
+                    .child(crate::i18n::text("ui.disabled_agents_stay_configured_but_are_hidden_from_agent_pickers_overrides_apply_to_new_s")),
             )
             .children(self.error.clone().filter(|_| !self.app_store.read(cx).daemon_disconnected).map(|error| {
                 runner_app::ui::notice_banner(error, runner_app::ui::Tone::Danger)
                     .child(
-                        Button::new("agents-retry", "Retry")
+                        Button::new("agents-retry", crate::i18n::text("ui.retry"))
                             .size(ButtonSize::Sm)
                             .variant(ButtonVariant::Ghost)
                             .on_press(move |_, cx| {
@@ -1207,7 +1240,16 @@ fn runtime_defaults_visible(runtime: &RuntimeExecutableStatus) -> bool {
 }
 
 fn runtime_default_value(value: Option<&str>) -> String {
-    value.unwrap_or("runtime default").to_owned()
+    value
+        .unwrap_or(crate::i18n::text("ui.runtime_default_effort"))
+        .to_owned()
+}
+
+fn runtime_default_effort_value(value: Option<&str>) -> String {
+    let value = runtime_default_value(value);
+    runner_app::ui::select::effort_label(&value, &value)
+        .resolve()
+        .to_string()
 }
 
 fn runtime_presentation(
@@ -1222,23 +1264,31 @@ fn runtime_presentation(
         runtime.state
     };
     let (badge, tone, spinning) = if saving {
-        ("Saving…", BadgeTone::Muted, true)
+        (crate::i18n::text("ui.saving"), BadgeTone::Muted, true)
     } else {
         match state {
-            RuntimeRowState::Detected => ("Detected", BadgeTone::Accent, false),
-            RuntimeRowState::Override => ("Override", BadgeTone::Neutral, false),
-            RuntimeRowState::NotFound => ("Not found", BadgeTone::Danger, false),
-            RuntimeRowState::Checking => ("Checking…", BadgeTone::Muted, true),
+            RuntimeRowState::Detected => {
+                (crate::i18n::text("ui.detected"), BadgeTone::Accent, false)
+            }
+            RuntimeRowState::Override => {
+                (crate::i18n::text("ui.override"), BadgeTone::Neutral, false)
+            }
+            RuntimeRowState::NotFound => {
+                (crate::i18n::text("ui.not_found"), BadgeTone::Danger, false)
+            }
+            RuntimeRowState::Checking => (crate::i18n::text("ui.checking"), BadgeTone::Muted, true),
             RuntimeRowState::ProbeTimedOut => (
                 if probe_outcome == Some(DiscoveryOutcome::Timeout) {
-                    "Probe timed out"
+                    crate::i18n::text("ui.probe_timed_out")
                 } else {
-                    "Detection failed"
+                    crate::i18n::text("ui.detection_failed")
                 },
                 BadgeTone::Warning,
                 false,
             ),
-            RuntimeRowState::InvalidOverride => ("Invalid", BadgeTone::Danger, false),
+            RuntimeRowState::InvalidOverride => {
+                (crate::i18n::text("ui.invalid"), BadgeTone::Danger, false)
+            }
         }
     };
     let caption = if let Some(validation) = validation {
@@ -1246,28 +1296,54 @@ fn runtime_presentation(
     } else {
         match state {
             RuntimeRowState::Override => Some(runtime.detected_path.as_ref().map_or_else(
-                || format!("{} was not found automatically.", runtime.command),
-                |path| format!("Detected: {path}"),
+                || {
+                    crate::i18n::tf(
+                        "format.was_not_found_automatically",
+                        &[("command", (runtime.command).to_string())],
+                    )
+                },
+                |path| crate::i18n::tf("format.detected", &[("path", (path).to_string())]),
             )),
-            RuntimeRowState::NotFound => Some(format!(
-                "Install {} or set an explicit executable path.",
-                runtime.display_name
+            RuntimeRowState::NotFound => Some(crate::i18n::tf(
+                "format.install_or_set_an_explicit_executable_path",
+                &[("runtime", (runtime.display_name).to_string())],
             )),
             RuntimeRowState::ProbeTimedOut => {
                 let failure = match probe_outcome {
-                    Some(DiscoveryOutcome::Timeout) => "Login shell timed out",
-                    Some(DiscoveryOutcome::WindowsRegistryError) => "Windows PATH refresh failed",
-                    _ => "Shell detection failed",
+                    Some(DiscoveryOutcome::Timeout) => {
+                        crate::i18n::text("ui.login_shell_timed_out")
+                    }
+                    Some(DiscoveryOutcome::WindowsRegistryError) => {
+                        crate::i18n::text("ui.windows_path_refresh_failed")
+                    }
+                    _ => crate::i18n::text("ui.shell_detection_failed"),
                 };
                 Some(runtime.detected_path.as_ref().map_or_else(
-                    || format!("{failure}. Refresh or set an explicit executable path."),
-                    |path| format!("{failure} — using the last resolved path: {path}"),
+                    || {
+                        crate::i18n::tf(
+                            "format.refresh_or_set_an_explicit_executable_path",
+                            &[("failure", (failure).to_string())],
+                        )
+                    },
+                    |path| {
+                        crate::i18n::tf(
+                            "format.using_the_last_resolved_path",
+                            &[
+                                ("failure", (failure).to_string()),
+                                ("path", (path).to_string()),
+                            ],
+                        )
+                    },
                 ))
             }
-            RuntimeRowState::Checking if runtime.detected_path.is_some() => runtime
-                .detected_path
-                .as_ref()
-                .map(|path| format!("Using last detected path: {path}")),
+            RuntimeRowState::Checking if runtime.detected_path.is_some() => {
+                runtime.detected_path.as_ref().map(|path| {
+                    crate::i18n::tf(
+                        "format.using_last_detected_path",
+                        &[("path", (path).to_string())],
+                    )
+                })
+            }
             _ => None,
         }
     };
@@ -1278,19 +1354,26 @@ fn runtime_presentation(
     let caption = match (version, caption) {
         (Some(version), Some(caption)) => Some(format!("{version} · {caption}")),
         (Some(version), None) => Some(match &runtime.detected_path {
-            Some(path) if state == RuntimeRowState::Detected => {
-                format!("{version} · Detected: {path}")
-            }
+            Some(path) if state == RuntimeRowState::Detected => crate::i18n::tf(
+                "format.detected_version_path",
+                &[
+                    ("version", (version).to_string()),
+                    ("path", (path).to_string()),
+                ],
+            ),
             _ => version,
         }),
         (None, caption) => caption,
     };
     let auto_path = if runtime.state == RuntimeRowState::Checking {
-        "Auto — detecting…".to_owned()
+        crate::i18n::message("ui.auto_detecting")
     } else if let Some(path) = &runtime.detected_path {
-        format!("Auto — {path}")
+        crate::i18n::messagef("format.auto", &[("path", (path).to_string())])
     } else {
-        format!("Auto — {} not found on PATH", runtime.command)
+        crate::i18n::messagef(
+            "format.auto_not_found_on_path",
+            &[("command", (runtime.command).to_string())],
+        )
     };
     RuntimePresentation {
         badge,
@@ -1319,11 +1402,20 @@ fn update_action(runtime: &RuntimeExecutableStatus, running: usize) -> Option<Up
     let name = &runtime.display_name;
     let caption = match running {
         0 => None,
-        1 => Some(format!(
-            "1 running {name} session keeps {installed} until it relaunches."
+        1 => Some(crate::i18n::tf(
+            "format.1_running_session_keeps_until_it_relaunches",
+            &[
+                ("name", (name).to_string()),
+                ("installed", (installed).to_string()),
+            ],
         )),
-        running => Some(format!(
-            "{running} running {name} sessions keep {installed} until they relaunch."
+        running => Some(crate::i18n::tf(
+            "format.runtime_running_sessions_keep_version",
+            &[
+                ("running", (running).to_string()),
+                ("name", (name).to_string()),
+                ("installed", (installed).to_string()),
+            ],
         )),
     };
     Some(UpdateAction { caption })
@@ -1368,61 +1460,86 @@ fn runtime_badge(runtime: Runtime, presentation: &RuntimePresentation) -> AnyEle
 
 fn shell_description(shell: Option<&ShellDiscoveryStatus>) -> String {
     let Some(shell) = shell else {
-        return "Loading shell discovery status…".into();
+        return crate::i18n::text("ui.loading_shell_discovery_status").into();
     };
     let selected = shell.shell.as_deref();
     let duration = shell
         .duration_ms
-        .map(|duration| format!(" in {:.1} s", duration as f64 / 1_000.))
+        .map(|duration| {
+            crate::i18n::tf(
+                "format.in_s",
+                &[(
+                    "seconds",
+                    (format!("{:.1}", duration as f64 / 1_000.)).to_string(),
+                )],
+            )
+        })
         .unwrap_or_default();
     if shell.checking {
         #[cfg(windows)]
         if selected.is_none() {
             return if shell.using_last_known_good {
-                "Refreshing Windows PATH; agents keep using the last saved environment.".into()
+                crate::i18n::text(
+                    "ui.refreshing_windows_path_agents_keep_using_the_last_saved_environment",
+                )
+                .into()
             } else {
-                "Checking the Windows registry for PATH…".into()
+                crate::i18n::text("ui.checking_the_windows_registry_for_path").into()
             };
         }
         let Some(selected) = selected else {
-            return "Checking login shell for PATH and proxy settings…".into();
+            return crate::i18n::text("ui.checking_login_shell_for_path_and_proxy_settings").into();
         };
         return if shell.using_last_known_good {
-            format!("Checking {selected}; agents keep using the last saved environment.")
+            crate::i18n::tf(
+                "format.checking_agents_keep_using_the_last_saved_environment",
+                &[("selected", (selected).to_string())],
+            )
         } else {
-            format!("Checking {selected} for PATH and proxy settings…")
+            crate::i18n::tf(
+                "format.checking_for_path_and_proxy_settings",
+                &[("selected", (selected).to_string())],
+            )
         };
     }
     match shell.outcome {
-        Some(DiscoveryOutcome::Ok) => format!(
-            "PATH captured from your login shell ({}){duration}. Spawned agents inherit it.",
-            selected.unwrap_or("")
+        Some(DiscoveryOutcome::Ok) => crate::i18n::tf(
+            "format.path_captured_from_your_login_shell_spawned_agents_inherit_it",
+            &[
+                ("shell", (selected.unwrap_or("")).to_string()),
+                ("duration", (duration).to_string()),
+            ],
         ),
-        Some(DiscoveryOutcome::WindowsRegistry) => format!(
-            "PATH refreshed from the Windows registry{duration}. Spawned agents inherit it."
+        Some(DiscoveryOutcome::WindowsRegistry) => crate::i18n::tf(
+            "format.path_refreshed_from_the_windows_registry_spawned_agents_inherit_it",
+            &[("duration", (duration).to_string())],
         ),
-        Some(DiscoveryOutcome::WindowsRegistryError) => {
-            "Could not read Windows PATH from the registry; refresh or set an override below."
-                .into()
-        }
-        Some(DiscoveryOutcome::Timeout) => format!(
-            "{} did not respond{duration}; agents keep using the last saved environment.",
-            selected.unwrap_or("")
+        Some(DiscoveryOutcome::WindowsRegistryError) => crate::i18n::text(
+            "ui.could_not_read_windows_path_from_the_registry_refresh_or_set_an_override_below",
+        )
+        .into(),
+        Some(DiscoveryOutcome::Timeout) => crate::i18n::tf(
+            "format.did_not_respond_agents_keep_using_the_last_saved_environment",
+            &[
+                ("shell", (selected.unwrap_or("")).to_string()),
+                ("duration", (duration).to_string()),
+            ],
         ),
-        Some(DiscoveryOutcome::SpawnError) => format!(
-            "Could not start {}; refresh after fixing the login shell or set an override below.",
-            selected.unwrap_or("")
+        Some(DiscoveryOutcome::SpawnError) => crate::i18n::tf(
+            "format.could_not_start_refresh_after_fixing_the_login_shell_or_set_an_override_below",
+            &[("shell", (selected.unwrap_or("")).to_string())],
         ),
-        Some(DiscoveryOutcome::EmptyCapture) => format!(
-            "{} returned no usable environment; refresh or set an override below.",
-            selected.unwrap_or("")
+        Some(DiscoveryOutcome::EmptyCapture) => crate::i18n::tf(
+            "format.returned_no_usable_environment_refresh_or_set_an_override_below",
+            &[("shell", (selected.unwrap_or("")).to_string())],
         ),
-        Some(DiscoveryOutcome::NoShell) => {
-            "No supported login shell was configured; set an executable override below.".into()
-        }
+        Some(DiscoveryOutcome::NoShell) => crate::i18n::text(
+            "ui.no_supported_login_shell_was_configured_set_an_executable_override_below",
+        )
+        .into(),
         None => selected.map_or_else(
-            || "Waiting to check the login shell.".into(),
-            |shell| format!("Waiting to check {shell}."),
+            || crate::i18n::text("ui.waiting_to_check_the_login_shell").into(),
+            |shell| crate::i18n::tf("format.waiting_to_check", &[("shell", (shell).to_string())]),
         ),
     }
 }
@@ -1738,13 +1855,13 @@ mod tests {
             "claude-fable-5[1m]"
         );
         assert_eq!(
-            runtime_default_value(runtime.default_effort.as_deref()),
+            runtime_default_effort_value(runtime.default_effort.as_deref()),
             "xhigh"
         );
 
         runtime.default_effort = None;
         assert_eq!(
-            runtime_default_value(runtime.default_effort.as_deref()),
+            runtime_default_effort_value(runtime.default_effort.as_deref()),
             "runtime default"
         );
     }
@@ -2312,6 +2429,118 @@ mod tests {
             &catalog,
         ));
         assert!(settings.default_runtime.is_empty());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn mounted_agents_placeholders_follow_locale_without_reloading_drafts() {
+        use crate::i18n::{self, Language, Locale};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        i18n::testing::with_locale(Locale::English, || {
+            for (state, path, english, chinese) in [
+                (
+                    RuntimeRowState::Checking,
+                    None,
+                    "Auto — detecting…",
+                    "自动 — 正在检测…",
+                ),
+                (
+                    RuntimeRowState::Detected,
+                    Some("/tmp/{path}/codex"),
+                    "Auto — /tmp/{path}/codex",
+                    "自动 — /tmp/{path}/codex",
+                ),
+                (
+                    RuntimeRowState::NotFound,
+                    None,
+                    "Auto — codex not found on PATH",
+                    "自动 — PATH 中未找到 codex",
+                ),
+            ] {
+                let mut cx = gpui::TestAppContext::single();
+                let mut row = runtime(state);
+                row.detected_path = path.map(str::to_owned);
+                let (_temp, pane) = test_pane_with_settings(
+                    vec![row],
+                    false,
+                    AppSettings {
+                        language: Language::English,
+                        ..AppSettings::default()
+                    },
+                    &mut cx,
+                );
+                let (store, field) = pane
+                    .read_with(&cx, |pane, _| {
+                        (
+                            pane.app_store.clone(),
+                            pane.overrides[&Runtime::Codex].clone(),
+                        )
+                    })
+                    .unwrap();
+                let peer = cx.add_window(|window, cx| {
+                    AgentsPane::new(WeakEntity::new_invalid(), store.clone(), window, cx)
+                });
+                field.update(&mut cx, |field, cx| {
+                    field.set_text("/tmp/draft {count} 中文", cx);
+                    field.select_all(cx);
+                });
+                let caret = field.read_with(&cx, |field, _| field.caret_offset());
+                let mut visual = gpui::VisualTestContext::from_window(pane.into(), &cx);
+                for (language, expected) in [
+                    (Language::SimplifiedChinese, chinese),
+                    (Language::English, english),
+                ] {
+                    peer.update(&mut visual, |root, _, cx| {
+                        root.app_store.update(cx, |store, cx| {
+                            store.update_settings(
+                                |settings| {
+                                    settings.language = language;
+                                    true
+                                },
+                                false,
+                                cx,
+                            )
+                        })
+                    })
+                    .unwrap();
+                    visual.run_until_parked();
+                    field.read_with(&visual, |field, _| {
+                        assert_eq!(field.placeholder(), expected);
+                        assert_eq!(field.text(), "/tmp/draft {count} 中文");
+                        assert_eq!(field.caret_offset(), caret);
+                    });
+                    pane.read_with(&visual, |pane, _| {
+                        assert_eq!(
+                            pane.overrides[&Runtime::Codex].entity_id(),
+                            field.entity_id()
+                        )
+                    })
+                    .unwrap();
+                }
+            }
+        });
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn chinese_agent_defaults_translate_effort_and_keep_model_names_literal() {
+        crate::i18n::testing::with_locale(crate::i18n::Locale::SimplifiedChinese, || {
+            let _theme = crate::theme_snapshot::ThemeGuard::new();
+            let mut row = runtime(RuntimeRowState::Detected);
+            row.default_model = Some("xhigh".into());
+            row.default_effort = Some("xhigh".into());
+            assert_eq!(runtime_default_value(row.default_model.as_deref()), "xhigh");
+            assert_eq!(
+                runtime_default_effort_value(row.default_effort.as_deref()),
+                "极高"
+            );
+            assert_eq!(runtime_default_effort_value(None), "运行时默认");
+            let mut cx = gpui::TestAppContext::single();
+            let (_temp, pane) = test_pane(vec![row], false, &mut cx);
+            let mut visual = gpui::VisualTestContext::from_window(pane.into(), &cx);
+            assert!(visual.debug_bounds("AGENT_PROPERTY_VALUE 极高").is_some());
+            assert!(visual.debug_bounds("AGENT_PROPERTY_VALUE xhigh").is_some());
+        });
     }
 
     #[test]

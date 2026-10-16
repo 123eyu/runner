@@ -57,6 +57,9 @@ impl std::fmt::Debug for SelectLeading {
 pub struct SelectOption {
     pub value: String,
     pub label: SharedString,
+    label_source: crate::i18n::Text,
+    description_source: Option<crate::i18n::Text>,
+    trigger_description_source: Option<crate::i18n::Text>,
     pub description: Option<SharedString>,
     pub trigger_description: Option<SharedString>,
     pub separator_before: bool,
@@ -70,10 +73,14 @@ pub struct SelectOption {
 }
 
 impl SelectOption {
-    pub fn new(value: impl Into<String>, label: impl Into<SharedString>) -> Self {
+    pub fn new(value: impl Into<String>, label: impl Into<crate::i18n::Text>) -> Self {
+        let label_source = label.into();
         Self {
             value: value.into(),
-            label: label.into(),
+            label: label_source.resolve(),
+            label_source,
+            description_source: None,
+            trigger_description_source: None,
             description: None,
             trigger_description: None,
             separator_before: false,
@@ -83,6 +90,18 @@ impl SelectOption {
             leading: None,
             marked: false,
         }
+    }
+
+    pub fn with_label(mut self, label: impl Into<crate::i18n::Text>) -> Self {
+        self.label_source = label.into();
+        self.label = self.label_source.resolve();
+        self
+    }
+
+    pub fn without_description(mut self) -> Self {
+        self.description = None;
+        self.description_source = None;
+        self
     }
 
     pub fn leading(mut self, leading: SelectLeading) -> Self {
@@ -95,13 +114,17 @@ impl SelectOption {
         self
     }
 
-    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
-        self.description = Some(description.into());
+    pub fn description(mut self, description: impl Into<crate::i18n::Text>) -> Self {
+        let source = description.into();
+        self.description = Some(source.resolve());
+        self.description_source = Some(source);
         self
     }
 
-    pub fn trigger_description(mut self, description: impl Into<SharedString>) -> Self {
-        self.trigger_description = Some(description.into());
+    pub fn trigger_description(mut self, description: impl Into<crate::i18n::Text>) -> Self {
+        let source = description.into();
+        self.trigger_description = Some(source.resolve());
+        self.trigger_description_source = Some(source);
         self
     }
 
@@ -123,6 +146,16 @@ impl SelectOption {
     pub fn swatch(mut self, color: u32) -> Self {
         self.swatch = Some(color);
         self
+    }
+
+    pub(crate) fn relocalize(&mut self) {
+        self.label = self.label_source.resolve();
+        if let Some(source) = &self.description_source {
+            self.description = Some(source.resolve());
+        }
+        if let Some(source) = &self.trigger_description_source {
+            self.trigger_description = Some(source.resolve());
+        }
     }
 
     fn as_menu_item(&self) -> MenuItem {
@@ -204,6 +237,7 @@ pub struct StyledSelect {
     options: Vec<SelectOption>,
     value: String,
     placeholder: SharedString,
+    placeholder_source: crate::i18n::Text,
     state: SelectState,
     anchor_bounds: Option<Bounds<Pixels>>,
     width: Pixels,
@@ -237,7 +271,8 @@ impl StyledSelect {
             focus_handle,
             options,
             value: value.into(),
-            placeholder: "Select…".into(),
+            placeholder: crate::i18n::text("ui.select").into(),
+            placeholder_source: crate::i18n::message("ui.select"),
             state: SelectState::default(),
             anchor_bounds: None,
             width: px(160.),
@@ -274,7 +309,7 @@ impl StyledSelect {
         .runtime_style(true)
         .monospace(true)
         .min_menu_width(px(0.))
-        .placeholder("No agents available")
+        .placeholder(crate::i18n::message("ui.no_agents_available"))
     }
 
     pub fn width(mut self, width: Pixels) -> Self {
@@ -330,8 +365,9 @@ impl StyledSelect {
         self
     }
 
-    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
+    pub fn placeholder(mut self, placeholder: impl Into<crate::i18n::Text>) -> Self {
+        self.placeholder_source = placeholder.into();
+        self.placeholder = self.placeholder_source.resolve();
         self
     }
 
@@ -372,12 +408,17 @@ impl StyledSelect {
         cx.notify();
     }
 
+    pub fn placeholder_text(&self) -> &str {
+        &self.placeholder
+    }
+
     pub fn set_placeholder(
         &mut self,
-        placeholder: impl Into<SharedString>,
+        placeholder: impl Into<crate::i18n::Text>,
         cx: &mut Context<Self>,
     ) {
-        self.placeholder = placeholder.into();
+        self.placeholder_source = placeholder.into();
+        self.placeholder = self.placeholder_source.resolve();
         cx.notify();
     }
 
@@ -477,6 +518,10 @@ impl StyledSelect {
 
 impl Render for StyledSelect {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.placeholder = self.placeholder_source.resolve();
+        for option in &mut self.options {
+            option.relocalize();
+        }
         let zoom = app_zoom(window);
         let selected = self.options.get(self.selected_index());
         let label = selected
@@ -925,13 +970,71 @@ pub(crate) fn option_menu_width(options: &[SelectOption], min: Pixels, zoom: f32
 
 pub type RuntimeSelect = StyledSelect;
 
+pub fn runtime_description(
+    runtime: runner_core::protocol::model::Runtime,
+    fallback: &str,
+) -> crate::i18n::Text {
+    use runner_core::protocol::model::Runtime;
+    let key = match runtime {
+        Runtime::Antigravity => "runtime.antigravity",
+        Runtime::Copilot => "runtime.copilot",
+        Runtime::Pi => "runtime.pi",
+        Runtime::OpenCode => "runtime.opencode",
+        _ => return fallback.into(),
+    };
+    crate::i18n::message(key)
+}
+
+pub fn effort_label(value: &str, fallback: &str) -> crate::i18n::Text {
+    let key = match value {
+        "" | "default" => "word.default",
+        "low" => "effort.low",
+        "medium" => "effort.medium",
+        "high" => "effort.high",
+        "xhigh" => "effort.xhigh",
+        "max" => "effort.max",
+        "ultra" => "effort.ultra",
+        "minimal" => "effort.minimal",
+        "none" => "effort.none",
+        _ => return fallback.into(),
+    };
+    crate::i18n::localized_label(key, fallback)
+}
+
+pub fn effort_option(
+    option: &runner_core::protocol::runtime::RuntimeCatalogOption,
+) -> SelectOption {
+    let mut select = SelectOption::new(
+        option.value.clone(),
+        effort_label(&option.value, &option.label),
+    );
+    let description_key = match option.value.as_str() {
+        "" => Some("effort.default_description"),
+        "low" => Some("effort.low_description"),
+        "medium" => Some("effort.medium_description"),
+        "high" => Some("effort.high_description"),
+        "xhigh" => Some("effort.xhigh_description"),
+        "max" => Some("effort.max_description"),
+        "ultra" => Some("effort.ultra_description"),
+        _ => None,
+    };
+    if let Some(description) = &option.description {
+        select = if let Some(key) = description_key {
+            select.description(crate::i18n::message(key))
+        } else {
+            select.description(description.clone())
+        };
+    }
+    select
+}
+
 pub fn runtime_select_options(catalog: &[RuntimeCatalogEntry]) -> Vec<SelectOption> {
     catalog
         .iter()
         .filter(|runtime| runtime.available)
         .map(|runtime| {
             SelectOption::new(runtime.name.key(), runtime.display_name.clone())
-                .description(runtime.description.clone())
+                .description(runtime_description(runtime.name, &runtime.description))
         })
         .collect()
 }

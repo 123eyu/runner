@@ -178,7 +178,7 @@ impl NativeRoot {
             self.crew_surfaces
                 .create
                 .as_ref()
-                .and_then(|form| form.error.clone())
+                .and_then(|form| form.error.as_ref().map(|error| error.resolve().to_string()))
         } else {
             editor.error.clone()
         })
@@ -188,7 +188,7 @@ impl NativeRoot {
             back_root.update(cx, |this, cx| this.open_crews(window, cx));
         });
         let current = if creating {
-            "New crew".into()
+            crate::i18n::text("ui.new_crew").into()
         } else {
             crew.as_ref()
                 .map(|crew| crew.name.clone())
@@ -200,13 +200,13 @@ impl NativeRoot {
             div()
                 .text_size(theme::text_title())
                 .text_color(theme::muted())
-                .child("Loading…")
+                .child(crate::i18n::text("ui.loading"))
                 .into_any_element()
         } else if !loaded {
             runner_app::ui::notice_banner(
                 editor_error
                     .clone()
-                    .unwrap_or_else(|| "Failed to load crew.".into()),
+                    .unwrap_or_else(|| crate::i18n::text("ui.failed_to_load_crew").into()),
                 runner_app::ui::Tone::Danger,
             )
             .into_any_element()
@@ -216,7 +216,7 @@ impl NativeRoot {
             div()
                 .text_size(theme::text_title())
                 .text_color(theme::danger())
-                .child("Crew not found.")
+                .child(crate::i18n::text("ui.crew_not_found"))
                 .into_any_element()
         };
         let error = editor_error.filter(|_| loaded || creating);
@@ -240,7 +240,7 @@ impl NativeRoot {
                     .child(
                         breadcrumb(
                             "crew-editor-back",
-                            "Crews",
+                            crate::i18n::text("ui.crews"),
                             on_back,
                             div()
                                 .min_w(px(0.))
@@ -253,7 +253,7 @@ impl NativeRoot {
                             header.debug_selector(|| "CREW_EDITOR_HEADER".into())
                         })
                         .children(creating.then(|| {
-                            state_tag("NEW").when(cfg!(test), |tag| {
+                            state_tag(crate::i18n::text("heading.new")).when(cfg!(test), |tag| {
                                 tag.debug_selector(|| "CREW_NEW_TAG".into())
                             })
                         }))
@@ -371,14 +371,14 @@ impl NativeRoot {
                             .gap_2()
                             .child(
                                 div().flex_1().min_w(px(0.)).child(
-                                    Button::new("start-crew-mission", "Start mission")
+                                    Button::new("start-crew-mission", crate::i18n::text("ui.start_mission"))
                                         .icon("play.svg")
                                         .variant(ButtonVariant::Primary)
                                         .full_width(true)
                                         .tooltip(if slots.is_empty() {
-                                            "Add at least one slot before starting a mission"
+                                            crate::i18n::text("ui.add_at_least_one_slot_before_starting_a_mission")
                                         } else {
-                                            "Start a mission with this crew"
+                                            crate::i18n::text("ui.start_a_mission_with_this_crew")
                                         })
                                         .disabled(slots.is_empty())
                                         .on_press(move |window, cx| {
@@ -400,9 +400,9 @@ impl NativeRoot {
                                         edit.debug_selector(|| "CREW_EDIT".into())
                                     })
                                     .child(
-                                        Button::new("edit-crew", "Edit")
+                                        Button::new("edit-crew", crate::i18n::text("ui.edit"))
                                             .icon("pencil.svg")
-                                            .tooltip("Edit the name and conventions")
+                                            .tooltip(crate::i18n::text("ui.edit_the_name_and_conventions"))
                                             .on_press(move |window, cx| {
                                                 edit_root.update(cx, |this, cx| {
                                                     this.start_crew_edit(window, cx)
@@ -458,14 +458,14 @@ impl NativeRoot {
                                                     "crew-page-save",
                                                     if saving {
                                                         if creating {
-                                                            "Creating…"
+                                                            crate::i18n::text("ui.creating")
                                                         } else {
-                                                            "Saving…"
+                                                            crate::i18n::text("ui.saving")
                                                         }
                                                     } else if creating {
-                                                        "Create crew"
+                                                        crate::i18n::text("ui.create_crew")
                                                     } else {
-                                                        "Save"
+                                                        crate::i18n::text("ui.save")
                                                     },
                                                 )
                                                 .icon(if creating {
@@ -476,11 +476,13 @@ impl NativeRoot {
                                                 .variant(ButtonVariant::Primary)
                                                 .full_width(true)
                                                 .tooltip(if name_empty {
-                                                    "The crew needs a name"
+                                                    crate::i18n::text("ui.the_crew_needs_a_name")
                                                 } else if creating {
-                                                    "Create the crew"
+                                                    crate::i18n::text("ui.create_the_crew")
                                                 } else {
-                                                    "Save the name and conventions"
+                                                    crate::i18n::text(
+                                                        "ui.save_the_name_and_conventions",
+                                                    )
                                                 })
                                                 .focus_handle(action_focus[0].clone())
                                                 .disabled(saving || name_empty)
@@ -501,28 +503,33 @@ impl NativeRoot {
                                                 cancel.debug_selector(|| "CREW_EDIT_CANCEL".into())
                                             })
                                             .child(
-                                                Button::new("crew-page-cancel", "Cancel")
-                                                    .focus_handle(action_focus[1].clone())
-                                                    .disabled(saving)
-                                                    .on_press(move |window, cx| {
-                                                        cancel_root.update(cx, |this, cx| {
-                                                            if creating {
-                                                                this.close_create_crew(window, cx)
-                                                            } else {
-                                                                this.cancel_crew_edit(window, cx)
-                                                            }
-                                                        });
-                                                    }),
+                                                Button::new(
+                                                    "crew-page-cancel",
+                                                    crate::i18n::text("ui.cancel"),
+                                                )
+                                                .focus_handle(action_focus[1].clone())
+                                                .disabled(saving)
+                                                .on_press(move |window, cx| {
+                                                    cancel_root.update(cx, |this, cx| {
+                                                        if creating {
+                                                            this.close_create_crew(window, cx)
+                                                        } else {
+                                                            this.cancel_crew_edit(window, cx)
+                                                        }
+                                                    });
+                                                }),
                                             ),
                                     ),
                             )
                             // Always laid out, so the slots below never jump.
                             .children((!creating).then(|| {
-                                dot_note("Unsaved changes. Slots save on their own.")
-                                    .when(!dirty, |line| line.opacity(0.))
-                                    .when(cfg!(test) && dirty, |line| {
-                                        line.debug_selector(|| "CREW_EDIT_DIRTY".into())
-                                    })
+                                dot_note(crate::i18n::text(
+                                    "ui.unsaved_changes_slots_save_on_their_own",
+                                ))
+                                .when(!dirty, |line| line.opacity(0.))
+                                .when(cfg!(test) && dirty, |line| {
+                                    line.debug_selector(|| "CREW_EDIT_DIRTY".into())
+                                })
                             })),
                     )
                     .into_any_element()
@@ -541,14 +548,19 @@ impl NativeRoot {
         let name_value = crew.name.clone();
         let conventions_value = crew.system_prompt_addendum.clone().unwrap_or_default();
         let name = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), name_value, "Crew name", false)
-                .text_size(theme::text_display())
+            TextField::new(
+                input_cx.focus_handle(),
+                name_value,
+                crate::i18n::message("ui.crew_name"),
+                false,
+            )
+            .text_size(theme::text_display())
         });
         let conventions = cx.new(|input_cx| {
             let mut input = TextField::textarea(
                 input_cx.focus_handle(),
                 conventions_value,
-                "How this crew works together: who leads, how work is handed off and reviewed. Every slot gets it when the crew runs a mission. Markdown works.",
+                crate::i18n::message("ui.how_this_crew_works_together_who_leads_how_work_is_handed_off_and_reviewed_every_slot_gets"),
                 6,
                 true,
             )
@@ -691,9 +703,15 @@ fn crew_details(crew: &Crew, editing: bool) -> AnyElement {
     };
     let (created, updated) = (date(crew.created_at), date(crew.updated_at));
     let dates = if updated == created {
-        format!("Created {created}")
+        crate::i18n::tf("format.created", &[("created", (created).to_string())])
     } else {
-        format!("Created {created} · updated {updated}")
+        crate::i18n::tf(
+            "format.created_updated",
+            &[
+                ("created", (created).to_string()),
+                ("updated", (updated).to_string()),
+            ],
+        )
     };
     section()
         .when(cfg!(test), |lines| {

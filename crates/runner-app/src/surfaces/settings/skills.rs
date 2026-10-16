@@ -35,15 +35,18 @@ fn skill_badges(entry: &SkillEntry) -> Vec<SkillBadge> {
     let mut badges = Vec::new();
     if entry.path.join(runner_core::RUNNER_SKILL_MARKER).is_file() {
         badges.push(SkillBadge {
-            label: "Managed by Runner".into(),
+            label: crate::i18n::text("ui.managed_by_runner").into(),
             tone: Tone::Muted,
             hint: None,
         });
     }
-    for (show, label) in [(entry.manual, "manual"), (entry.hidden, "hidden")] {
+    for (show, label) in [
+        (entry.manual, "skill.manual"),
+        (entry.hidden, "skill.hidden"),
+    ] {
         if show {
             badges.push(SkillBadge {
-                label: label.into(),
+                label: crate::i18n::text(label).into(),
                 tone: Tone::Warning,
                 hint: None,
             });
@@ -51,7 +54,7 @@ fn skill_badges(entry: &SkillEntry) -> Vec<SkillBadge> {
     }
     if let Some(target) = &entry.symlink {
         badges.push(SkillBadge {
-            label: "symlink".into(),
+            label: crate::i18n::text("skill.symlink").into(),
             tone: Tone::Muted,
             hint: Some(target.display().to_string()),
         });
@@ -65,7 +68,7 @@ fn skill_badges(entry: &SkillEntry) -> Vec<SkillBadge> {
     }
     if let Some(problem) = &entry.problem {
         badges.push(SkillBadge {
-            label: "problem".into(),
+            label: crate::i18n::text("skill.problem").into(),
             tone: Tone::Danger,
             hint: Some(problem.clone()),
         });
@@ -97,24 +100,34 @@ fn supports_global_skill_toggle(runtime: Runtime) -> bool {
 }
 
 fn catalog_meta(catalog: &SkillCatalog) -> String {
-    let mut text = format!(
-        "{} · {} skills",
-        catalog
-            .roots
-            .iter()
-            .map(|root| root.display().to_string())
-            .collect::<Vec<_>>()
-            .join(" · "),
-        catalog.entries.len()
+    let mut text = crate::i18n::tf(
+        "format.skills",
+        &[
+            (
+                "roots",
+                (catalog
+                    .roots
+                    .iter()
+                    .map(|root| root.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" · "))
+                .to_string(),
+            ),
+            ("skill_count", (catalog.entries.len()).to_string()),
+        ],
     );
     if !catalog.entries.is_empty() && supports_global_skill_toggle(catalog.runtime) {
-        text.push_str(&format!(
-            " · {} off",
-            catalog
-                .entries
-                .iter()
-                .filter(|e| e.global == GlobalState::Off)
-                .count()
+        text.push_str(&crate::i18n::tf(
+            "format.off",
+            &[(
+                "disabled_count",
+                (catalog
+                    .entries
+                    .iter()
+                    .filter(|e| e.global == GlobalState::Off)
+                    .count())
+                .to_string(),
+            )],
         ));
     }
     text
@@ -122,22 +135,28 @@ fn catalog_meta(catalog: &SkillCatalog) -> String {
 
 fn empty_catalog_text(catalog: &SkillCatalog) -> String {
     if !catalog.entries.is_empty() {
-        return "No matching skills.".into();
+        return crate::i18n::text("ui.no_matching_skills").into();
     }
     let paths = catalog
         .roots
         .iter()
         .map(|root| root.display().to_string())
         .collect::<Vec<_>>()
-        .join(" or ");
+        .join(crate::i18n::text("ui.or"));
     let missing = if catalog.root_exists {
         ""
     } else if catalog.roots.len() > 1 {
-        " (neither directory exists)"
+        crate::i18n::text("ui.neither_directory_exists")
     } else {
-        " (directory does not exist)"
+        crate::i18n::text("ui.directory_does_not_exist")
     };
-    format!("No skills in {paths}{missing}.")
+    crate::i18n::tf(
+        "format.no_skills_in",
+        &[
+            ("paths", (paths).to_string()),
+            ("missing", (missing).to_string()),
+        ],
+    )
 }
 
 fn dirty_buffer(original: &str, buffer: &str) -> bool {
@@ -205,8 +224,13 @@ impl SkillsPane {
             .width(px(200.))
         });
         let search = cx.new(|cx| {
-            TextField::new(cx.focus_handle(), "", "Search skills…", false)
-                .text_size(theme::text_ui())
+            TextField::new(
+                cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.search_skills"),
+                false,
+            )
+            .text_size(theme::text_ui())
         });
         let detail = cx.new(|cx| SkillDetail::new(app_store.clone(), cx));
         let subscriptions = vec![
@@ -339,7 +363,7 @@ impl SkillsPane {
             .child(
                 IconButton::new(("skill-edit", index), "square-pen.svg")
                     .size(IconButtonSize::Sm)
-                    .tooltip("Edit skill")
+                    .tooltip(crate::i18n::text("ui.edit_skill"))
                     .reveal_on_group_hover("skill-row")
                     .stop_click_propagation(true)
                     .disabled(!entry.files.contains(&entry.marker))
@@ -390,9 +414,9 @@ impl Render for SkillsPane {
             .collect();
         let empty = catalog.map(empty_catalog_text).unwrap_or_else(|| {
             if self.loading {
-                "Loading skills…".into()
+                crate::i18n::text("ui.loading_skills").into()
             } else {
-                "No skills catalogs available.".into()
+                crate::i18n::text("ui.no_skills_catalogs_available").into()
             }
         });
         div()
@@ -400,8 +424,8 @@ impl Render for SkillsPane {
             .flex_col()
             .gap_4()
             .child(
-                PaneHeader::new("Skills", "").action(
-                    Button::new("skills-refresh", "Refresh")
+                PaneHeader::new(crate::i18n::text("ui.skills"), "").action(
+                    Button::new("skills-refresh", crate::i18n::text("ui.refresh"))
                         .icon("refresh-cw.svg")
                         .size(ButtonSize::Sm)
                         .disabled(self.loading)
@@ -579,7 +603,7 @@ impl SkillDetail {
                 .find(|c| c.runtime == runtime)
                 .and_then(|c| c.entries.iter().find(|e| e.path == path))
                 .cloned()
-                .ok_or_else(|| "Skill is no longer in the catalog".to_owned())?;
+                .ok_or_else(|| crate::i18n::text("ui.skill_no_longer_catalog").to_owned())?;
             let read = core.skill_read(runtime, &path).map_err(|e| e.to_string());
             Ok::<_, String>((OpenSkill::from_read(runtime, entry, read), catalogs))
         });
@@ -782,12 +806,15 @@ impl SkillDetail {
                         this.scroll.set_offset(gpui::point(px(0.), px(0.)));
                         cx.emit(CatalogUpdate(Ok(catalogs)));
                         cx.emit(SaveNotice {
-                            message: format!("Saved SKILL.md for {name}"),
+                            message: crate::i18n::messagef(
+                                "format.saved_skill_md_for",
+                                &[("name", (name).to_string())],
+                            ),
                             tone: crate::toast::ToastTone::Success,
                         });
                     }
                     Err(error) => cx.emit(SaveNotice {
-                        message: error,
+                        message: error.into(),
                         tone: crate::toast::ToastTone::Error,
                     }),
                 }
@@ -811,13 +838,13 @@ impl SkillDetail {
             .child(div().min_w_0().truncate().child(skill.entry.name.clone()))
             .child(badges(&skill.entry))
             .when(self.editing, |title| {
-                title.child(Badge::new("editing", Tone::Accent))
+                title.child(Badge::new(crate::i18n::text("word.editing"), Tone::Accent))
             })
             .child(div().flex_1())
             .when(!self.editing, |title| {
                 title
                     .child(
-                        Button::new("skill-modal-edit", "Edit")
+                        Button::new("skill-modal-edit", crate::i18n::text("ui.edit"))
                             .icon("square-pen.svg")
                             .size(ButtonSize::Sm)
                             .disabled(self.busy || skill.read_error.is_some())
@@ -882,9 +909,9 @@ impl SkillDetail {
                         Button::new(
                             "skill-reveal",
                             if cfg!(windows) {
-                                "Reveal in Explorer"
+                                crate::i18n::text("ui.reveal_in_explorer")
                             } else {
-                                "Reveal in Finder"
+                                crate::i18n::text("ui.reveal_in_finder")
                             },
                         )
                         .size(ButtonSize::Sm)
@@ -919,15 +946,21 @@ impl SkillDetail {
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(div().text_size(theme::text_ui()).child(format!(
-                                        "Enabled in {}",
-                                        runner_core::protocol::runtime_metadata::for_key(
-                                            skill.runtime.key()
-                                        )
-                                        .catalog()
-                                        .map(|catalog| catalog.display_name.to_string())
-                                        .unwrap_or_else(|| skill.runtime.key().to_string())
-                                    )))
+                                .child(
+                                    div().text_size(theme::text_ui()).child(crate::i18n::tf(
+                                        "format.enabled_in",
+                                        &[(
+                                            "runtime",
+                                            (runner_core::protocol::runtime_metadata::for_key(
+                                                skill.runtime.key(),
+                                            )
+                                            .catalog()
+                                            .map(|catalog| catalog.display_name.to_string())
+                                            .unwrap_or_else(|| skill.runtime.key().to_string()))
+                                            .to_string(),
+                                        )],
+                                    )),
+                                )
                                 .child(
                                     div()
                                         .text_size(theme::text_caption())
@@ -981,15 +1014,17 @@ impl SkillDetail {
                     .flex_1()
                     .text_size(theme::text_caption())
                     .text_color(theme::faint())
-                    .child(format!(
-                        "{} · {} lines",
-                        skill.entry.marker,
-                        skill.text.lines().count()
+                    .child(crate::i18n::tf(
+                        "format.lines",
+                        &[
+                            ("path", (skill.entry.marker).to_string()),
+                            ("line_count", (skill.text.lines().count()).to_string()),
+                        ],
                     )),
             )
             .when(!self.editing && skill.read_error.is_none(), |bar| {
                 bar.child(
-                    Button::new("skill-preview", "Preview")
+                    Button::new("skill-preview", crate::i18n::text("ui.preview"))
                         .size(ButtonSize::Sm)
                         .variant(if self.source {
                             ButtonVariant::Ghost
@@ -1005,7 +1040,7 @@ impl SkillDetail {
                         }),
                 )
                 .child(
-                    Button::new("skill-source", "Source")
+                    Button::new("skill-source", crate::i18n::text("ui.source"))
                         .size(ButtonSize::Sm)
                         .variant(if self.source {
                             ButtonVariant::Secondary
@@ -1034,9 +1069,12 @@ impl SkillDetail {
                 div()
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
-                    .child(format!(
-                        "Cannot read {}: {error}. Reveal the folder to inspect its files.",
-                        skill.entry.marker
+                    .child(crate::i18n::tf(
+                        "format.cannot_read_reveal_the_folder_to_inspect_its_files",
+                        &[
+                            ("path", (skill.entry.marker).to_string()),
+                            ("error", (error).to_string()),
+                        ],
                     ))
                     .into_any_element()
             } else if self.source {
@@ -1173,12 +1211,17 @@ impl SkillDetail {
             let cancel_owner = owner.clone();
             let save_owner = owner.clone();
             let hint = match &skill.entry.symlink {
-                Some(target) => format!(
-                    "Writes {} in place — through the symlink into {}",
-                    skill.entry.marker,
-                    target.display()
+                Some(target) => crate::i18n::tf(
+                    "format.writes_in_place_through_the_symlink_into",
+                    &[
+                        ("path", (skill.entry.marker).to_string()),
+                        ("target", (target.display()).to_string()),
+                    ],
                 ),
-                None => format!("Writes {} in place.", skill.entry.marker),
+                None => crate::i18n::tf(
+                    "format.writes_in_place",
+                    &[("path", (skill.entry.marker).to_string())],
+                ),
             };
             modal = modal.footer(
                 div()
@@ -1197,14 +1240,14 @@ impl SkillDetail {
                             .child(hint),
                     )
                     .child(
-                        Button::new("skill-edit-cancel", "Cancel")
+                        Button::new("skill-edit-cancel", crate::i18n::text("ui.cancel"))
                             .disabled(self.busy)
                             .on_press(move |window, cx| {
                                 cancel_owner.update(cx, |this, cx| this.request_dismiss(window, cx))
                             }),
                     )
                     .child(
-                        Button::new("skill-edit-save", "Save")
+                        Button::new("skill-edit-save", crate::i18n::text("ui.save"))
                             .variant(ButtonVariant::Primary)
                             .disabled(self.busy)
                             .on_press(move |window, cx| {
@@ -1242,10 +1285,10 @@ impl Render for SkillDetail {
             .when(self.confirming, |overlay| {
                 overlay.child(
                     ConfirmDialog::new(
-                        "Discard unsaved changes?",
-                        "Your edits to this skill have not been saved.",
-                        "Discard changes",
-                        "Discarding…",
+                        crate::i18n::text("ui.discard_unsaved_changes"),
+                        crate::i18n::text("ui.your_edits_to_this_skill_have_not_been_saved"),
+                        crate::i18n::text("ui.discard_changes"),
+                        crate::i18n::text("ui.discarding"),
                         false,
                         Rc::new(move |window, cx| {
                             confirm_owner.update(cx, |this, cx| this.discard_edit(window, cx))
@@ -1637,6 +1680,28 @@ mod tests {
         assert_eq!(result[4].hint.as_deref(), Some("legacy skill.md"));
         entry.global = GlobalState::Other("user-invocable-only".into());
         assert_eq!(skill_badges(&entry)[3].label, "user-invocable-only");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn chinese_skill_badges_preserve_literal_details() {
+        crate::i18n::testing::with_locale(crate::i18n::Locale::SimplifiedChinese, || {
+            let mut entry = entry();
+            entry.manual = true;
+            entry.hidden = true;
+            entry.symlink = Some("/tmp/{literal}".into());
+            entry.problem = Some("literal backend {error}".into());
+            let badges = skill_badges(&entry);
+            assert_eq!(
+                badges
+                    .iter()
+                    .map(|badge| badge.label.as_str())
+                    .collect::<Vec<_>>(),
+                ["手动", "已隐藏", "符号链接", "异常"]
+            );
+            assert_eq!(badges[2].hint.as_deref(), Some("/tmp/{literal}"));
+            assert_eq!(badges[3].hint.as_deref(), Some("literal backend {error}"));
+        });
     }
 
     #[test]

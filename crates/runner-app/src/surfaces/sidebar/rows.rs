@@ -325,7 +325,7 @@ impl Sidebar {
         let indicator = if archiving && rollup.priority_value() < 3 {
             runner_app::ui::Tooltip::new(
                 SharedString::from(format!("{id}-archiving")),
-                "Archiving",
+                crate::i18n::text("ui.archiving_status"),
                 super::elements::attention_indicator(AttentionState::Working),
             )
             .into_any_element()
@@ -379,7 +379,7 @@ impl Sidebar {
         &mut self,
         target: SidebarRenameTarget,
         value: String,
-        placeholder: String,
+        placeholder: crate::i18n::Text,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

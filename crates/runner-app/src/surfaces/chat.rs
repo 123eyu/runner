@@ -173,7 +173,10 @@ impl NativeRoot {
             cx.notify();
             return;
         };
-        let title = Some(format!("{} (fork)", session_label(&entry)));
+        let title = Some(crate::i18n::tf(
+            "format.fork",
+            &[("chat", (session_label(&entry)).to_string())],
+        ));
         self.chat_error = None;
         cx.notify();
 
@@ -218,7 +221,7 @@ impl NativeRoot {
                             Ok(())
                         })();
                         if let Err(error) = placement {
-                            this.chat_error = Some(error.to_string());
+                            this.chat_error = Some(error.to_string().into());
                         }
                     }
                     Err(error) => {
@@ -233,7 +236,7 @@ impl NativeRoot {
                         this.sync_active_project_from_active_tab(cx);
                         let _ = this.ensure_active_tab_attached(window, cx);
                         this.sync_active_chat_detail(cx);
-                        this.chat_error = Some(error);
+                        this.chat_error = Some(error.into());
                     }
                 }
                 cx.notify();
@@ -283,7 +286,7 @@ impl NativeRoot {
                         .payload
                         .get("message")
                         .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned);
+                        .map(|message| message.to_owned().into());
                 }
             }
             "session/exit" => {
@@ -347,7 +350,7 @@ impl NativeRoot {
                         layout.all_session_ids().iter().any(|id| id == &session_id)
                     }) {
                         if let Err(error) = self.ensure_attached(&layout, &session_id, window, cx) {
-                            self.chat_error = Some(error.to_string());
+                            self.chat_error = Some(error.to_string().into());
                         }
                     }
                     self.sync_active_chat_detail(cx);
@@ -379,7 +382,7 @@ impl NativeRoot {
                             Ok(())
                         })();
                         if let Err(error) = placement {
-                            self.chat_error = Some(error.to_string());
+                            self.chat_error = Some(error.to_string().into());
                         }
                     }
                 }
@@ -577,7 +580,7 @@ impl NativeRoot {
                 this.sync_active_chat_detail(cx);
                 match result {
                     Ok(()) => {}
-                    Err(error) => this.chat_error = Some(error),
+                    Err(error) => this.chat_error = Some(error.into()),
                 }
                 if this.route == AppRoute::Chat
                     && this.active_focused_session_id().as_deref() == Some(target.as_str())
@@ -707,7 +710,7 @@ impl NativeRoot {
             let result = pin.await;
             let _ = weak.update(cx, |this, cx| {
                 if let Err(error) = result {
-                    this.chat_error = Some(error);
+                    this.chat_error = Some(error.into());
                     this.refresh_sessions(cx);
                 }
                 this.sync_active_chat_detail(cx);
@@ -781,10 +784,10 @@ impl NativeRoot {
                     Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
                 }) =>
             {
-                "Terminal name"
+                crate::i18n::message("ui.terminal_name")
             }
-            ChatRenameTarget::Session { .. } => "Chat name",
-            ChatRenameTarget::Tab { .. } => "Tab name",
+            ChatRenameTarget::Session { .. } => crate::i18n::message("ui.chat_name"),
+            ChatRenameTarget::Tab { .. } => crate::i18n::message("ui.tab_name"),
         };
         let input = cx.new(|input_cx| {
             runner_app::ui::TextField::new(input_cx.focus_handle(), original, placeholder, false)
@@ -858,7 +861,7 @@ impl NativeRoot {
                         this.chat_rename_modal = None;
                         this.refresh_sessions(cx);
                         if let Err(error) = this.reload_tabs(cx) {
-                            this.chat_error = Some(error.to_string());
+                            this.chat_error = Some(error.to_string().into());
                         }
                         this.sync_active_chat_detail(cx);
                         this.focus_active_terminal(window, cx);
@@ -934,13 +937,13 @@ impl NativeRoot {
                 self._pane_rename_focus_subscription = None;
                 self.refresh_sessions(cx);
                 if let Err(error) = self.reload_tabs(cx) {
-                    self.chat_error = Some(error.to_string());
+                    self.chat_error = Some(error.to_string().into());
                 }
                 self.sync_active_chat_detail(cx);
                 self.focus_active_terminal(window, cx);
             }
             Err(error) => {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
                 if let Some(rename) = self.pane_rename.as_ref() {
                     rename.input.read(cx).focus_handle().focus(window, cx);
                 }
@@ -1104,7 +1107,7 @@ impl NativeRoot {
             if let Some(result) = input.update(cx, |input, _| input.take_write_result()) {
                 match result {
                     Ok(()) => this.chat_error = None,
-                    Err(error) => this.chat_error = Some(error),
+                    Err(error) => this.chat_error = Some(error.into()),
                 }
             }
             cx.notify();
@@ -1278,7 +1281,7 @@ impl NativeRoot {
                 self.mark_active_tab_viewed(window, cx);
                 self.focus_active_terminal(window, cx);
             }
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -1451,7 +1454,7 @@ impl NativeRoot {
             }
             Ok(false) => {}
             Err(error) => {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
                 cx.stop_propagation();
                 cx.notify();
             }
@@ -1506,7 +1509,7 @@ impl NativeRoot {
                 };
                 let input = runner_app::terminal_paste::image_paste_shortcut(runtime);
                 if let Err(error) = chat.terminal.write_user_bytes(input) {
-                    self.chat_error = Some(error.to_string());
+                    self.chat_error = Some(error.to_string().into());
                 }
             }
             runner_app::terminal_paste::TerminalPaste::Text(text) => {
@@ -1514,7 +1517,7 @@ impl NativeRoot {
                     return;
                 };
                 if let Err(error) = chat.terminal.paste(&text) {
-                    self.chat_error = Some(error.to_string());
+                    self.chat_error = Some(error.to_string().into());
                 }
             }
         }
@@ -1534,7 +1537,7 @@ impl NativeRoot {
             return;
         }
         let Some(layout) = self.tabs.active().cloned() else {
-            self.chat_error = Some("No active tab".into());
+            self.chat_error = Some(crate::i18n::message("ui.no_active_tab"));
             cx.notify();
             return;
         };
@@ -1571,13 +1574,13 @@ impl NativeRoot {
                         this.refresh_sessions(cx);
                         if let Err(error) = this.ensure_attached(&layout, &target, window, cx) {
                             this.chat_transitions.remove(&target);
-                            this.chat_error = Some(error.to_string());
+                            this.chat_error = Some(error.to_string().into());
                         }
                         this.sync_active_chat_detail(cx);
                     }
                     Err(error) => {
                         this.chat_transitions.remove(&target);
-                        this.chat_error = Some(error);
+                        this.chat_error = Some(error.into());
                         this.refresh_sessions(cx);
                         this.sync_active_chat_detail(cx);
                         if this.route == AppRoute::Chat
@@ -1659,13 +1662,13 @@ impl NativeRoot {
                         this.refresh_sessions(cx);
                         if let Err(error) = this.ensure_attached(&layout, &target, window, cx) {
                             this.chat_transitions.remove(&target);
-                            this.chat_error = Some(error.to_string());
+                            this.chat_error = Some(error.to_string().into());
                         }
                         this.focus_drawer_terminal(&target, window, cx);
                     }
                     Err(error) => {
                         this.chat_transitions.remove(&target);
-                        this.chat_error = Some(error);
+                        this.chat_error = Some(error.into());
                         this.refresh_sessions(cx);
                     }
                 }
@@ -1725,7 +1728,7 @@ impl NativeRoot {
             .context("active tab is missing")
             .and_then(|layout| layout.move_to(pane_id, target_id, side));
         if let Err(error) = moved {
-            self.chat_error = Some(error.to_string());
+            self.chat_error = Some(error.to_string().into());
             cx.notify();
             return;
         }
@@ -1740,7 +1743,7 @@ impl NativeRoot {
                 self.mark_active_tab_viewed(window, cx);
                 self.focus_active_terminal(window, cx);
             }
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -1764,8 +1767,8 @@ impl NativeRoot {
             .copied();
         match split_decision(bounds, orientation, self.settings(cx).app_zoom) {
             SplitDecision::Allowed => {}
-            SplitDecision::Blocked(reason) => {
-                self.chat_error = Some(reason.to_owned());
+            SplitDecision::Blocked(_) => {
+                self.chat_error = Some(crate::i18n::message("ui.too_small_to_split"));
                 cx.notify();
                 return;
             }
@@ -1795,7 +1798,7 @@ impl NativeRoot {
         let new_pane_id = match split {
             Ok(pane_id) => pane_id,
             Err(error) => {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
                 cx.notify();
                 return;
             }
@@ -1815,7 +1818,7 @@ impl NativeRoot {
                 self.mark_active_tab_viewed(window, cx);
                 self.focus_active_terminal(window, cx);
             }
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -1905,7 +1908,7 @@ impl NativeRoot {
                 self.record_current_runtime_location();
             }
             Ok(false) => {}
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -1949,7 +1952,7 @@ impl NativeRoot {
                         this.refresh_sessions(cx);
                         this.close_pane(&pane_id, window, cx);
                     }
-                    Err(error) => this.chat_error = Some(error),
+                    Err(error) => this.chat_error = Some(error.into()),
                 }
                 cx.notify();
             });
@@ -1989,7 +1992,7 @@ impl NativeRoot {
                             .reload_tabs(cx)
                             .and_then(|_| this.ensure_active_tab_attached(window, cx));
                         if let Err(error) = refresh {
-                            this.chat_error = Some(error.to_string());
+                            this.chat_error = Some(error.to_string().into());
                         } else if let Some(active) = this
                             .tabs
                             .active()
@@ -2002,7 +2005,7 @@ impl NativeRoot {
                             this.focus_active_terminal(window, cx);
                         }
                     }
-                    Err(error) => this.chat_error = Some(error),
+                    Err(error) => this.chat_error = Some(error.into()),
                 }
                 cx.notify();
             });
@@ -2037,7 +2040,7 @@ impl NativeRoot {
             }
             Ok(false) => self.close_drawer_shell(session_id, window, cx),
             Err(error) => {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
                 cx.notify();
             }
         }
@@ -2068,7 +2071,7 @@ impl NativeRoot {
             }
             Ok(false) => self.close_terminal_pane(pane_id, session_id, window, cx),
             Err(error) => {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
                 cx.notify();
             }
         }
@@ -2141,7 +2144,7 @@ impl NativeRoot {
                     .and_then(|_| self.ensure_active_tab_attached(window, cx));
                 self.pending_tab_close = None;
                 if let Err(error) = result {
-                    self.chat_error = Some(error.to_string());
+                    self.chat_error = Some(error.to_string().into());
                 } else {
                     self.mark_active_tab_viewed(window, cx);
                     self.focus_active_terminal(window, cx);
@@ -2195,7 +2198,7 @@ impl NativeRoot {
                 self.tabs.activate(tab_id);
                 self.set_route(AppRoute::Chat, cx);
                 if let Err(error) = self.ensure_active_tab_attached(window, cx) {
-                    self.chat_error = Some(error.to_string());
+                    self.chat_error = Some(error.to_string().into());
                 }
                 TerminalCloseConfirm::open(
                     &mut self.terminal_close_confirm,
@@ -2209,7 +2212,7 @@ impl NativeRoot {
             }
             Ok(false) => self.close_terminal_tab(session_id, window, cx),
             Err(error) => {
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
                 cx.notify();
             }
         }
@@ -2252,10 +2255,10 @@ impl NativeRoot {
                             Ok(())
                         });
                         if let Err(error) = refresh {
-                            this.error = Some(error.to_string());
+                            this.error = Some(error.to_string().into());
                         }
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => this.error = Some(error.into()),
                 }
                 this.clear_pending_tab_close(std::slice::from_ref(&target));
                 cx.notify();
@@ -2284,7 +2287,7 @@ impl NativeRoot {
             self.tabs.activate(tab_id);
             self.set_route(AppRoute::Chat, cx);
             if let Err(error) = self.ensure_active_tab_attached(window, cx) {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
             }
         }
         TerminalCloseConfirm::open(
@@ -2392,7 +2395,7 @@ impl NativeRoot {
         }
         self.split_sizes_dirty = false;
         if let Err(error) = self.persist_active_tab(cx) {
-            self.chat_error = Some(error.to_string());
+            self.chat_error = Some(error.to_string().into());
         }
     }
 
@@ -2416,7 +2419,7 @@ impl NativeRoot {
         }
         self.drawer_resizing = false;
         if let Err(error) = self.persist_active_tab(cx) {
-            self.chat_error = Some(error.to_string());
+            self.chat_error = Some(error.to_string().into());
         }
         cx.notify();
     }
@@ -2486,8 +2489,8 @@ mod tests {
                 harness.act(|root, _, _| {
                     visible = root
                         .chat_error
-                        .as_deref()
-                        .is_some_and(|error| error.contains("session not found"));
+                        .as_ref()
+                        .is_some_and(|error| error.resolve().contains("session not found"));
                 });
                 if id == "other-session" {
                     assert!(!visible);
@@ -2667,6 +2670,119 @@ mod tests {
                 pane_id: "p1".into(),
             }
         );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn open_rename_placeholders_follow_a_peer_window_without_resetting_input() {
+        use crate::i18n::{testing::with_locale, Language, Locale};
+        use crate::{app_store, ChatRenameTarget, NativeRoot};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = gpui::TestAppContext::single();
+            let store = app_store::test_lifecycle_store(&mut cx, temp.path());
+            store.update(&mut cx, |store, _| {
+                store.settings.language = Language::English;
+                let mut shell = direct_session("shell", false);
+                shell.session_id = "shell".into();
+                let mut chat = direct_session("codex", false);
+                chat.session_id = "chat".into();
+                store.sessions = vec![shell, chat];
+            });
+            let windows = ["rename-one", "rename-two"].map(|label| {
+                cx.add_window(|window, cx| {
+                    NativeRoot::new(
+                        label.into(),
+                        temp.path().join("logs"),
+                        None,
+                        None,
+                        store.clone(),
+                        window,
+                        cx,
+                    )
+                })
+            });
+            let mut visual = gpui::VisualTestContext::from_window(windows[1].into(), &cx);
+            for (target, english, chinese) in [
+                (
+                    ChatRenameTarget::Session {
+                        session_id: "shell".into(),
+                        original: "literal {count} 终端".into(),
+                    },
+                    "Terminal name",
+                    "终端名称",
+                ),
+                (
+                    ChatRenameTarget::Session {
+                        session_id: "chat".into(),
+                        original: "literal {count} 对话".into(),
+                    },
+                    "Chat name",
+                    "对话名称",
+                ),
+                (
+                    ChatRenameTarget::Tab {
+                        tab_id: "tab".into(),
+                        original: "literal {count} 标签页".into(),
+                    },
+                    "Tab name",
+                    "标签页名称",
+                ),
+            ] {
+                windows[1]
+                    .update(&mut visual, |root, window, cx| {
+                        root.route = crate::AppRoute::Chat;
+                        root.open_chat_rename(target, window, cx)
+                    })
+                    .unwrap();
+                let field = windows[1]
+                    .read_with(&visual, |root, _| {
+                        root.chat_rename_modal.as_ref().unwrap().input.clone()
+                    })
+                    .unwrap();
+                for draft in ["literal {name} 草稿", ""] {
+                    field.update(&mut visual, |field, cx| {
+                        field.set_text(draft, cx);
+                        field.select_all(cx);
+                    });
+                    let caret = field.read_with(&visual, |field, _| field.caret_offset());
+                    for (language, expected) in [
+                        (Language::SimplifiedChinese, chinese),
+                        (Language::English, english),
+                    ] {
+                        windows[0]
+                            .update(&mut visual, |root, _, cx| {
+                                root.app_store.update(cx, |store, cx| {
+                                    store.update_settings(
+                                        |settings| {
+                                            settings.language = language;
+                                            true
+                                        },
+                                        false,
+                                        cx,
+                                    )
+                                })
+                            })
+                            .unwrap();
+                        visual.run_until_parked();
+                        field.read_with(&visual, |field, _| {
+                            assert_eq!(field.placeholder(), expected);
+                            assert_eq!(field.text(), draft);
+                            assert_eq!(field.caret_offset(), caret);
+                        });
+                        windows[1]
+                            .read_with(&visual, |root, _| {
+                                assert_eq!(
+                                    root.chat_rename_modal.as_ref().unwrap().input.entity_id(),
+                                    field.entity_id()
+                                )
+                            })
+                            .unwrap();
+                    }
+                }
+            }
+        });
     }
 
     #[test]

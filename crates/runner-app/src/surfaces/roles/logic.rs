@@ -11,7 +11,7 @@ use runner_core::protocol::slot::CrewMembership;
 
 use super::*;
 pub(super) use crate::surfaces::profile_page::{
-    local_short_timestamp, plural, prompt_meta, short_id, short_timestamp,
+    local_short_timestamp, prompt_meta, short_id, short_timestamp,
 };
 use crate::*;
 
@@ -54,9 +54,9 @@ pub(super) fn speed_options() -> Vec<SelectOption> {
             SelectOption::new(
                 value,
                 match value {
-                    "standard" => "Standard",
-                    "fast" => "Fast",
-                    _ => "Inherit",
+                    "standard" => crate::i18n::message("ui.standard"),
+                    "fast" => crate::i18n::message("ui.fast"),
+                    _ => crate::i18n::message("ui.inherit"),
                 },
             )
         })
@@ -102,23 +102,41 @@ pub(crate) fn runtime_model_placeholder(
     runtimes: &[RuntimeCatalogEntry],
     runtime: &str,
     inherited_role: Option<&Role>,
-) -> String {
+) -> crate::i18n::Text {
     inherited_role
         .filter(|role| role.runtime == runtime)
         .and_then(|role| role.model.as_deref())
         .or_else(|| runtime_entry(runtimes, runtime)?.default_model.as_deref())
-        .map(|model| format!("default ({model})"))
-        .unwrap_or_else(|| "default".into())
+        .map(|model| crate::i18n::messagef("format.default_model", &[("model", model.to_owned())]))
+        .unwrap_or_else(|| crate::i18n::message("word.default"))
 }
 
+#[cfg(test)]
 pub(crate) fn runtime_default_effort_label(
     runtimes: &[RuntimeCatalogEntry],
     runtime: &str,
 ) -> String {
+    runtime_default_effort_text(runtimes, runtime)
+        .resolve()
+        .to_string()
+}
+
+fn runtime_default_effort_text(
+    runtimes: &[RuntimeCatalogEntry],
+    runtime: &str,
+) -> crate::i18n::Text {
     runtime_entry(runtimes, runtime)
         .and_then(|runtime| runtime.default_effort.as_deref())
-        .map(|effort| format!("Runtime default ({effort})"))
-        .unwrap_or_else(|| "Runtime default".into())
+        .map(|effort| {
+            crate::i18n::message_with(
+                "format.runtime_default",
+                &[(
+                    "effort",
+                    runner_app::ui::select::effort_label(effort, effort),
+                )],
+            )
+        })
+        .unwrap_or_else(|| crate::i18n::message("ui.runtime_default"))
 }
 
 pub(crate) fn runtime_efforts<'a>(
@@ -149,7 +167,10 @@ pub(crate) fn role_edit_runtime_options(
             if runtime.description.is_empty() {
                 option
             } else {
-                option.description(runtime.description.clone())
+                option.description(runner_app::ui::select::runtime_description(
+                    runtime.name,
+                    &runtime.description,
+                ))
             }
         })
         .collect()
@@ -180,19 +201,23 @@ pub(crate) fn effort_options(
                     role.effort
                         .as_deref()
                         .or_else(|| runtime_entry(runtimes, runtime)?.default_effort.as_deref())
-                        .map(|effort| format!("Role default ({effort})"))
-                        .unwrap_or_else(|| "Role default".into())
+                        .map(|effort| {
+                            crate::i18n::message_with(
+                                "format.role_default_effort",
+                                &[(
+                                    "effort",
+                                    runner_app::ui::select::effort_label(effort, effort),
+                                )],
+                            )
+                        })
+                        .unwrap_or_else(|| crate::i18n::message("ui.role_default"))
                 } else {
-                    runtime_default_effort_label(runtimes, runtime)
+                    runtime_default_effort_text(runtimes, runtime)
                 }
             } else {
-                option.label.clone()
+                runner_app::ui::select::effort_label(&option.value, &option.label)
             };
-            let mut select = SelectOption::new(option.value.clone(), label);
-            if let Some(description) = option.description.clone() {
-                select = select.description(description);
-            }
-            select
+            runner_app::ui::select::effort_option(option).with_label(label)
         })
         .collect()
 }
@@ -208,15 +233,11 @@ pub(super) fn create_role_effort_options(
         .iter()
         .map(|option| {
             let label = if option.value.is_empty() {
-                runtime_default_effort_label(runtimes, runtime)
+                runtime_default_effort_text(runtimes, runtime)
             } else {
-                option.label.clone()
+                runner_app::ui::select::effort_label(&option.value, &option.label)
             };
-            let mut select = SelectOption::new(option.value.clone(), label);
-            if let Some(description) = &option.description {
-                select = select.description(description.clone());
-            }
-            select
+            runner_app::ui::select::effort_option(option).with_label(label)
         })
         .collect()
 }
@@ -272,7 +293,7 @@ pub(super) fn validate_role_handle(handle: &str) -> Option<&'static str> {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
         });
     (!valid).then_some(
-        "Lowercase letters, digits, '-' or '_'; must start with a letter or digit; up to 32 chars.",
+        "ui.lowercase_letters_digits_or_must_start_with_a_letter_or_digit_up_to_32_chars",
     )
 }
 
@@ -352,8 +373,18 @@ pub(super) fn role_edit_form_is_composing(form: &RoleEditForm, cx: &Context<Nati
 pub(crate) fn role_setting_label(value: Option<&str>) -> (String, bool) {
     match value.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => (value.to_owned(), false),
-        None => ("default".to_owned(), true),
+        None => (crate::i18n::text("word.default").to_owned(), true),
     }
+}
+
+pub(crate) fn role_effort_label(value: Option<&str>) -> (String, bool) {
+    let (value, default) = role_setting_label(value);
+    (
+        runner_app::ui::select::effort_label(&value, &value)
+            .resolve()
+            .to_string(),
+        default,
+    )
 }
 
 /// A role can fill several slots of one crew; the heading counts crews.
@@ -375,9 +406,9 @@ pub(super) fn crews_label(count: i64) -> String {
 
 /// `2 sessions · 1 mission` while the role runs anywhere, else `None`.
 pub(super) fn live_activity_label(activity: &RoleActivity) -> Option<String> {
-    let sessions = plural(activity.active_sessions, "session", "sessions");
+    let sessions = crate::i18n::tn("count.sessions", activity.active_sessions as usize);
     if activity.active_missions > 0 {
-        let missions = plural(activity.active_missions, "mission", "missions");
+        let missions = crate::i18n::tn("count.missions", activity.active_missions as usize);
         Some(format!("{sessions} · {missions}"))
     } else if activity.active_sessions > 0 {
         Some(sessions)
@@ -447,11 +478,11 @@ impl RoleColumn {
 
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::Runtime => "Runtime",
-            Self::Model => "Model",
-            Self::Effort => "Effort",
-            Self::Crews => "Crews",
-            Self::LastActive => "Last active",
+            Self::Runtime => crate::i18n::text("ui.runtime"),
+            Self::Model => crate::i18n::text("ui.model"),
+            Self::Effort => crate::i18n::text("ui.effort"),
+            Self::Crews => crate::i18n::text("ui.crews"),
+            Self::LastActive => crate::i18n::text("ui.last_active"),
         }
     }
 }

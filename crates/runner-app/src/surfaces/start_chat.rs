@@ -28,7 +28,6 @@ use runner_app::ui::{
 };
 
 use super::profile_page::{column_text, section_label, text_action};
-use super::roles::logic::role_setting_label;
 use super::*;
 use crate::chat_icon::runtime_mark;
 use crate::*;
@@ -39,7 +38,7 @@ const CARD_PADDING: f32 = 12.;
 const COLUMN_GAP: f32 = 12.;
 const EFFORT_COLUMN_WIDTH: f32 = 160.;
 const SPEED_COLUMN_WIDTH: f32 = 104.;
-const ROLE_HINT: &str = "Starts with the role's settings. Change any of them for this chat only.";
+const ROLE_HINT: &str = "ui.starts_with_the_role_s_settings_change_any_of_them_for_this_chat_only";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ChatMode {
@@ -132,7 +131,7 @@ pub(crate) struct StartChatModal {
     agents_checking: bool,
     agents_error: Option<String>,
     submitting: bool,
-    error: Option<String>,
+    error: Option<crate::i18n::Text>,
     _model_subscription: gpui::Subscription,
 }
 
@@ -511,7 +510,7 @@ impl NativeRoot {
                 }
                 self.refresh_sessions(cx);
                 let _ = self.reload_tabs(cx);
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
             }
         }
         cx.notify();
@@ -533,7 +532,9 @@ impl NativeRoot {
             return;
         }
         let Some(original) = self.tabs.active().cloned() else {
-            self.chat_error = Some("Open a tab before creating a terminal".into());
+            self.chat_error = Some(crate::i18n::message(
+                "ui.open_a_tab_before_creating_a_terminal",
+            ));
             cx.notify();
             return;
         };
@@ -606,12 +607,12 @@ impl NativeRoot {
                     if let Err(error) =
                         self.resume_visible_drawer_shell_on_launch(&layout, window, cx)
                     {
-                        self.chat_error = Some(error.to_string());
+                        self.chat_error = Some(error.to_string().into());
                     }
                 }
                 self.focus_drawer_terminal(session_id, window, cx);
             }
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -622,7 +623,9 @@ impl NativeRoot {
         cx: &mut Context<Self>,
     ) {
         let Some(original) = self.tabs.active().cloned() else {
-            self.chat_error = Some("Open a chat tab before creating a terminal".into());
+            self.chat_error = Some(crate::i18n::message(
+                "ui.open_a_chat_tab_before_creating_a_terminal",
+            ));
             cx.notify();
             return;
         };
@@ -670,7 +673,7 @@ impl NativeRoot {
                 }
                 self.refresh_sessions(cx);
                 let _ = self.reload_tabs(cx);
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
             }
         }
         cx.notify();
@@ -697,7 +700,7 @@ impl NativeRoot {
                     self.focus_active_terminal(window, cx);
                 }
             }
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -793,7 +796,7 @@ impl NativeRoot {
                 }
                 self.refresh_sessions(cx);
                 let _ = self.reload_tabs(cx);
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
             }
         }
         cx.notify();
@@ -959,7 +962,13 @@ impl NativeRoot {
                 .text_size(theme::text_ui())
         });
         let model_input = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "default", false).placeholder_as_value(true)
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("word.default"),
+                false,
+            )
+            .placeholder_as_value(true)
         });
         let root = cx.entity();
         let role_handler = selection_handler(&root, StartChatSelection::Role);
@@ -977,7 +986,7 @@ impl NativeRoot {
                 select_cx,
             )
             .picker(true)
-            .placeholder("No roles yet")
+            .placeholder(crate::i18n::message("ui.no_roles_yet"))
             .disabled(roles.is_empty())
         });
         let role_runtime_options = role_runtime_options(&runtimes, selected_role);
@@ -1091,7 +1100,7 @@ impl NativeRoot {
             agents_checking,
             agents_error,
             submitting: false,
-            error: error.take(),
+            error: error.take().map(Into::into),
             _model_subscription: model_subscription,
         });
         if let Some(modal) = self.start_chat_modal.as_mut() {
@@ -1344,7 +1353,7 @@ impl NativeRoot {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Pick a working directory".into()),
+            prompt: Some(crate::i18n::text("ui.pick_a_working_directory").into()),
         });
         cx.spawn(async move |weak, cx| {
             let result = selected
@@ -1367,7 +1376,7 @@ impl NativeRoot {
                         }
                     }
                     Ok(None) => {}
-                    Err(error) => modal.error = Some(error),
+                    Err(error) => modal.error = Some(error.into()),
                 }
                 cx.notify();
             });
@@ -1451,7 +1460,9 @@ impl NativeRoot {
             }
             ChatTarget::Pane { .. } => {
                 if let Some(modal) = self.start_chat_modal.as_mut() {
-                    modal.error = Some("The target tab is no longer active".into());
+                    modal.error = Some(crate::i18n::message(
+                        "ui.the_target_tab_is_no_longer_active",
+                    ));
                 }
                 cx.notify();
                 return;
@@ -1513,8 +1524,9 @@ impl NativeRoot {
             spawned_id = Some(spawned.id.clone());
             if let Some(title) = title {
                 if let Err(error) = self.core(cx).session_rename(&spawned.id, Some(title)) {
-                    rename_error = Some(format!(
-                        "Chat started, but its title could not be saved: {error}"
+                    rename_error = Some(crate::i18n::messagef(
+                        "format.chat_started_but_its_title_could_not_be_saved",
+                        &[("error", (error).to_string())],
                     ));
                 }
             }
@@ -1571,10 +1583,10 @@ impl NativeRoot {
                         window,
                         cx,
                     );
-                    self.error = Some(start_error.to_string());
+                    self.error = Some(start_error.to_string().into());
                 } else if let Some(modal) = self.start_chat_modal.as_mut() {
                     modal.submitting = false;
-                    modal.error = Some(start_error.to_string());
+                    modal.error = Some(start_error.to_string().into());
                     set_start_chat_controls_disabled(modal, false, cx);
                 }
             }
@@ -1615,7 +1627,7 @@ impl NativeRoot {
                     .as_ref()
                     .filter(|_| !self.app_store.read(cx).daemon_disconnected)
                     .map(|error| {
-                        runner_app::ui::notice_banner(error.clone(), runner_app::ui::Tone::Danger)
+                        runner_app::ui::notice_banner(error.resolve(), runner_app::ui::Tone::Danger)
                     }),
             )
             .child(
@@ -1629,7 +1641,7 @@ impl NativeRoot {
                     .border_color(theme::border())
                     .bg(theme::bg())
                     .child(self.render_mode_button(
-                        "Direct",
+                        crate::i18n::text("ui.direct"),
                         ChatMode::Runtime,
                         mode,
                         submitting,
@@ -1637,7 +1649,7 @@ impl NativeRoot {
                         cx,
                     ))
                     .child(self.render_mode_button(
-                        "Role",
+                        crate::i18n::text("ui.role"),
                         ChatMode::Role,
                         mode,
                         submitting,
@@ -1650,15 +1662,19 @@ impl NativeRoot {
                 ChatMode::Runtime => direct_fields,
             })
             .child(
-                Field::new("start-chat-title-field", "Chat name", modal.title.clone())
-                    .focus_target(modal.title.read(cx).focus_handle())
-                    .emphasized(true)
-                    .tag("optional"),
+                Field::new(
+                    "start-chat-title-field",
+                    crate::i18n::text("ui.chat_name"),
+                    modal.title.clone(),
+                )
+                .focus_target(modal.title.read(cx).focus_handle())
+                .emphasized(true)
+                .tag(crate::i18n::text("word.optional")),
             )
             .child(
                 Field::new(
                     "start-chat-working-dir-field",
-                    "Working directory",
+                    crate::i18n::text("ui.working_directory"),
                     WorkingDirField::new(
                         modal.cwd.clone(),
                         submitting,
@@ -1691,20 +1707,22 @@ impl NativeRoot {
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::text())
-                            .child("Start a chat"),
+                            .child(crate::i18n::text("ui.start_a_chat")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
-                            .child("A one-on-one terminal with an agent, no mission required."),
+                            .child(crate::i18n::text(
+                                "ui.a_one_on_one_terminal_with_an_agent_no_mission_required",
+                            )),
                     ),
             )
             .child(
                 IconButton::new("close-start-chat", "close.svg")
                     .focus_handle(modal.close_focus.clone())
-                    .tooltip("Close start chat")
+                    .tooltip(crate::i18n::text("ui.close_start_chat"))
                     .disabled(submitting)
                     .on_press(move |window, cx| {
                         close_root.update(cx, |this, cx| this.close_start_chat_modal(window, cx));
@@ -1715,7 +1733,7 @@ impl NativeRoot {
             .items_center()
             .gap_2()
             .child(
-                Button::new("cancel-start-chat", "Cancel")
+                Button::new("cancel-start-chat", crate::i18n::text("ui.cancel"))
                     .shortcut("esc")
                     .focus_handle(modal.cancel_focus.clone())
                     .disabled(submitting)
@@ -1727,9 +1745,9 @@ impl NativeRoot {
                 Button::new(
                     "submit-start-chat",
                     if submitting {
-                        "Starting…"
+                        crate::i18n::text("ui.starting")
                     } else {
-                        "Start chat"
+                        crate::i18n::text("ui.start_chat")
                     },
                 )
                 .shortcut(keymap::fixed_shortcut("cmd-enter"))
@@ -1846,14 +1864,14 @@ impl NativeRoot {
                             .gap(rems(COLUMN_GAP / 16.))
                             .child(setup_field(
                                 layout.model(has_effort, has_speed),
-                                "Model",
+                                crate::i18n::text("ui.model"),
                                 div().w_full().child(modal.model_field.clone()),
                                 None,
                             ))
                             .when(has_effort, |row| {
                                 row.child(setup_field(
                                     EFFORT_COLUMN_WIDTH,
-                                    "Effort",
+                                    crate::i18n::text("ui.effort"),
                                     modal.effort_select.clone(),
                                     None,
                                 ))
@@ -1867,7 +1885,7 @@ impl NativeRoot {
         }
         Field::new(
             "start-chat-direct-agent-field",
-            "Agent",
+            crate::i18n::text("ui.agent"),
             div()
                 .flex()
                 .flex_col()
@@ -1881,28 +1899,32 @@ impl NativeRoot {
                             .text_size(theme::text_meta())
                             .text_color(theme::warning())
                             .when(modal.agents_checking, |message| {
-                                message.child("Detecting agents…")
+                                message.child(crate::i18n::text("ui.detecting_agents"))
                             })
                             .when(!modal.agents_checking, |message| {
                                 let root = settings_root.clone();
-                                message.child("No enabled agents detected. ").child(
-                                    div()
-                                        .id("start-chat-open-agent-settings")
-                                        .cursor_pointer()
-                                        .text_color(theme::warning())
-                                        .hover(|link| link.text_color(theme::text()))
-                                        .child("Configure one in Settings → Agents.")
-                                        .on_click(move |_, window, cx| {
-                                            root.update(cx, |this, cx| {
-                                                this.start_chat_modal = None;
-                                                this.enter_settings_route(
-                                                    Some("agents"),
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        }),
-                                )
+                                message
+                                    .child(crate::i18n::text("ui.no_enabled_agents_launch_hint"))
+                                    .child(
+                                        div()
+                                            .id("start-chat-open-agent-settings")
+                                            .cursor_pointer()
+                                            .text_color(theme::warning())
+                                            .hover(|link| link.text_color(theme::text()))
+                                            .child(crate::i18n::text(
+                                                "ui.configure_one_in_settings_agents",
+                                            ))
+                                            .on_click(move |_, window, cx| {
+                                                root.update(cx, |this, cx| {
+                                                    this.start_chat_modal = None;
+                                                    this.enter_settings_route(
+                                                        Some("agents"),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }),
+                                    )
                             }),
                     )
                 })
@@ -2107,10 +2129,9 @@ fn role_runtime_options(
 ) -> Vec<SelectOption> {
     let mut options = runtime_options(runtimes)
         .into_iter()
-        .map(|option| SelectOption {
-            description: None,
-            marked: role.is_some_and(|role| role.runtime != option.value),
-            ..option
+        .map(|option| {
+            let marked = role.is_some_and(|role| role.runtime != option.value);
+            option.without_description().marked(marked)
         })
         .collect::<Vec<_>>();
     if let Some(role) =
@@ -2130,13 +2151,7 @@ fn role_runtime_options(
 fn option_select_options(options: &[RuntimeCatalogOption]) -> Vec<SelectOption> {
     options
         .iter()
-        .map(|option| {
-            let mut select = SelectOption::new(option.value.clone(), option.label.clone());
-            if let Some(description) = &option.description {
-                select = select.description(description.clone());
-            }
-            select
-        })
+        .map(runner_app::ui::select::effort_option)
         .collect()
 }
 
@@ -2150,9 +2165,9 @@ fn parse_speed(value: &str) -> Option<CodexSpeed> {
 
 fn speed_label(speed: Option<CodexSpeed>) -> &'static str {
     match speed {
-        None => "Inherit",
-        Some(CodexSpeed::Standard) => "Standard",
-        Some(CodexSpeed::Fast) => "Fast",
+        None => crate::i18n::text("ui.inherit"),
+        Some(CodexSpeed::Standard) => crate::i18n::text("ui.standard"),
+        Some(CodexSpeed::Fast) => crate::i18n::text("ui.fast"),
     }
 }
 
@@ -2160,15 +2175,16 @@ fn speed_label(speed: Option<CodexSpeed>) -> &'static str {
 /// the role's value. On the role's own Codex agent a choice that differs from
 /// `baseline` carries the amber dot.
 fn speed_options(baseline: Option<&str>, role_sets_speed: bool) -> Vec<SelectOption> {
-    let option = |value: &'static str, label: &'static str| {
-        SelectOption::new(value, label).marked(baseline.is_some_and(|baseline| baseline != value))
+    let option = |value: &'static str, key: &'static str| {
+        SelectOption::new(value, crate::i18n::message(key))
+            .marked(baseline.is_some_and(|baseline| baseline != value))
     };
     let mut options = Vec::new();
     if !role_sets_speed {
-        options.push(option("inherit", "Inherit"));
+        options.push(option("inherit", "ui.inherit"));
     }
-    options.push(option("standard", "Standard"));
-    options.push(option("fast", "Fast"));
+    options.push(option("standard", "ui.standard"));
+    options.push(option("fast", "ui.fast"));
     options
 }
 
@@ -2178,10 +2194,10 @@ fn trimmed(value: Option<&str>) -> Option<&str> {
 
 /// What a blank Model reads: the role's explicit model while the chat runs on
 /// the role's own agent, else `default` because no model reaches the launch.
-fn model_placeholder(role: Option<&Role>) -> String {
+fn model_placeholder(role: Option<&Role>) -> i18n::Text {
     role.and_then(|role| trimmed(role.model.as_deref()))
-        .unwrap_or("default")
-        .to_owned()
+        .map(i18n::Text::from)
+        .unwrap_or_else(|| i18n::message("word.default"))
 }
 
 /// The role whose model, effort and speed the controls start from: only the
@@ -2318,9 +2334,18 @@ fn sync_effort_control(modal: &mut StartChatModal, cx: &mut Context<NativeRoot>)
         .collect::<Vec<_>>();
     let mut options = option_select_options(&levels);
     if baseline.is_empty() {
-        options.insert(0, SelectOption::new("", "default"));
+        options.insert(
+            0,
+            SelectOption::new("", crate::i18n::message("word.default")),
+        );
     } else if !levels.iter().any(|level| level.value == baseline) {
-        options.insert(0, SelectOption::new(baseline.clone(), baseline.clone()));
+        options.insert(
+            0,
+            SelectOption::new(
+                baseline.clone(),
+                runner_app::ui::select::effort_label(&baseline, &baseline),
+            ),
+        );
     }
     for option in &mut options {
         option.marked = inherits && option.value != baseline;
@@ -2571,13 +2596,13 @@ fn reset_action(
             .size(rems(11. / 16.))
             .text_color(theme::muted()),
     )
-    .child("Reset")
+    .child(crate::i18n::text("ui.reset"))
 }
 
 fn render_speed_column(modal: &StartChatModal, width: f32, note: Option<AnyElement>) -> Div {
     setup_field(
         width,
-        "Speed",
+        crate::i18n::text("ui.speed"),
         div()
             .when(cfg!(test), |field| {
                 field.debug_selector(|| "START_CHAT_SPEED_FIELD".into())
@@ -2595,7 +2620,7 @@ fn speed_note(modal: &StartChatModal) -> Option<Div> {
             })
             .text_size(theme::text_meta())
             .text_color(theme::faint())
-            .child("Fast uses more credits.")
+            .child(crate::i18n::text("ui.fast_uses_more_credits"))
     })
 }
 
@@ -2607,14 +2632,31 @@ fn agent_note(
     role_model: Option<&str>,
     role_effort: Option<&str>,
 ) -> String {
-    let start = format!("{agent} starts from its own model and effort.");
+    let role_effort =
+        role_effort.map(|effort| runner_app::ui::select::effort_label(effort, effort).resolve());
+    let role_effort = role_effort.as_deref();
+    let start = crate::i18n::tf(
+        "format.starts_from_its_own_model_and_effort",
+        &[("agent", (agent).to_string())],
+    );
     match (role_model, role_effort) {
-        (Some(model), Some(effort)) => format!(
-            "{start} The role's {model} and {effort} belong to {role_agent} and don't carry over."
+        (Some(model), Some(effort)) => crate::i18n::tf(
+            "format.the_role_s_and_belong_to_and_don_t_carry_over",
+            &[
+                ("start", (start).to_string()),
+                ("model", (model).to_string()),
+                ("effort", (effort).to_string()),
+                ("role_agent", (role_agent).to_string()),
+            ],
         ),
-        (Some(value), None) | (None, Some(value)) => {
-            format!("{start} The role's {value} belongs to {role_agent} and doesn't carry over.")
-        }
+        (Some(value), None) | (None, Some(value)) => crate::i18n::tf(
+            "format.the_role_s_belongs_to_and_doesn_t_carry_over",
+            &[
+                ("start", (start).to_string()),
+                ("inherited_setting", (value).to_string()),
+                ("role_agent", (role_agent).to_string()),
+            ],
+        ),
         (None, None) => start,
     }
 }
@@ -2625,9 +2667,9 @@ fn working_dir_hint(mode: ChatMode, role: Option<&Role>) -> &'static str {
         ChatMode::Role
             if role.is_some_and(|role| trimmed(role.working_dir.as_deref()).is_some()) =>
         {
-            "Blank starts in the role's directory."
+            crate::i18n::text("ui.blank_starts_in_the_role_s_directory")
         }
-        _ => "Blank starts in your default directory.",
+        _ => crate::i18n::text("ui.blank_starts_in_your_default_directory"),
     }
 }
 
@@ -3343,7 +3385,10 @@ pub(super) mod tests {
             assert_eq!(modal.speed_override(), None);
             assert_eq!(modal.role_runtime_override, None);
             assert_eq!(modal.effort, "xhigh");
-            assert_eq!(model_placeholder(inheriting_role(modal)), "opus[1m]");
+            assert_eq!(
+                model_placeholder(inheriting_role(modal)).resolve(),
+                "opus[1m]"
+            );
             assert!(modal.model.read(cx).placeholder_uses_value_style());
         });
         assert_eq!(modal.effort_choice(), ("xhigh".into(), false));
@@ -3466,7 +3511,10 @@ pub(super) mod tests {
             assert!(inheriting_role(modal).is_none());
             // The agent's defaults, not the role's model and effort. The
             // model stays generic because no concrete value reaches launch.
-            assert_eq!(model_placeholder(inheriting_role(modal)), "default");
+            assert_eq!(
+                model_placeholder(inheriting_role(modal)).resolve(),
+                "default"
+            );
             assert_eq!(modal.effort, "medium");
             assert_eq!(modal.model_override(cx), None);
             assert_eq!(modal.effort_override(), None);
@@ -3501,7 +3549,7 @@ pub(super) mod tests {
         );
         modal.read(|modal, cx| {
             assert_eq!(
-                model_placeholder(inheriting_role(modal)),
+                model_placeholder(inheriting_role(modal)).resolve(),
                 "default",
                 "the role does not pin a model"
             );
@@ -3541,7 +3589,10 @@ pub(super) mod tests {
                 modal.active_runtime().unwrap().default_model.as_deref(),
                 Some("gpt-5.5")
             );
-            assert_eq!(model_placeholder(inheriting_role(modal)), "default");
+            assert_eq!(
+                model_placeholder(inheriting_role(modal)).resolve(),
+                "default"
+            );
             assert!(modal.model.read(cx).placeholder_uses_value_style());
         });
     }
@@ -3628,7 +3679,10 @@ pub(super) mod tests {
             ChatMode::Runtime,
         );
         modal.read(|modal, _| {
-            assert_eq!(model_placeholder(inheriting_role(modal)), "default");
+            assert_eq!(
+                model_placeholder(inheriting_role(modal)).resolve(),
+                "default"
+            );
         });
         assert_eq!(modal.effort_choice(), ("default".into(), false));
         // No key is sent to it: Enter on a disabled select would submit the form.
@@ -4758,6 +4812,31 @@ pub(super) mod tests {
             agent_note("Codex", "Claude Code", None, None),
             "Codex starts from its own model and effort."
         );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn chinese_inheritance_and_runtime_notes_translate_effort_only() {
+        crate::i18n::testing::with_locale(crate::i18n::Locale::SimplifiedChinese, || {
+            let mut role = claude_role();
+            role.model = Some("xhigh".into());
+            let mut modal = modal_harness(1200., 1000., vec![role], agents(), ChatMode::Role);
+            modal.type_model("sonnet");
+            modal.choose(StartChatSelection::Effort, "low");
+            assert!(modal
+                .bounds("START_CHAT_NOTE 思考强度 角色：极高")
+                .is_some());
+            assert!(modal.bounds("START_CHAT_NOTE 模型 角色：xhigh").is_some());
+            assert_eq!(agent_note("Codex", "Claude Code", Some("xhigh"), Some("xhigh")), "Codex 从其自身的模型和思考强度启动。 角色的 xhigh 和 极高 属于 Claude Code，不会继承。");
+            assert_eq!(
+                agent_note("Codex", "Claude Code", None, Some("medium")),
+                "Codex 从其自身的模型和思考强度启动。 角色的 中 属于 Claude Code，不会继承。"
+            );
+            assert_eq!(
+                agent_note("Codex", "Claude Code", Some("high"), None),
+                "Codex 从其自身的模型和思考强度启动。 角色的 high 属于 Claude Code，不会继承。"
+            );
+        });
     }
 
     #[test]

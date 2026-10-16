@@ -67,15 +67,15 @@ pub(crate) fn ended_subtitle(
     exit_code: Option<i32>,
 ) -> String {
     if !resumable {
-        return "The PTY is closed. Resume to start a fresh agent process — there's no saved conversation to pick up from this row.".into();
+        return crate::i18n::text("ui.the_pty_is_closed_resume_to_start_a_fresh_agent_process_there_s_no_saved_conversation_to_p").into();
     }
     if status == SessionStatus::Crashed {
         return exit_code.map_or_else(
-            || "The PTY exited unexpectedly. Resume to start a fresh process — the prior agent conversation is preserved.".into(),
-            |code| format!("The PTY exited with code {code}. Resume to start a fresh process — the prior agent conversation is preserved."),
+            || crate::i18n::text("ui.the_pty_exited_unexpectedly_resume_to_start_a_fresh_process_the_prior_agent_conversation_i").into(),
+            |code| crate::i18n::tf("format.the_pty_exited_with_code_resume_to_start_a_fresh_process_the_prior_agent_conve", &[("code", (code).to_string())]),
         );
     }
-    "The PTY is closed, but the conversation is preserved. Resume to pick up where you left off."
+    crate::i18n::text("ui.the_pty_is_closed_but_the_conversation_is_preserved_resume_to_pick_up_where_you_left_off")
         .into()
 }
 
@@ -85,9 +85,12 @@ pub(crate) fn shell_exited_subtitle(
     cwd: Option<&str>,
     home: Option<&str>,
 ) -> String {
-    let exit = exit_code.map_or_else(|| "exit unknown".into(), |code| format!("exit {code}"));
+    let exit = exit_code.map_or_else(
+        || crate::i18n::text("ui.exit_unknown").into(),
+        |code| crate::i18n::tf("format.exit", &[("code", (code).to_string())]),
+    );
     let cwd = cwd.map_or_else(
-        || "unknown cwd".to_owned(),
+        || crate::i18n::text("ui.unknown_cwd").to_owned(),
         |cwd| {
             home.and_then(|home| Path::new(cwd).strip_prefix(home).ok())
                 .map(|relative| {

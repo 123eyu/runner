@@ -164,41 +164,53 @@ fn reset_label(
     now: chrono::DateTime<chrono::Utc>,
 ) -> String {
     let Some(reset) = resets_at else {
-        return "reset unknown".into();
+        return crate::i18n::text("ui.reset_unknown").into();
     };
     let seconds = reset.signed_duration_since(now).num_seconds().max(0);
     if seconds < 60 {
-        return "resets <1m".into();
+        return crate::i18n::text("ui.resets_1m").into();
     }
     let minutes = (seconds + 59) / 60;
     let days = minutes / 1440;
     let hours = minutes % 1440 / 60;
     let mins = minutes % 60;
     if days > 0 {
-        format!("resets {days}d {hours}h")
+        crate::i18n::tf(
+            "format.resets_d_h",
+            &[("days", (days).to_string()), ("hours", (hours).to_string())],
+        )
     } else if hours > 0 {
-        format!("resets {hours}h {mins}m")
+        crate::i18n::tf(
+            "format.resets_h_m",
+            &[("hours", (hours).to_string()), ("mins", (mins).to_string())],
+        )
     } else {
-        format!("resets {mins}m")
+        crate::i18n::tf("format.resets_m", &[("mins", (mins).to_string())])
     }
 }
 
 fn unavailable_line(reason: Option<UnavailableReason>, runtime: Runtime) -> &'static str {
     match reason {
-        Some(UnavailableReason::SignIn) => "Sign in to Claude Code to see usage.",
-        Some(UnavailableReason::KeychainDenied) => {
-            "Runner was not allowed to read Claude Code's sign-in from the Keychain."
+        Some(UnavailableReason::SignIn) => {
+            crate::i18n::text("ui.sign_in_to_claude_code_to_see_usage")
         }
+        Some(UnavailableReason::KeychainDenied) => crate::i18n::text(
+            "ui.runner_was_not_allowed_to_read_claude_code_s_sign_in_from_the_keychain",
+        ),
         Some(UnavailableReason::KeychainUnavailable) => {
-            "Couldn't read Claude Code's sign-in from the Keychain."
+            crate::i18n::text("ui.couldn_t_read_claude_code_s_sign_in_from_the_keychain")
         }
-        Some(UnavailableReason::ClaudeUnreachable) => "Couldn't reach Anthropic.",
-        Some(UnavailableReason::CodexNoAnswer) => "Codex didn't answer.",
-        Some(UnavailableReason::AntigravityNoAnswer) => "Antigravity CLI didn't answer.",
+        Some(UnavailableReason::ClaudeUnreachable) => {
+            crate::i18n::text("ui.couldn_t_reach_anthropic")
+        }
+        Some(UnavailableReason::CodexNoAnswer) => crate::i18n::text("ui.codex_didn_t_answer"),
+        Some(UnavailableReason::AntigravityNoAnswer) => {
+            crate::i18n::text("ui.antigravity_cli_didn_t_answer")
+        }
         Some(UnavailableReason::InvalidResponse) => {
             crate::runtime_ui::runtime_ui(runtime).usage_invalid
         }
-        None => "Checking…",
+        None => crate::i18n::text("ui.checking"),
     }
 }
 
@@ -285,6 +297,42 @@ fn sidebar_usage_element(
         .children(entries)
 }
 
+fn usage_window_label(label: &str) -> String {
+    match label {
+        "Week" => crate::i18n::text("ui.week").into(),
+        "week" => crate::i18n::text("usage.week_scoped").into(),
+        "5 hours" => crate::i18n::text("usage.five_hours").into(),
+        _ => label
+            .strip_suffix(" min")
+            .filter(|minutes| minutes.parse::<u64>().is_ok())
+            .map(|minutes| crate::i18n::tf("usage.minutes", &[("minutes", minutes.into())]))
+            .unwrap_or_else(|| label.into()),
+    }
+}
+
+fn usage_group_label(group: &str) -> &str {
+    match group {
+        "Gemini Models" => crate::i18n::text("usage.gemini_models"),
+        "Claude and GPT models" => crate::i18n::text("usage.claude_gpt_models"),
+        _ => group,
+    }
+}
+
+fn usage_window_name(name: &str) -> String {
+    let (group, label) = name
+        .split_once(" · ")
+        .map_or((None, name), |(group, label)| (Some(group), label));
+    let label = if let Some(label) = label.strip_suffix(" used") {
+        crate::i18n::tf("usage.used", &[("window", usage_window_label(label))])
+    } else {
+        usage_window_label(label)
+    };
+    group.map_or_else(
+        || label.clone(),
+        |group| format!("{} · {label}", usage_group_label(group)),
+    )
+}
+
 fn usage_window_row(
     runtime: Runtime,
     window: &UsageWindow,
@@ -300,7 +348,7 @@ fn usage_window_row(
         .gap_2()
         .child(Tooltip::new(
             format!("usage-window-{}-{}", runtime.key(), window.name),
-            window.name.clone(),
+            usage_window_name(&window.name),
             div()
                 .w(rems(76. / 16.))
                 .flex_none()
@@ -382,12 +430,17 @@ fn usage_section(
                     div()
                         .text_size(theme::text_meta())
                         .text_color(theme::muted())
-                        .child(group.to_owned())
+                        .child(usage_group_label(group).to_owned())
                         .into_any_element(),
                 );
             }
             previous_group = group;
-            rows.push(usage_window_row(runtime, window, label, now));
+            rows.push(usage_window_row(
+                runtime,
+                window,
+                &usage_window_name(label),
+                now,
+            ));
         }
     }
     div()
@@ -431,7 +484,7 @@ fn usage_section(
                     .text_size(theme::text_body())
                     .text_color(theme::muted())
                     .child(spinner(id, 12., theme::muted()))
-                    .child("Checking…")
+                    .child(crate::i18n::text("ui.checking"))
             }),
         )
         .children(
@@ -507,16 +560,19 @@ impl NativeRoot {
             .map(|usage| usage.updated_at)
             .max();
         let age = if snapshot.refreshing {
-            "Updating…".to_owned()
+            crate::i18n::text("ui.updating").to_owned()
         } else if let Some(updated) = updated {
             let minutes = now.signed_duration_since(updated).num_minutes().max(0);
             if minutes == 0 {
-                "updated just now".into()
+                crate::i18n::text("ui.updated_just_now").into()
             } else {
-                format!("updated {minutes}m ago")
+                crate::i18n::tf(
+                    "format.updated_m_ago",
+                    &[("minutes", (minutes).to_string())],
+                )
             }
         } else {
-            "Not updated yet".into()
+            crate::i18n::text("ui.not_updated_yet").into()
         };
         let refresh = div()
             .id("refresh-usage")
@@ -549,9 +605,9 @@ impl NativeRoot {
         let agent_settings = Tooltip::new(
             "usage-agent-settings-tooltip",
             if update_dot {
-                "Agent settings · Agent CLI update available"
+                crate::i18n::text("ui.agent_settings_agent_cli_update_available")
             } else {
-                "Agent settings"
+                crate::i18n::text("ui.agent_settings")
             },
             div()
                 .id("usage-agent-settings")
@@ -609,7 +665,7 @@ impl NativeRoot {
                 div()
                     .text_size(theme::text_lead())
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Usage"),
+                    .child(crate::i18n::text("ui.usage")),
             )
             .child(div().flex_1())
             .child(
@@ -1073,8 +1129,13 @@ impl NativeRoot {
                 "sidebar-search-tooltip",
                 keymap::effective_binding("command-palette", &self.settings(cx).keymap_overrides)
                     .map_or_else(
-                        || "Search".to_owned(),
-                        |combo| format!("Search ({})", keymap::format_combo(&combo)),
+                        || crate::i18n::text("ui.search").to_owned(),
+                        |combo| {
+                            crate::i18n::tf(
+                                "format.search",
+                                &[("shortcut", (keymap::format_combo(&combo)).to_string())],
+                            )
+                        },
                     ),
                 search_button,
             ))
@@ -1163,7 +1224,7 @@ impl NativeRoot {
                     .child(
                         div().occlude().cursor_pointer().child(Tooltip::new(
                             "sidebar-settings-tooltip",
-                            "Settings",
+                            crate::i18n::text("ui.settings"),
                             div()
                                 .id("open-settings")
                                 .group("sidebar-settings")
@@ -1400,7 +1461,7 @@ impl NativeRoot {
                     .flex_none()
                     .debug_selector(|| "DAEMON_OPEN_LOG".into())
                     .child(
-                        Button::new("daemon-open-log", "Open log")
+                        Button::new("daemon-open-log", crate::i18n::text("ui.open_log"))
                             .size(ButtonSize::Sm)
                             .variant(runner_app::ui::ButtonVariant::Ghost)
                             .on_press(move |_, cx| cx.reveal_path(&log_path)),
@@ -1411,7 +1472,7 @@ impl NativeRoot {
                     .flex_none()
                     .debug_selector(|| "DAEMON_TRY_AGAIN".into())
                     .child(
-                        Button::new("daemon-try-again", "Try again")
+                        Button::new("daemon-try-again", crate::i18n::text("ui.try_again"))
                             .size(ButtonSize::Sm)
                             .radius(8.)
                             .variant(runner_app::ui::ButtonVariant::Secondary)
@@ -1509,7 +1570,7 @@ impl NativeRoot {
 
     pub(crate) fn show_toast(
         &mut self,
-        message: impl Into<String>,
+        message: impl Into<runner_app::i18n::Text>,
         tone: ToastTone,
         cx: &mut Context<Self>,
     ) {
@@ -1717,7 +1778,7 @@ impl NativeRoot {
                         self.mark_active_tab_viewed(window, cx);
                         self.focus_active_terminal(window, cx);
                     }
-                    Err(error) => self.chat_error = Some(error.to_string()),
+                    Err(error) => self.chat_error = Some(error.to_string().into()),
                 }
                 cx.notify();
             }
@@ -1756,7 +1817,7 @@ impl NativeRoot {
                 self.mark_active_tab_viewed(window, cx);
                 self.focus_active_terminal(window, cx);
             }
-            Err(error) => self.chat_error = Some(error.to_string()),
+            Err(error) => self.chat_error = Some(error.to_string().into()),
         }
         cx.notify();
     }
@@ -2303,8 +2364,8 @@ mod tests {
         window
             .update(&mut cx, |root, _, cx| {
                 let error = root.core(cx).role_list().unwrap_err().to_string();
-                root.error = Some(error.clone());
-                root.chat_error = Some(error);
+                root.error = Some(error.clone().into());
+                root.chat_error = Some(error.into());
                 root.show_toast("Saved", ToastTone::Success, cx);
                 cx.notify();
             })
@@ -3156,6 +3217,37 @@ mod tests {
         );
         assert_eq!(weekly_usage_percent(Runtime::Codex, None), None);
         assert_eq!(unavailable_line(None, Runtime::Codex), "Checking…");
+        #[cfg(debug_assertions)]
+        crate::i18n::testing::with_locale(crate::i18n::Locale::SimplifiedChinese, || {
+            assert_eq!(
+                weekly_usage_percent(Runtime::ClaudeCode, snapshot.get(Runtime::ClaudeCode)),
+                Some(26.)
+            );
+            assert_eq!(
+                weekly_usage_percent(Runtime::Codex, snapshot.get(Runtime::ClaudeCode)),
+                Some(26.)
+            );
+            assert_eq!(
+                weekly_usage_percent(Runtime::Antigravity, snapshot.get(Runtime::Antigravity)),
+                Some(1.)
+            );
+            assert_eq!(usage_window_name("Week"), "本周");
+            assert_eq!(usage_window_name("5 hours"), "5 小时");
+            assert_eq!(
+                usage_window_name("Gemini Models · Week used"),
+                "Gemini 模型 · 本周已用"
+            );
+            assert_eq!(
+                usage_window_name("Claude and GPT models · 5 hours used"),
+                "Claude 和 GPT 模型 · 5 小时已用"
+            );
+            assert_eq!(usage_window_name("Opus · week"), "Opus · 本周");
+            assert_eq!(usage_window_name("60 min"), "60 分钟");
+            assert_eq!(
+                usage_window_name("Custom model · custom window"),
+                "Custom model · custom window"
+            );
+        });
     }
 
     #[test]

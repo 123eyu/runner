@@ -21,8 +21,10 @@ use crate::app_settings::AppSettings;
 use crate::app_store::AppStore;
 use crate::theme;
 
-const CAPTION: &str = "Toggles register or unregister a server in this runtime's config. Runner writes only the named entry. Add new servers with the agent's own tooling. Running sessions see changes on their next launch.";
-const EDIT_FOOTER: &str = "Only the named entry changes in each file. Invalid JSON or TOML cannot be saved. To rename a server, remove and re-add it through the agent's CLI.";
+const CAPTION: &str =
+    "ui.toggles_register_or_unregister_a_server_in_this_runtime_s_config_runner_writes_only_the_na";
+const EDIT_FOOTER: &str =
+    "ui.only_the_named_entry_changes_in_each_file_invalid_json_or_toml_cannot_be_saved_to_rename_a";
 
 fn registered_clients(entry: &McpServerEntry) -> Vec<McpClientId> {
     McpClientId::all()
@@ -63,13 +65,13 @@ fn transport_badge(entry: &McpServerEntry, client: McpClientId) -> &'static str 
     match definition_for(entry, client) {
         Some(McpServerDefinition::Stdio { .. }) => "stdio",
         Some(McpServerDefinition::Http { .. }) => "http",
-        None => "other",
+        None => crate::i18n::text("word.other"),
     }
 }
 
 fn definition_summary(definition: Option<&McpServerDefinition>) -> String {
     let Some(definition) = definition else {
-        return "Transport managed by the agent's CLI".into();
+        return crate::i18n::text("ui.transport_managed_by_the_agent_s_cli").into();
     };
     let (mut text, secrets) = match definition {
         McpServerDefinition::Stdio { command, args, env } => (
@@ -88,10 +90,10 @@ fn definition_summary(definition: Option<&McpServerDefinition>) -> String {
     let hidden = secrets.len().saturating_sub(2);
     if hidden > 0 {
         let noun = match definition {
-            McpServerDefinition::Stdio { .. } => "env",
-            McpServerDefinition::Http { .. } => "headers",
+            McpServerDefinition::Stdio { .. } => "mcp.hidden_env",
+            McpServerDefinition::Http { .. } => "mcp.hidden_headers",
         };
-        text.push_str(&format!(" · +{hidden} {noun}"));
+        text.push_str(&crate::i18n::tf(noun, &[("count", hidden.to_string())]));
     }
     text
 }
@@ -132,9 +134,9 @@ fn copy_hint(entry: &McpServerEntry, client: McpClientId) -> Option<String> {
         Some(McpServerDefinition::Stdio { .. }) => true,
     };
     (!copyable).then(|| {
-        format!(
-            "This transport cannot be copied. Add it with {}'s CLI.",
-            client.label()
+        crate::i18n::tf(
+            "format.this_transport_cannot_be_copied_add_it_with_s_cli",
+            &[("runtime", (client.label()).to_string())],
         )
     })
 }
@@ -190,8 +192,13 @@ impl McpPane {
             .width(px(200.))
         });
         let search = cx.new(|cx| {
-            TextField::new(cx.focus_handle(), "", "Search servers…", false)
-                .text_size(theme::text_ui())
+            TextField::new(
+                cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.search_servers"),
+                false,
+            )
+            .text_size(theme::text_ui())
         });
         let detail = cx.new(|cx| McpDetail::new(app_store.clone(), cx));
         let subscriptions = vec![
@@ -346,10 +353,13 @@ impl Render for McpPane {
                 .iter()
                 .filter(|entry| !server_toggle_on(entry, client))
                 .count();
-            meta = Some(format!(
-                "{} · {} servers · {off} off",
-                client.config_file(),
-                catalog.servers.len()
+            meta = Some(crate::i18n::tf(
+                "format.servers_off",
+                &[
+                    ("config_file", (client.config_file()).to_string()),
+                    ("server_count", (catalog.servers.len()).to_string()),
+                    ("off", (off).to_string()),
+                ],
             ));
             if self.search.read(cx).text().trim().is_empty()
                 && !catalog
@@ -358,15 +368,15 @@ impl Render for McpPane {
                     .any(|s| s.clients[&client].registered)
             {
                 rows.push(div().px_4().py_4().flex().flex_col().gap_2().text_size(theme::text_ui()).text_color(theme::faint())
-                    .child(format!("No servers in {} yet.", client.config_file()))
-                    .child(format!("Add servers with {}'s CLI, or switch runtime to copy a server another agent already has.", client.label())).into_any_element());
+                    .child(crate::i18n::tf("format.no_servers_in_yet", &[("config_file", (client.config_file()).to_string())]))
+                    .child(crate::i18n::tf("format.add_servers_with_s_cli_or_switch_runtime_to_copy_a_server_another_agent_alread", &[("runtime", (client.label()).to_string())])).into_any_element());
             } else if rows.is_empty() && !self.search.read(cx).text().trim().is_empty() {
                 rows.push(
                     div()
                         .p_4()
                         .text_size(theme::text_ui())
                         .text_color(theme::faint())
-                        .child("No matching servers.")
+                        .child(crate::i18n::text("ui.no_matching_servers"))
                         .into_any_element(),
                 );
             }
@@ -377,7 +387,7 @@ impl Render for McpPane {
             .gap_4()
             .child(
                 PaneHeader::new("MCP", "").action(
-                    Button::new("mcp-refresh", "Refresh")
+                    Button::new("mcp-refresh", crate::i18n::text("ui.refresh"))
                         .icon("refresh-cw.svg")
                         .size(ButtonSize::Sm)
                         .disabled(state.loading || state.busy)
@@ -409,7 +419,7 @@ impl Render for McpPane {
                             .text_size(theme::text_meta())
                             .line_height(rems(1.))
                             .text_color(theme::faint())
-                            .child(CAPTION),
+                            .child(crate::i18n::text(CAPTION)),
                     )
             }))
             .children(
@@ -427,9 +437,9 @@ impl Render for McpPane {
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
                     .child(if state.loading {
-                        "Loading MCP servers…"
+                        crate::i18n::text("ui.loading_mcp_servers")
                     } else {
-                        "No supported, enabled agents are installed."
+                        crate::i18n::text("ui.no_supported_enabled_agents_are_installed")
                     })
                     .into_any_element()]
             } else {
@@ -514,7 +524,9 @@ impl McpDetail {
         let home = self.app_store.read(cx).home_dir.clone();
         let core = self.app_store.read(cx).client.clone();
         let task = cx.background_spawn(async move {
-            let home = home.ok_or_else(|| "Home directory is not available".to_owned())?;
+            let home = home.ok_or_else(|| {
+                crate::i18n::text("ui.home_directory_is_not_available").to_owned()
+            })?;
             Ok::<_, String>((
                 core.mcp_catalog(&home).map_err(|e| e.to_string())?,
                 core.runtime_catalog().map_err(|e| e.to_string())?,
@@ -649,7 +661,7 @@ impl McpDetail {
             ) -> std::result::Result<(), runner_core::protocol::ClientError>
             + Send
             + 'static,
-        saved: Option<String>,
+        saved: Option<crate::i18n::Text>,
         cx: &mut Context<Self>,
     ) {
         self.busy = true;
@@ -661,7 +673,7 @@ impl McpDetail {
         let core = self.app_store.read(cx).client.clone();
         let task = cx.background_spawn(async move {
             let Some(home) = home else {
-                let error = "Home directory is not available".to_owned();
+                let error = crate::i18n::text("ui.home_directory_is_not_available").to_owned();
                 return (Err(error.clone()), Err(error));
             };
             let result = operation(&core, &home).map_err(|e| e.to_string());
@@ -678,7 +690,7 @@ impl McpDetail {
                     }
                     match (&result, &saved) {
                         (Err(message), Some(_)) => cx.emit(SaveNotice {
-                            message: message.clone(),
+                            message: message.clone().into(),
                             tone: crate::toast::ToastTone::Error,
                         }),
                         (Ok(()), Some(saved)) => cx.emit(SaveNotice {
@@ -739,7 +751,7 @@ impl McpDetail {
         let name = self
             .name
             .as_deref()
-            .ok_or_else(|| "No server selected".to_owned())?;
+            .ok_or_else(|| crate::i18n::text("ui.no_server_selected").to_owned())?;
         self.app_store
             .read(cx)
             .client
@@ -762,7 +774,7 @@ impl McpDetail {
         }
         if let Err(error) = self.validation(cx) {
             cx.emit(SaveNotice {
-                message: one_line_error(&error),
+                message: one_line_error(&error).into(),
                 tone: crate::toast::ToastTone::Error,
             });
             return;
@@ -778,8 +790,11 @@ impl McpDetail {
             .chain(also.iter().copied())
             .map(|c| c.config_file())
             .collect::<Vec<_>>()
-            .join(" and ");
-        let saved = format!("Saved {name} to {files}");
+            .join(crate::i18n::text("ui.and"));
+        let saved = crate::i18n::messagef(
+            "format.saved_to",
+            &[("name", (name).to_string()), ("files", (files).to_string())],
+        );
         self.write(
             move |daemon, home| daemon.mcp_edit_server(home, client, &name, &text, &also),
             Some(saved),
@@ -838,12 +853,12 @@ impl McpDetail {
             .child(div().min_w_0().truncate().child(name.clone()))
             .child(Badge::new(transport_badge(entry, client), Tone::Muted))
             .when(self.editing, |d| {
-                d.child(Badge::new("editing", Tone::Accent))
+                d.child(Badge::new(crate::i18n::text("word.editing"), Tone::Accent))
             })
             .child(div().flex_1())
             .when(!self.editing, |d| {
                 d.child(
-                    Button::new("mcp-modal-edit", "Edit")
+                    Button::new("mcp-modal-edit", crate::i18n::text("ui.edit"))
                         .icon("square-pen.svg")
                         .size(ButtonSize::Sm)
                         .disabled(self.busy || !entry.clients[&client].registered)
@@ -862,171 +877,177 @@ impl McpDetail {
             );
         let path = client.config_path(self.app_store.read(cx).home_dir.as_deref()?);
         let description = match definition_for(entry, client) {
-            Some(McpServerDefinition::Stdio { .. }) => "The agent launches this command and communicates with the server over standard input and output.",
-            Some(McpServerDefinition::Http { .. }) => "The agent connects to this server over HTTP using the configured URL and headers.",
-            None => "This transport is managed by the agent's own tooling and cannot be copied to another agent.",
+            Some(McpServerDefinition::Stdio { .. }) => crate::i18n::text("ui.the_agent_launches_this_command_and_communicates_with_the_server_over_standard_input_and_o"),
+            Some(McpServerDefinition::Http { .. }) => crate::i18n::text("ui.the_agent_connects_to_this_server_over_http_using_the_configured_url_and_headers"),
+            None => crate::i18n::text("ui.this_transport_is_managed_by_the_agent_s_own_tooling_and_cannot_be_copied_to_another_agent"),
         };
         let clients = registered_clients(entry);
         let registered = server_toggle_on(entry, runtime);
         let copy_hint = copy_hint(entry, runtime);
-        let overview =
-            div()
-                .id("mcp-overview")
-                .debug_selector(|| "MCP_OVERVIEW".into())
-                .flex()
-                .flex_col()
-                .gap_3()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .overflow_y_scroll()
-                .scrollbar_width(px(0.))
-                .track_scroll(&self.overview_scroll)
-                .child(
+        let overview = div()
+            .id("mcp-overview")
+            .debug_selector(|| "MCP_OVERVIEW".into())
+            .flex()
+            .flex_col()
+            .gap_3()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_y_scroll()
+            .scrollbar_width(px(0.))
+            .track_scroll(&self.overview_scroll)
+            .child(
+                div()
+                    .text_size(theme::text_ui())
+                    .line_height(rems(18. / 16.))
+                    .text_color(theme::muted())
+                    .child(description),
+            )
+            .child(
+                div()
+                    .debug_selector(|| "MCP_PATH_ROW".into())
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .debug_selector(|| "MCP_PATH".into())
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(theme::text_caption())
+                            .font_family(theme::UI_MONOSPACE_FONT)
+                            .text_color(theme::faint())
+                            .child(format!(
+                                "{} → {}",
+                                client.config_file(),
+                                client.entry_key(&name)
+                            )),
+                    )
+                    .child(
+                        Button::new("mcp-reveal", crate::i18n::text("ui.reveal_config"))
+                            .size(ButtonSize::Sm)
+                            .variant(ButtonVariant::Ghost)
+                            .on_press(move |_, cx| cx.reveal_path(&path)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .text_size(theme::text_caption())
+                    .text_color(theme::faint())
+                    .child(crate::i18n::text("ui.registered_in"))
+                    .children(clients.iter().map(|c| Badge::new(c.label(), Tone::Muted)))
+                    .when(clients.is_empty(), |d| {
+                        d.child(crate::i18n::text("ui.no_agents"))
+                    })
+                    .when(configured_differently(entry), |d| {
+                        d.child(
+                            div()
+                                .debug_selector(|| "MCP_PER_AGENT_NOTE".into())
+                                .child(crate::i18n::text("ui.configured_differently_per_agent")),
+                        )
+                    }),
+            )
+            .when(!self.editing, |d| {
+                d.child(
                     div()
-                        .text_size(theme::text_ui())
-                        .line_height(rems(18. / 16.))
-                        .text_color(theme::muted())
-                        .child(description),
-                )
-                .child(
-                    div()
-                        .debug_selector(|| "MCP_PATH_ROW".into())
+                        .debug_selector(|| "MCP_REGISTERED_ROW".into())
                         .flex()
                         .items_center()
-                        .gap_2()
-                        .min_w_0()
+                        .gap_4()
+                        .rounded(rems(6. / 16.))
+                        .bg(theme::raised())
+                        .px_3()
+                        .py_2()
                         .child(
                             div()
-                                .debug_selector(|| "MCP_PATH".into())
                                 .flex_1()
                                 .min_w_0()
-                                .text_size(theme::text_caption())
-                                .font_family(theme::UI_MONOSPACE_FONT)
-                                .text_color(theme::faint())
-                                .child(format!(
-                                    "{} → {}",
-                                    client.config_file(),
-                                    client.entry_key(&name)
-                                )),
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(div().text_size(theme::text_ui()).child(crate::i18n::tf(
+                                    "format.registered_in",
+                                    &[("runtime", (runtime.label()).to_string())],
+                                )))
+                                .child(
+                                    div()
+                                        .text_size(theme::text_caption())
+                                        .line_height(rems(15. / 16.))
+                                        .text_color(theme::faint())
+                                        .child(crate::i18n::tf(
+                                            "format.writes_only_in_applies_to_new_sessions",
+                                            &[
+                                                ("entry", (runtime.entry_key(&name)).to_string()),
+                                                (
+                                                    "config_file",
+                                                    (runtime.config_file()).to_string(),
+                                                ),
+                                            ],
+                                        )),
+                                )
+                                .children(copy_hint.clone().map(|hint| {
+                                    div()
+                                        .text_size(theme::text_caption())
+                                        .text_color(theme::warning())
+                                        .child(hint)
+                                })),
                         )
                         .child(
-                            Button::new("mcp-reveal", "Reveal config")
-                                .size(ButtonSize::Sm)
-                                .variant(ButtonVariant::Ghost)
-                                .on_press(move |_, cx| cx.reveal_path(&path)),
+                            Toggle::new("mcp-detail-toggle", registered)
+                                .disabled(self.busy || copy_hint.is_some())
+                                .on_change(move |enabled, _, cx| {
+                                    toggle_owner.update(cx, |this, cx| {
+                                        this.set_enabled(runtime, name.clone(), enabled, cx)
+                                    })
+                                }),
                         ),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_center()
-                        .gap_2()
-                        .text_size(theme::text_caption())
-                        .text_color(theme::faint())
-                        .child("Registered in")
-                        .children(clients.iter().map(|c| Badge::new(c.label(), Tone::Muted)))
-                        .when(clients.is_empty(), |d| d.child("No agents"))
-                        .when(configured_differently(entry), |d| {
-                            d.child(
-                                div()
-                                    .debug_selector(|| "MCP_PER_AGENT_NOTE".into())
-                                    .child("· Configured differently per agent"),
-                            )
+            })
+            .when(self.editing, |d| {
+                d.children(
+                    clients
+                        .iter()
+                        .copied()
+                        .filter(|&other| other != client)
+                        .enumerate()
+                        .map(|(i, other)| {
+                            let owner = owner.clone();
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_4()
+                                .rounded(rems(6. / 16.))
+                                .bg(theme::raised())
+                                .px_3()
+                                .py_2()
+                                .child(div().flex_1().min_w_0().text_size(theme::text_ui()).child(
+                                    crate::i18n::tf(
+                                        "format.also_update_s_entry",
+                                        &[("runtime", (other.label()).to_string())],
+                                    ),
+                                ))
+                                .child(
+                                    Toggle::new(("mcp-also", i), self.also.contains(&other))
+                                        .disabled(self.busy)
+                                        .on_change(move |enabled, _, cx| {
+                                            owner.update(cx, |this, cx| {
+                                                if enabled {
+                                                    this.also.insert(other);
+                                                } else {
+                                                    this.also.remove(&other);
+                                                }
+                                                cx.notify();
+                                            })
+                                        }),
+                                )
                         }),
                 )
-                .when(!self.editing, |d| {
-                    d.child(
-                        div()
-                            .debug_selector(|| "MCP_REGISTERED_ROW".into())
-                            .flex()
-                            .items_center()
-                            .gap_4()
-                            .rounded(rems(6. / 16.))
-                            .bg(theme::raised())
-                            .px_3()
-                            .py_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_size(theme::text_ui())
-                                            .child(format!("Registered in {}", runtime.label())),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(theme::text_caption())
-                                            .line_height(rems(15. / 16.))
-                                            .text_color(theme::faint())
-                                            .child(format!(
-                                                "Writes only {} in {}. Applies to new sessions.",
-                                                runtime.entry_key(&name),
-                                                runtime.config_file()
-                                            )),
-                                    )
-                                    .children(copy_hint.clone().map(|hint| {
-                                        div()
-                                            .text_size(theme::text_caption())
-                                            .text_color(theme::warning())
-                                            .child(hint)
-                                    })),
-                            )
-                            .child(
-                                Toggle::new("mcp-detail-toggle", registered)
-                                    .disabled(self.busy || copy_hint.is_some())
-                                    .on_change(move |enabled, _, cx| {
-                                        toggle_owner.update(cx, |this, cx| {
-                                            this.set_enabled(runtime, name.clone(), enabled, cx)
-                                        })
-                                    }),
-                            ),
-                    )
-                })
-                .when(self.editing, |d| {
-                    d.children(
-                        clients
-                            .iter()
-                            .copied()
-                            .filter(|&other| other != client)
-                            .enumerate()
-                            .map(|(i, other)| {
-                                let owner = owner.clone();
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_4()
-                                    .rounded(rems(6. / 16.))
-                                    .bg(theme::raised())
-                                    .px_3()
-                                    .py_2()
-                                    .child(
-                                        div().flex_1().min_w_0().text_size(theme::text_ui()).child(
-                                            format!("Also update {}'s entry", other.label()),
-                                        ),
-                                    )
-                                    .child(
-                                        Toggle::new(("mcp-also", i), self.also.contains(&other))
-                                            .disabled(self.busy)
-                                            .on_change(move |enabled, _, cx| {
-                                                owner.update(cx, |this, cx| {
-                                                    if enabled {
-                                                        this.also.insert(other);
-                                                    } else {
-                                                        this.also.remove(&other);
-                                                    }
-                                                    cx.notify();
-                                                })
-                                            }),
-                                    )
-                            }),
-                    )
-                });
+            });
         let bar = div()
             .flex()
             .flex_wrap()
@@ -1112,7 +1133,7 @@ impl McpDetail {
                                 .child(if entry.clients[&client].registered {
                                     entry.clients[&client].native_text.clone()
                                 } else {
-                                    "Not registered in this runtime.".into()
+                                    crate::i18n::text("ui.not_registered_in_this_runtime").into()
                                 }),
                         ),
                 )
@@ -1184,17 +1205,17 @@ impl McpDetail {
                             .min_w_0()
                             .text_size(theme::text_caption())
                             .text_color(theme::faint())
-                            .child(EDIT_FOOTER),
+                            .child(crate::i18n::text(EDIT_FOOTER)),
                     )
                     .child(
-                        Button::new("mcp-edit-cancel", "Cancel")
+                        Button::new("mcp-edit-cancel", crate::i18n::text("ui.cancel"))
                             .disabled(self.busy)
                             .on_press(move |window, cx| {
                                 cancel.update(cx, |this, cx| this.request_dismiss(window, cx))
                             }),
                     )
                     .child(
-                        Button::new("mcp-edit-save", "Save")
+                        Button::new("mcp-edit-save", crate::i18n::text("ui.save"))
                             .variant(ButtonVariant::Primary)
                             .disabled(!self.can_save(cx))
                             .on_press(move |_, cx| save.update(cx, |this, cx| this.save(cx))),
@@ -1240,10 +1261,10 @@ impl Render for McpDetail {
             .when(self.confirming, |d| {
                 d.child(
                     ConfirmDialog::new(
-                        "Discard unsaved changes?",
-                        "Your edits to this server have not been saved.",
-                        "Discard changes",
-                        "Discarding…",
+                        crate::i18n::text("ui.discard_unsaved_changes"),
+                        crate::i18n::text("ui.your_edits_to_this_server_have_not_been_saved"),
+                        crate::i18n::text("ui.discard_changes"),
+                        crate::i18n::text("ui.discarding"),
                         false,
                         Rc::new(move |window, cx| {
                             confirm.update(cx, |this, cx| this.discard_edit(window, cx))
@@ -1412,7 +1433,7 @@ mod tests {
         .unwrap();
         visual.run_until_parked();
         assert!(visual.debug_bounds("MCP_ROW_runner").is_some());
-        assert!(!CAPTION.contains("Runner's own server"));
+        assert!(!crate::i18n::text(CAPTION).contains("Runner's own server"));
     }
 
     #[test]

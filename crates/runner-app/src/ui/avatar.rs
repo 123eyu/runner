@@ -159,7 +159,7 @@ pub fn lead_badge() -> AnyElement {
         .font_weight(FontWeight::BOLD)
         .text_size(theme::text_micro())
         .text_color(theme::warning())
-        .child("LEAD")
+        .child(crate::i18n::text("heading.lead"))
         .into_any_element()
 }
 

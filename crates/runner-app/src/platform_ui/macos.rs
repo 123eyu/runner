@@ -10,8 +10,8 @@ pub(crate) const SETTINGS_DRAG_INSET: f32 = TITLEBAR_DRAG_HEIGHT;
 pub(crate) const SETTINGS_CONTENT_TOP: f32 = 56.;
 
 pub(crate) const PRIMARY_MODIFIER: &str = "⌘";
-pub(crate) const SHORTCUT_REQUIREMENTS: &str =
-    "Shortcuts must include ⌘, Control, or Option. Function keys can be used alone.";
+pub(crate) const SHORTCUT_REQUIREMENTS_KEY: &str =
+    "ui.shortcuts_must_include_control_or_option_function_keys_can_be_used_alone";
 
 #[cfg(not(test))]
 pub(crate) fn show_about_panel() {
@@ -68,7 +68,10 @@ pub(crate) fn sidebar_section() -> Div {
 }
 
 pub(crate) fn update_hint_tooltip(version: &str) -> String {
-    format!("Runner {version} is ready to install")
+    crate::i18n::tf(
+        "format.runner_is_ready_to_install",
+        &[("version", (version).to_string())],
+    )
 }
 
 pub(crate) fn activate_update_hint(updater: &Entity<Updater>, cx: &mut App) {

@@ -57,7 +57,13 @@ fn dialog_content(
     size: u64,
 ) -> Option<DialogContent> {
     let version = info.map_or("", UpdateInfo::version);
-    let installed = format!("Installed {}", runner_app::version::display_version_label());
+    let installed = crate::i18n::tf(
+        "format.installed",
+        &[(
+            "version",
+            (runner_app::version::display_version_label()).to_string(),
+        )],
+    );
     let mut content = DialogContent {
         title: String::new(),
         subtitle: installed.clone(),
@@ -69,61 +75,102 @@ fn dialog_content(
     match state {
         UpdateState::UpToDate { .. } => return None,
         UpdateState::Available { sig_url, .. } => {
-            content.title = format!("Runner {version} is available");
+            content.title = crate::i18n::tf(
+                "format.runner_is_available",
+                &[("version", (version).to_string())],
+            );
             if size > 0 {
-                content.subtitle = format!("{installed} · {:.1} MB download", megabytes(size));
+                content.subtitle = crate::i18n::tf(
+                    "format.mb_download",
+                    &[
+                        ("installed", (installed).to_string()),
+                        ("megabytes", (format!("{:.1}", megabytes(size))).to_string()),
+                    ],
+                );
             }
-            content.secondary = Some("View downloads");
+            content.secondary = Some(crate::i18n::text("ui.view_downloads"));
             if sig_url.is_some() {
                 content.body = Some(
-                    "Download it now, or open the release page to get the installer yourself."
-                        .into(),
+                    crate::i18n::text(
+                        "ui.download_it_now_or_open_the_release_page_to_get_the_installer_yourself",
+                    )
+                    .into(),
                 );
-                content.primary = Some(("Download", DialogAction::Download));
+                content.primary = Some((crate::i18n::text("ui.download"), DialogAction::Download));
             } else {
-                content.body = Some("This release cannot be installed from Runner. Open the release page to download it.".into());
+                content.body = Some(crate::i18n::text("ui.this_release_cannot_be_installed_from_runner_open_the_release_page_to_download_it").into());
             }
         }
         UpdateState::Downloading { received, total } => {
-            content.title = format!("Downloading Runner {version}");
-            content.subtitle = format!("{installed} · verified before install");
+            content.title = crate::i18n::tf(
+                "format.runner_download_title",
+                &[("version", (version).to_string())],
+            );
+            content.subtitle = crate::i18n::tf(
+                "format.verified_before_install",
+                &[("installed", (installed).to_string())],
+            );
             content.progress = Some((*received, if *total == 0 { size } else { *total }));
-            content.primary = Some(("Cancel", DialogAction::Cancel));
+            content.primary = Some((crate::i18n::text("ui.cancel"), DialogAction::Cancel));
         }
         UpdateState::Ready { .. } => {
-            content.title = format!("Runner {version} is ready to install");
+            content.title = crate::i18n::tf(
+                "format.runner_is_ready_to_install",
+                &[("version", (version).to_string())],
+            );
             content.subtitle = if size > 0 {
-                format!(
-                    "{installed} · {:.1} MB downloaded and verified",
-                    megabytes(size)
+                crate::i18n::tf(
+                    "format.mb_downloaded_and_verified",
+                    &[
+                        ("installed", (installed).to_string()),
+                        ("megabytes", (format!("{:.1}", megabytes(size))).to_string()),
+                    ],
                 )
             } else {
-                format!("{installed} · downloaded and verified")
+                crate::i18n::tf(
+                    "format.downloaded_and_verified",
+                    &[("installed", (installed).to_string())],
+                )
             };
             content.body = Some(
-                "Runner closes, the installer runs, and Runner reopens on the new version. Your sessions restart with it.".into(),
+                crate::i18n::text("ui.runner_closes_the_installer_runs_and_runner_reopens_on_the_new_version_your_sessions_resta").into(),
             );
-            content.secondary = Some("Later");
-            content.primary = Some(("Install and restart", DialogAction::Install));
+            content.secondary = Some(crate::i18n::text("ui.later"));
+            content.primary = Some((
+                crate::i18n::text("ui.install_and_restart"),
+                DialogAction::Install,
+            ));
         }
         UpdateState::Failed { step, message, .. } => {
             content.title = if info.is_some() {
-                format!("Runner {version} couldn't be installed")
+                crate::i18n::tf(
+                    "format.runner_couldn_t_be_installed",
+                    &[("version", (version).to_string())],
+                )
             } else {
-                "Runner couldn't check for updates".into()
+                crate::i18n::text("ui.runner_couldn_t_check_for_updates").into()
             };
             let step_name = match step {
-                UpdateStep::Check => "Update check",
-                UpdateStep::Download => "Download",
-                UpdateStep::Verify => "Signature verification",
-                UpdateStep::Install => "Installer",
+                UpdateStep::Check => crate::i18n::text("ui.update_check"),
+                UpdateStep::Download => crate::i18n::text("ui.download"),
+                UpdateStep::Verify => crate::i18n::text("ui.signature_verification"),
+                UpdateStep::Install => crate::i18n::text("ui.installer"),
             };
-            content.body = Some(format!("{step_name} failed. {message}"));
-            content.secondary = Some("View downloads");
+            content.body = Some(crate::i18n::tf(
+                "format.failed",
+                &[
+                    ("step_name", (step_name).to_string()),
+                    ("message", (message).to_string()),
+                ],
+            ));
+            content.secondary = Some(crate::i18n::text("ui.view_downloads"));
             content.primary = Some(if *step == UpdateStep::Install {
-                ("Install and restart", DialogAction::Install)
+                (
+                    crate::i18n::text("ui.install_and_restart"),
+                    DialogAction::Install,
+                )
             } else {
-                ("Retry", DialogAction::Retry)
+                (crate::i18n::text("ui.retry"), DialogAction::Retry)
             });
         }
     }
@@ -136,13 +183,28 @@ fn megabytes(bytes: u64) -> f64 {
 
 fn progress_caption(received: u64, total: u64) -> String {
     if total == 0 {
-        format!("{:.1} MB downloaded", megabytes(received))
+        crate::i18n::tf(
+            "format.mb_downloaded",
+            &[(
+                "megabytes",
+                (format!("{:.1}", megabytes(received))).to_string(),
+            )],
+        )
     } else {
-        format!(
-            "{:.1} MB of {:.1} MB · {:.0}%",
-            megabytes(received),
-            megabytes(total),
-            (received as f64 / total as f64 * 100.).min(100.)
+        crate::i18n::tf(
+            "format.mb_of_mb",
+            &[
+                (
+                    "received_mb",
+                    (format!("{:.1}", megabytes(received))).to_string(),
+                ),
+                ("total_mb", (format!("{:.1}", megabytes(total))).to_string()),
+                (
+                    "percent",
+                    (format!("{:.0}", (received as f64 / total as f64 * 100.).min(100.)))
+                        .to_string(),
+                ),
+            ],
         )
     }
 }
@@ -431,7 +493,7 @@ impl UpdateDialog {
                                 Button::new("update-secondary", label)
                                     .size(ButtonSize::Sm)
                                     .on_press(move |window, cx| {
-                                        if label == "Later" {
+                                        if label == crate::i18n::text("ui.later") {
                                             close_secondary(window, cx);
                                         } else {
                                             cx.open_url(windows_download_url());

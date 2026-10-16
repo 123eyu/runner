@@ -58,7 +58,7 @@ use runner_app::ui::{
     Scrollbar, SessionControl, SessionControlKind, Tooltip, WorkspaceHeader,
     WORKSPACE_HEADER_HEIGHT,
 };
-use runner_app::{theme, Copy, Cut, Paste, Redo, SelectAll, Undo};
+use runner_app::{i18n, theme, Copy, Cut, Paste, Redo, SelectAll, Undo};
 use runner_core::protocol::model::SessionStatus;
 use runner_core::protocol::session::DirectSessionEntry;
 use runner_core::protocol::session::SessionActivityState;
@@ -382,7 +382,7 @@ enum TerminalCloseTarget {
     ArchiveAll {
         session_ids: Vec<String>,
         source: ArchiveAllSource,
-        confirmation_body: String,
+        confirmation_body: crate::i18n::Text,
     },
 }
 
@@ -534,7 +534,7 @@ struct NativeRoot {
     chat_transitions: HashMap<String, ChatTransition>,
     next_chat_transition_generation: u64,
     session_exit_codes: HashMap<String, Option<i32>>,
-    chat_error: Option<String>,
+    chat_error: Option<crate::i18n::Text>,
     daemon_retrying: bool,
     chat_warning: Option<String>,
     active_chat_detail: Option<DirectSessionEntry>,
@@ -567,7 +567,7 @@ struct NativeRoot {
     resizing_split: Option<String>,
     chat_secondaries: HashMap<String, String>,
     dismissed_duplicate_chats: HashSet<String>,
-    error: Option<String>,
+    error: Option<crate::i18n::Text>,
     settings_page: SettingsState,
     route: AppRoute,
     settings_return_route: AppRoute,
@@ -813,11 +813,16 @@ impl NativeRoot {
             CopyValueButton::new(
                 copy_cx.focus_handle(),
                 initial_session_key,
-                "Copy session_key",
+                crate::i18n::message("ui.copy_session_key"),
             )
         });
-        let archived_session_key_copy = cx
-            .new(|copy_cx| CopyValueButton::new(copy_cx.focus_handle(), None, "Copy session_key"));
+        let archived_session_key_copy = cx.new(|copy_cx| {
+            CopyValueButton::new(
+                copy_cx.focus_handle(),
+                None,
+                crate::i18n::message("ui.copy_session_key"),
+            )
+        });
         let chat_root = cx.entity();
         let chat_action_menu = cx.new(move |menu_cx| {
             let action_root = chat_root.clone();
@@ -835,7 +840,7 @@ impl NativeRoot {
             .min_width(px(160.))
             .trigger_size(IconButtonSize::Md)
             .trigger_icon("more-horizontal.svg")
-            .trigger_tooltip("Chat actions")
+            .trigger_tooltip(crate::i18n::message("ui.chat_actions"))
         });
         let last_focused_role_id = tabs
             .active()
@@ -1016,6 +1021,9 @@ impl NativeRoot {
         }));
         root._activation_subscription =
             Some(cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    this.app_store.update(cx, |store, cx| store.sync_locale(cx));
+                }
                 this.sync_sidebar_window_activation(window, cx)
             }));
         mac_chrome::sync_traffic_lights(window, root.settings(cx).app_zoom);
@@ -1049,7 +1057,7 @@ impl NativeRoot {
         root.sync_window_activation(window, cx);
         if root.route == AppRoute::Chat {
             if let Err(error) = root.ensure_active_tab_attached(window, cx) {
-                root.error = Some(error.to_string());
+                root.error = Some(error.to_string().into());
             }
             root.focus_active_terminal(window, cx);
         }
@@ -1122,10 +1130,19 @@ impl NativeRoot {
         let reactions = revisions.reactions_since(previous);
 
         if revisions.settings != previous.settings {
+            let language = self.settings(cx).language.key();
+            self.settings_page
+                .language
+                .update(cx, |select, cx| select.set_value(language, cx));
             let value = self.settings(cx).quit_behavior.key();
             self.settings_page
                 .quit_behavior
                 .update(cx, |select, cx| select.set_value(value, cx));
+        }
+        if revisions.locale != previous.locale {
+            self.toasts.relocalize();
+            self.command_palette
+                .update(cx, |palette, cx| palette.locale_changed(cx));
         }
         let mut recovery_toast = None;
         if reactions.sync_error {
@@ -1136,7 +1153,8 @@ impl NativeRoot {
             if !store.daemon_disconnected
                 && store.daemon_notice == Some(runner_app::lifecycle::DaemonNotice::Stopped)
             {
-                recovery_toast = self.error.take();
+                recovery_toast = store.error.clone();
+                self.error = None;
             }
             if store.daemon_disconnected {
                 self.toasts.dismiss();
@@ -1439,6 +1457,11 @@ fn run() -> Result<()> {
             Ok(settings) => (settings, None),
             Err(error) => (AppSettings::default(), Some(error.to_string())),
         };
+        i18n::set_active_locale(
+            settings
+                .language
+                .resolve(sys_locale::get_locale().as_deref()),
+        );
         #[cfg(not(test))]
         let home_dir = paths.home_dir.clone();
         #[cfg(test)]
@@ -1689,52 +1712,65 @@ pub(crate) fn app_menus() -> Vec<Menu> {
             disabled: false,
             items: vec![
                 #[cfg(target_os = "macos")]
-                MenuItem::action("About Runner", AboutRunner),
-                MenuItem::action("Check for Updates…", CheckForUpdates),
+                MenuItem::action(crate::i18n::text("ui.about_runner"), AboutRunner),
+                MenuItem::action(crate::i18n::text("ui.check_for_updates"), CheckForUpdates),
                 MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::os_submenu(crate::i18n::text("ui.services"), SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action("Hide Runner", Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action(crate::i18n::text("ui.hide_runner"), Hide),
+                MenuItem::action(crate::i18n::text("ui.hide_others"), HideOthers),
+                MenuItem::action(crate::i18n::text("ui.show_all"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit Runner", Quit),
+                MenuItem::action(crate::i18n::text("ui.quit_runner"), Quit),
                 #[cfg(target_os = "macos")]
-                MenuItem::action("Quit and Stop Sessions", QuitAndStopSessions),
+                MenuItem::action(
+                    crate::i18n::text("ui.quit_and_stop_sessions"),
+                    QuitAndStopSessions,
+                ),
             ],
         },
         Menu {
-            name: "File".into(),
+            name: crate::i18n::text("ui.file").into(),
             disabled: false,
-            items: vec![MenuItem::action("New Window", NewWindow)],
+            items: vec![MenuItem::action(
+                crate::i18n::text("ui.new_window"),
+                NewWindow,
+            )],
         },
         Menu {
-            name: "Edit".into(),
+            name: crate::i18n::text("ui.edit").into(),
             disabled: false,
             items: vec![
-                MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                MenuItem::os_action(crate::i18n::text("ui.undo"), Undo, OsAction::Undo),
+                MenuItem::os_action(crate::i18n::text("ui.redo"), Redo, OsAction::Redo),
                 MenuItem::separator(),
-                MenuItem::os_action("Cut", Cut, OsAction::Cut),
-                MenuItem::os_action("Copy", Copy, OsAction::Copy),
-                MenuItem::os_action("Paste", Paste, OsAction::Paste),
-                MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                MenuItem::os_action(crate::i18n::text("ui.cut"), Cut, OsAction::Cut),
+                MenuItem::os_action(crate::i18n::text("ui.copy"), Copy, OsAction::Copy),
+                MenuItem::os_action(crate::i18n::text("ui.paste"), Paste, OsAction::Paste),
+                MenuItem::os_action(
+                    crate::i18n::text("ui.select_all"),
+                    SelectAll,
+                    OsAction::SelectAll,
+                ),
             ],
         },
         Menu {
-            name: "View".into(),
+            name: crate::i18n::text("ui.view").into(),
             disabled: false,
-            items: vec![MenuItem::action("Enter Full Screen", ToggleFullscreen)],
+            items: vec![MenuItem::action(
+                crate::i18n::text("ui.enter_full_screen"),
+                ToggleFullscreen,
+            )],
         },
         Menu {
-            name: "Window".into(),
+            name: crate::i18n::text("ui.window").into(),
             disabled: false,
             items: vec![
-                MenuItem::action("Minimize", Minimize),
-                MenuItem::action("Maximize", Maximize),
+                MenuItem::action(crate::i18n::text("ui.minimize"), Minimize),
+                MenuItem::action(crate::i18n::text("ui.maximize"), Maximize),
                 MenuItem::separator(),
-                MenuItem::action("Close Tab", CloseTab),
-                MenuItem::action("Close Window", CloseWindow),
+                MenuItem::action(crate::i18n::text("ui.close_tab"), CloseTab),
+                MenuItem::action(crate::i18n::text("ui.close_window"), CloseWindow),
             ],
         },
     ]
@@ -1942,7 +1978,10 @@ fn main() {
 fn show_startup_error(message: &str) {
     use windows::core::HSTRING;
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
-    let text = HSTRING::from(format!("Runner could not start.\n\n{message}"));
+    let text = HSTRING::from(crate::i18n::tf(
+        "startup.failed",
+        &[("message", message.to_string())],
+    ));
     unsafe { MessageBoxW(None, &text, &HSTRING::from("Runner"), MB_OK | MB_ICONERROR) };
 }
 

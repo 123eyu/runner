@@ -12,8 +12,8 @@ pub(crate) const SETTINGS_DRAG_INSET: f32 = 0.;
 pub(crate) const SETTINGS_CONTENT_TOP: f32 = 56. - TITLEBAR_HEIGHT;
 
 pub(crate) const PRIMARY_MODIFIER: &str = "Ctrl";
-pub(crate) const SHORTCUT_REQUIREMENTS: &str =
-    "Shortcuts must include Ctrl, Alt, or Win. Function keys can be used alone.";
+pub(crate) const SHORTCUT_REQUIREMENTS_KEY: &str =
+    "ui.shortcuts_must_include_ctrl_alt_or_win_function_keys_can_be_used_alone";
 
 pub(crate) fn primary_modifier_held(modifiers: gpui::Modifiers) -> bool {
     modifiers.control
@@ -36,9 +36,15 @@ pub(crate) fn update_hint_tooltip(
     state: &runner_app::updater::UpdateState,
 ) -> String {
     if matches!(state, runner_app::updater::UpdateState::Ready { .. }) {
-        format!("Runner {version} is ready to install")
+        crate::i18n::tf(
+            "format.runner_is_ready_to_install",
+            &[("version", (version).to_string())],
+        )
     } else {
-        format!("Runner {version} is available")
+        crate::i18n::tf(
+            "format.runner_is_available",
+            &[("version", (version).to_string())],
+        )
     }
 }
 
@@ -156,7 +162,7 @@ impl NativeRoot {
                                     "panel-left-open.svg"
                                 },
                             )
-                            .tooltip("Toggle sidebar")
+                            .tooltip(crate::i18n::text("ui.toggle_sidebar"))
                             .disabled(in_settings)
                             .on_press(move |window, cx| {
                                 sidebar_root.update(cx, |this, cx| {
@@ -170,7 +176,7 @@ impl NativeRoot {
                         .debug_selector(|| "WINDOW_PREVIOUS_PAGE".into())
                         .child(
                             IconButton::new("window-previous-page", "chevron-left.svg")
-                                .tooltip("Previous page")
+                                .tooltip(crate::i18n::text("ui.previous_page"))
                                 .disabled(!can_go_back)
                                 .on_press(move |window, cx| {
                                     back_root.update(cx, |this, cx| {
@@ -182,7 +188,7 @@ impl NativeRoot {
                 .child(
                     div().debug_selector(|| "WINDOW_NEXT_PAGE".into()).child(
                         IconButton::new("window-next-page", "chevron-right.svg")
-                            .tooltip("Next page")
+                            .tooltip(crate::i18n::text("ui.next_page"))
                             .disabled(!can_go_forward)
                             .on_press(move |window, cx| {
                                 forward_root.update(cx, |this, cx| {

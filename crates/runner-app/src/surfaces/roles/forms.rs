@@ -67,9 +67,9 @@ impl NativeRoot {
             crate::surfaces::start_chat::load_selectable_runtimes(self.core(cx), self.settings(cx));
         let catalog_loaded = agents_error.is_none();
         let placeholder = if agents_checking {
-            "Detecting agents…"
+            crate::i18n::message("ui.detecting_agents")
         } else {
-            "No enabled agents detected"
+            crate::i18n::message("ui.no_enabled_agents_detected")
         };
 
         if let Some(form) = self.role_surfaces.create.as_mut() {
@@ -116,7 +116,7 @@ impl NativeRoot {
                     );
                     select.set_value(next_runtime.clone(), select_cx);
                     select.set_disabled(form.runtimes.is_empty(), select_cx);
-                    select.set_placeholder(placeholder, select_cx);
+                    select.set_placeholder(placeholder.clone(), select_cx);
                 });
                 form.model_field.update(cx, |field, field_cx| {
                     field.set_suggestions(runtime_models(&form.runtimes, &next_runtime), field_cx);
@@ -138,7 +138,7 @@ impl NativeRoot {
                 form.runtime_select.update(cx, |select, select_cx| {
                     select.set_options(options, select_cx);
                     select.set_value(form.runtime.clone(), select_cx);
-                    select.set_placeholder(placeholder, select_cx);
+                    select.set_placeholder(placeholder.clone(), select_cx);
                 });
                 let model_placeholder =
                     runtime_model_placeholder(&form.runtimes, &form.runtime, None);
@@ -178,8 +178,13 @@ impl NativeRoot {
         });
         handle.update(cx, |input, input_cx| input.set_bare(true, input_cx));
         let display_name = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "Architect", false)
-                .text_size(theme::text_display())
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.architect"),
+                false,
+            )
+            .text_size(theme::text_display())
         });
         let command = cx.new(|input_cx| {
             let mut input = TextField::new(input_cx.focus_handle(), command, "", true)
@@ -188,11 +193,22 @@ impl NativeRoot {
             input
         });
         let args = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "Extra flags", true)
-                .text_size(theme::text_title())
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.extra_flags"),
+                true,
+            )
+            .text_size(theme::text_title())
         });
         let model = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "default", true).placeholder_as_value(true)
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("word.default"),
+                true,
+            )
+            .placeholder_as_value(true)
         });
         let model_field = cx.new(|model_cx| {
             ModelField::new(model.clone(), runtime_models(&runtimes, &runtime), model_cx)
@@ -213,7 +229,9 @@ impl NativeRoot {
             let mut input = TextField::textarea(
                 input_cx.focus_handle(),
                 "",
-                "What this role does, how it works and what it hands back. Markdown works.",
+                crate::i18n::message(
+                    "ui.what_this_role_does_how_it_works_and_what_it_hands_back_markdown_works",
+                ),
                 6,
                 true,
             )
@@ -238,9 +256,9 @@ impl NativeRoot {
             .min_menu_width(px(ROLE_COLUMN_WIDTH))
             .disabled(runtimes.is_empty())
             .placeholder(if agents_checking {
-                "Detecting agents…"
+                crate::i18n::message("ui.detecting_agents")
             } else {
-                "No enabled agents detected"
+                crate::i18n::message("ui.no_enabled_agents_detected")
             })
         });
         let effort_root = root.clone();
@@ -392,14 +410,19 @@ impl NativeRoot {
             TextField::new(
                 input_cx.focus_handle(),
                 role_visible_args(&role).join(" "),
-                "Extra flags",
+                crate::i18n::message("ui.extra_flags"),
                 true,
             )
         });
         let model_value = resolution.model.clone();
         let model = cx.new(move |input_cx| {
-            TextField::new(input_cx.focus_handle(), model_value, "default", true)
-                .placeholder_as_value(true)
+            TextField::new(
+                input_cx.focus_handle(),
+                model_value,
+                crate::i18n::message("word.default"),
+                true,
+            )
+            .placeholder_as_value(true)
         });
         let model_field = cx.new(|model_cx| {
             ModelField::new(
@@ -424,7 +447,7 @@ impl NativeRoot {
             let mut input = TextField::textarea(
                 input_cx.focus_handle(),
                 role.system_prompt.clone().unwrap_or_default(),
-                "Who this agent is and how it works: its strengths, its habits, what it leaves alone. Markdown works.",
+                crate::i18n::message("ui.who_this_agent_is_and_how_it_works_its_strengths_its_habits_what_it_leaves_alone_markdown"),
                 6,
                 true,
             )
@@ -449,9 +472,9 @@ impl NativeRoot {
             .width(px(ROLE_COLUMN_WIDTH))
             .min_menu_width(px(ROLE_COLUMN_WIDTH))
             .placeholder(if agents_checking {
-                "Detecting agents…"
+                crate::i18n::message("ui.detecting_agents")
             } else {
-                "No enabled agents detected"
+                crate::i18n::message("ui.no_enabled_agents_detected")
             })
         });
         let effort_root = root.clone();

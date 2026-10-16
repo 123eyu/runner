@@ -58,13 +58,22 @@ pub(super) fn add_slot_runtime_options(
     selected: Option<&RoleWithActivity>,
 ) -> Vec<SelectOption> {
     let default = selected
-        .map(|role| format!("Role default ({})", role.role.runtime))
-        .unwrap_or_else(|| "Role default".into());
-    let mut options =
-        vec![SelectOption::new("", default).description("Use the runtime configured on the role.")];
+        .map(|role| {
+            crate::i18n::messagef(
+                "format.role_default",
+                &[("runtime", (role.role.runtime).to_string())],
+            )
+        })
+        .unwrap_or_else(|| crate::i18n::message("ui.role_default"));
+    let mut options = vec![
+        SelectOption::new("", default).description(crate::i18n::message(
+            "ui.use_the_runtime_configured_on_the_role",
+        )),
+    ];
     options.extend(runtimes.iter().map(|runtime| {
-        SelectOption::new(runtime.name.to_string(), runtime.display_name.clone())
-            .description(runtime.description.clone())
+        SelectOption::new(runtime.name.to_string(), runtime.display_name.clone()).description(
+            runner_app::ui::select::runtime_description(runtime.name, &runtime.description),
+        )
     }));
     options
 }
@@ -86,8 +95,8 @@ pub(super) use runner_core::slot_handle::validate_slot_handle;
 pub(super) fn slot_handle_error(
     handle: &str,
     existing_handles: &HashSet<String>,
-) -> Option<String> {
-    runner_core::slot_handle::slot_handle_error(handle, existing_handles, &HashSet::new(), "crew")
+) -> Option<crate::i18n::Text> {
+    runner_app::ui::field::slot_handle_error(handle, existing_handles, &HashSet::new(), "crew")
 }
 
 pub(super) fn add_slot_can_submit(form: &AddSlotForm) -> bool {
@@ -125,27 +134,36 @@ pub(super) fn add_slot_focus_order(
 
 pub(super) fn crew_usage_label(role: &RoleWithActivity) -> String {
     if role.activity.crew_count == 1 {
-        "in 1 crew".into()
+        crate::i18n::text("ui.in_1_crew").into()
     } else {
-        format!("in {} crews", role.activity.crew_count)
+        crate::i18n::tf(
+            "format.in_crews",
+            &[("crew_count", (role.activity.crew_count).to_string())],
+        )
     }
 }
 
 pub(super) fn role_activity_label(role: &RoleWithActivity) -> String {
     if role.activity.active_sessions > 0 {
         if role.activity.active_sessions == 1 {
-            "1 session".into()
+            crate::i18n::text("ui.1_session").into()
         } else {
-            format!("{} sessions", role.activity.active_sessions)
+            crate::i18n::tf(
+                "format.sessions",
+                &[("session_count", (role.activity.active_sessions).to_string())],
+            )
         }
     } else if role.activity.active_missions > 0 {
         if role.activity.active_missions == 1 {
-            "1 mission".into()
+            crate::i18n::text("ui.1_mission").into()
         } else {
-            format!("{} missions", role.activity.active_missions)
+            crate::i18n::tf(
+                "format.missions",
+                &[("mission_count", (role.activity.active_missions).to_string())],
+            )
         }
     } else {
-        "idle".into()
+        crate::i18n::text("word.idle").into()
     }
 }
 
@@ -163,26 +181,54 @@ pub(super) fn slot_command_summary(slot: &SlotWithRole) -> String {
             .unwrap_or_else(|| runtime.to_owned());
         let mut overrides = Vec::new();
         if let Some(model) = slot.slot.model_override.as_deref() {
-            overrides.push(format!("model {model}"));
+            overrides.push(crate::i18n::tf(
+                "format.model",
+                &[("model", (model).to_string())],
+            ));
         }
         if let Some(effort) = slot.slot.effort_override.as_deref() {
-            overrides.push(format!("effort {effort}"));
+            overrides.push(crate::i18n::tf(
+                "format.effort",
+                &[(
+                    "effort",
+                    runner_app::ui::select::effort_label(effort, effort)
+                        .resolve()
+                        .to_string(),
+                )],
+            ));
         }
         if crate::runtime_ui::catalog_capabilities(&[], runtime).codex_speed {
             if let Some(speed) = slot.slot.codex_speed_override {
-                overrides.push(format!(
-                    "speed {}",
-                    match speed {
-                        runner_core::protocol::model::CodexSpeed::Standard => "Standard",
-                        runner_core::protocol::model::CodexSpeed::Fast => "Fast",
-                    }
+                overrides.push(crate::i18n::tf(
+                    "format.speed",
+                    &[(
+                        "speed",
+                        (match speed {
+                            runner_core::protocol::model::CodexSpeed::Standard => {
+                                crate::i18n::text("ui.standard")
+                            }
+                            runner_core::protocol::model::CodexSpeed::Fast => {
+                                crate::i18n::text("ui.fast")
+                            }
+                        })
+                        .to_string(),
+                    )],
                 ));
             }
         }
         return if overrides.is_empty() {
-            format!("{command} (runtime defaults)")
+            crate::i18n::tf(
+                "format.runtime_defaults",
+                &[("command", (command).to_string())],
+            )
         } else {
-            format!("{command} (runtime defaults · {})", overrides.join(" · "))
+            crate::i18n::tf(
+                "format.runtime_defaults_with_overrides",
+                &[
+                    ("command", (command).to_string()),
+                    ("overrides", (overrides.join(" · ")).to_string()),
+                ],
+            )
         };
     }
     let mut command = vec![slot.role.command.clone()];
@@ -194,19 +240,38 @@ pub(super) fn slot_command_summary(slot: &SlotWithRole) -> String {
         .join(" ");
     let mut overrides = Vec::new();
     if let Some(model) = slot.slot.model_override.as_deref() {
-        overrides.push(format!("model {model}"));
+        overrides.push(crate::i18n::tf(
+            "format.model",
+            &[("model", (model).to_string())],
+        ));
     }
     if let Some(effort) = slot.slot.effort_override.as_deref() {
-        overrides.push(format!("effort {effort}"));
+        overrides.push(crate::i18n::tf(
+            "format.effort",
+            &[(
+                "effort",
+                runner_app::ui::select::effort_label(effort, effort)
+                    .resolve()
+                    .to_string(),
+            )],
+        ));
     }
     if crate::runtime_ui::catalog_capabilities(&[], &slot.role.runtime).codex_speed {
         if let Some(speed) = slot.slot.codex_speed_override {
-            overrides.push(format!(
-                "speed {}",
-                match speed {
-                    runner_core::protocol::model::CodexSpeed::Standard => "Standard",
-                    runner_core::protocol::model::CodexSpeed::Fast => "Fast",
-                }
+            overrides.push(crate::i18n::tf(
+                "format.speed",
+                &[(
+                    "speed",
+                    (match speed {
+                        runner_core::protocol::model::CodexSpeed::Standard => {
+                            crate::i18n::text("ui.standard")
+                        }
+                        runner_core::protocol::model::CodexSpeed::Fast => {
+                            crate::i18n::text("ui.fast")
+                        }
+                    })
+                    .to_string(),
+                )],
             ));
         }
     }
@@ -306,12 +371,15 @@ pub(crate) fn crew_picture(handles: &[SharedString], tile: f32) -> AnyElement {
 /// `5 slots · lead @lead`.
 pub(crate) fn crew_summary(slots: usize, lead: Option<&str>) -> String {
     let count = match slots {
-        0 => return "No slots yet".to_owned(),
-        1 => "1 slot".to_owned(),
-        count => format!("{count} slots"),
+        0 => return crate::i18n::text("ui.no_slots_yet").to_owned(),
+        1 => crate::i18n::text("ui.1_slot").to_owned(),
+        count => crate::i18n::tf("format.slots", &[("count", (count).to_string())]),
     };
     match lead {
-        Some(lead) => format!("{count} · lead @{lead}"),
+        Some(lead) => crate::i18n::tf(
+            "format.lead",
+            &[("count", (count).to_string()), ("lead", (lead).to_string())],
+        ),
         None => count,
     }
 }
@@ -401,9 +469,12 @@ pub(super) fn slot_runtime_options(
     role_runtime: &str,
     current: &str,
 ) -> Vec<SelectOption> {
-    let role_default = format!(
-        "Role default ({})",
-        crate::surfaces::roles::logic::runtime_display_name(role_runtime)
+    let role_default = crate::i18n::messagef(
+        "format.role_default",
+        &[(
+            "runtime",
+            (crate::surfaces::roles::logic::runtime_display_name(role_runtime)).to_string(),
+        )],
     );
     std::iter::once(SelectOption::new("", role_default))
         .chain(
@@ -442,9 +513,18 @@ pub(super) fn missions_header(missions: &[&Mission]) -> String {
         .filter(|mission| mission.status == MissionStatus::Running)
         .count();
     if live == 0 {
-        format!("{} run · none live", missions.len())
+        crate::i18n::tf(
+            "format.run_none_live",
+            &[("run_count", (missions.len()).to_string())],
+        )
     } else {
-        format!("{} run · {live} live", missions.len())
+        crate::i18n::tf(
+            "format.run_live",
+            &[
+                ("run_count", (missions.len()).to_string()),
+                ("live", (live).to_string()),
+            ],
+        )
     }
 }
 
@@ -453,9 +533,12 @@ pub(super) fn missions_footer(total: usize, expanded: bool) -> Option<String> {
     if total <= MISSIONS_SHOWN {
         None
     } else if expanded {
-        Some("Show less".to_owned())
+        Some(crate::i18n::text("ui.show_less").to_owned())
     } else {
-        Some(format!("Show all {total} missions"))
+        Some(crate::i18n::tf(
+            "format.show_all_missions",
+            &[("total", (total).to_string())],
+        ))
     }
 }
 
@@ -468,9 +551,15 @@ pub(super) fn mission_duration(mission: &Mission, now: Timestamp) -> String {
     };
     let minutes = (end - mission.started_at).num_minutes().max(0);
     if minutes < 60 {
-        format!("{minutes}m")
+        crate::i18n::tf("duration.minutes", &[("minutes", minutes.to_string())])
     } else {
-        format!("{}h {:02}m", minutes / 60, minutes % 60)
+        crate::i18n::tf(
+            "format.h_m",
+            &[
+                ("hours", (minutes / 60).to_string()),
+                ("minutes", (format!("{:02}", minutes % 60)).to_string()),
+            ],
+        )
     }
 }
 
@@ -484,9 +573,9 @@ where
 {
     use chrono::Datelike;
     if started.year() == now.year() {
-        started.format("%b %-d").to_string()
+        started.format(crate::i18n::text("date.short")).to_string()
     } else {
-        started.format("%b %-d, %Y").to_string()
+        started.format(crate::i18n::text("date.full")).to_string()
     }
 }
 
@@ -520,9 +609,12 @@ where
         .count();
     if running > 0 {
         let label = if running == 1 {
-            "1 mission running".to_owned()
+            crate::i18n::text("ui.1_mission_running").to_owned()
         } else {
-            format!("{running} missions running")
+            crate::i18n::tf(
+                "format.missions_running",
+                &[("running", (running).to_string())],
+            )
         };
         return (label, true);
     }
@@ -564,9 +656,9 @@ impl CrewColumn {
 
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::Runtimes => "Runtimes",
-            Self::Missions => "Missions",
-            Self::LastMission => "Last mission",
+            Self::Runtimes => crate::i18n::text("ui.runtimes"),
+            Self::Missions => crate::i18n::text("ui.missions"),
+            Self::LastMission => crate::i18n::text("ui.last_mission"),
         }
     }
 }

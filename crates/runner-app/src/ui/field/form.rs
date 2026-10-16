@@ -247,7 +247,7 @@ impl BrowseField {
             input,
             disabled,
             browse_id: "working-dir-browse".into(),
-            browse_label: "Browse".into(),
+            browse_label: crate::i18n::text("ui.browse").into(),
             browse_focus: None,
             on_browse,
         }
@@ -286,4 +286,35 @@ impl RenderOnce for BrowseField {
                     .on_press(move |window, cx| browse(window, cx)),
             )
     }
+}
+
+pub fn slot_handle_error(
+    handle: &str,
+    existing: &std::collections::HashSet<String>,
+    removed: &std::collections::HashSet<String>,
+    scope: &str,
+) -> Option<crate::i18n::Text> {
+    if runner_core::slot_handle::validate_slot_handle(handle).is_some() {
+        return Some(crate::i18n::message(
+            "ui.lowercase_letters_digits_or_must_start_with_a_letter_or_digit_up_to_32_chars",
+        ));
+    }
+    if removed.contains(handle) {
+        let taken = existing.union(removed).cloned().collect();
+        let suggestion = runner_core::slot_handle::suggest_slot_handle(handle, &taken);
+        return Some(crate::i18n::messagef(
+            "validation.removed_handle",
+            &[("handle", handle.into()), ("suggestion", suggestion)],
+        ));
+    }
+    existing.contains(handle).then(|| {
+        crate::i18n::messagef(
+            if scope == "mission" {
+                "validation.mission_handle_used"
+            } else {
+                "validation.crew_handle_used"
+            },
+            &[("handle", handle.into())],
+        )
+    })
 }

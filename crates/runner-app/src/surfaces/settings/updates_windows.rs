@@ -45,36 +45,44 @@ impl Render for UpdatesPane {
         let checking = updater.is_checking();
         let automatically_downloads = updater.automatically_downloads_updates();
         let status = match updater.state() {
-            UpdateState::UpToDate { .. } if checking => "Checking for updates…".into(),
+            UpdateState::UpToDate { .. } if checking => {
+                crate::i18n::text("ui.checking_for_updates").into()
+            }
             UpdateState::UpToDate { .. } if option_env!("RUNNER_BUILD_STAMP").is_none() => {
-                "Local development build; version comparison is unavailable.".into()
+                crate::i18n::text("ui.local_development_build_version_comparison_is_unavailable")
+                    .into()
             }
             UpdateState::UpToDate { .. } if updater.last_check_at().is_none() => {
-                "No update check yet.".into()
+                crate::i18n::text("ui.no_update_check_yet").into()
             }
-            UpdateState::UpToDate { .. } => "You're up to date.".into(),
-            UpdateState::Available { info, .. } => {
-                format!("Runner {} is available.", info.version())
-            }
-            UpdateState::Downloading { .. } => format!(
-                "Downloading Runner {}…",
-                updater.update_info().map_or("", |info| info.version())
+            UpdateState::UpToDate { .. } => crate::i18n::text("ui.you_re_up_to_date").into(),
+            UpdateState::Available { info, .. } => crate::i18n::tf(
+                "format.runner_update_available_sentence",
+                &[("version", (info.version()).to_string())],
             ),
-            UpdateState::Ready { info, .. } => {
-                format!("Runner {} is ready to install.", info.version())
-            }
-            UpdateState::Failed { .. } => "Update failed.".into(),
+            UpdateState::Downloading { .. } => crate::i18n::tf(
+                "format.downloading_runner",
+                &[(
+                    "version",
+                    (updater.update_info().map_or("", |info| info.version())).to_string(),
+                )],
+            ),
+            UpdateState::Ready { info, .. } => crate::i18n::tf(
+                "format.runner_update_ready_sentence",
+                &[("version", (info.version()).to_string())],
+            ),
+            UpdateState::Failed { .. } => crate::i18n::text("ui.update_failed").into(),
         };
         let last_checked = updater
             .last_check_at()
             .map(DateTime::<Local>::from)
-            .map(|time| time.format("%b %-d, %Y at %-I:%M %p").to_string())
-            .unwrap_or_else(|| "Never".into());
+            .map(|time| time.format(crate::i18n::text("date.checked")).to_string())
+            .unwrap_or_else(|| crate::i18n::text("ui.never").into());
         let action_updater = self.updater.clone();
         let toggle_updater = self.updater.clone();
         let toggle_store = self.app_store.clone();
         div().flex().flex_col().gap_5()
-            .child(PaneHeader::new("Updates", "Runner checks for new Windows builds at startup and every six hours, downloads them in the background, and installs when you choose."))
+            .child(PaneHeader::new(crate::i18n::text("ui.updates"), crate::i18n::text("ui.runner_checks_for_new_windows_builds_at_startup_and_every_six_hours_downloads_them_in_the")))
             .child(div().overflow_hidden().rounded(rems(12. / 16.)).border_1().border_color(theme::border()).bg(theme::panel())
                 .child(div().flex().items_center().gap_4().p_5()
                     .child(img(app_icon_source()).size(rems(56. / 16.)).flex_none().rounded(rems(1.)))
@@ -85,7 +93,7 @@ impl Render for UpdatesPane {
                                 .font_family(theme::UI_MONOSPACE_FONT).text_size(theme::text_meta()).text_color(theme::muted())
                                 .child(runner_app::version::display_version_label())))
                         .child(div().text_size(theme::text_ui()).text_color(theme::muted()).child(status)))
-                    .child(Button::new("updates-check", if up_to_date { "Check for updates" } else { "Update" })
+                    .child(Button::new("updates-check", if up_to_date { crate::i18n::text("ui.check_for_updates_action") } else { crate::i18n::text("ui.update") })
                         .icon(if up_to_date { "refresh-cw.svg" } else { "circle-arrow-down.svg" })
                         .size(ButtonSize::Sm)
                         .variant(if up_to_date { ButtonVariant::Secondary } else { ButtonVariant::Primary })
@@ -98,7 +106,7 @@ impl Render for UpdatesPane {
                             }
                         }))))
             .child(SettingsCard::new([
-                SettingsRow::new("Automatically download updates",
+                SettingsRow::new(crate::i18n::text("ui.automatically_download_updates"),
                     Toggle::new("updates-auto-download", automatically_downloads).on_change(move |enabled, _, cx| {
                         toggle_store.update(cx, |store, store_cx| {
                             store.update_settings(|settings| {
@@ -109,9 +117,9 @@ impl Render for UpdatesPane {
                         });
                         toggle_updater.update(cx, |updater, updater_cx| updater.set_automatically_downloads_updates(enabled, updater_cx));
                     }))
-                    .subtitle("Downloads are verified before Runner offers to install them. Turn off to be notified only.")
+                    .subtitle(crate::i18n::text("ui.downloads_are_verified_before_runner_offers_to_install_them_turn_off_to_be_notified_only"))
                     .into_any_element(),
-                SettingsRow::new("Last checked", div().text_size(theme::text_ui()).text_color(theme::muted()).child(last_checked)).into_any_element(),
+                SettingsRow::new(crate::i18n::text("ui.last_checked"), div().text_size(theme::text_ui()).text_color(theme::muted()).child(last_checked)).into_any_element(),
             ]))
     }
 }
