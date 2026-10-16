@@ -280,13 +280,17 @@ impl Daemon {
         }
     }
     fn command(&self) -> Command {
-        let mut cmd = Command::new(
-            self.launch
+        self.command_at(
+            &self
+                .launch
                 .source
                 .parent()
                 .unwrap()
                 .join(runner_core::cli_install::DAEMON_DEST_BIN_NAME),
-        );
+        )
+    }
+    fn command_at(&self, exe: &std::path::Path) -> Command {
+        let mut cmd = Command::new(exe);
         cmd.arg("--app-data-dir")
             .arg(&self.launch.paths.app_data_dir)
             .arg("--log-dir")
@@ -792,7 +796,26 @@ fn mismatch_restart_waits_for_lock_and_installs_new_sidecar() {
             .unwrap();
     }
     daemon.hash = daemon_process::executable_hash(&daemon.launch.source).unwrap();
-    let old = daemon.start();
+    // Like an app-started daemon, the old one runs from the file it is replaced by.
+    let installed = daemon
+        .launch
+        .paths
+        .app_data_dir
+        .join("bin")
+        .join(runner_core::cli_install::DAEMON_DEST_BIN_NAME);
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    std::fs::copy(
+        daemon
+            .launch
+            .source
+            .parent()
+            .unwrap()
+            .join(runner_core::cli_install::DAEMON_DEST_BIN_NAME),
+        &installed,
+    )
+    .unwrap();
+    daemon.child = Some(daemon.command_at(&installed).spawn().unwrap());
+    let old = daemon.connect();
     let original_pid = old.welcome.pid;
     let mut source = std::fs::OpenOptions::new()
         .write(true)
@@ -813,15 +836,11 @@ fn mismatch_restart_waits_for_lock_and_installs_new_sidecar() {
     let replacement = app.connect_or_spawn(&hash).unwrap();
     assert_ne!(replacement.welcome.pid, original_pid);
     assert_eq!(replacement.welcome.exe_sha256, hash);
-    assert_eq!(
-        daemon_process::executable_hash(
-            &app.paths
-                .app_data_dir
-                .join("bin")
-                .join(runner_core::cli_install::DAEMON_DEST_BIN_NAME)
-        )
-        .unwrap(),
-        hash
+    assert_eq!(daemon_process::executable_hash(&installed).unwrap(), hash);
+    #[cfg(windows)]
+    assert!(
+        !installed.with_extension("exe.old").exists(),
+        "the old runnerd was moved aside instead of awaited"
     );
     replacement.shutdown(true).unwrap();
     daemon.stopped();

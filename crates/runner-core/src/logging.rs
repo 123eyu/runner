@@ -152,6 +152,10 @@ pub fn startup_banner(version: &str, app_data_dir: &Path) {
     );
 }
 
+pub fn startup_failure(message: &str) {
+    tracing::error!("Runner failed: {message}");
+}
+
 fn install_panic_hook(fallback_path: PathBuf) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -81,6 +81,22 @@ fn install_binary(app_data_dir: &Path, source: &Path, dest_name: &str) -> Result
     // file would crash the next process that runs this sidecar.
     let tmp = tempfile::NamedTempFile::new_in(&dest_dir)?;
     std::fs::copy(source, tmp.path())?;
+    #[cfg(windows)]
+    let tmp = {
+        for index in 0..ASIDE_SLOTS {
+            let _ = std::fs::remove_file(aside_path(&dest, index));
+        }
+        match tmp.persist(&dest) {
+            Ok(_) => return Ok(()),
+            // A running executable can be renamed but not replaced, and a
+            // `runner` started outside Runner can hold this file at any time.
+            Err(error) if in_use(&error.error) => {
+                move_aside(&dest)?;
+                error.file
+            }
+            Err(error) => return Err(Error::Io(error.error)),
+        }
+    };
     tmp.persist(&dest).map_err(|e| Error::Io(e.error))?;
 
     #[cfg(unix)]
@@ -91,6 +107,38 @@ fn install_binary(app_data_dir: &Path, source: &Path, dest_name: &str) -> Result
         std::fs::set_permissions(&dest, perms)?;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+const ASIDE_SLOTS: usize = 8;
+
+#[cfg(windows)]
+fn aside_path(dest: &Path, index: usize) -> PathBuf {
+    let mut path = dest.as_os_str().to_owned();
+    path.push(if index == 0 {
+        ".old".to_owned()
+    } else {
+        format!(".{index}.old")
+    });
+    path.into()
+}
+
+#[cfg(windows)]
+fn in_use(error: &std::io::Error) -> bool {
+    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION};
+    error.raw_os_error().is_some_and(|code| {
+        code == ERROR_ACCESS_DENIED as i32 || code == ERROR_SHARING_VIOLATION as i32
+    })
+}
+
+#[cfg(windows)]
+fn move_aside(dest: &Path) -> Result<()> {
+    let aside = (0..ASIDE_SLOTS)
+        .map(|index| aside_path(dest, index))
+        .find(|aside| !aside.exists())
+        .ok_or_else(|| Error::msg(format!("{} is in use", dest.display())))?;
+    std::fs::rename(dest, aside)
+        .map_err(|error| Error::msg(format!("move {} aside: {error}", dest.display())))
 }
 
 pub fn locate_source(source_name: &str) -> Result<Option<PathBuf>> {
@@ -202,6 +250,53 @@ mod tests {
         for name in ["conpty.dll", "OpenConsole.exe"] {
             assert_eq!(fs::read(bin.join(name)).unwrap(), b"NEW-COMPANION");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn install_moves_a_running_binary_aside() {
+        use std::time::{Duration, Instant};
+        if let Some(ready) = std::env::var_os("RUNNER_TEST_HOLD_IMAGE") {
+            fs::write(ready, b"").unwrap();
+            std::thread::sleep(Duration::from_secs(60));
+            return;
+        }
+        let data = tempfile::tempdir().unwrap();
+        let bin = data.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let dest = bin.join(AGENT_DEST_BIN_NAME);
+        fs::copy(std::env::current_exe().unwrap(), &dest).unwrap();
+        // Like a long-running sidecar, the copy is past startup (and any
+        // antivirus scan of the new file) before it is replaced.
+        let ready = data.path().join("ready");
+        let mut running = std::process::Command::new(&dest)
+            .args([
+                "--exact",
+                "cli_install::tests::install_moves_a_running_binary_aside",
+            ])
+            .env("RUNNER_TEST_HOLD_IMAGE", &ready)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !ready.exists() {
+            assert!(Instant::now() < deadline, "running copy never started");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let source = data.path().join("source.exe");
+        fs::write(&source, b"NEW-BUILD").unwrap();
+        let installed = install_binary(data.path(), &source, AGENT_DEST_BIN_NAME);
+        running.kill().unwrap();
+        running.wait().unwrap();
+        installed.unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"NEW-BUILD");
+        assert!(bin.join("runner.exe.old").exists());
+
+        fs::write(&source, b"NEWER-BUILD").unwrap();
+        install_binary(data.path(), &source, AGENT_DEST_BIN_NAME).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"NEWER-BUILD");
+        assert!(!bin.join("runner.exe.old").exists());
     }
 
     #[test]

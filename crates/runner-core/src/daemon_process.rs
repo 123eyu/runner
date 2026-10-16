@@ -163,10 +163,16 @@ impl Launch {
                         client: "stop".into(),
                     },
                 )?;
+                #[cfg(windows)]
+                let old_process = OldProcess::open(old.welcome.pid);
                 old.shutdown(true)
                     .map_err(|error| ConnectError::Protocol(error.to_string()))?;
                 wait_unlocked(&self.paths.app_data_dir, DAEMON_STOP_TIMEOUT)
                     .map_err(|error| ConnectError::Protocol(error.to_string()))?;
+                #[cfg(windows)]
+                if let Some(process) = old_process {
+                    process.wait(DAEMON_STOP_TIMEOUT);
+                }
             }
             Err(ConnectError::NotRunning) => (),
             Err(error) => return Err(error),
@@ -217,6 +223,33 @@ impl Launch {
             DAEMON_START_TIMEOUT.as_secs(),
             self.paths.log_dir.join("runnerd.log").display()
         ))
+    }
+}
+
+/// runnerd releases its lock before its process exits, and Windows keeps a
+/// running executable's file from being replaced, so a mismatch restart also
+/// waits for the old process before installing the new sidecar over it.
+#[cfg(windows)]
+struct OldProcess(std::os::windows::io::OwnedHandle);
+
+#[cfg(windows)]
+impl OldProcess {
+    fn open(pid: u32) -> Option<Self> {
+        use std::os::windows::io::{FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        (!handle.is_null()).then(|| Self(unsafe { OwnedHandle::from_raw_handle(handle) }))
+    }
+
+    fn wait(&self, timeout: Duration) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
+        };
+        let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
+        if unsafe { WaitForSingleObject(self.0.as_raw_handle(), millis) } != WAIT_OBJECT_0 {
+            log::warn!("old runnerd still running after its lock was released");
+        }
     }
 }
 
