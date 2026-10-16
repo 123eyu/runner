@@ -83,7 +83,7 @@ fn preview_pane(pane: PreviewPane, on_pick: PickHandler) -> AnyElement {
         active,
     } = pane;
     let caption: SharedString = if active {
-        format!("{caption} · active").into()
+        crate::i18n::tf("format.active", &[("caption", (caption).to_string())]).into()
     } else {
         caption
     };

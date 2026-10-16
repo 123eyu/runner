@@ -1495,3 +1495,57 @@ fn new_crew_enter_is_ime_safe_and_conventions_enter_does_not_submit() {
     page.visual.run_until_parked();
     assert!(page.read(|root| matches!(root.route, crate::surfaces::AppRoute::CrewEditor(_))));
 }
+
+#[cfg(debug_assertions)]
+#[test]
+fn existing_crew_validation_follows_language_changes_without_resetting_drafts() {
+    use crate::i18n::{testing::with_locale, Language, Locale};
+    with_locale(Locale::English, || {
+        let mut page = crew_page_harness("crew-validation-locale");
+        page.update(|root, window, cx| {
+            root.open_create_crew(window, cx);
+            root.crew_surfaces
+                .create
+                .as_ref()
+                .unwrap()
+                .conventions
+                .update(cx, |field, cx| field.set_text("literal {count} 草稿", cx));
+            root.submit_create_crew(window, cx);
+        });
+        let (store, draft) = page.read(|root| {
+            (
+                root.app_store.clone(),
+                root.crew_surfaces
+                    .create
+                    .as_ref()
+                    .unwrap()
+                    .conventions
+                    .clone(),
+            )
+        });
+        for (language, expected) in [
+            (Language::SimplifiedChinese, "名称不能为空"),
+            (Language::English, "Name is required"),
+        ] {
+            store.update(&mut page.visual, |store, cx| {
+                store.update_settings(
+                    |settings| {
+                        settings.language = language;
+                        true
+                    },
+                    false,
+                    cx,
+                )
+            });
+            page.visual.run_until_parked();
+            page.host
+                .read_with(&page.visual, |root, cx| {
+                    let form = root.crew_surfaces.create.as_ref().unwrap();
+                    assert_eq!(form.error.as_ref().unwrap().resolve(), expected);
+                    assert_eq!(form.conventions.entity_id(), draft.entity_id());
+                    assert_eq!(form.conventions.read(cx).text(), "literal {count} 草稿");
+                })
+                .unwrap();
+        }
+    });
+}

@@ -33,8 +33,8 @@ const SETTINGS_SAVE_DELAY_MS: u64 = 300;
 /// app and terminal rows of each mode line up.
 const SETTINGS_SELECT_WIDTH: Pixels = px(176.);
 const TAB_SHORTCUT_ID: &str = "select-tab";
-const TAB_SHORTCUT_TITLE: &str = "Go to tab 1–9";
-const TAB_SHORTCUT_DESCRIPTION: &str = "Open a visible sidebar tab or mission by its position.";
+const TAB_SHORTCUT_TITLE: &str = "ui.go_to_numbered_tab";
+const TAB_SHORTCUT_DESCRIPTION: &str = "ui.open_a_visible_sidebar_tab_or_mission_by_its_position";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ShortcutRow {
@@ -52,15 +52,15 @@ impl ShortcutRow {
 
     fn title(self) -> &'static str {
         match self {
-            Self::Entry(entry) => entry.title,
-            Self::TabSelection => TAB_SHORTCUT_TITLE,
+            Self::Entry(entry) => entry.title(),
+            Self::TabSelection => crate::i18n::text(TAB_SHORTCUT_TITLE),
         }
     }
 
     fn description(self) -> &'static str {
         match self {
-            Self::Entry(entry) => entry.description,
-            Self::TabSelection => TAB_SHORTCUT_DESCRIPTION,
+            Self::Entry(entry) => entry.description(),
+            Self::TabSelection => crate::i18n::text(TAB_SHORTCUT_DESCRIPTION),
         }
     }
 
@@ -94,7 +94,7 @@ impl ShortcutRow {
         match (label(ids[0]), label(ids[ids.len() - 1])) {
             (Some(first), Some(last)) if ids.len() > 1 => format!("{first}–{last}"),
             (Some(first), _) => first,
-            _ => "Unassigned".into(),
+            _ => crate::i18n::text("ui.unassigned").into(),
         }
     }
 
@@ -105,8 +105,8 @@ impl ShortcutRow {
             || matches(&self.binding_label(overrides))
             || (self == Self::TabSelection
                 && keymap::tab_selection_entries().any(|entry| {
-                    matches(entry.title)
-                        || matches(entry.description)
+                    matches(entry.title())
+                        || matches(entry.description())
                         || keymap::effective_binding(entry.id, overrides)
                             .is_some_and(|combo| matches(&keymap::format_combo(&combo)))
                 }))
@@ -193,19 +193,19 @@ impl SettingsPane {
 
     fn label(self) -> &'static str {
         match self {
-            Self::General => "General",
-            Self::Missions => "Missions",
-            Self::Appearance => "Appearance",
-            Self::Notifications => "Notifications",
-            Self::Terminal => "Terminal",
-            Self::Shortcuts => "Keyboard shortcuts",
-            Self::Agents => "Agents",
-            Self::Skills => "Skills",
+            Self::General => crate::i18n::text("ui.general"),
+            Self::Missions => crate::i18n::text("ui.missions"),
+            Self::Appearance => crate::i18n::text("ui.appearance"),
+            Self::Notifications => crate::i18n::text("ui.notifications"),
+            Self::Terminal => crate::i18n::text("ui.terminal"),
+            Self::Shortcuts => crate::i18n::text("ui.keyboard_shortcuts"),
+            Self::Agents => crate::i18n::text("ui.agents"),
+            Self::Skills => crate::i18n::text("ui.skills"),
             Self::Mcp => "MCP",
-            Self::Updates => "Updates",
-            Self::Diagnostics => "Diagnostics",
-            Self::About => "About",
-            Self::Archived => "Archived",
+            Self::Updates => crate::i18n::text("ui.updates"),
+            Self::Diagnostics => crate::i18n::text("ui.diagnostics"),
+            Self::About => crate::i18n::text("ui.about"),
+            Self::Archived => crate::i18n::text("ui.archived"),
         }
     }
 
@@ -248,9 +248,9 @@ const SYSTEM_PANES: &[SettingsPane] = &[
     SettingsPane::About,
 ];
 const NAV_GROUPS: &[(&str, &[SettingsPane])] = &[
-    ("App", APP_PANES),
-    ("Integrations", INTEGRATION_PANES),
-    ("System", SYSTEM_PANES),
+    ("ui.app", APP_PANES),
+    ("ui.integrations", INTEGRATION_PANES),
+    ("ui.system", SYSTEM_PANES),
 ];
 
 fn filtered_nav_groups(query: &str) -> Vec<(&'static str, Vec<SettingsPane>)> {
@@ -263,7 +263,7 @@ fn filtered_nav_groups(query: &str) -> Vec<(&'static str, Vec<SettingsPane>)> {
                 .copied()
                 .filter(|pane| query.is_empty() || pane.label().to_lowercase().contains(&query))
                 .collect::<Vec<_>>();
-            (!panes.is_empty()).then_some((*label, panes))
+            (!panes.is_empty()).then_some((crate::i18n::text(label), panes))
         })
         .collect()
 }
@@ -279,6 +279,7 @@ fn launch_dims_for(
 
 #[derive(Clone, Copy)]
 enum SettingsSelection {
+    Language,
     DefaultCrew,
     LightTheme,
     DarkTheme,
@@ -310,6 +311,7 @@ pub(crate) struct SettingsState {
     terminal_font: Entity<StyledSelect>,
     terminal_cursor: Entity<StyledSelect>,
     file_link_editor: Entity<StyledSelect>,
+    pub(crate) language: Entity<StyledSelect>,
     pub(crate) quit_behavior: Entity<StyledSelect>,
     agents: Option<Entity<settings::agents::AgentsPane>>,
     skills: Option<Entity<settings::skills::SkillsPane>>,
@@ -335,14 +337,24 @@ impl SettingsState {
         cx: &mut Context<NativeRoot>,
     ) -> Self {
         let search = cx.new(|input_cx| {
-            let mut input = TextField::new(input_cx.focus_handle(), "", "Search settings…", false)
-                .text_size(theme::text_body());
+            let mut input = TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.search_settings"),
+                false,
+            )
+            .text_size(theme::text_body());
             input.set_bare(true, input_cx);
             input
         });
         let shortcut_search = cx.new(|input_cx| {
-            let mut input = TextField::new(input_cx.focus_handle(), "", "Search shortcuts", false)
-                .text_size(theme::text_body());
+            let mut input = TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.search_shortcuts"),
+                false,
+            )
+            .text_size(theme::text_body());
             input.set_bare(true, input_cx);
             input
         });
@@ -358,7 +370,7 @@ impl SettingsState {
             &root,
             "settings-default-crew",
             settings.default_crew_id.clone(),
-            vec![SelectOption::new("", "No default")],
+            vec![SelectOption::new("", crate::i18n::message("ui.no_default"))],
             SettingsSelection::DefaultCrew,
             cx,
         );
@@ -419,11 +431,11 @@ impl SettingsState {
                 .into_iter()
                 .map(|value| {
                     let label = match value {
-                        "block" => "Block",
-                        "underline" => "Underline",
-                        _ => "Bar",
+                        "block" => "ui.block",
+                        "underline" => "ui.underline",
+                        _ => "ui.bar",
                     };
-                    SelectOption::new(value, label)
+                    SelectOption::new(value, crate::i18n::message(label))
                 })
                 .collect(),
             SettingsSelection::TerminalCursor,
@@ -435,9 +447,29 @@ impl SettingsState {
             settings.file_link_editor.key(),
             FileLinkEditor::ALL
                 .into_iter()
-                .map(|editor| SelectOption::new(editor.key(), editor.label()))
+                .map(|editor| {
+                    SelectOption::new(
+                        editor.key(),
+                        if editor == FileLinkEditor::DefaultApp {
+                            i18n::message("ui.default_app")
+                        } else {
+                            editor.label().into()
+                        },
+                    )
+                })
                 .collect(),
             SettingsSelection::FileLinkEditor,
+            cx,
+        );
+        let language = settings_select(
+            &root,
+            "settings-language",
+            settings.language.key(),
+            i18n::Language::ALL
+                .into_iter()
+                .map(|language| SelectOption::new(language.key(), language.label_source()))
+                .collect(),
+            SettingsSelection::Language,
             cx,
         );
         let quit_behavior = settings_select(
@@ -447,7 +479,8 @@ impl SettingsState {
             runner_app::lifecycle::QuitBehavior::ALL
                 .into_iter()
                 .map(|value| {
-                    SelectOption::new(value.key(), value.label()).description(value.description())
+                    SelectOption::new(value.key(), i18n::message(value.label_key()))
+                        .description(i18n::message(value.description_key()))
                 })
                 .collect(),
             SettingsSelection::QuitBehavior,
@@ -503,6 +536,7 @@ impl SettingsState {
             terminal_font,
             terminal_cursor,
             file_link_editor,
+            language,
             quit_behavior,
             agents: None,
             skills: None,
@@ -529,7 +563,7 @@ impl SettingsState {
 
 struct ShortcutConflict {
     id: &'static str,
-    message: String,
+    message: i18n::Text,
 }
 
 /// The content column: the platform's titlebar drag strip, if it draws one,
@@ -659,7 +693,7 @@ fn command_installed_line(path: &Path) -> AnyElement {
                 .size(px(12.))
                 .text_color(theme::accent()),
         )
-        .child("Installed at")
+        .child(crate::i18n::text("ui.installed_at"))
         .child(
             div()
                 .font_family(theme::UI_MONOSPACE_FONT)
@@ -674,16 +708,19 @@ fn runner_skill_status_line(
 ) -> Option<(String, bool)> {
     if let Some(folder) = &status.foreign {
         return Some((
-            format!(
-                "{} was not installed by Runner and is left alone.",
-                folder.display()
+            crate::i18n::tf(
+                "format.was_not_installed_by_runner_and_is_left_alone",
+                &[("path", (folder.display()).to_string())],
             ),
             true,
         ));
     }
     (enabled && !status.detected).then(|| {
         (
-            "No supported agent detected yet. The skill is added when one is installed.".into(),
+            crate::i18n::text(
+                "ui.no_supported_agent_detected_yet_the_skill_is_added_when_one_is_installed",
+            )
+            .into(),
             false,
         )
     })
@@ -695,7 +732,7 @@ fn missions_settings_pane(default_crew: Entity<StyledSelect>) -> AnyElement {
         .flex_col()
         .gap_5()
         .debug_selector(|| "SETTINGS_MISSIONS_PANE".into())
-        .child(PaneHeader::new("Missions", ""))
+        .child(PaneHeader::new(crate::i18n::text("ui.missions"), ""))
         .child(
             div()
                 .flex()
@@ -707,18 +744,20 @@ fn missions_settings_pane(default_crew: Entity<StyledSelect>) -> AnyElement {
                         .text_size(theme::text_heading())
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::text())
-                        .child("Defaults"),
+                        .child(crate::i18n::text("ui.defaults")),
                 )
                 .child(
                     div()
                         .debug_selector(|| "SETTINGS_MISSIONS_CARD".into())
                         .child(SettingsCard::new(vec![SettingsRow::new(
-                            "Default crew",
+                            crate::i18n::text("ui.default_crew"),
                             div()
                                 .debug_selector(|| "SETTINGS_DEFAULT_CREW".into())
                                 .child(default_crew),
                         )
-                        .subtitle("Pre-selected when starting a new mission.")
+                        .subtitle(crate::i18n::text(
+                            "ui.pre_selected_when_starting_a_new_mission",
+                        ))
                         .into_any_element()])),
                 ),
         )
@@ -741,7 +780,8 @@ fn settings_select(
     });
     let value = value.into();
     let width = match selection {
-        SettingsSelection::LightTheme
+        SettingsSelection::Language
+        | SettingsSelection::LightTheme
         | SettingsSelection::DarkTheme
         | SettingsSelection::LightTerminalTheme
         | SettingsSelection::DarkTerminalTheme => Some(SETTINGS_SELECT_WIDTH),
@@ -802,7 +842,8 @@ impl NativeRoot {
                     return;
                 }
                 let Ok(crews) = result else { return };
-                let mut options = vec![SelectOption::new("", "No default")];
+                let mut options =
+                    vec![SelectOption::new("", crate::i18n::message("ui.no_default"))];
                 options.extend(
                     crews
                         .into_iter()
@@ -981,6 +1022,10 @@ impl NativeRoot {
         cx: &mut Context<Self>,
     ) {
         let changed = self.update_app_settings(cx, true, |settings| match selection {
+            SettingsSelection::Language => i18n::Language::ALL
+                .into_iter()
+                .find(|language| language.key() == value)
+                .is_some_and(|language| update_if_changed(&mut settings.language, language)),
             SettingsSelection::DefaultCrew => {
                 update_if_changed(&mut settings.default_crew_id, value.to_owned())
             }
@@ -1004,6 +1049,9 @@ impl NativeRoot {
                 .is_some_and(|value| update_if_changed(&mut settings.file_link_editor, value)),
         });
         if !changed {
+            if matches!(selection, SettingsSelection::Language) {
+                self.app_store.update(cx, |store, cx| store.sync_locale(cx));
+            }
             return;
         }
         cx.notify();
@@ -1129,7 +1177,7 @@ impl NativeRoot {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Pick a working directory".into()),
+            prompt: Some(crate::i18n::text("ui.pick_a_working_directory").into()),
         });
         cx.spawn(async move |weak, cx| {
             let result = selected.await.ok().and_then(|result| result.ok()).flatten();
@@ -1162,7 +1210,7 @@ impl NativeRoot {
                 .py_1()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child("No matching settings.")
+                .child(crate::i18n::text("ui.no_matching_settings"))
                 .into_any_element()]
         } else {
             groups
@@ -1328,7 +1376,11 @@ impl NativeRoot {
                     .text_color(theme::muted())
                     .group_hover("settings-back", |icon| icon.text_color(theme::text())),
             )
-            .child(div().text_size(theme::text_body()).child("Back to app"))
+            .child(
+                div()
+                    .text_size(theme::text_body())
+                    .child(crate::i18n::text("ui.back_to_app")),
+            )
             .on_click(cx.listener(|this, _, window, cx| {
                 this.leave_settings(window, cx);
             }))
@@ -1538,22 +1590,28 @@ impl NativeRoot {
             .iter()
             .any(|entry| keymap::is_overridden(entry.id, &overrides));
         let reset_root = cx.entity();
-        let reset = Button::new("reset-keymap", "Reset all to defaults")
-            .icon("rotate-ccw.svg")
-            .size(ButtonSize::Sm)
-            .disabled(!has_overrides)
-            .on_press(move |window, cx| {
-                reset_root.update(cx, |this, root_cx| {
-                    this.reset_shortcut_overrides(window, root_cx)
-                });
+        let reset = Button::new(
+            "reset-keymap",
+            crate::i18n::text("ui.reset_all_to_defaults"),
+        )
+        .icon("rotate-ccw.svg")
+        .size(ButtonSize::Sm)
+        .disabled(!has_overrides)
+        .on_press(move |window, cx| {
+            reset_root.update(cx, |this, root_cx| {
+                this.reset_shortcut_overrides(window, root_cx)
             });
+        });
         let content = if rows.is_empty() {
             div()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child(format!(
-                    "No shortcuts match “{}”.",
-                    self.settings_page.shortcut_query.trim()
+                .child(crate::i18n::tf(
+                    "format.no_shortcuts_match",
+                    &[(
+                        "query",
+                        (self.settings_page.shortcut_query.trim()).to_string(),
+                    )],
                 ))
                 .into_any_element()
         } else {
@@ -1566,8 +1624,8 @@ impl NativeRoot {
             .gap_5()
             .child(
                 PaneHeader::new(
-                    "Keyboard shortcuts",
-                    crate::platform_ui::SHORTCUT_REQUIREMENTS,
+                    crate::i18n::text("ui.keyboard_shortcuts"),
+                    crate::i18n::text(crate::platform_ui::SHORTCUT_REQUIREMENTS_KEY),
                 )
                 .action(reset),
             )
@@ -1615,7 +1673,7 @@ impl NativeRoot {
             .shortcut_conflict
             .as_ref()
             .filter(|conflict| conflict.id == id)
-            .map(|conflict| conflict.message.clone());
+            .map(|conflict| conflict.message.resolve().to_string());
         let label = shortcut_row_label(row.title(), row.description(), conflict);
 
         if recording {
@@ -1645,7 +1703,7 @@ impl NativeRoot {
                         .bg(theme::bg())
                         .text_size(theme::text_ui())
                         .text_color(theme::muted())
-                        .child("Press keys…")
+                        .child(crate::i18n::text("ui.press_keys"))
                         .on_key_down(move |event: &KeyDownEvent, window, cx| {
                             key_root.update(cx, |this, root_cx| {
                                 this.record_shortcut_key(id, event, window, root_cx)
@@ -1666,7 +1724,7 @@ impl NativeRoot {
             let restore_root = cx.entity();
             IconButton::new(format!("restore-shortcut-{id}"), "rotate-ccw.svg")
                 .size(IconButtonSize::Sm)
-                .tooltip("Restore default")
+                .tooltip(crate::i18n::text("ui.restore_default"))
                 .on_press(move |window, cx| {
                     restore_root.update(cx, |this, root_cx| {
                         this.restore_shortcut_default(row, window, root_cx)
@@ -1679,7 +1737,7 @@ impl NativeRoot {
             let edit_root = cx.entity();
             IconButton::new(format!("edit-shortcut-{id}"), "pencil.svg")
                 .size(IconButtonSize::Sm)
-                .tooltip("Edit shortcut")
+                .tooltip(crate::i18n::text("ui.edit_shortcut"))
                 .on_press(move |window, cx| {
                     edit_root.update(cx, |this, root_cx| {
                         this.start_shortcut_recording(id, window, root_cx)
@@ -1719,7 +1777,7 @@ impl NativeRoot {
         let unbind_root = cx.entity();
         let unbind = IconButton::new(format!("unbind-shortcut-{id}"), "trash.svg")
             .size(IconButtonSize::Sm)
-            .tooltip("Unbind shortcut")
+            .tooltip(crate::i18n::text("ui.unbind_shortcut"))
             .on_press(move |window, cx| {
                 unbind_root.update(cx, |this, root_cx| {
                     this.set_shortcut_override(&row.entry_ids(), None, window, root_cx)
@@ -1797,7 +1855,10 @@ impl NativeRoot {
         {
             self.settings_page.shortcut_conflict = Some(ShortcutConflict {
                 id,
-                message: format!("Already used by {}", conflict.title),
+                message: crate::i18n::message_with(
+                    "format.already_used_by",
+                    &[("command", i18n::message(conflict.title_key))],
+                ),
             });
             cx.notify();
             return;
@@ -1850,7 +1911,10 @@ impl NativeRoot {
                 Err(conflict) => {
                     self.settings_page.shortcut_conflict = Some(ShortcutConflict {
                         id: row.id(),
-                        message: format!("Already used by {}", conflict.title),
+                        message: crate::i18n::message_with(
+                            "format.already_used_by",
+                            &[("command", i18n::message(conflict.title_key))],
+                        ),
                     });
                     cx.notify();
                     return;
@@ -1943,7 +2007,7 @@ impl NativeRoot {
         });
         let (file_link_hint, file_link_warns) = file_link_hint(file_link_editor, found);
         let file_link_row = SettingsRow::new(
-            "Open file links in",
+            crate::i18n::text("ui.open_file_links_in"),
             self.settings_page.file_link_editor.clone(),
         )
         .subtitle(file_link_hint);
@@ -1975,9 +2039,9 @@ impl NativeRoot {
                 .text_size(theme::text_body())
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::text())
-                .child("Runner skill for agents")
+                .child(crate::i18n::text("ui.runner_skill_for_agents"))
                 .into_any_element(),
-            "Installs a skill for every detected agent, so it can find Runner and drive it through the runner command.",
+            crate::i18n::text("ui.installs_a_skill_for_every_detected_agent_so_it_can_find_runner_and_drive_it_through_the_r"),
             runner_skill_status_line(skill_enabled, &skill_status)
                 .into_iter()
                 .map(|(text, warning)| {
@@ -2003,37 +2067,39 @@ impl NativeRoot {
             .flex()
             .flex_col()
             .gap_5()
-            .child(PaneHeader::new("General", "Defaults and startup behavior."))
+            .child(PaneHeader::new(crate::i18n::text("ui.general"), crate::i18n::text("ui.defaults_and_startup_behavior")))
             .child(SettingsCard::new(vec![
                 SettingsRow::new(
-                    "Default working directory",
+                    i18n::t("language.title"),
+                    div().when(cfg!(test), |select| select.debug_selector(|| "SETTINGS_LANGUAGE_SELECT".into()))
+                        .child(self.settings_page.language.clone()),
+                ).subtitle(i18n::t("language.description")).wrap_control().into_any_element(),
+                SettingsRow::new(
+                    crate::i18n::text("ui.default_working_directory"),
                     div().w(rems(280. / 16.)).child(working_dir),
                 )
-                .subtitle("Default for new chats. Leave blank to use your home directory.")
+                .subtitle(crate::i18n::text("ui.default_for_new_chats_leave_blank_to_use_your_home_directory"))
                 .into_any_element(),
                 file_link_row.into_any_element(),
-                SettingsRow::new("App zoom", zoom)
+                SettingsRow::new(crate::i18n::text("ui.app_zoom"), zoom)
                     .subtitle(
-                        "Whole-app scale. Doesn't apply to the terminal canvas — see Terminal pane.",
+                        crate::i18n::text("ui.whole_app_scale_doesn_t_apply_to_the_terminal_canvas_see_terminal_pane"),
                     )
                     .into_any_element(),
             ]))
             .child(
                 div().flex().flex_col().gap_2()
-                    .child(settings_section_heading("Sessions"))
+                    .child(settings_section_heading(crate::i18n::text("ui.sessions")))
                     .child(SettingsCard::new(vec![SettingsRow::new(
-                        "When Runner quits", self.settings_page.quit_behavior.clone(),
-                    ).subtitle(format!("Keep sessions running in the background, or stop them until you next open Runner. Now: {} live session{}.",
-                        self.app_store.read(cx).live_session_count,
-                        if self.app_store.read(cx).live_session_count == 1 { "" } else { "s" },
-                    )).into_any_element()])),
+                        crate::i18n::text("ui.when_runner_quits"), self.settings_page.quit_behavior.clone(),
+                    ).subtitle(crate::i18n::tnf("format.keep_sessions_running_in_the_background_or_stop_them_until_you_next_open_runne", self.app_store.read(cx).live_session_count, &[])).into_any_element()])),
             )
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(settings_section_heading("Command line"))
+                    .child(settings_section_heading(crate::i18n::text("ui.command_line")))
                     .child(SettingsCard::new(vec![command_row, skill_row])),
             )
             .child(
@@ -2047,10 +2113,10 @@ impl NativeRoot {
                             .text_size(theme::text_meta())
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::faint())
-                            .child("STARTUP"),
+                            .child(crate::i18n::text("heading.startup")),
                     )
                     .child(SettingsCard::new(vec![SettingsRow::new(
-                        "Resume running agents on launch",
+                        crate::i18n::text("ui.resume_running_agents_on_launch"),
                         Toggle::new(
                             "settings-resume-on-launch",
                             self.settings(cx).resume_on_launch,
@@ -2062,7 +2128,7 @@ impl NativeRoot {
                         }),
                     )
                     .subtitle(
-                        "Reopen chats and mission agents that were live when Runner quit.",
+                        crate::i18n::text("ui.reopen_chats_and_mission_agents_that_were_live_when_runner_quit"),
                     )
                     .into_any_element()])),
             )
@@ -2085,7 +2151,7 @@ impl NativeRoot {
             Some(RunnerCommandState::Installed | RunnerCommandState::Shadowed) => {
                 if cfg!(windows) {
                     lines.push(command_status_text(
-                        "On your PATH. New terminals pick it up.",
+                        crate::i18n::text("ui.on_your_path_new_terminals_pick_it_up"),
                         theme::accent(),
                         Some("check.svg"),
                     ));
@@ -2096,19 +2162,21 @@ impl NativeRoot {
                     let command_name =
                         runner_core::command_install::runner_command_name(cfg!(debug_assertions));
                     lines.push(command_status_text(
-                        format!(
-                            "{} comes first on your PATH, so typing {} starts that one.",
-                            path.display(),
-                            command_name,
+                        crate::i18n::tf(
+                            "format.comes_first_on_your_path_so_typing_starts_that_one",
+                            &[
+                                ("path", (path.display()).to_string()),
+                                ("command", (command_name).to_string()),
+                            ],
                         ),
                         theme::warning(),
                         Some("triangle-alert.svg"),
                     ));
                 }
                 let label = if busy == Some(CommandInstallActivity::Uninstall) {
-                    "Uninstalling…"
+                    crate::i18n::text("ui.uninstalling")
                 } else {
-                    "Uninstall"
+                    crate::i18n::text("ui.uninstall")
                 };
                 control = Some(
                     Button::new("settings-uninstall-runner-command", label)
@@ -2125,9 +2193,9 @@ impl NativeRoot {
             Some(RunnerCommandState::Foreign) => {
                 if let Some(path) = status.and_then(|status| status.path.as_ref()) {
                     lines.push(command_status_text(
-                        format!(
-                            "{} belongs to another program. Runner will not replace it.",
-                            path.display()
+                        crate::i18n::tf(
+                            "format.belongs_to_another_program_runner_will_not_replace_it",
+                            &[("path", (path.display()).to_string())],
                         ),
                         theme::warning(),
                         Some("triangle-alert.svg"),
@@ -2136,14 +2204,16 @@ impl NativeRoot {
             }
             Some(RunnerCommandState::Unsupported) => {
                 lines.push(command_status_text(
-                    "The development build does not install a command on Windows.",
+                    crate::i18n::text(
+                        "ui.the_development_build_does_not_install_a_command_on_windows",
+                    ),
                     theme::faint(),
                     None,
                 ));
             }
             Some(RunnerCommandState::NotInstalled) | None => {
                 let text = if requires_escalation && busy == Some(CommandInstallActivity::Install) {
-                    "Waiting for your password…".to_owned()
+                    crate::i18n::text("ui.waiting_for_your_password").to_owned()
                 } else if requires_escalation {
                     let target = action_target
                         .map(|path| path.display().to_string())
@@ -2156,24 +2226,23 @@ impl NativeRoot {
                             )
                         });
                     if runner_core::protocol::command::force_escalated_command_install() {
-                        format!(
-                            "Not installed. Install links {target} and asks for your password once."
+                        crate::i18n::tf(
+                            "format.not_installed_install_links_and_asks_for_your_password_once",
+                            &[("target", (target).to_string())],
                         )
                     } else {
-                        format!(
-                            "Not installed. ~/.local/bin is not on your PATH, so Install links {target} and asks for your password once."
-                        )
+                        crate::i18n::tf("format.not_installed_local_bin_is_not_on_your_path_so_install_links_and_asks_for_your", &[("target", (target).to_string())])
                     }
                 } else {
-                    "Not installed".to_owned()
+                    crate::i18n::text("ui.not_installed").to_owned()
                 };
                 lines.push(command_status_text(text, theme::faint(), None));
                 let label = if busy == Some(CommandInstallActivity::Install) {
-                    "Installing…"
+                    crate::i18n::text("ui.installing")
                 } else if requires_escalation {
-                    "Install…"
+                    crate::i18n::text("ui.install")
                 } else {
-                    "Install"
+                    crate::i18n::text("ui.install_command_action")
                 };
                 control = Some(
                     Button::new("settings-install-runner-command", label)
@@ -2190,14 +2259,17 @@ impl NativeRoot {
         }
         if let Some((activity, path, reason)) = &self.settings_page.command_install_error {
             let verb = match activity {
-                CommandInstallActivity::Install => "link",
-                CommandInstallActivity::Uninstall => "remove",
+                CommandInstallActivity::Install => crate::i18n::text("word.link"),
+                CommandInstallActivity::Uninstall => crate::i18n::text("word.remove"),
             };
             lines.push(command_status_text(
-                format!(
-                    "Could not {verb} {}: {}.",
-                    path.display(),
-                    reason.trim_end_matches('.')
+                crate::i18n::tf(
+                    "format.could_not",
+                    &[
+                        ("verb", (verb).to_string()),
+                        ("path", (path.display()).to_string()),
+                        ("reason", (reason.trim_end_matches('.')).to_string()),
+                    ],
                 ),
                 theme::danger(),
                 None,
@@ -2214,9 +2286,9 @@ impl NativeRoot {
                 .child(div().font_family(theme::UI_MONOSPACE_FONT).child(
                     runner_core::command_install::runner_command_name(cfg!(debug_assertions)),
                 ))
-                .child(" command")
+                .child(crate::i18n::text("word.command_suffix"))
                 .into_any_element(),
-            "Use Runner from any terminal or script.",
+            crate::i18n::text("ui.use_runner_from_any_terminal_or_script"),
             lines,
             control,
         )
@@ -2232,18 +2304,18 @@ impl NativeRoot {
             .flex_col()
             .gap_5()
             .child(PaneHeader::new(
-                "Appearance",
-                "Theme, and the app and terminal palettes for each mode.",
+                crate::i18n::text("ui.appearance"),
+                crate::i18n::text("ui.theme_and_the_app_and_terminal_palettes_for_each_mode"),
             ))
             .child(SettingsCard::new({
-                let rows = vec![SettingsRow::new("Theme", self.render_theme_segmented(cx))
-                    .subtitle("Match the OS, or pin to light or dark.")
+                let rows = vec![SettingsRow::new(crate::i18n::text("ui.theme"), self.render_theme_segmented(cx))
+                    .subtitle(crate::i18n::text("ui.match_the_os_or_pin_to_light_or_dark"))
                     .into_any_element()];
                 #[cfg(target_os = "macos")]
                 let rows = {
                     let mut rows = rows;
-                    rows.push(SettingsRow::new("Window material", self.render_material_segmented(cx))
-                        .subtitle("Glass adds depth to the sidebar and window chrome.")
+                    rows.push(SettingsRow::new(crate::i18n::text("ui.window_material"), self.render_material_segmented(cx))
+                        .subtitle(crate::i18n::text("ui.glass_adds_depth_to_the_sidebar_and_window_chrome"))
                         .into_any_element());
                     rows
                 };
@@ -2251,24 +2323,24 @@ impl NativeRoot {
             }))
             .child(self.render_theme_preview(cx))
             .child(palette_section(
-                "Light",
+                crate::i18n::text("ui.light"),
                 "SETTINGS_APPEARANCE_LIGHT",
                 self.settings_page.light_theme.clone(),
-                "Chrome colours when the app is light.",
+                crate::i18n::text("ui.chrome_colours_when_the_app_is_light"),
                 self.settings_page.light_terminal_theme.clone(),
-                "Terminal colours when the app is light.",
+                crate::i18n::text("ui.terminal_colours_when_the_app_is_light"),
             ))
             .child(palette_section(
-                "Dark",
+                crate::i18n::text("ui.dark"),
                 "SETTINGS_APPEARANCE_DARK",
                 self.settings_page.dark_theme.clone(),
-                "Chrome colours when the app is dark.",
+                crate::i18n::text("ui.chrome_colours_when_the_app_is_dark"),
                 self.settings_page.dark_terminal_theme.clone(),
-                "Terminal colours when the app is dark.",
+                crate::i18n::text("ui.terminal_colours_when_the_app_is_dark"),
             ))
             .when(cfg!(target_os = "macos"), |page| page.child(
                 div().text_size(theme::text_ui()).text_color(theme::muted())
-                    .child("Runner follows macOS Reduce Transparency. When enabled, Glass uses the solid appearance."),
+                    .child(crate::i18n::text("ui.runner_follows_macos_reduce_transparency_when_enabled_glass_uses_the_solid_appearance")),
             ))
             .into_any_element()
     }
@@ -2288,8 +2360,8 @@ impl NativeRoot {
             .bg(theme::bg())
             .children(
                 [
-                    (WindowMaterial::Glass, "Glass"),
-                    (WindowMaterial::Solid, "Solid"),
+                    (WindowMaterial::Glass, crate::i18n::text("ui.glass")),
+                    (WindowMaterial::Solid, crate::i18n::text("ui.solid")),
                 ]
                 .into_iter()
                 .map(|(material, label)| {
@@ -2365,10 +2437,18 @@ impl NativeRoot {
                 colors: theme::colors_for(light_variant),
                 palette: settings.light_terminal_theme.palette(),
                 font_family: settings.terminal_font_family.family(),
-                caption: format!(
-                    "Light · {} + {}",
-                    light_theme_label(settings.light_app_theme),
-                    settings.light_terminal_theme.label()
+                caption: crate::i18n::tf(
+                    "format.light",
+                    &[
+                        (
+                            "app_theme",
+                            (light_theme_label(settings.light_app_theme)).to_string(),
+                        ),
+                        (
+                            "terminal_theme",
+                            (settings.light_terminal_theme.label()).to_string(),
+                        ),
+                    ],
                 )
                 .into(),
                 active: is_light,
@@ -2378,10 +2458,18 @@ impl NativeRoot {
                 colors: theme::colors_for(dark_variant),
                 palette: settings.dark_terminal_theme.palette(),
                 font_family: settings.terminal_font_family.family(),
-                caption: format!(
-                    "Dark · {} + {}",
-                    dark_theme_label(settings.dark_app_theme),
-                    settings.dark_terminal_theme.label()
+                caption: crate::i18n::tf(
+                    "format.dark",
+                    &[
+                        (
+                            "app_theme",
+                            (dark_theme_label(settings.dark_app_theme)).to_string(),
+                        ),
+                        (
+                            "terminal_theme",
+                            (settings.dark_terminal_theme.label()).to_string(),
+                        ),
+                    ],
                 )
                 .into(),
                 active: !is_light,
@@ -2402,9 +2490,13 @@ impl NativeRoot {
             .p(rems(2. / 16.))
             .children(
                 [
-                    (ThemeIntent::Auto, "Auto", "monitor.svg"),
-                    (ThemeIntent::Light, "Light", "sun.svg"),
-                    (ThemeIntent::Dark, "Dark", "moon.svg"),
+                    (
+                        ThemeIntent::Auto,
+                        crate::i18n::text("ui.auto"),
+                        "monitor.svg",
+                    ),
+                    (ThemeIntent::Light, crate::i18n::text("ui.light"), "sun.svg"),
+                    (ThemeIntent::Dark, crate::i18n::text("ui.dark"), "moon.svg"),
                 ]
                 .into_iter()
                 .map(|(intent, label, icon)| {
@@ -2514,24 +2606,33 @@ impl NativeRoot {
             .gap_5()
             .debug_selector(|| "SETTINGS_TERMINAL_PANE".into())
             .child(PaneHeader::new(
-                "Terminal",
-                "Font, size, and cursor for the embedded terminal; palettes live in Appearance.",
+                crate::i18n::text("ui.terminal"),
+                crate::i18n::text(
+                    "ui.font_size_and_cursor_for_the_embedded_terminal_palettes_live_in_appearance",
+                ),
             ))
             .child(SettingsCard::new(vec![
                 SettingsRow::new(
-                    "Font family",
+                    crate::i18n::text("ui.font_family"),
                     div()
                         .debug_selector(|| "SETTINGS_TERMINAL_FONT".into())
                         .child(self.settings_page.terminal_font.clone()),
                 )
-                .subtitle("Typeface used by the embedded terminal.")
+                .subtitle(crate::i18n::text(
+                    "ui.typeface_used_by_the_embedded_terminal",
+                ))
                 .into_any_element(),
-                SettingsRow::new("Terminal font size", size_stepper)
-                    .subtitle("Glyph size for the embedded terminal.")
+                SettingsRow::new(crate::i18n::text("ui.terminal_font_size"), size_stepper)
+                    .subtitle(crate::i18n::text("ui.glyph_size_for_the_embedded_terminal"))
                     .into_any_element(),
-                SettingsRow::new("Cursor style", self.settings_page.terminal_cursor.clone())
-                    .subtitle("Block, underline, or bar — affects the prompt caret only.")
-                    .into_any_element(),
+                SettingsRow::new(
+                    crate::i18n::text("ui.cursor_style"),
+                    self.settings_page.terminal_cursor.clone(),
+                )
+                .subtitle(crate::i18n::text(
+                    "ui.block_underline_or_bar_affects_the_prompt_caret_only",
+                ))
+                .into_any_element(),
             ]))
             .into_any_element()
     }
@@ -2593,25 +2694,38 @@ fn shortcut_chip(label: String, editable: bool) -> gpui::Div {
 fn file_link_hint(editor: FileLinkEditor, cli_found: Option<bool>) -> (String, bool) {
     match (editor, cli_found) {
         (FileLinkEditor::DefaultApp, _) => (
-            format!(
-                "{}-click opens the file in its default app. The cited line is lost.",
-                crate::platform_ui::PRIMARY_MODIFIER
+            crate::i18n::tf(
+                "format.click_opens_the_file_in_its_default_app_the_cited_line_is_lost",
+                &[(
+                    "shortcut",
+                    (crate::platform_ui::PRIMARY_MODIFIER).to_string(),
+                )],
             ),
             false,
         ),
         (editor, Some(false)) => (
-            format!(
-                "{} not found on PATH — {}.",
-                editor.cli().unwrap_or_default(),
-                editor.install_hint().unwrap_or_default()
+            crate::i18n::tf(
+                "format.not_found_on_path",
+                &[
+                    ("command", (editor.cli().unwrap_or_default()).to_string()),
+                    (
+                        "install_hint",
+                        (editor.install_hint().unwrap_or_default()).to_string(),
+                    ),
+                ],
             ),
             true,
         ),
         (editor, _) => (
-            format!(
-                "{}-click opens the file at the cited line via {}.",
-                crate::platform_ui::PRIMARY_MODIFIER,
-                editor.cli().unwrap_or_default()
+            crate::i18n::tf(
+                "format.click_opens_the_file_at_the_cited_line_via",
+                &[
+                    (
+                        "shortcut",
+                        (crate::platform_ui::PRIMARY_MODIFIER).to_string(),
+                    ),
+                    ("editor", (editor.cli().unwrap_or_default()).to_string()),
+                ],
             ),
             false,
         ),
@@ -2671,10 +2785,10 @@ fn palette_section(
                 .child(label),
         )
         .child(SettingsCard::new(vec![
-            SettingsRow::new("App palette", app_palette)
+            SettingsRow::new(crate::i18n::text("ui.app_palette"), app_palette)
                 .subtitle(app_subtitle)
                 .into_any_element(),
-            SettingsRow::new("Terminal palette", terminal_palette)
+            SettingsRow::new(crate::i18n::text("ui.terminal_palette"), terminal_palette)
                 .subtitle(terminal_subtitle)
                 .into_any_element(),
         ]))
@@ -3557,5 +3671,460 @@ mod tests {
             launch_dims_for("mission", &direct, (104, 42)),
             Some((104, 42))
         );
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod localization_tests {
+    use super::*;
+    use gpui::{size, TestAppContext};
+    use i18n::{testing::with_locale, Language, Locale};
+
+    #[test]
+    fn language_switch_refreshes_two_windows_menus_and_cached_choices_without_resetting_drafts() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            store.update(&mut cx, |store, _| {
+                store.settings.language = Language::English
+            });
+            let windows = ["locale-one", "locale-two"].map(|label| {
+                cx.add_window(|window, cx| {
+                    window.resize(size(px(1200.), px(900.)));
+                    let mut root = NativeRoot::new(
+                        label.into(),
+                        temp.path().join("logs"),
+                        None,
+                        None,
+                        store.clone(),
+                        window,
+                        cx,
+                    );
+                    root.route = AppRoute::Settings;
+                    root
+                })
+            });
+            cx.run_until_parked();
+            let draft = windows[1]
+                .read_with(&cx, |root, _| {
+                    root.settings_page.default_working_dir.clone()
+                })
+                .unwrap();
+            draft.update(&mut cx, |field, cx| {
+                field.set_text("/tmp/中文 {count} draft", cx);
+                field.select_all(cx);
+            });
+            cx.run_until_parked();
+            let caret = draft.read_with(&cx, |field, _| field.caret_offset());
+            let before = store.read_with(&cx, |store, _| store.revisions);
+            for (language, expected, menu) in [
+                (Language::SimplifiedChinese, "每次询问", "文件"),
+                (Language::English, "Ask", "File"),
+            ] {
+                windows[0]
+                    .update(&mut cx, |root, window, cx| {
+                        root.apply_settings_selection(
+                            SettingsSelection::Language,
+                            language.key(),
+                            window,
+                            cx,
+                        )
+                    })
+                    .unwrap();
+                cx.run_until_parked();
+                for window in windows {
+                    window
+                        .read_with(&cx, |root, cx| {
+                            assert_eq!(root.settings(cx).language, language);
+                            assert_eq!(
+                                root.settings_page.language.read(cx).value(),
+                                language.key()
+                            );
+                            assert_eq!(
+                                root.store_revisions.locale,
+                                store.read(cx).revisions.locale
+                            );
+                            assert_eq!(
+                                root.settings_page
+                                    .quit_behavior
+                                    .read(cx)
+                                    .selected()
+                                    .unwrap()
+                                    .label,
+                                expected
+                            );
+                        })
+                        .unwrap();
+                }
+                let menus = cx.update(|cx| cx.get_menus().unwrap());
+                assert_eq!(menus[1].name, menu);
+                assert!(
+                    matches!(&menus[1].items[0], gpui::OwnedMenuItem::Action { name, .. } if name == if language == Language::English { "New Window" } else { "新建窗口" })
+                );
+                #[cfg(target_os = "macos")]
+                assert!(
+                    matches!(&menus[0].items[0], gpui::OwnedMenuItem::Action { name, .. } if name == if language == Language::English { "About Runner" } else { "关于 Runner" })
+                );
+                draft.read_with(&cx, |field, _| {
+                    assert_eq!(field.text(), "/tmp/中文 {count} draft");
+                    assert_eq!(field.caret_offset(), caret);
+                });
+                let same_draft = windows[1]
+                    .read_with(&cx, |root, _| {
+                        root.settings_page.default_working_dir.clone()
+                    })
+                    .unwrap();
+                assert_eq!(draft.entity_id(), same_draft.entity_id());
+            }
+            let after = store.read_with(&cx, |store, _| store.revisions);
+            assert_eq!(after.locale, before.locale + 2);
+            assert_eq!(after.terminal_settings, before.terminal_settings);
+            assert_eq!(after.role_surfaces, before.role_surfaces);
+            assert_eq!(after.crews, before.crews);
+        });
+    }
+
+    #[test]
+    fn general_language_dropdown_persists_keyboard_choices_across_windows() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            let windows = ["language-select-one", "language-select-two"].map(|label| {
+                cx.add_window(|window, cx| {
+                    window.resize(size(px(1200.), px(900.)));
+                    let mut root = NativeRoot::new(
+                        label.into(),
+                        temp.path().join("logs"),
+                        None,
+                        None,
+                        store.clone(),
+                        window,
+                        cx,
+                    );
+                    root.route = AppRoute::Settings;
+                    root
+                })
+            });
+            cx.run_until_parked();
+            let select = windows[0]
+                .read_with(&cx, |root, _| root.settings_page.language.clone())
+                .unwrap();
+            let mut visual = gpui::VisualTestContext::from_window(windows[0].into(), &cx);
+            for (keys, language, expected) in [
+                ("space end enter", Language::SimplifiedChinese, "简体中文"),
+                ("space home down enter", Language::English, "English"),
+                ("space home enter", Language::System, "System"),
+            ] {
+                windows[0]
+                    .update(&mut visual, |_, window, cx| {
+                        select.read(cx).focus_handle().focus(window, cx)
+                    })
+                    .unwrap();
+                visual.simulate_keystrokes(keys);
+                visual.run_until_parked();
+                for window in windows {
+                    window
+                        .read_with(&visual, |root, cx| {
+                            let selected = root.settings_page.language.read(cx);
+                            assert_eq!(selected.value(), language.key());
+                            assert_eq!(selected.selected().unwrap().label, expected);
+                            assert_eq!(root.settings(cx).language, language);
+                        })
+                        .unwrap();
+                }
+                assert_eq!(
+                    AppSettings::load(&temp.path().join("settings.json"))
+                        .unwrap()
+                        .language,
+                    language
+                );
+                assert!(visual.debug_bounds("SETTINGS_LANGUAGE_HEADING").is_none());
+                let control = visual.debug_bounds("SETTINGS_LANGUAGE_SELECT").unwrap();
+                assert_eq!(control.size.width, SETTINGS_SELECT_WIDTH);
+                windows[0]
+                    .read_with(&visual, |root, _| {
+                        assert_eq!(root.settings_page.language.entity_id(), select.entity_id())
+                    })
+                    .unwrap();
+            }
+            store.update(&mut visual, |store, cx| {
+                store.sync_locale_from(Some("zh-Hans"), cx)
+            });
+            visual.run_until_parked();
+            select.read_with(&visual, |select, _| {
+                assert_eq!(select.value(), "system");
+                assert_eq!(select.selected().unwrap().label, "跟随系统");
+            });
+            windows[0]
+                .update(&mut visual, |_, window, cx| {
+                    select.read(cx).focus_handle().focus(window, cx)
+                })
+                .unwrap();
+            visual.simulate_keystrokes("space home enter");
+            visual.run_until_parked();
+            assert_eq!(
+                store.read_with(&visual, |store, _| store.resolved_locale),
+                Locale::English
+            );
+            select.read_with(&visual, |select, _| {
+                assert_eq!(select.value(), "system");
+                assert_eq!(select.selected().unwrap().label, "System");
+            });
+        });
+    }
+
+    #[test]
+    fn language_row_keeps_readable_text_at_narrow_widths_and_enlarged_zoom() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            let host = cx.add_window(|window, cx| {
+                window.resize(size(px(800.), px(600.)));
+                let mut root = NativeRoot::new(
+                    "language-layout".into(),
+                    temp.path().join("logs"),
+                    None,
+                    None,
+                    store.clone(),
+                    window,
+                    cx,
+                );
+                root.route = AppRoute::Settings;
+                root
+            });
+            cx.run_until_parked();
+            let mut visual = gpui::VisualTestContext::from_window(host.into(), &cx);
+            for intent in [ThemeIntent::Dark, ThemeIntent::Light] {
+                for language in [Language::English, Language::SimplifiedChinese] {
+                    for width in [800., 1200.] {
+                        for zoom in [1., 1.3] {
+                            visual.simulate_resize(size(px(width), px(600.)));
+                            host.update(&mut visual, |root, window, cx| {
+                                root.set_theme_intent(intent, cx);
+                                root.set_zoom(zoom, window, cx);
+                                root.apply_settings_selection(
+                                    SettingsSelection::Language,
+                                    language.key(),
+                                    window,
+                                    cx,
+                                );
+                            })
+                            .unwrap();
+                            visual.run_until_parked();
+                            let row = visual.debug_bounds("SETTINGS_WRAPPED_ROW").unwrap();
+                            let text = visual.debug_bounds("SETTINGS_WRAPPED_ROW_TEXT").unwrap();
+                            let description = visual
+                                .debug_bounds("SETTINGS_WRAPPED_ROW_DESCRIPTION")
+                                .unwrap();
+                            let control = visual.debug_bounds("SETTINGS_LANGUAGE_SELECT").unwrap();
+                            let case = format!("{intent:?}/{language:?}/{width}/{zoom}");
+                            assert!(
+                                description.size.width >= px(200. * zoom),
+                                "{case}: {description:?}"
+                            );
+                            assert!(
+                                description.size.height <= px(3. * 22. * zoom),
+                                "{case}: {description:?}"
+                            );
+                            assert!(
+                                text.left() >= row.left()
+                                    && text.right() <= row.right()
+                                    && control.left() >= row.left()
+                                    && control.right() <= row.right()
+                                    && control.bottom() <= row.bottom(),
+                                "{case}: {row:?} {text:?} {control:?}"
+                            );
+                            assert!(
+                                f32::from(control.size.width - px(176. * zoom)).abs() <= 1.,
+                                "{case}"
+                            );
+                            if width == 800. && zoom == 1.3 {
+                                assert!(control.top() >= text.bottom(), "{case}");
+                                assert!(
+                                    f32::from(control.left() - text.left()).abs() <= 1.,
+                                    "{case}"
+                                );
+                            } else if width == 1200. {
+                                assert!(control.left() >= text.right(), "{case}");
+                                assert!(control.top() < text.bottom(), "{case}");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn open_archive_confirmation_follows_the_other_window_language() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            store.update(&mut cx, |store, _| {
+                store.settings.language = Language::English
+            });
+            let windows = ["message-one", "message-two"].map(|label| {
+                cx.add_window(|window, cx| {
+                    NativeRoot::new(
+                        label.into(),
+                        temp.path().join("logs"),
+                        None,
+                        None,
+                        store.clone(),
+                        window,
+                        cx,
+                    )
+                })
+            });
+            store.update(&mut cx, |store, _| {
+                store
+                    .sessions
+                    .push(runner_core::protocol::session::DirectSessionEntry {
+                        session_id: "owned-shell".into(),
+                        project_id: None,
+                        role_id: None,
+                        handle: None,
+                        agent_runtime: "shell".into(),
+                        agent_command: "zsh".into(),
+                        agent_model: None,
+                        agent_effort: None,
+                        display_name: "literal {count} 终端".into(),
+                        status: SessionStatus::Running,
+                        title: None,
+                        live_title: None,
+                        cwd: None,
+                        started_at: None,
+                        stopped_at: None,
+                        resumable: false,
+                        native_fork: false,
+                        forkable: false,
+                        agent_session_key: None,
+                        pinned: false,
+                        archived_at: None,
+                    })
+            });
+            windows[1]
+                .update(&mut cx, |root, window, cx| {
+                    root.request_archive_all(
+                        None,
+                        vec!["owned-shell".into()],
+                        ArchiveAllSource::Chat,
+                        window,
+                        cx,
+                    );
+                })
+                .unwrap();
+            cx.run_until_parked();
+            let confirm_focus = windows[1]
+                .read_with(&cx, |root, _| {
+                    root.terminal_close_confirm.as_ref().unwrap().focus.clone()
+                })
+                .unwrap();
+            for (language, body) in [
+                (
+                    Language::SimplifiedChinese,
+                    "此操作将永久关闭 1 个终端。已关闭的终端无法恢复。",
+                ),
+                (
+                    Language::English,
+                    "This permanently closes 1 terminal. Closed terminals cannot be restored.",
+                ),
+            ] {
+                windows[0]
+                    .update(&mut cx, |root, window, cx| {
+                        root.apply_settings_selection(
+                            SettingsSelection::Language,
+                            language.key(),
+                            window,
+                            cx,
+                        )
+                    })
+                    .unwrap();
+                cx.run_until_parked();
+                windows[1]
+                    .read_with(&cx, |root, _| {
+                        let confirm = root.terminal_close_confirm.as_ref().unwrap();
+                        let TerminalCloseTarget::ArchiveAll {
+                            confirmation_body,
+                            session_ids,
+                            ..
+                        } = &confirm.target
+                        else {
+                            panic!("archive target retained")
+                        };
+                        assert_eq!(confirmation_body.resolve(), body);
+                        assert_eq!(session_ids, &["owned-shell"]);
+                        assert_eq!(confirm.focus, confirm_focus);
+                    })
+                    .unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn system_resolution_changes_invalidate_even_when_the_saved_intent_does_not_change() {
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            let before = store.read_with(&cx, |store, _| store.revisions);
+            store.update(&mut cx, |store, cx| {
+                store.sync_locale_from(Some("zh-Hant-HK"), cx)
+            });
+            store.read_with(&cx, |store, _| {
+                assert_eq!(store.settings.language, Language::System);
+                assert_eq!(store.resolved_locale, Locale::SimplifiedChinese);
+                assert_eq!(store.revisions.locale, before.locale + 1);
+                assert_eq!(store.revisions.settings, before.settings);
+                let reactions = store.revisions.reactions_since(before);
+                assert!(reactions.notify_shell());
+                assert!(!reactions.apply_terminal_settings);
+                assert!(!reactions.reload_role_surfaces);
+                assert!(!reactions.reload_crew_surfaces);
+            });
+            assert_eq!(
+                cx.update(|cx| cx.get_menus().unwrap()[1].name.clone()),
+                "文件"
+            );
+            store.update(&mut cx, |store, cx| {
+                store.sync_locale_from(Some("en-US"), cx)
+            });
+            assert_eq!(
+                cx.update(|cx| cx.get_menus().unwrap()[1].name.clone()),
+                "File"
+            );
+        });
+    }
+
+    #[test]
+    fn shortcut_search_translates_while_override_ids_and_combinations_stay_stable() {
+        let overrides: keymap::KeymapOverrides = serde_json::from_str(
+            r#"{"new-chat":{"ctrl":true,"meta":false,"alt":false,"shift":true,"code":"KeyJ"}}"#,
+        )
+        .unwrap();
+        let before = serde_json::to_value(&overrides).unwrap();
+        let binding = keymap::effective_binding("new-chat", &overrides).unwrap();
+        with_locale(Locale::SimplifiedChinese, || {
+            let rows = shortcut_rows("新建对话", &overrides);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].id(), "new-chat");
+            assert_eq!(rows[0].title(), "新建对话");
+            assert_eq!(
+                keymap::effective_binding("new-chat", &overrides),
+                Some(binding)
+            );
+            assert_eq!(serde_json::to_value(&overrides).unwrap(), before);
+            assert!(shortcut_rows("打开另一个", &overrides)
+                .iter()
+                .any(|row| row.id() == "new-window"));
+        });
     }
 }

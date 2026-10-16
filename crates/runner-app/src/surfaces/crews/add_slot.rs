@@ -42,8 +42,13 @@ impl NativeRoot {
             .collect::<HashSet<_>>();
         let runtimes = self.core(cx).runtime_catalog().unwrap_or_default();
         let query = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "Search roles...", false)
-                .text_size(theme::text_body())
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.search_roles"),
+                false,
+            )
+            .text_size(theme::text_body())
         });
         let slot_handle = cx.new(|input_cx| {
             TextField::new(input_cx.focus_handle(), "", "architect", true)
@@ -51,7 +56,13 @@ impl NativeRoot {
         });
         slot_handle.update(cx, |input, input_cx| input.set_bare(true, input_cx));
         let model_override = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), "", "default", true).placeholder_as_value(true)
+            TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("word.default"),
+                true,
+            )
+            .placeholder_as_value(true)
         });
         let model_field = cx.new(|model_cx| ModelField::new(model_override.clone(), &[], model_cx));
         let runtime_root = cx.entity();
@@ -423,20 +434,23 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Add slot"),
+                            .child(crate::i18n::text("ui.add_slot")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
-                            .child(format!("crew: {}", form.crew_name)),
+                            .child(crate::i18n::tf(
+                                "format.crew",
+                                &[("crew", (form.crew_name).to_string())],
+                            )),
                     ),
             )
             .child(
                 IconButton::new("close-add-slot", "close.svg")
                     .focus_handle(form.close_focus.clone())
-                    .tooltip("Close add slot")
+                    .tooltip(crate::i18n::text("ui.close_add_slot"))
                     .disabled(submitting)
                     .on_press(move |window, cx| {
                         close_root.update(cx, |this, cx| this.close_add_slot(window, cx));
@@ -448,7 +462,7 @@ impl NativeRoot {
                 .py_3()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child("Loading roles...")
+                .child(crate::i18n::text("ui.loading_roles"))
                 .into_any_element()]
         } else if filtered.is_empty() {
             vec![div()
@@ -457,9 +471,9 @@ impl NativeRoot {
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
                 .child(if form.roles.is_empty() {
-                    "No roles yet. Create one first, then add it here."
+                    crate::i18n::text("ui.no_roles_yet_create_one_first_then_add_it_here")
                 } else {
-                    "No roles match this search."
+                    crate::i18n::text("ui.no_roles_match_this_search")
                 })
                 .into_any_element()]
         } else {
@@ -573,7 +587,7 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Role"),
+                            .child(crate::i18n::text("ui.role")),
                     )
                     .child(
                         div()
@@ -633,7 +647,7 @@ impl NativeRoot {
                                             });
                                         }
                                     })
-                                    .child("+ Create new role..."),
+                                    .child(crate::i18n::text("ui.create_new_role")),
                             )
                             .child(
                                 div()
@@ -645,29 +659,29 @@ impl NativeRoot {
                     ),
             )
             .child(
-                Field::new("add-slot-handle", "Slot handle", handle_input)
+                Field::new("add-slot-handle", crate::i18n::text("ui.slot_handle"), handle_input)
                     .focus_target(form.slot_handle.read(cx).focus_handle())
                     .hint(
-                        "in-crew identity used by mission events and stdin routing",
+                        crate::i18n::text("ui.in_crew_identity_used_by_mission_events_and_stdin_routing"),
                         form.slot_handle_hint_focus.clone(),
                     )
-                    .when_some(handle_error, |field, error| field.error(error)),
+                    .when_some(handle_error, |field, error| field.error(error.resolve())),
             )
             .child(
-                Field::new("add-slot-runtime", "Runtime", form.runtime_select.clone())
+                Field::new("add-slot-runtime", crate::i18n::text("ui.runtime"), form.runtime_select.clone())
                     .focus_target(form.runtime_select.read(cx).focus_handle())
                     .hint(
-                        "engine this slot runs — overriding keeps the role's prompt but uses the runtime's default command and flags",
+                        crate::i18n::text("ui.engine_this_slot_runs_overriding_keeps_the_role_s_prompt_but_uses_the_runtime_s_default_co"),
                         form.runtime_hint_focus.clone(),
                     ),
             )
             .children((!form.runtime_override.is_empty()
                 && form.selected_role_id.is_some())
             .then(|| {
-                Field::new("add-slot-model", "Model", form.model_field.clone())
+                Field::new("add-slot-model", crate::i18n::text("ui.model"), form.model_field.clone())
                     .focus_target(form.model_override.read(cx).focus_handle())
                     .hint(
-                        "optional · default uses the selected runtime's own model",
+                        crate::i18n::text("ui.optional_default_uses_the_selected_runtime_s_own_model"),
                         form.model_hint_focus.clone(),
                     )
             }))
@@ -692,7 +706,7 @@ impl NativeRoot {
                                         div()
                                             .text_size(theme::text_ui())
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .child("System prompt override"),
+                                            .child(crate::i18n::text("ui.system_prompt_override")),
                                     )
                                     .child(
                                         div()
@@ -708,7 +722,7 @@ impl NativeRoot {
                             )
                             .child(Tooltip::new(
                                 "add-slot-system-prompt-tooltip",
-                                "Per-slot prompt overrides land in v0.x",
+                                crate::i18n::text("ui.per_slot_prompt_overrides_land_in_v0_x"),
                                 div()
                                     .w_8()
                                     .h(rems(18. / 16.))
@@ -729,7 +743,7 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_meta())
                             .text_color(theme::muted())
-                            .child("Uses the selected role's default prompt. Per-slot overrides are not editable in the MVP."),
+                            .child(crate::i18n::text("ui.uses_the_selected_role_s_default_prompt_per_slot_overrides_are_not_editable_in_the_mvp")),
                     ),
             );
         let footer = div()
@@ -737,7 +751,7 @@ impl NativeRoot {
             .items_center()
             .gap_2()
             .child(
-                Button::new("cancel-add-slot", "Cancel")
+                Button::new("cancel-add-slot", crate::i18n::text("ui.cancel"))
                     .focus_handle(form.cancel_focus.clone())
                     .disabled(submitting)
                     .on_press(move |window, cx| {
@@ -747,7 +761,11 @@ impl NativeRoot {
             .child(
                 Button::new(
                     "submit-add-slot",
-                    if submitting { "Adding..." } else { "Add slot" },
+                    if submitting {
+                        crate::i18n::text("ui.adding")
+                    } else {
+                        crate::i18n::text("ui.add_slot")
+                    },
                 )
                 .focus_handle(form.submit_focus.clone())
                 .variant(ButtonVariant::Primary)

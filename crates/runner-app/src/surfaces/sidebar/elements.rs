@@ -20,7 +20,7 @@ pub(super) fn section_title(label: &'static str) -> AnyElement {
     div()
         .px_5()
         .pb_2()
-        .text_size(theme::text_caption())
+        .text_size(theme::text_ui())
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::faint())
         .child(label)
@@ -61,7 +61,7 @@ pub(super) fn workspace_new_chat_row(
                 .text_size(theme::text_title())
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::muted())
-                .child("New chat"),
+                .child(crate::i18n::text("ui.new_chat")),
         )
         .children(shortcut.map(|shortcut| {
             div()
@@ -334,7 +334,10 @@ pub(super) fn sidebar_fork_menu_target(
     let (disabled, reason) = if !entry.native_fork {
         (true, None)
     } else if !entry.forkable {
-        (true, Some("No session key captured yet"))
+        (
+            true,
+            Some(crate::i18n::text("ui.no_session_key_captured_yet")),
+        )
     } else {
         (false, None)
     };
@@ -474,15 +477,25 @@ pub(super) fn tab_label_live(
     sessions: &[DirectSessionEntry],
     live_title: impl Fn(&str) -> Option<String>,
 ) -> String {
+    tab_label_source(layout, sessions, live_title)
+        .resolve()
+        .to_string()
+}
+
+pub(super) fn tab_label_source(
+    layout: &PaneLayout,
+    sessions: &[DirectSessionEntry],
+    live_title: impl Fn(&str) -> Option<String>,
+) -> crate::i18n::Text {
     if let Some(name) = &layout.name {
-        return name.clone();
+        return name.clone().into();
     }
     layout
         .session_ids()
         .iter()
         .find_map(|id| sessions.iter().find(|entry| entry.session_id == *id))
-        .map(|entry| session_label_live(entry, live_title(&entry.session_id).as_deref()))
-        .unwrap_or_else(|| "Empty tab".into())
+        .map(|entry| session_label_live(entry, live_title(&entry.session_id).as_deref()).into())
+        .unwrap_or_else(|| crate::i18n::message("ui.empty_tab"))
 }
 
 pub(crate) fn session_label(entry: &DirectSessionEntry) -> String {

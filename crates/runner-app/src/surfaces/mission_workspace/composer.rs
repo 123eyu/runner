@@ -117,7 +117,7 @@ impl MissionWorkspace {
                     .text_size(theme::text_caption())
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::faint())
-                    .child("ROSTER"),
+                    .child(crate::i18n::text("heading.roster")),
             )
             .child(
                 div()
@@ -217,7 +217,11 @@ impl MissionWorkspace {
                             this.post_current_mission_composer(window, cx)
                         });
                     })
-                    .child(if posting { "Sending…" } else { "Send" }),
+                    .child(if posting {
+                        crate::i18n::text("ui.sending")
+                    } else {
+                        crate::i18n::text("ui.send")
+                    }),
             )
             .child(
                 canvas(
@@ -404,7 +408,10 @@ impl MissionWorkspace {
                             .update(cx, |input, input_cx| input.reset("", input_cx));
                     }
                     Err(error) => {
-                        this.error = Some(action_failure("send the mission message", error));
+                        this.error = Some(action_failure(
+                            crate::i18n::message("action.send_message"),
+                            error,
+                        ));
                     }
                 }
                 this.composer_input
@@ -420,10 +427,10 @@ impl MissionWorkspace {
 
 fn mission_composer_placeholder(roster: &[SlotWithRole]) -> &'static str {
     if roster.is_empty() {
-        "Add a role to start messaging"
+        crate::i18n::text("ui.add_a_role_to_start_messaging")
     } else if roster.iter().any(|member| member.slot.lead) {
-        "Message the crew — @handle to address one session"
+        crate::i18n::text("ui.message_the_crew_handle_to_address_one_session")
     } else {
-        "Message everyone — @handle to address one"
+        crate::i18n::text("ui.message_everyone_handle_to_address_one")
     }
 }

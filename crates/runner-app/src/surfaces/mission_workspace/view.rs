@@ -106,7 +106,7 @@ impl MissionWorkspace {
                 .min_h(px(0.))
                 .children(self.loading_overlay_visible.then(|| {
                     SessionOverlay::transition("mission-loading", SessionOverlayKind::Starting)
-                        .label("Loading mission…")
+                        .label(crate::i18n::text("ui.loading_mission"))
                 }))
                 .into_any_element()
         } else if self.mission.is_none() {
@@ -311,7 +311,9 @@ impl MissionWorkspace {
                     .children((any_stopped && !busy).then(|| {
                         SessionControl::new("mission-resume", SessionControlKind::Resume)
                             .variant(SessionControlVariant::Header)
-                            .title("Respawn every stopped slot in this mission")
+                            .title(crate::i18n::text(
+                                "ui.respawn_every_stopped_slot_in_this_mission",
+                            ))
                             .on_press(move |window, cx| {
                                 resume_root
                                     .update(cx, |this, cx| this.resume_open_mission(window, cx));
@@ -320,7 +322,7 @@ impl MissionWorkspace {
                     .children((self.any_session_live() && !busy).then(|| {
                         SessionControl::new("mission-stop", SessionControlKind::Stop)
                             .variant(SessionControlVariant::Header)
-                            .title("Stop all slots")
+                            .title(crate::i18n::text("ui.stop_all_slots"))
                             .on_press(move |window, cx| {
                                 stop_root
                                     .update(cx, |this, cx| this.open_stop_all_confirm(window, cx));
@@ -353,7 +355,7 @@ impl MissionWorkspace {
         });
         let rail_action = (!self.settings(cx).mission_rail_open).then(|| {
             IconButton::new("open-mission-rail", "panel-right-hidden.svg")
-                .tooltip("Open sessions panel")
+                .tooltip(crate::i18n::text("ui.open_sessions_panel"))
                 .on_press(move |_, cx| {
                     open_rail_root.update(cx, |this, cx| {
                         this.update_app_settings(cx, true, |settings| {
@@ -399,9 +401,9 @@ impl MissionWorkspace {
             notices.push(
                 mission_notice(
                     "error",
-                    error,
+                    error.resolve().to_string(),
                     runner_app::ui::Tone::Danger,
-                    "Dismiss",
+                    crate::i18n::text("ui.dismiss"),
                     move |_, cx| {
                         root.update(cx, |this, cx| {
                             this.error = None;
@@ -421,9 +423,9 @@ impl MissionWorkspace {
             notices.push(
                 mission_notice(
                     "warning",
-                    warning,
+                    warning.resolve().to_string(),
                     runner_app::ui::Tone::Warning,
-                    "Dismiss",
+                    crate::i18n::text("ui.dismiss"),
                     move |_, cx| {
                         root.update(cx, |this, cx| {
                             this.warning = None;
@@ -458,16 +460,16 @@ impl MissionWorkspace {
                         div()
                             .text_size(theme::text_title())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Mission unavailable"),
+                            .child(crate::i18n::text("ui.mission_unavailable")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .text_color(theme::muted())
-                            .child("Runner couldn't attach this mission."),
+                            .child(crate::i18n::text("ui.runner_couldn_t_attach_this_mission")),
                     )
                     .child(
-                        Button::new("retry-mission-load", "Retry")
+                        Button::new("retry-mission-load", crate::i18n::text("ui.retry"))
                             .size(ButtonSize::Sm)
                             .on_press(move |window, cx| {
                                 root.update(cx, |this, cx| {
@@ -503,7 +505,7 @@ impl MissionWorkspace {
                     .justify_center()
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
-                    .child("Terminal unavailable")
+                    .child(crate::i18n::text("ui.terminal_unavailable"))
                     .into_any_element()
             });
         div()
@@ -675,7 +677,7 @@ impl MissionWorkspace {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child("Attaching terminal…")
+                            .child(crate::i18n::text("ui.attaching_terminal"))
                     },
                 )
                 .into_any_element()
@@ -686,7 +688,7 @@ impl MissionWorkspace {
                     format!("mission-drawer-resuming-{session_id}"),
                     SessionOverlayKind::Resuming,
                 )
-                .label("Restarting terminal…")
+                .label(crate::i18n::text("ui.restarting_terminal"))
                 .into_any_element(),
             ),
             chat_lifecycle::PaneOverlayState::Starting => Some(
@@ -694,7 +696,7 @@ impl MissionWorkspace {
                     format!("mission-drawer-starting-{session_id}"),
                     SessionOverlayKind::Starting,
                 )
-                .label("Starting terminal…")
+                .label(crate::i18n::text("ui.starting_terminal"))
                 .into_any_element(),
             ),
             chat_lifecycle::PaneOverlayState::Ended { exit_code, .. } => {

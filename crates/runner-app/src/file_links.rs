@@ -63,11 +63,14 @@ fn link_tooltip(
     let (path, line) = match target {
         LinkTarget::Url(_) => {
             return if modifier_held {
-                "Open in browser".into()
+                crate::i18n::text("ui.open_in_browser").into()
             } else {
-                format!(
-                    "{}-click to open in browser",
-                    crate::platform_ui::PRIMARY_MODIFIER
+                crate::i18n::tf(
+                    "format.click_to_open_in_browser",
+                    &[(
+                        "shortcut",
+                        (crate::platform_ui::PRIMARY_MODIFIER).to_string(),
+                    )],
                 )
             };
         }
@@ -76,13 +79,19 @@ fn link_tooltip(
     let falls_back = editor == FileLinkEditor::DefaultApp || cli_found == Some(false);
     if !modifier_held {
         let destination = if falls_back {
-            "default app"
+            crate::i18n::text("ui.default_app_destination")
         } else {
             editor.label()
         };
-        return format!(
-            "{}-click to open in {destination}",
-            crate::platform_ui::PRIMARY_MODIFIER
+        return crate::i18n::tf(
+            "format.click_to_open_in",
+            &[
+                (
+                    "shortcut",
+                    (crate::platform_ui::PRIMARY_MODIFIER).to_string(),
+                ),
+                ("destination", (destination).to_string()),
+            ],
         );
     }
     let name = path
@@ -90,16 +99,33 @@ fn link_tooltip(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     match (editor, cli_found, line) {
-        (FileLinkEditor::DefaultApp, _, Some(line)) => {
-            format!("Open in default app · line {line} is lost")
-        }
-        (FileLinkEditor::DefaultApp, _, None) => format!("Open in default app · {name}"),
-        (editor, Some(false), _) => format!(
-            "Open in default app · {} not on PATH",
-            editor.cli().unwrap_or_default()
+        (FileLinkEditor::DefaultApp, _, Some(line)) => crate::i18n::tf(
+            "format.open_in_default_app_line_is_lost",
+            &[("line", (line).to_string())],
         ),
-        (editor, _, Some(line)) => format!("Open in {} · {name}:{line}", editor.label()),
-        (editor, _, None) => format!("Open in {} · {name}", editor.label()),
+        (FileLinkEditor::DefaultApp, _, None) => crate::i18n::tf(
+            "format.open_in_default_app",
+            &[("name", (name).to_string())],
+        ),
+        (editor, Some(false), _) => crate::i18n::tf(
+            "format.open_in_default_app_not_on_path",
+            &[("command", (editor.cli().unwrap_or_default()).to_string())],
+        ),
+        (editor, _, Some(line)) => crate::i18n::tf(
+            "format.open_in",
+            &[
+                ("editor", (editor.label()).to_string()),
+                ("name", (name).to_string()),
+                ("line", (line).to_string()),
+            ],
+        ),
+        (editor, _, None) => crate::i18n::tf(
+            "format.open_file_in_editor",
+            &[
+                ("editor", (editor.label()).to_string()),
+                ("name", (name).to_string()),
+            ],
+        ),
     }
 }
 

@@ -60,7 +60,7 @@ impl NativeRoot {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Pick a project directory".into()),
+            prompt: Some(crate::i18n::text("ui.pick_a_project_directory").into()),
         });
         cx.spawn(async move |weak, cx| {
             let result = selected
@@ -182,7 +182,7 @@ impl NativeRoot {
             let _ = weak.update(cx, |this, cx| {
                 this.project_delete_busy = false;
                 if let Err(error) = result {
-                    this.error = Some(error.to_string());
+                    this.error = Some(error.to_string().into());
                 } else {
                     this.project_delete_confirm = None;
                     this.sidebar.update(cx, |sidebar, sidebar_cx| {
@@ -222,10 +222,10 @@ impl NativeRoot {
                 let cancel_root = confirm_root.clone();
                 overlays.push(
                     ConfirmDialog::new(
-                        format!("Delete project \"{}\"?", project.name),
-                        "Deleting this project archives every chat and mission inside it (running ones are stopped first). Archived items appear in Settings → Archived. The on-disk directory and all of its files remain untouched.",
-                        "Delete project",
-                        "Archiving…",
+                        crate::i18n::tf("format.delete_project", &[("project", (project.name).to_string())]),
+                        crate::i18n::text("ui.deleting_this_project_archives_every_chat_and_mission_inside_it_running_ones_are_stopped_f"),
+                        crate::i18n::text("ui.delete_project"),
+                        crate::i18n::text("ui.archiving"),
                         self.project_delete_busy,
                         Rc::new(move |window, cx| {
                             confirm_root.update(cx, |this, cx| {
@@ -274,20 +274,22 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Start project"),
+                            .child(crate::i18n::text("ui.start_project")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
-                            .child("Add a named working directory to the sidebar."),
+                            .child(crate::i18n::text(
+                                "ui.add_a_named_working_directory_to_the_sidebar",
+                            )),
                     ),
             )
             .child(
                 IconButton::new("close-project-modal", "close.svg")
                     .focus_handle(modal.close_focus.clone())
-                    .tooltip("Close start project")
+                    .tooltip(crate::i18n::text("ui.close_start_project"))
                     .disabled(submitting)
                     .on_press(move |window, cx| {
                         close_root.update(cx, |this, cx| this.close_project_modal(window, cx));
@@ -310,7 +312,7 @@ impl NativeRoot {
             .child(
                 Field::new(
                     "project-directory",
-                    "Directory",
+                    crate::i18n::text("ui.directory"),
                     WorkingDirField::new(
                         modal.cwd.clone(),
                         submitting,
@@ -324,9 +326,13 @@ impl NativeRoot {
                 .emphasized(true),
             )
             .child(
-                Field::new("project-name", "Name", modal.name.clone())
-                    .focus_target(modal.name.read(cx).focus_handle())
-                    .emphasized(true),
+                Field::new(
+                    "project-name",
+                    crate::i18n::text("ui.name"),
+                    modal.name.clone(),
+                )
+                .focus_target(modal.name.read(cx).focus_handle())
+                .emphasized(true),
             );
         if submitting {
             body = body.opacity(0.7);
@@ -336,7 +342,7 @@ impl NativeRoot {
             .items_center()
             .gap_2()
             .child(
-                Button::new("cancel-project", "Cancel")
+                Button::new("cancel-project", crate::i18n::text("ui.cancel"))
                     .focus_handle(modal.cancel_focus.clone())
                     .disabled(submitting)
                     .on_press(move |window, cx| {
@@ -347,9 +353,9 @@ impl NativeRoot {
                 Button::new(
                     "create-project",
                     if submitting {
-                        "Creating…"
+                        crate::i18n::text("ui.creating")
                     } else {
-                        "Create project"
+                        crate::i18n::text("ui.create_project")
                     },
                 )
                 .focus_handle(modal.submit_focus.clone())

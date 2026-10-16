@@ -79,7 +79,7 @@ impl SessionOverlay {
             id: id.into(),
             kind: SessionOverlayKind::Ended,
             label: None,
-            title: Some("Shell exited".into()),
+            title: Some(crate::i18n::text("ui.shell_exited").into()),
             subtitle: Some(subtitle.into()),
             on_primary: Some(Rc::new(on_restart)),
             on_secondary: Some(Rc::new(on_close)),
@@ -89,7 +89,7 @@ impl SessionOverlay {
 
     pub fn slot_stopped(mut self) -> Self {
         self.ended_style = EndedStyle::Slot;
-        self.title = Some("Slot stopped".into());
+        self.title = Some(crate::i18n::text("ui.slot_stopped").into());
         self
     }
 
@@ -111,9 +111,9 @@ impl RenderOnce for SessionOverlay {
             SessionOverlayKind::Starting | SessionOverlayKind::Resuming => {
                 let label = self.label.unwrap_or_else(|| {
                     if self.kind == SessionOverlayKind::Starting {
-                        "Starting chat…".into()
+                        crate::i18n::text("ui.starting_chat").into()
                     } else {
-                        "Resuming…".into()
+                        crate::i18n::text("ui.resuming").into()
                     }
                 });
                 div()
@@ -187,13 +187,15 @@ impl RenderOnce for SessionOverlay {
                                     },
                                 ),
                         )
-                        .child("Archiving…"),
+                        .child(crate::i18n::text("ui.archiving")),
                 )
                 .into_any_element(),
             SessionOverlayKind::Ended => {
                 let primary = self.on_primary.expect("ended overlay primary action");
                 let secondary = self.on_secondary.expect("ended overlay secondary action");
-                let title = self.title.unwrap_or_else(|| "Chat paused".into());
+                let title = self
+                    .title
+                    .unwrap_or_else(|| crate::i18n::text("ui.chat_paused").into());
                 let subtitle = self.subtitle.expect("ended overlay subtitle");
                 let shell = self.ended_style == EndedStyle::Shell;
                 let slot = self.ended_style == EndedStyle::Slot;
@@ -234,15 +236,21 @@ impl RenderOnce for SessionOverlay {
                         .items_center()
                         .gap_2()
                         .child(
-                            Button::new(SharedString::from(format!("{id}-restart")), "Restart")
-                                .size(ButtonSize::Sm)
-                                .variant(ButtonVariant::Primary)
-                                .on_press(move |window, cx| primary_click(window, cx)),
+                            Button::new(
+                                SharedString::from(format!("{id}-restart")),
+                                crate::i18n::text("ui.restart"),
+                            )
+                            .size(ButtonSize::Sm)
+                            .variant(ButtonVariant::Primary)
+                            .on_press(move |window, cx| primary_click(window, cx)),
                         )
                         .child(
-                            Button::new(SharedString::from(format!("{id}-close")), "Close")
-                                .size(ButtonSize::Sm)
-                                .on_press(move |window, cx| secondary_click(window, cx)),
+                            Button::new(
+                                SharedString::from(format!("{id}-close")),
+                                crate::i18n::text("ui.close"),
+                            )
+                            .size(ButtonSize::Sm)
+                            .on_press(move |window, cx| secondary_click(window, cx)),
                         )
                         .into_any_element()
                 } else {
@@ -254,7 +262,11 @@ impl RenderOnce for SessionOverlay {
                         .child(
                             Button::new(
                                 SharedString::from(format!("{id}-resume")),
-                                if slot { "Resume slot" } else { "Resume" },
+                                if slot {
+                                    crate::i18n::text("ui.resume_slot")
+                                } else {
+                                    crate::i18n::text("ui.resume")
+                                },
                             )
                             .icon("play.svg")
                             .variant(ButtonVariant::Primary)
@@ -263,7 +275,11 @@ impl RenderOnce for SessionOverlay {
                         .child(
                             Button::new(
                                 SharedString::from(format!("{id}-archive")),
-                                if slot { "Restart slot" } else { "Archive" },
+                                if slot {
+                                    crate::i18n::text("ui.restart_slot")
+                                } else {
+                                    crate::i18n::text("ui.archive")
+                                },
                             )
                             .icon(if slot {
                                 "rotate-ccw.svg"

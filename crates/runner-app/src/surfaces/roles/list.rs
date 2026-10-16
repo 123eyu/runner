@@ -261,17 +261,20 @@ impl NativeRoot {
                     .text_size(theme::text_title())
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme::text())
-                    .child(format!("No roles match \"{query}\"")),
+                    .child(crate::i18n::tf(
+                        "format.no_roles_match",
+                        &[("query", (query).to_string())],
+                    )),
             )
             .child(
                 div()
                     .text_size(theme::text_ui())
                     .line_height(rems(19. / 16.))
                     .text_color(theme::muted())
-                    .child("Search checks handles and names."),
+                    .child(crate::i18n::text("ui.search_checks_handles_and_names")),
             )
             .child(
-                Button::new("clear-role-search", "Clear search")
+                Button::new("clear-role-search", crate::i18n::text("ui.clear_search"))
                     .size(ButtonSize::Sm)
                     .on_press(move |_, cx| {
                         clear_root.update(cx, |this, cx| {
@@ -287,9 +290,9 @@ impl NativeRoot {
                 .path("user.svg")
                 .size(rems(22. / 16.))
                 .text_color(theme::accent()),
-            "No roles yet",
-            "A role is a reusable CLI agent — claude-code, codex, a custom shell — that crews pull in. Add one to start composing crews.",
-            div().when(cfg!(test), |entry| entry.debug_selector(|| "EMPTY_NEW_ROLE".into())).child(Button::new("empty-new-role", "+ New role")
+            crate::i18n::text("ui.no_roles_yet"),
+            crate::i18n::text("ui.a_role_is_a_reusable_cli_agent_claude_code_codex_a_custom_shell_that_crews_pull_in_add_one"),
+            div().when(cfg!(test), |entry| entry.debug_selector(|| "EMPTY_NEW_ROLE".into())).child(Button::new("empty-new-role", crate::i18n::text("ui.new_role_inline_action"))
                 .variant(ButtonVariant::Primary)
                 .on_press(move |window, cx| {
                     empty_create_root.update(cx, |this, cx| {
@@ -298,16 +301,22 @@ impl NativeRoot {
                 })),
         );
         PaginatedListPage::new(
-            "Roles",
-            div().child(
-                "The setups your chats and crews run on: a runtime, a model, an effort and a brief.",
-            ),
-            div().when(cfg!(test), |entry| entry.debug_selector(|| "NEW_ROLE".into())).child(Button::new("new-role", "+ New role")
-                .variant(ButtonVariant::Primary)
-                .on_press(move |window, cx| {
-                    create_root.update(cx, |this, cx| this.open_create_role(window, cx));
-                })),
-            "roles",
+            crate::i18n::text("ui.roles"),
+            div().child(crate::i18n::text(
+                "ui.the_setups_your_chats_and_crews_run_on_a_runtime_a_model_an_effort_and_a_brief",
+            )),
+            div()
+                .when(cfg!(test), |entry| {
+                    entry.debug_selector(|| "NEW_ROLE".into())
+                })
+                .child(
+                    Button::new("new-role", crate::i18n::text("ui.new_role_inline_action"))
+                        .variant(ButtonVariant::Primary)
+                        .on_press(move |window, cx| {
+                            create_root.update(cx, |this, cx| this.open_create_role(window, cx));
+                        }),
+                ),
+            crate::i18n::text("noun.roles"),
             empty_state,
             self.role_surfaces.search.clone(),
             no_matches,
@@ -460,7 +469,11 @@ impl NativeRoot {
                     }),
             )
             .when(chat_button, |chat| {
-                chat.child(if pending { "Starting…" } else { "Chat" })
+                chat.child(if pending {
+                    crate::i18n::text("ui.starting")
+                } else {
+                    crate::i18n::text("ui.chat")
+                })
             });
         div()
             .id(SharedString::from(format!("role-row-{id}")))
@@ -549,7 +562,7 @@ impl NativeRoot {
                         )
                         .size(IconButtonSize::Sm)
                         .stop_click_propagation(true)
-                        .tooltip("More actions")
+                        .tooltip(crate::i18n::text("ui.more_actions"))
                         .on_press(move |window, cx| {
                             let position = window.mouse_position();
                             let item = menu_item.clone();
@@ -577,7 +590,12 @@ fn role_table_header(columns: &[RoleColumn]) -> AnyElement {
         .border_color(theme::border_strong())
         .text_size(theme::text_meta())
         .text_color(theme::faint())
-        .child(div().flex_1().min_w(px(0.)).child("Role"))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .child(crate::i18n::text("ui.role")),
+        )
         .children(columns.iter().map(|column| {
             div()
                 .w(rems(column.width() / 16.))
@@ -604,6 +622,10 @@ fn role_table_cell(
             .min_w(px(0.))
             .truncate()
             .text_color(color)
+            .when(cfg!(test), |text| {
+                let value = value.clone();
+                text.debug_selector(move || format!("ROLE_TABLE_CELL {column:?} {value}"))
+            })
             .when(monospace, |value| {
                 value.font_family(theme::UI_MONOSPACE_FONT)
             })
@@ -624,12 +646,11 @@ fn role_table_cell(
                 .into_any_element()
         }
         RoleColumn::Model | RoleColumn::Effort => {
-            let value = if column == RoleColumn::Model {
-                item.role.model.as_deref()
+            let (label, unset) = if column == RoleColumn::Model {
+                role_setting_label(item.role.model.as_deref())
             } else {
-                item.role.effort.as_deref()
+                super::logic::role_effort_label(item.role.effort.as_deref())
             };
-            let (label, unset) = role_setting_label(value);
             cell.child(text(
                 label,
                 !unset,

@@ -72,11 +72,14 @@ impl MissionWorkspace {
                 element
             })
             .child(
-                mission_tab("mission-feed-tab", "feed", feed_active).on_click(
-                    move |_, window, cx| {
-                        feed_root.update(cx, |this, cx| this.select_mission_feed(window, cx));
-                    },
-                ),
+                mission_tab(
+                    "mission-feed-tab",
+                    crate::i18n::text("word.feed"),
+                    feed_active,
+                )
+                .on_click(move |_, window, cx| {
+                    feed_root.update(cx, |this, cx| this.select_mission_feed(window, cx));
+                }),
             );
         if !self.archived() && !self.secondary {
             for session_id in &self.open_tabs {
@@ -211,7 +214,7 @@ impl MissionWorkspace {
                 .px_4()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child("No events yet.")
+                .child(crate::i18n::text("ui.no_events_yet"))
                 .into_any_element()]
         } else {
             blocks
@@ -297,7 +300,7 @@ impl MissionWorkspace {
                                     cx.notify();
                                 });
                             })
-                            .child("New messages ↓"),
+                            .child(crate::i18n::text("ui.new_messages")),
                     )
             }));
         pane.into_any_element()
@@ -307,7 +310,7 @@ impl MissionWorkspace {
         let shell = self.shell.clone();
         let mission = self.mission.clone();
         let events = self.events.clone();
-        let description = "Roles join one at a time, each as a worker. Every role gets the goal; give each one its own task when you add it.";
+        let description = crate::i18n::text("ui.roles_join_one_at_a_time_each_as_a_worker_every_role_gets_the_goal_give_each_one_its_own_t");
         div()
             .debug_selector(|| "MISSION_NO_ROLES".into())
             .flex_1()
@@ -328,7 +331,7 @@ impl MissionWorkspace {
                     .text_size(theme::text_heading())
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::text())
-                    .child("No roles yet"),
+                    .child(crate::i18n::text("ui.no_roles_yet")),
             )
             .child(
                 div()
@@ -340,7 +343,7 @@ impl MissionWorkspace {
                     .child(description),
             )
             .child(
-                Button::new("empty-mission-add-role", "Add role")
+                Button::new("empty-mission-add-role", crate::i18n::text("ui.add_role"))
                     .variant(ButtonVariant::Primary)
                     .icon("plus.svg")
                     .on_press(move |window, cx| {
@@ -579,9 +582,9 @@ impl MissionWorkspace {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(runner_app::ui::hue_for_seed(&author).color())
                                     .child(if human {
-                                        "you".into()
+                                        crate::i18n::text("word.you").into()
                                     } else if system {
-                                        "system".into()
+                                        crate::i18n::text("word.system").into()
                                     } else {
                                         format!("@{author}")
                                     }),
@@ -595,7 +598,7 @@ impl MissionWorkspace {
                                     .text_size(theme::text_micro())
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme::muted())
-                                    .child("GOAL")
+                                    .child(crate::i18n::text("heading.goal"))
                             }))
                             .children(target.map(|target| {
                                 div()
@@ -626,7 +629,7 @@ impl MissionWorkspace {
                                     goal.then(|| {
                                         div()
                                             .text_color(theme::faint())
-                                            .child("(no text)")
+                                            .child(crate::i18n::text("ui.no_text"))
                                             .into_any_element()
                                     })
                                 } else {
@@ -717,16 +720,26 @@ impl MissionWorkspace {
                                     .child(if let Some(summary) = restart_summary {
                                         format!("· {summary}")
                                     } else if warning {
-                                        format!("· warning · {}", format_event_time(&event))
+                                        crate::i18n::tf(
+                                            "format.warning",
+                                            &[("time", (format_event_time(&event)).to_string())],
+                                        )
                                     } else {
-                                        format!(
-                                            "· signal · {signal}{} · {}",
-                                            event
-                                                .to
-                                                .as_ref()
-                                                .map(|to| format!(" → @{to}"))
-                                                .unwrap_or_default(),
-                                            format_event_time(&event)
+                                        crate::i18n::tf(
+                                            "format.signal",
+                                            &[
+                                                ("signal", (signal).to_string()),
+                                                (
+                                                    "recipient",
+                                                    (event
+                                                        .to
+                                                        .as_ref()
+                                                        .map(|to| format!(" → @{to}"))
+                                                        .unwrap_or_default())
+                                                    .to_string(),
+                                                ),
+                                                ("time", (format_event_time(&event)).to_string()),
+                                            ],
                                         )
                                     }),
                             ),
@@ -794,8 +807,14 @@ impl MissionWorkspace {
             .get("on_behalf_of")
             .and_then(serde_json::Value::as_str);
         let chain = match on_behalf {
-            Some(handle) if handle != asker => format!("@{handle} → @{asker} → you"),
-            _ => "→ you".to_owned(),
+            Some(handle) if handle != asker => crate::i18n::tf(
+                "format.you",
+                &[
+                    ("handle", (handle).to_string()),
+                    ("asker", (asker).to_string()),
+                ],
+            ),
+            _ => crate::i18n::text("ui.you").to_owned(),
         };
         let resolved = self.resolved_asks.get(&question_id).cloned();
         let pending_choice = self.pending_ask_choices.get(&question_id).cloned();
@@ -901,7 +920,7 @@ impl MissionWorkspace {
                                     .text_size(theme::text_micro())
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme::warning())
-                                    .child("NEEDS YOUR INPUT"),
+                                    .child(crate::i18n::text("ui.needs_your_input")),
                             )
                             .child(
                                 div()
@@ -933,7 +952,7 @@ impl MissionWorkspace {
                                 div()
                                     .text_size(theme::text_body())
                                     .text_color(theme::faint())
-                                    .child("(no prompt)")
+                                    .child(crate::i18n::text("ui.no_prompt"))
                                     .into_any_element()
                             } else {
                                 self.render_feed_markdown(&event.id, &prompt, cx)
@@ -944,7 +963,10 @@ impl MissionWorkspace {
                                     .mt_1()
                                     .text_size(theme::text_meta())
                                     .text_color(theme::faint())
-                                    .child(format!("answered: {choice}"))
+                                    .child(crate::i18n::tf(
+                                        "format.answered",
+                                        &[("choice", (choice).to_string())],
+                                    ))
                             })),
                     ),
             )
@@ -991,7 +1013,7 @@ impl MissionWorkspace {
                 this.submitting_asks.remove(&question_id);
                 if let Err(error) = result {
                     this.pending_ask_choices.remove(&question_id);
-                    this.error = Some(action_failure("answer the question", error));
+                    this.error = Some(action_failure(crate::i18n::message("action.answer"), error));
                 }
                 cx.notify();
             });

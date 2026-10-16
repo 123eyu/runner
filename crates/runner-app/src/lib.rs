@@ -8,6 +8,7 @@ actions!(runner_app_ui, [Copy, Cut, Paste, Redo, SelectAll, Undo]);
 
 pub mod appearance;
 pub mod bootstrap;
+pub mod i18n;
 pub mod lifecycle;
 pub mod logging;
 #[cfg(all(target_os = "macos", not(test)))]

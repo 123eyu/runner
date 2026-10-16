@@ -127,24 +127,49 @@ fn mission_divider_label(event: &Event) -> String {
         "role_joined" | "role_removed" => {
             let handle = event.payload["handle"].as_str().unwrap_or_default();
             let (verb, action) = if kind == "role_joined" {
-                ("joined", "added")
+                (
+                    crate::i18n::text("word.joined"),
+                    crate::i18n::text("word.added"),
+                )
             } else {
-                ("left", "removed")
+                (
+                    crate::i18n::text("word.left"),
+                    crate::i18n::text("word.removed"),
+                )
             };
-            format!("@{handle} {verb} · {action} by you · {time}")
+            crate::i18n::tf(
+                "format.by_you",
+                &[
+                    ("handle", (handle).to_string()),
+                    ("verb", (verb).to_string()),
+                    ("action", (action).to_string()),
+                    ("time", (time).to_string()),
+                ],
+            )
         }
-        "mission_stopped" => format!("MISSION STOPPED · {time}"),
-        _ => format!("MISSION STARTED · {time}"),
+        "mission_stopped" => {
+            crate::i18n::tf("format.mission_stopped", &[("time", (time).to_string())])
+        }
+        _ => crate::i18n::tf("format.mission_started", &[("time", (time).to_string())]),
     }
 }
 
 fn stopped_slot_description(handle: &str, others: usize) -> String {
     let others = if others == 1 {
-        "1 other slot is".into()
+        crate::i18n::text("ui.1_other_slot_is").into()
     } else {
-        format!("{others} other slots are")
+        crate::i18n::tf(
+            "format.other_slots_are",
+            &[("others", (others).to_string())],
+        )
     };
-    format!("@{handle}'s PTY is closed; {others} still running. Resume continues its conversation where it left off. Restart discards it and starts over with the brief, the same first turn a cold start gives the slot.")
+    crate::i18n::tf(
+        "format.s_pty_is_closed_still_running_resume_continues_its_conversation_where_it_left",
+        &[
+            ("handle", (handle).to_string()),
+            ("others", (others).to_string()),
+        ],
+    )
 }
 
 fn slot_controls(status: SessionStatus) -> [SessionControlKind; 2] {
@@ -177,11 +202,11 @@ fn focused_slot_action_target(
 
 fn slot_control_title(action: SessionControlKind, overrides: &keymap::KeymapOverrides) -> String {
     let (label, binding) = match action {
-        SessionControlKind::Stop => ("Stop", Some("stop-session")),
-        SessionControlKind::Resume => ("Resume", Some("resume-session")),
-        SessionControlKind::Restart => ("Restart", None),
-        SessionControlKind::Resuming => ("Resuming…", None),
-        SessionControlKind::Back => ("Back to role", None),
+        SessionControlKind::Stop => (crate::i18n::text("ui.stop"), Some("stop-session")),
+        SessionControlKind::Resume => (crate::i18n::text("ui.resume"), Some("resume-session")),
+        SessionControlKind::Restart => (crate::i18n::text("ui.restart"), None),
+        SessionControlKind::Resuming => (crate::i18n::text("ui.resuming"), None),
+        SessionControlKind::Back => (crate::i18n::text("ui.back_to_role"), None),
     };
     binding
         .and_then(|id| keymap::effective_binding(id, overrides))
@@ -193,33 +218,53 @@ fn slot_control_title(action: SessionControlKind, overrides: &keymap::KeymapOver
 
 fn restart_confirm_body(handle: &str, lead_handle: Option<&str>, is_lead: bool) -> String {
     if is_lead {
-        format!("Its conversation so far is discarded. @{handle} comes back with the launch prompt, the same first turn a cold start gives it, and the other slots get a note that it starts over.")
+        crate::i18n::tf(
+            "format.its_conversation_so_far_is_discarded_comes_back_with_the_launch_prompt_the_sam",
+            &[("handle", (handle).to_string())],
+        )
     } else if let Some(lead_handle) = lead_handle {
-        format!("Its conversation so far is discarded. @{handle} comes back with its brief, the same first turn a cold start gives it, and @{lead_handle} gets a note that it must re-send anything @{handle} needs.")
+        crate::i18n::tf(
+            "format.its_conversation_so_far_is_discarded_comes_back_with_its_brief_the_same_first",
+            &[
+                ("handle", (handle).to_string()),
+                ("lead_handle", (lead_handle).to_string()),
+            ],
+        )
     } else {
-        format!("Its conversation so far is discarded. @{handle} comes back with its brief, the same first turn a cold start gives it, and the other members get a note that it starts over.")
+        crate::i18n::tf(
+            "format.restart_slot_conversation",
+            &[("handle", (handle).to_string())],
+        )
     }
 }
 
 fn stop_all_title(running_count: usize) -> String {
     if running_count == 1 {
-        "Stop the running slot?".into()
+        crate::i18n::text("ui.stop_the_running_slot").into()
     } else {
-        format!("Stop all {running_count} running slots?")
+        crate::i18n::tf(
+            "format.stop_all_running_slots",
+            &[("running_count", (running_count).to_string())],
+        )
     }
 }
 
-const STOP_ALL_BODY: &str = "Every slot's PTY is killed and whatever turn it is on is cut off. The mission stays open; each slot can be resumed with its conversation, or restarted with its brief.";
+const STOP_ALL_BODY: &str =
+    "ui.every_slot_s_pty_is_killed_and_whatever_turn_it_is_on_is_cut_off_the_mission_stays_open_ea";
 
 fn slot_restart_signal_summary(event: &Event) -> Option<String> {
     (event.signal_type.as_ref().map(|kind| kind.as_str()) == Some("slot_restarted")).then(|| {
-        format!(
-            "signal · slot_restarted → @{} · fresh conversation, brief re-sent",
-            event
-                .payload
-                .get("handle")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("?")
+        crate::i18n::tf(
+            "format.signal_slot_restarted_fresh_conversation_brief_re_sent",
+            &[(
+                "handle",
+                (event
+                    .payload
+                    .get("handle")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"))
+                .to_string(),
+            )],
         )
     })
 }
@@ -301,8 +346,8 @@ pub(crate) struct MissionWorkspace {
     _composer_subscription: Subscription,
     loading: bool,
     loading_overlay_visible: bool,
-    error: Option<String>,
-    warning: Option<String>,
+    error: Option<crate::i18n::Text>,
+    warning: Option<crate::i18n::Text>,
     active_tab: MissionTab,
     open_tabs: Vec<String>,
     last_measured_terminal_size: Option<CachedTerminalSize>,
@@ -348,7 +393,10 @@ impl Render for MissionRailResizeDrag {
     }
 }
 
-fn action_failure(action: &str, error: impl AsRef<str>) -> String {
+fn action_failure(
+    action: impl Into<crate::i18n::Text>,
+    error: impl AsRef<str>,
+) -> crate::i18n::Text {
     let raw = error.as_ref();
     let detail = raw
         .split_once(": ")
@@ -359,7 +407,10 @@ fn action_failure(action: &str, error: impl AsRef<str>) -> String {
         })
         .map(|(_, detail)| detail)
         .unwrap_or(raw);
-    format!("Couldn't {action}: {detail}")
+    crate::i18n::message_with(
+        "format.couldn_t",
+        &[("action", action.into()), ("detail", detail.into())],
+    )
 }
 
 fn selectable_event_text(event: &Event) -> String {
@@ -434,7 +485,11 @@ fn mission_permission_mode_label(events: &[Event]) -> Option<String> {
         .and_then(|event| event.payload.get("permission_mode"))
         .and_then(serde_json::Value::as_str)
         .map(|mode| match mode {
-            "role-default" | "runner-default" => "role default".to_owned(),
+            "role-default" | "runner-default" => {
+                crate::i18n::text("ui.mission_role_default").to_owned()
+            }
+            "auto" => crate::i18n::text("permission.auto").into(),
+            "bypass" => crate::i18n::text("permission.bypass").into(),
             _ => mode.replace('-', " "),
         })
 }
@@ -443,7 +498,7 @@ fn format_event_time(event: &Event) -> String {
     event
         .ts
         .with_timezone(&chrono::Local)
-        .format("%-I:%M %p")
+        .format(crate::i18n::text("date.time"))
         .to_string()
 }
 

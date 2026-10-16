@@ -109,7 +109,7 @@ pub(crate) fn breadcrumb(
 }
 
 pub(crate) fn editing_tag() -> Div {
-    state_tag("EDITING")
+    state_tag(crate::i18n::text("heading.editing"))
 }
 
 pub(crate) fn state_tag(label: &'static str) -> Div {
@@ -394,9 +394,9 @@ pub(crate) fn clamped_markdown(
                         }
                     })
                     .child(if expanded {
-                        "Show less".to_owned()
+                        crate::i18n::text("ui.show_less").to_owned()
                     } else {
-                        format!("Show all {lines} lines")
+                        crate::i18n::tf("format.show_all_lines", &[("lines", (lines).to_string())])
                     })
                     .child(
                         svg()
@@ -442,7 +442,7 @@ pub(crate) fn markdown_editor_body(
                 div()
                     .italic()
                     .text_color(theme::faint())
-                    .child("Nothing to preview.")
+                    .child(crate::i18n::text("ui.nothing_to_preview"))
                     .into_any_element()
             } else {
                 render_markdown(id, &draft, view, None, theme::accent(), None, cx)
@@ -510,7 +510,7 @@ pub(crate) fn markdown_mode_switch(
         .border_color(theme::border())
         .bg(theme::bg())
         .child(segment("Markdown", !preview, false))
-        .child(segment("Preview", preview, true))
+        .child(segment(crate::i18n::text("ui.preview"), preview, true))
         .into_any_element()
 }
 
@@ -579,22 +579,29 @@ pub(crate) fn setup_value(
         .into_any_element()
 }
 
-pub(crate) fn plural(count: i64, singular: &str, plural: &str) -> String {
-    if count == 1 {
-        format!("1 {singular}")
-    } else {
-        format!("{count} {plural}")
-    }
-}
-
 /// A markdown card's header: `48 lines · 2.9 KB`.
 pub(crate) fn prompt_meta(prompt: &str) -> String {
-    let lines = plural(prompt.lines().count() as i64, "line", "lines");
+    let lines = crate::i18n::tn("count.lines", prompt.lines().count());
     let bytes = prompt.len();
     if bytes < 1024 {
-        format!("{lines} · {bytes} B")
+        crate::i18n::tf(
+            "format.b",
+            &[
+                ("lines", (lines).to_string()),
+                ("bytes", (bytes).to_string()),
+            ],
+        )
     } else {
-        format!("{lines} · {:.1} KB", bytes as f64 / 1024.)
+        crate::i18n::tf(
+            "format.kb",
+            &[
+                ("lines", (lines).to_string()),
+                (
+                    "kilobytes",
+                    (format!("{:.1}", bytes as f64 / 1024.)).to_string(),
+                ),
+            ],
+        )
     }
 }
 
@@ -616,9 +623,11 @@ where
     Tz::Offset: std::fmt::Display,
 {
     if timestamp.year() == now.year() {
-        timestamp.format("%b %-d, %H:%M").to_string()
+        timestamp
+            .format(crate::i18n::text("date.recent"))
+            .to_string()
     } else {
-        timestamp.format("%b %-d, %Y").to_string()
+        timestamp.format(crate::i18n::text("date.full")).to_string()
     }
 }
 

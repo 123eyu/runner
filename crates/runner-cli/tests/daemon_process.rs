@@ -23,17 +23,11 @@ fn persistent_hook_reporter_delivers_to_real_isolated_daemon() {
     let routing = daemon.root.path().join("routing.txt");
     #[cfg(windows)]
     let (command, args) = {
-        let script = daemon.root.path().join("fixture.ps1");
-        std::fs::write(&script, "[IO.File]::WriteAllLines($env:FIXTURE_ROUTE, @($env:RUNNER_HOOK_GENERATION,$env:RUNNER_HOOK_ENDPOINT,$env:RUNNER_HOOK_SESSION), [Text.UTF8Encoding]::new($false))\nStart-Sleep -Seconds 60\n").unwrap();
+        let script = daemon.root.path().join("fixture.cmd");
+        std::fs::write(&script, "@echo off\r\n(\r\necho %RUNNER_HOOK_GENERATION%\r\necho %RUNNER_HOOK_ENDPOINT%\r\necho %RUNNER_HOOK_SESSION%\r\n)>\"%FIXTURE_ROUTE%\"\r\nping -n 61 127.0.0.1 >nul\r\n").unwrap();
         (
-            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_owned(),
-            vec![
-                "-NoProfile".to_owned(),
-                "-ExecutionPolicy".into(),
-                "Bypass".into(),
-                "-File".into(),
-                script.to_string_lossy().into_owned(),
-            ],
+            r"C:\Windows\System32\cmd.exe".to_owned(),
+            vec!["/d".to_owned(), "/c".into(), "fixture.cmd".into()],
         )
     };
     #[cfg(unix)]

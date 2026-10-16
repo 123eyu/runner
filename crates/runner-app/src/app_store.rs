@@ -109,6 +109,7 @@ pub(crate) struct StoreRevisions {
     pub(crate) missions: u64,
     pub(crate) activity: u64,
     pub(crate) settings: u64,
+    pub(crate) locale: u64,
     pub(crate) terminal_settings: u64,
     pub(crate) mission_settings: u64,
     pub(crate) shell_settings: u64,
@@ -218,6 +219,7 @@ struct ShellSettingsSnapshot(u64);
 impl From<&AppSettings> for ShellSettingsSnapshot {
     fn from(settings: &AppSettings) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        settings.language.hash(&mut hasher);
         std::mem::discriminant(&settings.app_theme).hash(&mut hasher);
         std::mem::discriminant(&settings.window_material).hash(&mut hasher);
         std::mem::discriminant(&settings.light_app_theme).hash(&mut hasher);
@@ -272,6 +274,7 @@ pub(crate) struct AppStore {
     mission_agent_ids: std::collections::BTreeSet<String>,
     pub(crate) live_session_count: usize,
     pub(crate) settings: AppSettings,
+    pub(crate) resolved_locale: runner_app::i18n::Locale,
     settings_path: PathBuf,
     pub(crate) home_dir: Option<PathBuf>,
     pub(crate) usage: runner_core::protocol::UsageSnapshot,
@@ -282,7 +285,7 @@ pub(crate) struct AppStore {
     command_action_target: Option<PathBuf>,
     runner_skill_status: RunnerSkillStatus,
     pub(crate) revisions: StoreRevisions,
-    pub(crate) error: Option<String>,
+    pub(crate) error: Option<runner_app::i18n::Text>,
     collecting_startup_errors: bool,
     pub(crate) daemon_disconnected: bool,
     pub(crate) daemon_notice: Option<runner_app::lifecycle::DaemonNotice>,
@@ -495,6 +498,7 @@ impl AppStore {
             #[cfg(any(windows, test))]
             mission_agent_ids: Default::default(),
             live_session_count: 0,
+            resolved_locale: runner_app::i18n::active_locale(),
             settings,
             settings_path,
             home_dir,
@@ -643,6 +647,27 @@ impl AppStore {
         }
     }
 
+    pub(crate) fn sync_locale(&mut self, cx: &mut Context<Self>) {
+        #[cfg(not(test))]
+        let system = sys_locale::get_locale();
+        #[cfg(test)]
+        let system = Some("en-US".to_owned());
+        self.sync_locale_from(system.as_deref(), cx);
+    }
+
+    pub(crate) fn sync_locale_from(&mut self, system: Option<&str>, cx: &mut Context<Self>) {
+        let resolved = self.settings.language.resolve(system);
+        if self.resolved_locale == resolved {
+            return;
+        }
+        self.resolved_locale = resolved;
+        runner_app::i18n::set_active_locale(resolved);
+        self.revisions.locale = self.revisions.locale.wrapping_add(1);
+        cx.set_menus(crate::app_menus());
+        cx.refresh_windows();
+        cx.notify();
+    }
+
     pub(crate) fn theme_changed(
         &mut self,
         previous: crate::theme::ThemeVariant,
@@ -663,6 +688,7 @@ impl AppStore {
         persist: bool,
         cx: &mut Context<Self>,
     ) -> bool {
+        let language = self.settings.language;
         let terminal_settings = TerminalSettingsSnapshot::from(&self.settings);
         let mission_settings = MissionSettingsSnapshot::from(&self.settings);
         let shell_settings = ShellSettingsSnapshot::from(&self.settings);
@@ -682,6 +708,9 @@ impl AppStore {
             self.initialize_mcp_removal();
             self.initialize_skill_defaults();
             self.initialize_command_default();
+        }
+        if self.settings.language != language {
+            self.sync_locale(cx);
         }
         if persist {
             self.save_settings();
@@ -833,13 +862,12 @@ impl AppStore {
         self.daemon_notice = None;
         if self.collecting_startup_errors {
             if let Some(current) = &mut self.error {
-                current.push('\n');
-                current.push_str(&error);
+                *current = format!("{}\n{error}", current.resolve()).into();
             } else {
-                self.error = Some(error);
+                self.error = Some(error.into());
             }
         } else {
-            self.error = Some(error);
+            self.error = Some(error.into());
         }
         self.revisions.error = self.revisions.error.wrapping_add(1);
     }
@@ -1007,7 +1035,11 @@ mod tests {
         store.read_with(&cx, |store, _| {
             assert!(!store.daemon_disconnected);
             assert_eq!(
-                store.error.as_deref(),
+                store
+                    .error
+                    .as_ref()
+                    .map(|error| error.resolve().to_string())
+                    .as_deref(),
                 Some("Background service restarted · 6 sessions stopped")
             );
         });

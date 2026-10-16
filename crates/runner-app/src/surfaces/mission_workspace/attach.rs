@@ -152,10 +152,10 @@ impl MissionWorkspace {
                             {
                                 Ok(()) => {
                                     if let Err(error) = this.load_mission_layout(cx) {
-                                        this.error = Some(error.to_string());
+                                        this.error = Some(error.to_string().into());
                                     }
                                 }
-                                Err(error) => this.error = Some(error.to_string()),
+                                Err(error) => this.error = Some(error.to_string().into()),
                             }
                             this.open_tabs = this
                                 .sessions
@@ -172,7 +172,7 @@ impl MissionWorkspace {
                         this.mark_active_session_viewed(window, cx);
                         if !this.secondary {
                             if let Err(error) = this.ensure_mission_terminals_attached(window, cx) {
-                                this.error = Some(error.to_string());
+                                this.error = Some(error.to_string().into());
                             }
                         }
                         this.focus_active_mission_terminal(window, cx);
@@ -180,7 +180,10 @@ impl MissionWorkspace {
                     }
                     Err(error) => {
                         this.loading = false;
-                        this.error = Some(action_failure("load the mission", error));
+                        this.error = Some(action_failure(
+                            crate::i18n::message("action.load_mission"),
+                            error,
+                        ));
                     }
                 }
                 cx.notify();
@@ -198,7 +201,10 @@ impl MissionWorkspace {
         self.session_key_copies
             .retain(|session_id, _| valid.contains(session_id));
         for session in sessions {
-            let label = format!("Copy @{} session_key", session.handle);
+            let label = crate::i18n::messagef(
+                "format.copy_session_key",
+                &[("handle", (session.handle).to_string())],
+            );
             let value = session.agent_session_key.clone();
             let copy = self
                 .session_key_copies
@@ -481,7 +487,7 @@ impl MissionWorkspace {
                         .any(|session| session.session.id == input_session_id)
                         || this.layout.drawer.shells().contains(&input_session_id));
                 if visible {
-                    this.error = Some(error);
+                    this.error = Some(error.into());
                 }
             }
             cx.notify();
@@ -625,7 +631,7 @@ impl MissionWorkspace {
                 self.attached.clear();
                 window.focus(&self.root_focus, cx);
             } else if let Err(error) = self.ensure_mission_terminals_attached(window, cx) {
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
             }
             cx.notify();
         } else {

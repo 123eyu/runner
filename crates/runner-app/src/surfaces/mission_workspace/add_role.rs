@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use runner_core::{
-    protocol::mission::MissionAddRoleInput,
-    slot_handle::{slot_handle_error, suggest_slot_handle},
-};
+use runner_core::{protocol::mission::MissionAddRoleInput, slot_handle::suggest_slot_handle};
 
 use super::*;
 
@@ -19,8 +16,8 @@ pub(super) struct MissionRoleForm {
     _task_subscription: gpui::Subscription,
 }
 
-fn handle_error(form: &MissionRoleForm, cx: &App) -> Option<String> {
-    slot_handle_error(
+fn handle_error(form: &MissionRoleForm, cx: &App) -> Option<crate::i18n::Text> {
+    runner_app::ui::field::slot_handle_error(
         form.handle.read(cx).text(),
         &form.current,
         &form.removed,
@@ -58,7 +55,7 @@ impl NativeRoot {
             TextField::textarea(
                 cx.focus_handle(),
                 "",
-                "What should this agent do?",
+                crate::i18n::message("ui.what_should_this_agent_do"),
                 3,
                 false,
             )
@@ -181,7 +178,7 @@ impl NativeRoot {
                     Err(error) => {
                         if let Some(modal) = this.start_chat_modal.as_mut() {
                             modal.submitting = false;
-                            modal.error = Some(error);
+                            modal.error = Some(error.into());
                             set_start_chat_controls_disabled(modal, false, cx);
                             if let Some(form) = &modal.mission_role {
                                 form.handle
@@ -216,7 +213,7 @@ impl NativeRoot {
         let dismiss = root;
         let mut handle_field = Field::new(
             "add-role-handle",
-            "Handle",
+            crate::i18n::text("ui.handle"),
             div()
                 .flex()
                 .items_center()
@@ -236,18 +233,18 @@ impl NativeRoot {
         .focus_target(form.handle.read(cx).focus_handle())
         .emphasized(true);
         if let Some(error) = error {
-            handle_field = handle_field.error(error);
+            handle_field = handle_field.error(error.resolve());
         } else {
-            handle_field = handle_field.subtitle("How the team addresses it.");
+            handle_field = handle_field.subtitle(crate::i18n::text("ui.how_the_team_addresses_it"));
         }
         let content = div().debug_selector(|| "ADD_ROLE_FORM".into()).flex().flex_col().gap_5()
             .on_key_down(cx.listener(Self::on_start_chat_key_down))
-            .children(modal.error.as_ref().map(|error| runner_app::ui::notice_banner(error.clone(), runner_app::ui::Tone::Danger)))
+            .children(modal.error.as_ref().map(|error| runner_app::ui::notice_banner(error.resolve(), runner_app::ui::Tone::Danger)))
             .child(self.render_role_fields(modal, layout, cx))
             .child(handle_field)
-            .child(Field::new("add-role-task", "Task", form.task.clone()).tag("optional")
+            .child(Field::new("add-role-task", crate::i18n::text("ui.task"), form.task.clone()).tag(crate::i18n::text("word.optional"))
                 .focus_target(form.task.read(cx).focus_handle()).emphasized(true)
-                .subtitle(format!("Sent to @{handle} as a message from you. Left blank, it waits until someone messages it.")));
+                .subtitle(crate::i18n::tf("format.sent_to_as_a_message_from_you_left_blank_it_waits_until_someone_messages_it", &[("handle", (handle).to_string())])));
         let title = div()
             .flex()
             .items_center()
@@ -262,19 +259,22 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Add role"),
+                            .child(crate::i18n::text("ui.add_role")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .text_color(theme::muted())
-                            .child(format!("A new worker joins “{}”.", form.title)),
+                            .child(crate::i18n::tf(
+                                "format.a_new_worker_joins",
+                                &[("mission", (form.title).to_string())],
+                            )),
                     ),
             )
             .child(
                 IconButton::new("close-add-role", "close.svg")
                     .focus_handle(modal.close_focus.clone())
-                    .tooltip("Close add role")
+                    .tooltip(crate::i18n::text("ui.close_add_role"))
                     .disabled(modal.submitting)
                     .on_press(move |window, cx| {
                         close.update(cx, |this, cx| this.close_start_chat_modal(window, cx))
@@ -293,14 +293,17 @@ impl NativeRoot {
                     .truncate()
                     .text_size(theme::text_meta())
                     .text_color(theme::muted())
-                    .child(format!("Works in {}", form.cwd)),
+                    .child(crate::i18n::tf(
+                        "format.works_in",
+                        &[("directory", (form.cwd).to_string())],
+                    )),
             )
             .child(
                 div()
                     .flex()
                     .gap_2()
                     .child(
-                        Button::new("cancel-add-role", "Cancel")
+                        Button::new("cancel-add-role", crate::i18n::text("ui.cancel"))
                             .shortcut("esc")
                             .focus_handle(modal.cancel_focus.clone())
                             .disabled(modal.submitting)
@@ -313,9 +316,9 @@ impl NativeRoot {
                         Button::new(
                             "submit-add-role",
                             if modal.submitting {
-                                "Adding…"
+                                crate::i18n::text("ui.adding_worker")
                             } else {
-                                "Add role"
+                                crate::i18n::text("ui.add_role")
                             },
                         )
                         .shortcut(keymap::fixed_shortcut("cmd-enter"))

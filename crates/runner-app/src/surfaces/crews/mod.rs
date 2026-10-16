@@ -1,4 +1,4 @@
-pub(crate) use logic::{crew_picture, crew_summary, slot_setup};
+pub(crate) use logic::{crew_picture, slot_setup};
 pub(crate) use slots::{lead_badge, slot_setup_line};
 mod add_slot;
 mod create;
@@ -114,7 +114,7 @@ struct SlotOverrideForm {
     /// Reset for runtime, model, effort and Speed.
     reset_focus: [FocusHandle; 4],
     saving: bool,
-    error: Option<String>,
+    error: Option<crate::i18n::Text>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -125,7 +125,7 @@ struct CreateCrewForm {
     action_focus: [FocusHandle; 2],
     return_route: AppRoute,
     submitting: bool,
-    error: Option<String>,
+    error: Option<crate::i18n::Text>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -152,7 +152,7 @@ struct AddSlotForm {
     cancel_focus: FocusHandle,
     submit_focus: FocusHandle,
     slot_handle_empty: bool,
-    slot_handle_error: Option<String>,
+    slot_handle_error: Option<crate::i18n::Text>,
     loading: bool,
     submitting: bool,
     error: Option<String>,
@@ -196,8 +196,8 @@ impl CrewSurfaces {
         let search = cx.new(move |search_cx| {
             SearchInput::new(
                 "",
-                "Search crews",
-                "Search crews, slots and roles",
+                crate::i18n::message("ui.search_crews"),
+                crate::i18n::message("ui.search_crews_slots_and_roles"),
                 Rc::new(move |query, cx| {
                     root.update(cx, |this, cx| this.set_crew_query(query, cx));
                 }),

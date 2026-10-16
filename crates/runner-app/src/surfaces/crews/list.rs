@@ -170,7 +170,7 @@ impl NativeRoot {
                 div()
                     .text_size(theme::text_title())
                     .font_weight(FontWeight::MEDIUM)
-                    .child(format!("No crews match \"{query}\"")),
+                    .child(crate::i18n::tf("format.no_crews_match", &[("query", (query).to_string())])),
             )
             .child(
                 div()
@@ -178,10 +178,10 @@ impl NativeRoot {
                     .text_size(theme::text_ui())
                     .line_height(rems(19. / 16.))
                     .text_color(theme::muted())
-                    .child("Search checks crew names, team conventions, slot and role handles, and runtimes."),
+                    .child(crate::i18n::text("ui.search_checks_crew_names_team_conventions_slot_and_role_handles_and_runtimes")),
             )
             .child(
-                Button::new("clear-crew-search", "Clear search")
+                Button::new("clear-crew-search", crate::i18n::text("ui.clear_search"))
                     .size(ButtonSize::Sm)
                     .on_press(move |_, cx| {
                         clear_root.update(cx, |this, cx| {
@@ -197,9 +197,9 @@ impl NativeRoot {
                 .path("users.svg")
                 .size(rems(22. / 16.))
                 .text_color(theme::accent()),
-            "No crews yet",
-            "A crew is a team of roles: slots, one lead, and the conventions they share. Make one to start missions from it.",
-            div().when(cfg!(test), |entry| entry.debug_selector(|| "EMPTY_NEW_CREW".into())).child(Button::new("empty-new-crew", "+ New crew")
+            crate::i18n::text("ui.no_crews_yet"),
+            crate::i18n::text("ui.a_crew_is_a_team_of_roles_slots_one_lead_and_the_conventions_they_share_make_one_to_start"),
+            div().when(cfg!(test), |entry| entry.debug_selector(|| "EMPTY_NEW_CREW".into())).child(Button::new("empty-new-crew", crate::i18n::text("ui.new_crew_inline_action"))
                 .variant(ButtonVariant::Primary)
                 .on_press(move |window, cx| {
                     empty_create_root.update(cx, |this, cx| {
@@ -208,16 +208,16 @@ impl NativeRoot {
                 })),
         );
         PaginatedListPage::new(
-            "Crews",
+            crate::i18n::text("ui.crews"),
             div().child(
-                "Teams of roles you start missions from: slots, one lead, and the conventions they share.",
+                crate::i18n::text("ui.teams_of_roles_you_start_missions_from_slots_one_lead_and_the_conventions_they_share"),
             ),
-            div().when(cfg!(test), |entry| entry.debug_selector(|| "NEW_CREW".into())).child(Button::new("new-crew", "+ New crew")
+            div().when(cfg!(test), |entry| entry.debug_selector(|| "NEW_CREW".into())).child(Button::new("new-crew", crate::i18n::text("ui.new_crew_inline_action"))
                 .variant(ButtonVariant::Primary)
                 .on_press(move |window, cx| {
                     create_root.update(cx, |this, cx| this.open_create_crew(window, cx));
                 })),
-            "crews",
+            crate::i18n::text("noun.crews"),
             empty_state,
             self.crew_surfaces.search.clone(),
             no_matches,
@@ -385,7 +385,9 @@ impl NativeRoot {
                         theme::faint()
                     }),
             )
-            .when(start_button, |start| start.child("Start mission"));
+            .when(start_button, |start| {
+                start.child(crate::i18n::text("ui.start_mission"))
+            });
         div()
             .id(SharedString::from(format!("crew-row-{id}")))
             .tab_index(0)
@@ -476,7 +478,7 @@ impl NativeRoot {
                     } else {
                         Tooltip::new(
                             SharedString::from(format!("crew-start-tooltip-{id}")),
-                            "Add a slot before starting a mission",
+                            crate::i18n::text("ui.add_a_slot_before_starting_a_mission"),
                             start,
                         )
                         .into_any_element()
@@ -488,7 +490,7 @@ impl NativeRoot {
                         )
                         .size(IconButtonSize::Sm)
                         .stop_click_propagation(true)
-                        .tooltip("More actions")
+                        .tooltip(crate::i18n::text("ui.more_actions"))
                         .on_press(move |window, cx| {
                             let position = window.mouse_position();
                             let item = menu_item.clone();
@@ -525,8 +527,8 @@ impl NativeRoot {
             },
         ];
         let items = vec![
-            UiMenuItem::new("Open"),
-            UiMenuItem::new("Delete")
+            UiMenuItem::new(crate::i18n::message("ui.open")),
+            UiMenuItem::new(crate::i18n::message("ui.delete"))
                 .icon("trash.svg")
                 .destructive(true),
         ];
@@ -595,7 +597,12 @@ fn crew_table_header(columns: &[CrewColumn]) -> AnyElement {
         .border_color(theme::border_strong())
         .text_size(theme::text_meta())
         .text_color(theme::faint())
-        .child(div().flex_1().min_w(px(0.)).child("Crew"))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .child(crate::i18n::text("ui.crew")),
+        )
         .children(columns.iter().map(|column| {
             div()
                 .w(rems(column.width() / 16.))

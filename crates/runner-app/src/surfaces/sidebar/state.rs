@@ -147,7 +147,7 @@ impl Sidebar {
         };
         cx.defer(move |cx| {
             shell.update(cx, |shell, shell_cx| {
-                shell.error = Some(error);
+                shell.error = Some(error.into());
                 shell_cx.notify();
             });
         });

@@ -868,7 +868,7 @@ fn mixed_tab_archive_plan_and_confirmation_copy_are_explicit() {
         archive_all_confirmation_body(
             &["active-chat".into(), "shell-1".into()],
             &sessions,
-        ),
+        ).map(|body| body.resolve().to_string()),
         Some("This archives 1 chat and permanently closes 1 terminal. Archived chats can be restored from Settings → Archived; closed terminals cannot.".into()),
     );
     assert_eq!(
@@ -880,11 +880,12 @@ fn mixed_tab_archive_plan_and_confirmation_copy_are_explicit() {
                 "shell-2".into(),
             ],
             &sessions,
-        ),
+        ).map(|body| body.resolve().to_string()),
         Some("This archives 2 chats and permanently closes 2 terminals. Archived chats can be restored from Settings → Archived; closed terminals cannot.".into()),
     );
     assert_eq!(
-        archive_all_confirmation_body(&["shell-1".into()], &sessions),
+        archive_all_confirmation_body(&["shell-1".into()], &sessions)
+            .map(|body| body.resolve().to_string()),
         Some("This permanently closes 1 terminal. Closed terminals cannot be restored.".into()),
     );
     assert_eq!(
@@ -1306,4 +1307,21 @@ fn both_create_menus_show_effective_bindings_and_omit_unbound_keys() {
         );
         assert!(entries[2].0.shortcut.is_none());
     }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn empty_tab_rename_source_changes_language_while_named_tabs_stay_literal() {
+    crate::i18n::testing::with_locale(crate::i18n::Locale::English, || {
+        let mut layout = PaneLayout::single(None, &[]);
+        let source = super::elements::tab_label_source(&layout, &[], |_| None);
+        layout.name = Some("Empty tab {name}".into());
+        let literal = super::elements::tab_label_source(&layout, &[], |_| None);
+        assert_eq!(source.resolve(), "Empty tab");
+        crate::i18n::set_active_locale(crate::i18n::Locale::SimplifiedChinese);
+        assert_eq!(source.resolve(), "空标签页");
+        assert_eq!(literal.resolve(), "Empty tab {name}");
+        crate::i18n::set_active_locale(crate::i18n::Locale::English);
+        assert_eq!(source.resolve(), "Empty tab");
+    });
 }

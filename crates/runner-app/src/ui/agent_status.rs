@@ -93,17 +93,17 @@ impl StatusPresentation {
 
     pub fn label(self) -> &'static str {
         match self.kind {
-            StatusKind::Starting => "Starting",
-            StatusKind::Resuming => "Resuming",
-            StatusKind::Working => "Working",
-            StatusKind::Idle => "Idle",
-            StatusKind::Approval => "Approval needed",
-            StatusKind::Answer => "Answer needed",
-            StatusKind::NeedsYou => "Needs you",
-            StatusKind::Stopped => "Stopped",
-            StatusKind::Error => "Error",
-            StatusKind::ResponseFailed => "Response failed",
-            StatusKind::Unavailable => "Status unavailable",
+            StatusKind::Starting => crate::i18n::text("ui.starting_status"),
+            StatusKind::Resuming => crate::i18n::text("ui.resuming_status"),
+            StatusKind::Working => crate::i18n::text("ui.working"),
+            StatusKind::Idle => crate::i18n::text("ui.idle"),
+            StatusKind::Approval => crate::i18n::text("ui.approval_needed"),
+            StatusKind::Answer => crate::i18n::text("ui.answer_needed"),
+            StatusKind::NeedsYou => crate::i18n::text("ui.needs_you"),
+            StatusKind::Stopped => crate::i18n::text("ui.stopped"),
+            StatusKind::Error => crate::i18n::text("ui.error"),
+            StatusKind::ResponseFailed => crate::i18n::text("ui.response_failed"),
+            StatusKind::Unavailable => crate::i18n::text("ui.status_unavailable"),
         }
     }
 
@@ -124,24 +124,45 @@ impl StatusPresentation {
 
     fn tooltip_at(self, now: i64) -> String {
         if self.estimated {
-            return format!("{} · estimated from terminal activity", self.label());
+            return crate::i18n::tf(
+                "format.estimated_from_terminal_activity",
+                &[("status", (self.label()).to_string())],
+            );
         }
         let tooltip = match self.kind {
-            StatusKind::Approval => "Waiting for you to approve a command or plan".into(),
-            StatusKind::Answer => "Waiting for your answer".into(),
-            StatusKind::NeedsYou => "Waiting for your input in the terminal".into(),
-            StatusKind::Unavailable => "Status unavailable · Agent is still connected".into(),
-            StatusKind::ResponseFailed => "Response failed · Agent is still connected".into(),
+            StatusKind::Approval => {
+                crate::i18n::text("ui.waiting_for_you_to_approve_a_command_or_plan").into()
+            }
+            StatusKind::Answer => crate::i18n::text("ui.waiting_for_your_answer").into(),
+            StatusKind::NeedsYou => {
+                crate::i18n::text("ui.waiting_for_your_input_in_the_terminal").into()
+            }
+            StatusKind::Unavailable => {
+                crate::i18n::text("ui.status_unavailable_agent_is_still_connected").into()
+            }
+            StatusKind::ResponseFailed => {
+                crate::i18n::text("ui.response_failed_agent_is_still_connected").into()
+            }
             StatusKind::Error => self.exit_code.map_or_else(
-                || "Process exited unexpectedly".into(),
-                |code| format!("Process exited · code {code}"),
+                || crate::i18n::text("ui.process_exited_unexpectedly").into(),
+                |code| {
+                    crate::i18n::tf(
+                        "format.process_exited_code",
+                        &[("code", (code).to_string())],
+                    )
+                },
             ),
             StatusKind::Idle if self.outcome == Some(TurnOutcome::Interrupted) => {
-                "Idle · Last response interrupted".into()
+                crate::i18n::text("ui.idle_last_response_interrupted").into()
             }
             StatusKind::Working => self.detail.map_or_else(
-                || "Working".into(),
-                |detail| format!("Working · {}", work_detail_label(detail)),
+                || crate::i18n::text("ui.working").into(),
+                |detail| {
+                    crate::i18n::tf(
+                        "format.working",
+                        &[("detail", (work_detail_label(detail)).to_string())],
+                    )
+                },
             ),
             _ => self.label().into(),
         };
@@ -162,7 +183,7 @@ impl StatusPresentation {
         } else if self.kind == StatusKind::Working {
             self.detail.map(|detail| work_detail_label(detail).into())
         } else if self.kind == StatusKind::Idle && self.outcome == Some(TurnOutcome::Interrupted) {
-            Some("Interrupted".into())
+            Some(crate::i18n::text("ui.interrupted").into())
         } else if matches!(
             self.kind,
             StatusKind::Approval | StatusKind::Answer | StatusKind::NeedsYou
@@ -211,19 +232,28 @@ impl StatusPresentation {
 
 fn work_detail_label(detail: WorkDetail) -> &'static str {
     match detail {
-        WorkDetail::UsingTools => "Using tools",
-        WorkDetail::CompactingContext => "Compacting context",
+        WorkDetail::UsingTools => crate::i18n::text("ui.using_tools"),
+        WorkDetail::CompactingContext => crate::i18n::text("ui.compacting_context"),
     }
 }
 
 pub fn format_elapsed(ms: i64) -> String {
     let seconds = ms.max(0) / 1_000;
     if seconds < 60 {
-        format!("{seconds}s")
+        crate::i18n::tf("duration.seconds", &[("seconds", seconds.to_string())])
     } else if seconds < 3_600 {
-        format!("{}m", seconds / 60)
+        crate::i18n::tf(
+            "duration.minutes",
+            &[("minutes", (seconds / 60).to_string())],
+        )
     } else {
-        format!("{}h {}m", seconds / 3_600, seconds % 3_600 / 60)
+        crate::i18n::tf(
+            "format.h_m",
+            &[
+                ("hours", (seconds / 3_600).to_string()),
+                ("minutes", (seconds % 3_600 / 60).to_string()),
+            ],
+        )
     }
 }
 

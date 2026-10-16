@@ -27,7 +27,7 @@ pub(crate) const UNFOCUSED_PANE_OPACITY: f32 = 0.7;
 /// The smallest pane a split may leave behind, at 1× zoom.
 const MIN_SPLIT_PANE_WIDTH: f32 = 240.;
 const MIN_SPLIT_PANE_HEIGHT: f32 = 160.;
-const TOO_SMALL_TO_SPLIT: &str = "Too small to split";
+const TOO_SMALL_TO_SPLIT: &str = "ui.too_small_to_split";
 
 pub(crate) type TerminalDrawerSessionCallback = Rc<dyn Fn(String, &mut Window, &mut App)>;
 pub(crate) type TerminalDrawerActionCallback = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -107,7 +107,7 @@ pub(crate) fn render_terminal_drawer_strip(
                     )
                     .size(IconButtonSize::Xs)
                     .stop_click_propagation(true)
-                    .tooltip("Close terminal")
+                    .tooltip(crate::i18n::text("ui.close_terminal"))
                     .on_press(move |window, cx| close(close_id.clone(), window, cx)),
                 )
                 .on_click(move |_, window, cx| activate(activate_id.clone(), window, cx))
@@ -135,14 +135,14 @@ pub(crate) fn render_terminal_drawer_strip(
         .child(
             IconButton::new(add_id, "plus.svg")
                 .size(IconButtonSize::Sm)
-                .tooltip("New terminal")
+                .tooltip(crate::i18n::text("ui.new_terminal"))
                 .on_press(move |window, cx| add(window, cx)),
         )
         .child(div().flex_1())
         .child(
             IconButton::new(hide_id, "chevron-down.svg")
                 .size(IconButtonSize::Sm)
-                .tooltip("Hide terminal drawer")
+                .tooltip(crate::i18n::text("ui.hide_terminal_drawer"))
                 .on_press(move |window, cx| hide(window, cx)),
         )
         .into_any_element()
@@ -169,9 +169,9 @@ impl NativeRoot {
         };
         let label = session_label(detail);
         let back_label = if detail.handle.is_some() {
-            "Back to role"
+            crate::i18n::text("ui.back_to_role")
         } else {
-            "Back to roles"
+            crate::i18n::text("ui.back_to_roles")
         };
         let handle = detail.handle.clone();
         let root = cx.entity();
@@ -236,7 +236,7 @@ impl NativeRoot {
             .when(!self.settings(cx).chat_panel_open, |header| {
                 header.child(
                     IconButton::new("open-archived-chat-panel", "panel-right-hidden.svg")
-                        .tooltip("Open side panel")
+                        .tooltip(crate::i18n::text("ui.open_side_panel"))
                         .on_press(move |_, cx| {
                             panel_root.update(cx, |this, cx| {
                                 this.update_app_settings(cx, true, |settings| {
@@ -280,13 +280,13 @@ impl NativeRoot {
                                 div()
                                     .text_size(theme::text_body())
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Session ended — terminal closed"),
+                                    .child(crate::i18n::text("ui.session_ended_terminal_closed")),
                             )
                             .child(
                                 div()
                                     .text_size(theme::text_ui())
                                     .text_color(theme::muted())
-                                    .child("This chat was archived. The PTY is gone and the workspace is read-only."),
+                                    .child(crate::i18n::text("ui.this_chat_was_archived_the_pty_is_gone_and_the_workspace_is_read_only")),
                             ),
                     ),
             );
@@ -334,7 +334,7 @@ impl NativeRoot {
             .clone()
             .filter(|_| !self.app_store.read(cx).daemon_disconnected)
             .map(|error| {
-                runner_app::ui::notice_banner(error, runner_app::ui::Tone::Danger)
+                runner_app::ui::notice_banner(error.resolve(), runner_app::ui::Tone::Danger)
                     .when(cfg!(test), |banner| {
                         banner.debug_selector(|| "CHAT_ERROR_BANNER".into())
                     })
@@ -346,7 +346,7 @@ impl NativeRoot {
             .filter(|_| !self.app_store.read(cx).daemon_disconnected)
             .map(|warning| {
                 runner_app::ui::notice_banner(warning, runner_app::ui::Tone::Warning).child(
-                    Button::new("dismiss-chat-warning", "Dismiss")
+                    Button::new("dismiss-chat-warning", crate::i18n::text("ui.dismiss"))
                         .size(ButtonSize::Sm)
                         .variant(runner_app::ui::ButtonVariant::Ghost)
                         .on_press(move |_, cx| {
@@ -633,7 +633,7 @@ impl NativeRoot {
         let mut items = Vec::new();
         if grouped && !session_ids.is_empty() {
             items.push(
-                UiMenuItem::new("Rename group")
+                UiMenuItem::new(crate::i18n::message("ui.rename_group"))
                     .icon("square-pen.svg")
                     .disabled(lifecycle_busy),
             );
@@ -643,7 +643,7 @@ impl NativeRoot {
             });
             if !chat_session_ids.is_empty() {
                 items.push(
-                    UiMenuItem::new("Archive")
+                    UiMenuItem::new(crate::i18n::message("ui.archive"))
                         .icon("archive.svg")
                         .destructive(true)
                         .disabled(lifecycle_busy),
@@ -654,20 +654,24 @@ impl NativeRoot {
             if let Some(entry) = self.session_entry(session_id, cx) {
                 let current = entry.title.clone().unwrap_or_default();
                 items.push(
-                    UiMenuItem::new(if entry.pinned { "Unpin" } else { "Pin" })
-                        .icon(if entry.pinned {
-                            "pin-off.svg"
-                        } else {
-                            "pin.svg"
-                        })
-                        .disabled(lifecycle_busy),
+                    UiMenuItem::new(if entry.pinned {
+                        crate::i18n::message("ui.unpin")
+                    } else {
+                        crate::i18n::message("ui.pin")
+                    })
+                    .icon(if entry.pinned {
+                        "pin-off.svg"
+                    } else {
+                        "pin.svg"
+                    })
+                    .disabled(lifecycle_busy),
                 );
                 actions.push(ChatMenuAction::TogglePin {
                     session_id: session_id.clone(),
                     pinned: entry.pinned,
                 });
                 items.push(
-                    UiMenuItem::new("Rename")
+                    UiMenuItem::new(crate::i18n::message("ui.rename"))
                         .icon("square-pen.svg")
                         .disabled(lifecycle_busy),
                 );
@@ -678,7 +682,7 @@ impl NativeRoot {
                 if !Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell) {
                     let archive_all = !layout.drawer_shells().is_empty();
                     items.push(
-                        UiMenuItem::new("Archive")
+                        UiMenuItem::new(crate::i18n::message("ui.archive"))
                             .icon("archive.svg")
                             .destructive(true)
                             .disabled(lifecycle_busy),
@@ -726,8 +730,8 @@ impl NativeRoot {
                 Some(
                     SessionControl::new("stop-all-chats", SessionControlKind::Stop)
                         .variant(SessionControlVariant::Header)
-                        .label("Stop all")
-                        .title("Stop all sessions")
+                        .label(crate::i18n::text("ui.stop_all"))
+                        .title(crate::i18n::text("ui.stop_all_sessions"))
                         .lifecycle_disabled(lifecycle_busy)
                         .on_press(move |window, cx| {
                             root.update(cx, |this, cx| {
@@ -747,8 +751,8 @@ impl NativeRoot {
                 Some(
                     SessionControl::new("resume-all-chats", SessionControlKind::Resume)
                         .variant(SessionControlVariant::Header)
-                        .label("Resume all")
-                        .title("Resume all sessions")
+                        .label(crate::i18n::text("ui.resume_all"))
+                        .title(crate::i18n::text("ui.resume_all_sessions"))
                         .lifecycle_disabled(lifecycle_busy)
                         .on_press(move |window, cx| {
                             root.update(cx, |this, cx| {
@@ -777,7 +781,7 @@ impl NativeRoot {
                         },
                     )
                     .variant(SessionControlVariant::Header)
-                    .title("Resuming…")
+                    .title(crate::i18n::text("ui.resuming"))
                     .lifecycle_disabled(true)
                     .into_any_element(),
                 )
@@ -785,7 +789,11 @@ impl NativeRoot {
                 Some(
                     SessionControl::new("stop-chat-header", SessionControlKind::Stop)
                         .variant(SessionControlVariant::Header)
-                        .title(if shell { "Stop terminal" } else { "Stop chat" })
+                        .title(if shell {
+                            crate::i18n::text("ui.stop_terminal")
+                        } else {
+                            crate::i18n::text("ui.stop_chat")
+                        })
                         .lifecycle_disabled(lifecycle_busy)
                         .on_press(move |window, cx| {
                             root.update(cx, |this, cx| this.stop_chat(&session_id, window, cx));
@@ -798,9 +806,9 @@ impl NativeRoot {
                     SessionControl::new("resume-chat-header", SessionControlKind::Resume)
                         .variant(SessionControlVariant::Header)
                         .title(if shell {
-                            "Restart terminal"
+                            crate::i18n::text("ui.restart_terminal")
                         } else {
-                            "Resume chat"
+                            crate::i18n::text("ui.resume_chat")
                         })
                         .lifecycle_disabled(lifecycle_busy)
                         .on_press(move |window, cx| {
@@ -871,7 +879,10 @@ impl NativeRoot {
             let (disabled, tooltip) =
                 match header_fork_state(focused_entry.as_ref(), focused_secondary) {
                     HeaderForkState::Enabled if fork_pending => (true, None),
-                    HeaderForkState::Enabled => (false, Some("Fork chat into a new tab")),
+                    HeaderForkState::Enabled => (
+                        false,
+                        Some(crate::i18n::text("ui.fork_chat_into_a_new_tab")),
+                    ),
                     HeaderForkState::Disabled(_) if fork_pending => (true, None),
                     HeaderForkState::Disabled(caption) => (true, caption),
                     HeaderForkState::Hidden => return None,
@@ -967,7 +978,7 @@ impl NativeRoot {
             && !focused_shell)
             .then(|| {
                 IconButton::new("open-chat-panel", "panel-right-hidden.svg")
-                    .tooltip("Open side panel")
+                    .tooltip(crate::i18n::text("ui.open_side_panel"))
                     .on_press(move |_, cx| {
                         panel_root.update(cx, |this, cx| {
                             this.update_app_settings(cx, true, |settings| {
@@ -1079,7 +1090,7 @@ impl NativeRoot {
                 })
                 .child(
                     IconButton::new("collapse-chat-panel", "panel-right-open.svg")
-                        .tooltip("Collapse side panel")
+                        .tooltip(crate::i18n::text("ui.collapse_side_panel"))
                         .on_press(move |_, cx| {
                             collapse_root.update(cx, |this, cx| {
                                 this.update_app_settings(cx, true, |settings| {
@@ -1118,7 +1129,7 @@ impl NativeRoot {
             div()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child("Loading chat…")
+                .child(crate::i18n::text("ui.loading_chat"))
                 .into_any_element()
         };
         let panel = div()
@@ -1173,41 +1184,46 @@ impl NativeRoot {
                 | TerminalCloseTarget::Drawer { .. }
                 | TerminalCloseTarget::MissionDrawer { .. },
             ) => (
-                "Close terminal?",
-                "A foreground process is still running. Closing this terminal will stop it."
-                    .to_owned(),
-                "Close terminal",
-                "Closing…",
+                crate::i18n::text("ui.close_terminal_confirmation"),
+                crate::i18n::text(
+                    "ui.a_foreground_process_is_still_running_closing_this_terminal_will_stop_it",
+                )
+                .to_owned(),
+                crate::i18n::text("ui.close_terminal"),
+                crate::i18n::text("ui.closing"),
                 "trash.svg",
             ),
             Some(TerminalCloseTarget::ArchiveAll {
                 confirmation_body, ..
             }) => (
-                "Archive tab?",
-                confirmation_body.clone(),
-                "Archive",
-                "Archiving…",
+                crate::i18n::text("ui.archive_tab"),
+                confirmation_body.resolve().to_string(),
+                crate::i18n::text("ui.archive"),
+                crate::i18n::text("ui.archiving"),
                 "trash.svg",
             ),
             Some(TerminalCloseTarget::ArchiveChatPane { session_id, .. }) => {
                 let entry = self.session_entry(session_id, cx);
                 let label = entry
                     .map(session_label)
-                    .unwrap_or_else(|| "this chat".into());
+                    .unwrap_or_else(|| crate::i18n::text("ui.this_chat").into());
                 let running = entry.is_some_and(|entry| entry.status == SessionStatus::Running);
                 (
-                    "Archive chat?",
+                    crate::i18n::text("ui.archive_chat"),
                     archive_chat_confirm_body(&label, running),
-                    "Archive chat",
-                    "Archiving…",
+                    crate::i18n::text("ui.archive_chat_action"),
+                    crate::i18n::text("ui.archiving"),
                     "archive.svg",
                 )
             }
             _ => (
-                "Close terminal?",
-                "A foreground process is still running. Closing this pane will stop it.".to_owned(),
-                "Close terminal",
-                "Closing…",
+                crate::i18n::text("ui.close_terminal_confirmation"),
+                crate::i18n::text(
+                    "ui.a_foreground_process_is_still_running_closing_this_pane_will_stop_it",
+                )
+                .to_owned(),
+                crate::i18n::text("ui.close_terminal"),
+                crate::i18n::text("ui.closing"),
                 "trash.svg",
             ),
         };
@@ -1242,18 +1258,19 @@ impl NativeRoot {
         let label = self
             .session_entry(&confirm.session_id, cx)
             .map(session_label)
-            .unwrap_or_else(|| "this chat".into());
-        let body = format!(
-            "Start a new chat from {label} with its full conversation history. The fork opens in a new tab; the original chat is not changed."
+            .unwrap_or_else(|| crate::i18n::text("ui.this_chat").into());
+        let body = crate::i18n::tf(
+            "format.start_a_new_chat_from_with_its_full_conversation_history_the_fork_opens_in_a_n",
+            &[("label", (label).to_string())],
         );
         let busy = confirm.pending;
         let root = cx.entity();
         let confirm_root = root.clone();
         ConfirmDialog::new(
-            "Fork chat?",
+            crate::i18n::text("ui.fork_chat"),
             body,
-            "Fork",
-            "Forking…",
+            crate::i18n::text("ui.fork"),
+            crate::i18n::text("ui.forking"),
             busy,
             Rc::new(move |window, cx| {
                 confirm_root.update(cx, |this, cx| this.confirm_fork_chat(window, cx));
@@ -1299,11 +1316,11 @@ impl NativeRoot {
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(if is_group {
-                                "Rename group"
+                                crate::i18n::text("ui.rename_group")
                             } else if is_shell {
-                                "Rename terminal"
+                                crate::i18n::text("ui.rename_terminal")
                             } else {
-                                "Rename chat"
+                                crate::i18n::text("ui.rename_chat")
                             }),
                     )
                     .child(
@@ -1312,16 +1329,18 @@ impl NativeRoot {
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
                             .child(if is_group {
-                                "Leave blank to derive the name from its panes."
+                                crate::i18n::text(
+                                    "ui.leave_blank_to_derive_the_name_from_its_panes",
+                                )
                             } else {
-                                "Leave blank to restore the default name."
+                                crate::i18n::text("ui.leave_blank_to_restore_the_default_name")
                             }),
                     ),
             )
             .child(
                 IconButton::new("close-chat-rename", "close.svg")
                     .focus_handle(modal.close_focus.clone())
-                    .tooltip("Close rename")
+                    .tooltip(crate::i18n::text("ui.close_rename"))
                     .disabled(submitting)
                     .on_press(move |window, cx| {
                         close_root.update(cx, |this, cx| this.close_chat_rename(window, cx));
@@ -1342,16 +1361,20 @@ impl NativeRoot {
                     }),
             )
             .child(
-                runner_app::ui::Field::new("chat-rename-name", "Name", modal.input.clone())
-                    .focus_target(modal.input.read(cx).focus_handle())
-                    .emphasized(true),
+                runner_app::ui::Field::new(
+                    "chat-rename-name",
+                    crate::i18n::text("ui.name"),
+                    modal.input.clone(),
+                )
+                .focus_target(modal.input.read(cx).focus_handle())
+                .emphasized(true),
             );
         let footer = div()
             .flex()
             .items_center()
             .gap_2()
             .child(
-                Button::new("cancel-chat-rename", "Cancel")
+                Button::new("cancel-chat-rename", crate::i18n::text("ui.cancel"))
                     .focus_handle(modal.cancel_focus.clone())
                     .disabled(submitting)
                     .on_press(move |window, cx| {
@@ -1361,7 +1384,11 @@ impl NativeRoot {
             .child(
                 Button::new(
                     "submit-chat-rename",
-                    if submitting { "Saving…" } else { "Save" },
+                    if submitting {
+                        crate::i18n::text("ui.saving")
+                    } else {
+                        crate::i18n::text("ui.save")
+                    },
                 )
                 .focus_handle(modal.submit_focus.clone())
                 .variant(ButtonVariant::Primary)
@@ -1641,7 +1668,7 @@ impl NativeRoot {
                     .min_width(px(144.))
                     .trigger_size(IconButtonSize::Sm)
                     .trigger_icon("more-horizontal.svg")
-                    .trigger_tooltip("Pane actions")
+                    .trigger_tooltip(crate::i18n::message("ui.pane_actions"))
                 })
             })
             .clone();
@@ -1712,7 +1739,7 @@ impl NativeRoot {
                     .justify_center()
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
-                    .child("Terminal unavailable")
+                    .child(crate::i18n::text("ui.terminal_unavailable"))
                     .into_any_element()
             });
         div()
@@ -1869,7 +1896,7 @@ impl NativeRoot {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child("Attaching terminal…")
+                        .child(crate::i18n::text("ui.attaching_terminal"))
                 })
                 .into_any_element()
         };
@@ -1879,7 +1906,7 @@ impl NativeRoot {
                     format!("drawer-resuming-{session_id}"),
                     SessionOverlayKind::Resuming,
                 )
-                .label("Restarting terminal…")
+                .label(crate::i18n::text("ui.restarting_terminal"))
                 .into_any_element(),
             ),
             PaneOverlayState::Starting => Some(
@@ -1887,7 +1914,7 @@ impl NativeRoot {
                     format!("drawer-starting-{session_id}"),
                     SessionOverlayKind::Starting,
                 )
-                .label("Starting terminal…")
+                .label(crate::i18n::text("ui.starting_terminal"))
                 .into_any_element(),
             ),
             PaneOverlayState::Ended { exit_code, .. } => {
@@ -1999,7 +2026,7 @@ impl NativeRoot {
                                 label: entry
                                     .as_ref()
                                     .map(session_label)
-                                    .unwrap_or_else(|| "Empty".into()),
+                                    .unwrap_or_else(|| crate::i18n::text("ui.empty").into()),
                                 icon: pane_identity_icon(
                                     entry.as_ref().map(|entry| entry.agent_runtime.as_str()),
                                 ),
@@ -2168,7 +2195,7 @@ impl NativeRoot {
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme::faint())
-                            .child("Empty"),
+                            .child(crate::i18n::text("ui.empty")),
                     )
                     .into_any_element()
             };
@@ -2207,7 +2234,7 @@ impl NativeRoot {
                                         "close.svg",
                                     )
                                     .size(IconButtonSize::Sm)
-                                    .tooltip("Close pane")
+                                    .tooltip(crate::i18n::text("ui.close_pane"))
                                     .on_press(
                                         move |window, cx| {
                                             let pane_id = close_pane_id.clone();
@@ -2356,7 +2383,7 @@ impl NativeRoot {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child("Attaching terminal…")
+                            .child(crate::i18n::text("ui.attaching_terminal"))
                     })
                     .into_any_element()
             };
@@ -2406,7 +2433,7 @@ impl NativeRoot {
                                 format!("resuming-{session_id}"),
                                 SessionOverlayKind::Resuming,
                             )
-                            .label("Restarting terminal…")
+                            .label(crate::i18n::text("ui.restarting_terminal"))
                             .into_any_element()
                         } else {
                             SessionOverlay::transition(
@@ -2538,7 +2565,7 @@ impl NativeRoot {
                                 .text_size(rems(13. / 16.))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::muted())
-                                .child("Open in this pane"),
+                                .child(crate::i18n::text("ui.open_in_this_pane")),
                         )
                         .child(
                             div()
@@ -2554,7 +2581,7 @@ impl NativeRoot {
                                 .child(
                                     empty_pane_action_row(
                                         "new-chat",
-                                        "New chat",
+                                        crate::i18n::text("ui.new_chat"),
                                         "message-square-plus.svg",
                                         overrides,
                                     )
@@ -2574,7 +2601,7 @@ impl NativeRoot {
                                 .child(
                                     empty_pane_action_row(
                                         "new-terminal",
-                                        "New terminal",
+                                        crate::i18n::text("ui.new_terminal"),
                                         "terminal.svg",
                                         overrides,
                                     )
@@ -2920,13 +2947,13 @@ fn render_start_surface(overrides: &keymap::KeymapOverrides) -> Div {
                                 .text_size(rems(28. / 16.))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::text())
-                                .child("Start something new"),
+                                .child(crate::i18n::text("ui.start_something_new")),
                         )
                         .child(
                             div()
                                 .text_size(rems(14. / 16.))
                                 .text_color(theme::muted())
-                                .child("Choose how you want to work."),
+                                .child(crate::i18n::text("ui.choose_how_you_want_to_work")),
                         ),
                 )
                 .child(
@@ -2942,24 +2969,24 @@ fn render_start_surface(overrides: &keymap::KeymapOverrides) -> Div {
                         .rounded(rems(12. / 16.))
                         .child(start_surface_action_row(
                             "new-chat",
-                            "New chat",
-                            "Work with an agent or a saved role",
+                            crate::i18n::text("ui.new_chat"),
+                            crate::i18n::text("ui.work_with_an_agent_or_a_saved_role"),
                             "message-square-plus.svg",
                             NewTab,
                             overrides,
                         ))
                         .child(start_surface_action_row(
                             "new-terminal",
-                            "New terminal",
-                            "Run commands in a shell",
+                            crate::i18n::text("ui.new_terminal"),
+                            crate::i18n::text("ui.run_commands_in_a_shell"),
                             "terminal.svg",
                             NewTerminal,
                             overrides,
                         ))
                         .child(start_surface_action_row(
                             "new-mission",
-                            "New mission",
-                            "Work with a crew of agents",
+                            crate::i18n::text("ui.new_mission"),
+                            crate::i18n::text("ui.work_with_a_crew_of_agents"),
                             "users.svg",
                             NewMission,
                             overrides,
@@ -3012,9 +3039,9 @@ fn empty_pane_action_row(
 
 pub(crate) fn terminal_drawer_tooltip(open: bool, overrides: &keymap::KeymapOverrides) -> String {
     let label = if open {
-        "Hide terminal drawer"
+        crate::i18n::text("ui.hide_terminal_drawer")
     } else {
-        "Show terminal drawer"
+        crate::i18n::text("ui.show_terminal_drawer")
     };
     keymap::effective_binding("toggle-terminal-drawer", overrides).map_or_else(
         || label.to_owned(),
@@ -3094,7 +3121,7 @@ pub(crate) fn split_decision(
     if split_allowed(pane, orientation, zoom) {
         SplitDecision::Allowed
     } else {
-        SplitDecision::Blocked(TOO_SMALL_TO_SPLIT)
+        SplitDecision::Blocked(crate::i18n::text(TOO_SMALL_TO_SPLIT))
     }
 }
 
@@ -3104,8 +3131,16 @@ fn split_menu_items(
     overrides: &keymap::KeymapOverrides,
 ) -> Vec<UiMenuItem> {
     [
-        ("Split Right", "split-pane-right", SplitOrientation::Row),
-        ("Split Down", "split-pane-down", SplitOrientation::Column),
+        (
+            crate::i18n::message("ui.split_right"),
+            "split-pane-right",
+            SplitOrientation::Row,
+        ),
+        (
+            crate::i18n::message("ui.split_down"),
+            "split-pane-down",
+            SplitOrientation::Column,
+        ),
     ]
     .into_iter()
     .map(|(label, binding, orientation)| {
@@ -3117,8 +3152,8 @@ fn split_menu_items(
         if let Some(combo) = keymap::effective_binding(binding, overrides) {
             item = item.shortcut(keymap::format_combo(&combo));
         }
-        if let Some(reason) = blocked {
-            item = item.tooltip(reason);
+        if blocked.is_some() {
+            item = item.tooltip(crate::i18n::message(TOO_SMALL_TO_SPLIT));
         }
         item
     })
@@ -3160,9 +3195,9 @@ fn pane_identity_shows_status(runtime: &str) -> bool {
 
 fn starting_overlay_label(runtime: &str, fork_materializing: bool) -> Option<&'static str> {
     if Runtime::parse(runtime).is_some_and(Runtime::is_shell) {
-        Some("Starting terminal…")
+        Some(crate::i18n::text("ui.starting_terminal"))
     } else if fork_materializing {
-        Some("Forking chat…")
+        Some(crate::i18n::text("ui.forking_chat"))
     } else {
         None
     }
@@ -3194,7 +3229,7 @@ fn header_fork_state(
     if !entry.native_fork {
         HeaderForkState::Disabled(None)
     } else if !entry.forkable {
-        HeaderForkState::Disabled(Some("No session key captured yet"))
+        HeaderForkState::Disabled(Some(crate::i18n::text("ui.no_session_key_captured_yet")))
     } else {
         HeaderForkState::Enabled
     }
@@ -3212,11 +3247,15 @@ pub(crate) fn pane_close_behavior(runtime: Option<&str>) -> PaneCloseBehavior {
 
 fn archive_chat_confirm_body(label: &str, running: bool) -> String {
     if running {
-        format!(
-            "{label} is still running. Archiving stops it. You can restore the chat from Settings → Archived."
+        crate::i18n::tf(
+            "format.is_still_running_archiving_stops_it_you_can_restore_the_chat_from_settings_arc",
+            &[("label", (label).to_string())],
         )
     } else {
-        format!("You can restore {label} from Settings → Archived.")
+        crate::i18n::tf(
+            "format.you_can_restore_from_settings_archived",
+            &[("label", (label).to_string())],
+        )
     }
 }
 
@@ -3244,11 +3283,19 @@ fn pane_action_items_for(
 ) -> Vec<UiMenuItem> {
     let shell = Runtime::parse(runtime).is_some_and(Runtime::is_shell);
     let (label, icon, shortcut) = if running {
-        ("Stop", "square.svg", stop_shortcut)
+        (crate::i18n::message("ui.stop"), "square.svg", stop_shortcut)
     } else if shell {
-        ("Restart", "rotate-ccw.svg", resume_shortcut)
+        (
+            crate::i18n::message("ui.restart"),
+            "rotate-ccw.svg",
+            resume_shortcut,
+        )
     } else {
-        ("Resume", "play.svg", resume_shortcut)
+        (
+            crate::i18n::message("ui.resume"),
+            "play.svg",
+            resume_shortcut,
+        )
     };
     let primary = UiMenuItem::new(label).icon(icon).disabled(disabled);
     let primary = match shortcut {
@@ -3257,13 +3304,13 @@ fn pane_action_items_for(
     };
     let mut items = vec![
         primary,
-        UiMenuItem::new("Rename…")
+        UiMenuItem::new(crate::i18n::message("ui.rename_chat_action"))
             .icon("pencil.svg")
             .disabled(disabled),
     ];
     if !shell {
         items.push(
-            UiMenuItem::new("Archive chat")
+            UiMenuItem::new(crate::i18n::message("ui.archive_chat_action"))
                 .icon("archive.svg")
                 .separator_before(true)
                 .destructive(true)
@@ -3289,7 +3336,11 @@ fn chat_panel_content(
     cx: &App,
 ) -> AnyElement {
     let column = width - 2. * 20. - 2. * 14. - 2.;
-    let section_label = if role.is_some() { "Role" } else { "Runtime" };
+    let section_label = if role.is_some() {
+        crate::i18n::text("ui.role")
+    } else {
+        crate::i18n::text("ui.runtime")
+    };
     let cwd = detail
         .cwd
         .clone()
@@ -3337,7 +3388,7 @@ fn chat_panel_content(
                                         key_open(window, cx);
                                     }
                                 })
-                                .child("Open role")
+                                .child(crate::i18n::text("ui.open_role"))
                                 .child(
                                     svg()
                                         .path("arrow-up-right.svg")
@@ -3408,7 +3459,7 @@ fn chat_panel_content(
                         .items_center()
                         .justify_between()
                         .gap_2()
-                        .child(side_panel_label("System prompt"))
+                        .child(side_panel_label(crate::i18n::text("ui.system_prompt")))
                         .child(
                             div()
                                 .when(cfg!(test), |meta| {
@@ -3455,7 +3506,8 @@ fn chat_panel_setup(
     let identity_width = column - 40. - 12.;
     let half_column = (column - 16.) / 2.;
     let (model, model_default) = role_setting_label(detail.agent_model.as_deref());
-    let (effort, effort_default) = role_setting_label(detail.agent_effort.as_deref());
+    let (effort, effort_default) =
+        crate::surfaces::roles::logic::role_effort_label(detail.agent_effort.as_deref());
     let identity = div()
         .flex()
         .items_center()
@@ -3507,7 +3559,7 @@ fn chat_panel_setup(
         .child(identity)
         .children(role.map(|_| {
             setup_row(
-                "RUNTIME",
+                crate::i18n::text("heading.runtime"),
                 div()
                     .min_w(px(0.))
                     .flex()
@@ -3529,14 +3581,14 @@ fn chat_panel_setup(
                 .gap_4()
                 .child(
                     setup_row(
-                        "MODEL",
+                        crate::i18n::text("heading.model"),
                         setup_value(model, half_column, !model_default, model_default),
                     )
                     .flex_1(),
                 )
                 .child(
                     setup_row(
-                        "EFFORT",
+                        crate::i18n::text("heading.effort"),
                         setup_value(effort, half_column, !effort_default, effort_default),
                     )
                     .flex_1(),
@@ -4632,7 +4684,7 @@ mod tests {
             }
             assert_eq!(
                 split_decision(Some(narrow), SplitOrientation::Row, zoom),
-                SplitDecision::Blocked(TOO_SMALL_TO_SPLIT)
+                SplitDecision::Blocked(crate::i18n::text(TOO_SMALL_TO_SPLIT))
             );
             assert_eq!(
                 split_decision(Some(narrow), SplitOrientation::Column, zoom),
@@ -4640,7 +4692,7 @@ mod tests {
             );
             assert_eq!(
                 split_decision(Some(short), SplitOrientation::Column, zoom),
-                SplitDecision::Blocked(TOO_SMALL_TO_SPLIT)
+                SplitDecision::Blocked(crate::i18n::text(TOO_SMALL_TO_SPLIT))
             );
             assert_eq!(
                 split_decision(Some(short), SplitOrientation::Row, zoom),
@@ -4699,7 +4751,7 @@ mod tests {
         assert!(gated[0].disabled);
         assert_eq!(
             gated[0].tooltip.as_ref().map(|tip| tip.as_ref()),
-            Some(TOO_SMALL_TO_SPLIT)
+            Some(crate::i18n::text(TOO_SMALL_TO_SPLIT))
         );
         assert!(!gated[1].disabled);
         assert_eq!(gated[1].tooltip, None);

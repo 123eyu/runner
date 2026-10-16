@@ -28,7 +28,7 @@ impl NativeRoot {
                 .filter(|_| self.route == AppRoute::Chat)
                 .and_then(PaneLayout::focused_session_id),
         ) {
-            self.error = Some(error.to_string());
+            self.error = Some(error.to_string().into());
         }
         checkpoint_window_layout_deferred(cx);
         crate::notifications::view_changed(cx);
@@ -41,7 +41,7 @@ impl NativeRoot {
         self.report_current_subjects(cx);
         if window.is_window_active() {
             if let Err(error) = self.core(cx).mark_focused(&self.window_label) {
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
             }
             crate::notifications::refresh_permission(cx);
             if self.route == AppRoute::Chat {
@@ -94,7 +94,7 @@ impl NativeRoot {
                     .update_in(cx, |this, window, cx| {
                         if reconnected && !this.closing {
                             if let Err(error) = this.core(cx).window_register(&this.window_label) {
-                                this.error = Some(error.to_string());
+                                this.error = Some(error.to_string().into());
                             }
                             this.sync_window_activation(window, cx);
                         }
@@ -125,7 +125,7 @@ impl NativeRoot {
     fn sync_chat_subject_ownership(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.route == AppRoute::Chat {
             if let Err(error) = self.ensure_owned_active_tab_attached(window, cx) {
-                self.chat_error = Some(error.to_string());
+                self.chat_error = Some(error.to_string().into());
             }
         } else {
             self.refresh_chat_secondaries(cx);

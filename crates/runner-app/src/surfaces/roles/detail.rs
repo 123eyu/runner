@@ -40,7 +40,8 @@ fn half_column(column: f32) -> f32 {
 fn crew_text_width(column: f32) -> f32 {
     column - 20. - 14. - 2. * 10.
 }
-const PROMPT_CAPTION: &str = "Used in every chat and crew slot. A crew adds its own conventions; a slot can override runtime, model and effort.";
+const PROMPT_CAPTION: &str =
+    "ui.used_in_every_chat_and_crew_slot_a_crew_adds_its_own_conventions_a_slot_can_override_runti";
 
 impl NativeRoot {
     pub(super) fn render_role_detail(
@@ -79,7 +80,7 @@ impl NativeRoot {
             div()
                 .text_size(theme::text_title())
                 .text_color(theme::muted())
-                .child("Loading…")
+                .child(crate::i18n::text("ui.loading"))
                 .into_any_element()
         } else if let Some(role) = detail.role.clone() {
             let activity = detail.activity.clone();
@@ -93,7 +94,7 @@ impl NativeRoot {
             div().into_any_element()
         } else {
             runner_app::ui::notice_banner(
-                format!("Role @{handle} not found."),
+                crate::i18n::tf("format.role_not_found", &[("handle", (handle).to_string())]),
                 runner_app::ui::Tone::Danger,
             )
             .into_any_element()
@@ -121,7 +122,7 @@ impl NativeRoot {
                     .child(
                         breadcrumb(
                             "role-detail-back",
-                            "Roles",
+                            crate::i18n::text("ui.roles"),
                             on_back,
                             div()
                                 .min_w(px(0.))
@@ -132,7 +133,7 @@ impl NativeRoot {
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::text())
                                 .child(if creating {
-                                    "New role".to_owned()
+                                    crate::i18n::text("ui.new_role").to_owned()
                                 } else {
                                     format!("@{handle}")
                                 }),
@@ -141,7 +142,7 @@ impl NativeRoot {
                             header.debug_selector(|| "ROLE_DETAIL_HEADER".into())
                         })
                         .children(creating.then(|| {
-                            state_tag("NEW").when(cfg!(test), |tag| {
+                            state_tag(crate::i18n::text("heading.new")).when(cfg!(test), |tag| {
                                 tag.debug_selector(|| "ROLE_NEW_TAG".into())
                             })
                         }))
@@ -238,7 +239,8 @@ impl NativeRoot {
         let chat_role = role.clone();
         let edit_role = role.clone();
         let (model, model_default) = role_setting_label(role.model.as_deref());
-        let (effort, effort_default) = role_setting_label(role.effort.as_deref());
+        let (effort, effort_default) =
+            crate::surfaces::roles::logic::role_effort_label(role.effort.as_deref());
         let command = if role.args.is_empty() {
             role.command.clone()
         } else {
@@ -281,7 +283,11 @@ impl NativeRoot {
                         div().flex_1().min_w(px(0.)).child(
                             Button::new(
                                 "role-detail-chat",
-                                if pending { "Starting…" } else { "Chat now" },
+                                if pending {
+                                    crate::i18n::text("ui.starting")
+                                } else {
+                                    crate::i18n::text("ui.chat_now")
+                                },
                             )
                             .icon("message-square.svg")
                             .variant(ButtonVariant::Primary)
@@ -295,9 +301,9 @@ impl NativeRoot {
                         ),
                     )
                     .child(
-                        Button::new("edit-role", "Edit")
+                        Button::new("edit-role", crate::i18n::text("ui.edit"))
                             .icon("pencil.svg")
-                            .tooltip("Edit role")
+                            .tooltip(crate::i18n::text("ui.edit_role"))
                             .on_press(move |window, cx| {
                                 let role = edit_role.clone();
                                 edit_root
@@ -311,7 +317,7 @@ impl NativeRoot {
             })
             .gap(rems(14. / 16.))
             .child(setup_row(
-                "Runtime",
+                crate::i18n::text("ui.runtime"),
                 div()
                     .min_w(px(0.))
                     .flex()
@@ -332,14 +338,14 @@ impl NativeRoot {
                     .gap_4()
                     .child(
                         setup_row(
-                            "Model",
+                            crate::i18n::text("ui.model"),
                             setup_value(model, half_column(column), !model_default, model_default),
                         )
                         .flex_1(),
                     )
                     .child(
                         setup_row(
-                            "Effort",
+                            crate::i18n::text("ui.effort"),
                             setup_value(
                                 effort,
                                 half_column(column),
@@ -354,12 +360,12 @@ impl NativeRoot {
                 (crate::runtime_ui::catalog_capabilities(&[], &role.runtime).codex_speed).then(
                     || {
                         setup_row(
-                            "Speed",
+                            crate::i18n::text("ui.speed"),
                             setup_value(
                                 match role.codex_speed {
-                                    None => "Inherit",
-                                    Some(CodexSpeed::Standard) => "Standard",
-                                    Some(CodexSpeed::Fast) => "Fast",
+                                    None => crate::i18n::text("ui.inherit"),
+                                    Some(CodexSpeed::Standard) => crate::i18n::text("ui.standard"),
+                                    Some(CodexSpeed::Fast) => crate::i18n::text("ui.fast"),
                                 },
                                 column,
                                 false,
@@ -374,22 +380,22 @@ impl NativeRoot {
                                 div()
                                     .text_size(theme::text_meta())
                                     .text_color(theme::faint())
-                                    .child("Fast uses more credits.")
+                                    .child(crate::i18n::text("ui.fast_uses_more_credits"))
                             }),
                         )
                     },
                 ),
             )
             .child(setup_row(
-                "Command",
+                crate::i18n::text("ui.command"),
                 setup_value(format!("$ {command}"), column, true, false),
             ))
             .child(
                 setup_row(
-                    "Working directory",
+                    crate::i18n::text("ui.working_directory"),
                     match role.working_dir.clone() {
                         Some(dir) => setup_value(dir, column, true, false),
-                        None => setup_value("default", column, false, true),
+                        None => setup_value(crate::i18n::text("word.default"), column, false, true),
                     },
                 )
                 .when(cfg!(test), |row| {
@@ -406,7 +412,7 @@ impl NativeRoot {
             .child(role_activity_lines(&role, activity.as_ref(), true));
         let right = prompt_column()
             .child(self.render_prompt_card(&role, cx))
-            .child(caption(PROMPT_CAPTION));
+            .child(caption(crate::i18n::text(PROMPT_CAPTION)));
         role_page_columns(left, right, false)
     }
 
@@ -478,7 +484,7 @@ impl NativeRoot {
                     })
                     .child(div().text_size(theme::text_meta())
                         .text_color(if create.is_some_and(|form| form.handle_error.is_some()) { theme::danger() } else { theme::faint() })
-                        .child(create.map(|form| form.handle_error.unwrap_or("Lowercase letters, digits, - and _. The handle can't change later.")).unwrap_or("The handle can't change."))),
+                        .child(create.map(|form| form.handle_error.map(crate::i18n::text).unwrap_or(crate::i18n::text("ui.lowercase_letters_digits_and_the_handle_can_t_change_later"))).unwrap_or(crate::i18n::text("ui.the_handle_can_t_change")))),
             )
             .child(
                 div()
@@ -501,7 +507,7 @@ impl NativeRoot {
                                     .child(
                                         Button::new(
                                             "role-page-save",
-                                            if submitting { if creating { "Creating…" } else { "Saving…" } } else if creating { "Create role" } else { "Save" },
+                                            if submitting { if creating { crate::i18n::text("ui.creating") } else { crate::i18n::text("ui.saving") } } else if creating { crate::i18n::text("ui.create_role") } else { crate::i18n::text("ui.save") },
                                         )
                                         .icon(if creating { "plus.svg" } else { "check.svg" })
                                         .variant(ButtonVariant::Primary)
@@ -523,7 +529,7 @@ impl NativeRoot {
                                         cancel.debug_selector(|| "ROLE_EDIT_CANCEL".into())
                                     })
                                     .child(
-                                        Button::new("role-page-cancel", "Cancel")
+                                        Button::new("role-page-cancel", crate::i18n::text("ui.cancel"))
                                             .focus_handle(form.cancel_focus.clone())
                                             .disabled(submitting)
                                             .on_press(move |window, cx| {
@@ -536,7 +542,7 @@ impl NativeRoot {
                     )
                     // Always laid out, so the setup below never jumps.
                     .children((!creating).then(||
-                        dot_note("Unsaved changes")
+                        dot_note(crate::i18n::text("ui.unsaved_changes"))
                             .when(!dirty, |line| line.opacity(0.))
                             .when(cfg!(test) && dirty, |line| {
                                 line.debug_selector(|| "ROLE_EDIT_DIRTY".into())
@@ -554,31 +560,35 @@ impl NativeRoot {
                     .flex_col()
                     .gap(rems(14. / 16.))
                     .child(
-                        edit_row("Runtime", form.runtime_select.clone()).children(
-                            form.agents_error
-                                .clone()
-                                .filter(|_| !self.app_store.read(cx).daemon_disconnected)
-                                .map(|error| {
-                                    div()
-                                        .text_size(theme::text_meta())
-                                        .text_color(theme::danger())
-                                        .child(error)
-                                }),
-                        ),
+                        edit_row(crate::i18n::text("ui.runtime"), form.runtime_select.clone())
+                            .children(
+                                form.agents_error
+                                    .clone()
+                                    .filter(|_| !self.app_store.read(cx).daemon_disconnected)
+                                    .map(|error| {
+                                        div()
+                                            .text_size(theme::text_meta())
+                                            .text_color(theme::danger())
+                                            .child(error)
+                                    }),
+                            ),
                     )
                     .child(
                         div()
                             .flex()
                             .gap_4()
-                            .child(edit_row("Model", form.model_field.clone()).w(rems(
-                                if has_efforts {
-                                    half_column(column.min(ROLE_COLUMN_WIDTH))
-                                } else {
-                                    column.min(ROLE_COLUMN_WIDTH)
-                                } / 16.,
-                            )))
+                            .child(
+                                edit_row(crate::i18n::text("ui.model"), form.model_field.clone())
+                                    .w(rems(
+                                        if has_efforts {
+                                            half_column(column.min(ROLE_COLUMN_WIDTH))
+                                        } else {
+                                            column.min(ROLE_COLUMN_WIDTH)
+                                        } / 16.,
+                                    )),
+                            )
                             .children(has_efforts.then(|| {
-                                edit_row("Effort", form.effort_select.clone())
+                                edit_row(crate::i18n::text("ui.effort"), form.effort_select.clone())
                                     .w(rems(half_column(column.min(ROLE_COLUMN_WIDTH)) / 16.))
                             })),
                     )
@@ -586,7 +596,7 @@ impl NativeRoot {
                         (crate::runtime_ui::catalog_capabilities(&form.runtimes, &form.runtime)
                             .codex_speed)
                             .then(|| {
-                                edit_row("Speed", form.speed_select.clone())
+                                edit_row(crate::i18n::text("ui.speed"), form.speed_select.clone())
                                     .when(cfg!(test), |row| {
                                         row.debug_selector(|| "ROLE_SPEED_EDIT".into())
                                     })
@@ -597,15 +607,18 @@ impl NativeRoot {
                                             })
                                             .text_size(theme::text_meta())
                                             .text_color(theme::faint())
-                                            .child("Fast uses more credits.")
+                                            .child(crate::i18n::text("ui.fast_uses_more_credits"))
                                     }))
                             }),
                     )
-                    .child(edit_row("Command", form.command.clone()))
-                    .child(edit_row("Args", form.args.clone()))
+                    .child(edit_row(
+                        crate::i18n::text("ui.command"),
+                        form.command.clone(),
+                    ))
+                    .child(edit_row(crate::i18n::text("ui.args"), form.args.clone()))
                     .child(
                         edit_row(
-                            "Working directory",
+                            crate::i18n::text("ui.working_directory"),
                             WorkingDirField::new(
                                 form.working_dir.clone(),
                                 submitting,
@@ -643,7 +656,7 @@ impl NativeRoot {
             );
         let right = prompt_column()
             .child(self.render_prompt_editor_card(cx))
-            .child(caption(PROMPT_CAPTION));
+            .child(caption(crate::i18n::text(PROMPT_CAPTION)));
         role_page_columns(left, right, true)
     }
 
@@ -656,13 +669,18 @@ impl NativeRoot {
     ) -> AnyElement {
         let text_width = crew_text_width(column);
         let root = cx.entity();
-        let label = format!("Crews using this role · {}", distinct_crew_count(&crews));
+        let label = crate::i18n::tf(
+            "format.crews_using_this_role",
+            &[("crew_count", (distinct_crew_count(&crews)).to_string())],
+        );
         let rows =
             if crews.is_empty() {
                 div()
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
-                    .child("Not in any crew yet. Add it to one from a crew's page.")
+                    .child(crate::i18n::text(
+                        "ui.not_in_any_crew_yet_add_it_to_one_from_a_crew_s_page",
+                    ))
                     .into_any_element()
             } else {
                 div()
@@ -696,7 +714,9 @@ impl NativeRoot {
                 .text_size(theme::text_body())
                 .italic()
                 .text_color(theme::faint())
-                .child("No system prompt yet. Edit the role to add one.")
+                .child(crate::i18n::text(
+                    "ui.no_system_prompt_yet_edit_the_role_to_add_one",
+                ))
                 .into_any_element(),
             Some(prompt) => clamped_markdown(
                 &format!("role-prompt-{}", role.id),
@@ -797,7 +817,13 @@ fn prompt_column() -> Div {
 }
 
 fn prompt_card(header_right: AnyElement) -> Div {
-    card("file-text.svg", "System prompt", None, header_right).when(cfg!(test), |card| {
+    card(
+        "file-text.svg",
+        crate::i18n::text("ui.system_prompt"),
+        None,
+        header_right,
+    )
+    .when(cfg!(test), |card| {
         card.debug_selector(|| "ROLE_PROMPT_CARD".into())
     })
 }
@@ -855,14 +881,20 @@ fn crew_row(
                                 .text_size(theme::text_micro())
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::faint())
-                                .child("LEAD")
+                                .child(crate::i18n::text("heading.lead"))
                         })),
                 )
                 .child(
-                    column_text(format!("as @{}", membership.slot_handle), text_width)
-                        .font_family(theme::UI_MONOSPACE_FONT)
-                        .text_size(theme::text_meta())
-                        .text_color(theme::faint()),
+                    column_text(
+                        crate::i18n::tf(
+                            "format.as",
+                            &[("handle", (membership.slot_handle).to_string())],
+                        ),
+                        text_width,
+                    )
+                    .font_family(theme::UI_MONOSPACE_FONT)
+                    .text_size(theme::text_meta())
+                    .text_color(theme::faint()),
                 ),
         )
         .child(
@@ -903,12 +935,17 @@ fn role_activity_lines(
 ) -> AnyElement {
     let live = activity
         .and_then(live_activity_label)
-        .map(|live| format!("{live} live"))
-        .unwrap_or_else(|| "Nothing live".to_owned());
+        .map(|live| crate::i18n::tf("format.live", &[("live", (live).to_string())]))
+        .unwrap_or_else(|| crate::i18n::text("ui.nothing_live").to_owned());
     let last_seen = activity
         .and_then(|activity| activity.last_started_at)
-        .map(|started| format!("Last seen {}", local_short_timestamp(started)))
-        .unwrap_or_else(|| "Never started".to_owned());
+        .map(|started| {
+            crate::i18n::tf(
+                "format.last_seen",
+                &[("last_seen_at", (local_short_timestamp(started)).to_string())],
+            )
+        })
+        .unwrap_or_else(|| crate::i18n::text("ui.never_started").to_owned());
     section()
         .when(cfg!(test), |lines| {
             lines.debug_selector(|| "ROLE_ACTIVITY_LINES".into())
@@ -918,9 +955,12 @@ fn role_activity_lines(
         .text_size(theme::text_ui())
         .child(div().text_color(theme::muted()).child(live))
         .child(div().text_color(theme::faint()).child(last_seen))
-        .child(div().text_color(theme::faint()).child(format!(
-            "Created {}",
-            local_short_timestamp(role.created_at)
+        .child(div().text_color(theme::faint()).child(crate::i18n::tf(
+            "format.role_created_at",
+            &[(
+                "created_at",
+                (local_short_timestamp(role.created_at)).to_string(),
+            )],
         )))
         .child(
             div()

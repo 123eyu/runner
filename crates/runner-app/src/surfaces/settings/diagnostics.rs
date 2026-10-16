@@ -23,7 +23,10 @@ impl DiagnosticsPane {
                 cx.reveal_path(&self.log_dir);
                 None
             }
-            Err(error) => Some(format!("Couldn't reveal logs: {error}")),
+            Err(error) => Some(crate::i18n::tf(
+                "format.couldn_t_reveal_logs",
+                &[("error", (error).to_string())],
+            )),
         };
         cx.notify();
     }
@@ -32,28 +35,37 @@ impl DiagnosticsPane {
 impl Render for DiagnosticsPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(not(windows))]
-        let logs_label = "Reveal logs in Finder";
+        let logs_label = crate::i18n::text("ui.reveal_logs_in_finder");
         #[cfg(windows)]
-        let logs_label = "Open log folder";
-        let logs_description =
-            "Open the folder containing runner.log so you can attach it to a bug report."
-                .to_owned();
+        let logs_label = crate::i18n::text("ui.open_log_folder");
+        let logs_description = crate::i18n::text(
+            "ui.open_the_folder_containing_runner_log_so_you_can_attach_it_to_a_bug_report",
+        )
+        .to_owned();
         #[cfg(windows)]
         let logs_description = runner_app::updater::global_updater(cx)
             .read(cx)
             .install_log_path()
-            .map(|path| format!("{logs_description} Installer log: {}", path.display()))
+            .map(|path| {
+                crate::i18n::tf(
+                    "format.installer_log",
+                    &[
+                        ("logs_description", (logs_description).to_string()),
+                        ("path", (path.display()).to_string()),
+                    ],
+                )
+            })
             .unwrap_or(logs_description);
         div()
             .flex()
             .flex_col()
             .gap_5()
             .child(PaneHeader::new(
-                "Diagnostics",
-                "Logs and troubleshooting tools.",
+                crate::i18n::text("ui.diagnostics"),
+                crate::i18n::text("ui.logs_and_troubleshooting_tools"),
             ))
             .child(SettingsCard::new([SettingsRow::new(
-                "Application logs",
+                crate::i18n::text("ui.application_logs"),
                 Button::new("diagnostics-reveal-logs", logs_label)
                     .icon("folder-open.svg")
                     .size(ButtonSize::Sm)

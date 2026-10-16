@@ -120,7 +120,7 @@ impl Sidebar {
                     )
                     .size(IconButtonSize::Xs)
                     .stop_click_propagation(true)
-                    .tooltip("More actions")
+                    .tooltip(crate::i18n::text("ui.more_actions"))
                     .on_press(move |window, cx| {
                         let position = window.mouse_position();
                         menu_root.update(cx, |this, cx| {
@@ -258,7 +258,7 @@ impl Sidebar {
                     )
                     .size(IconButtonSize::Xs)
                     .stop_click_propagation(true)
-                    .tooltip("More actions")
+                    .tooltip(crate::i18n::text("ui.more_actions"))
                     .on_press(move |window, cx| {
                         let position = window.mouse_position();
                         menu_root.update(cx, |this, cx| {
@@ -424,7 +424,7 @@ impl Sidebar {
                         SharedString::from(format!("sidebar-project-create-{}", project.id)),
                         "plus.svg",
                         12.,
-                        "New in project",
+                        crate::i18n::text("ui.new_in_project"),
                         move |anchor, window, cx| {
                             create_menu_root.update(cx, |this, cx| {
                                 this.open_project_create_menu(
@@ -440,7 +440,7 @@ impl Sidebar {
                         SharedString::from(format!("sidebar-project-actions-{}", project.id)),
                         "more-horizontal.svg",
                         14.,
-                        "Project actions",
+                        crate::i18n::text("ui.project_actions"),
                         move |anchor, window, cx| {
                             menu_root.update(cx, |this, cx| {
                                 this.open_project_menu(
@@ -569,7 +569,7 @@ impl Sidebar {
                         if self.dragged_id.is_some() {
                             vec![self.render_empty_project_drop_area(node.id.clone(), cx)]
                         } else {
-                            vec![empty_sidebar_label("Empty")]
+                            vec![empty_sidebar_label(crate::i18n::text("ui.empty"))]
                         }
                     } else {
                         nested

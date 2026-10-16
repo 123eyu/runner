@@ -11,7 +11,7 @@ use runner_core::protocol::model::SlotWithRole;
 use runner_core::protocol::project::ProjectRow;
 use runner_core::protocol::project::ProjectScope;
 
-use crate::surfaces::crews::{crew_picture, crew_summary, lead_badge, slot_setup, slot_setup_line};
+use crate::surfaces::crews::{crew_picture, lead_badge, slot_setup, slot_setup_line};
 use crate::*;
 
 pub(crate) struct StartMissionModalState {
@@ -79,20 +79,26 @@ impl NativeRoot {
             TextField::new(
                 input_cx.focus_handle(),
                 "",
-                "e.g. Wire up event bus watcher",
+                crate::i18n::message("ui.e_g_wire_up_event_bus_watcher"),
                 false,
             )
             .text_size(theme::text_body())
         });
         let goal = cx.new(|input_cx| {
-            TextField::textarea(input_cx.focus_handle(), "", "Describe what to do…", 5, true)
-                .text_size(theme::text_body())
+            TextField::textarea(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.describe_what_to_do"),
+                5,
+                true,
+            )
+            .text_size(theme::text_body())
         });
         let cwd_input = cx.new(|input_cx| {
             working_dir_text_field(
                 input_cx.focus_handle(),
                 cwd,
-                "Role default or home directory",
+                crate::i18n::message("ui.role_default_or_home_directory"),
             )
             .text_size(theme::text_ui())
         });
@@ -110,7 +116,7 @@ impl NativeRoot {
                 select_cx,
             )
             .picker(true)
-            .placeholder("No crews yet")
+            .placeholder(crate::i18n::message("ui.no_crews_yet"))
         });
         let crew_focus = crew_select.read(cx).focus_handle();
         let subscriptions = [&title, &goal, &cwd_input]
@@ -256,7 +262,7 @@ impl NativeRoot {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Pick a working directory".into()),
+            prompt: Some(crate::i18n::text("ui.pick_a_working_directory").into()),
         });
         cx.spawn(async move |weak, cx| {
             let result = selected
@@ -383,20 +389,22 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Start mission"),
+                            .child(crate::i18n::text("ui.start_mission")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
-                            .child("A team of agents on one goal, with a shared feed."),
+                            .child(crate::i18n::text(
+                                "ui.a_team_of_agents_on_one_goal_with_a_shared_feed",
+                            )),
                     ),
             )
             .child(
                 IconButton::new("close-start-mission", "close.svg")
                     .focus_handle(modal.close_focus.clone())
-                    .tooltip("Close start mission")
+                    .tooltip(crate::i18n::text("ui.close_start_mission"))
                     .disabled(modal.submitting)
                     .on_press(move |window, cx| {
                         close_root
@@ -411,7 +419,7 @@ impl NativeRoot {
             .child(
                 Field::new(
                     "start-mission-crew-field",
-                    "Crew",
+                    crate::i18n::text("ui.crew"),
                     start_mission_crew_card(modal),
                 )
                 .emphasized(true),
@@ -421,34 +429,31 @@ impl NativeRoot {
                     .mt(rems(-14. / 16.))
                     .text_size(theme::text_meta())
                     .text_color(theme::warning())
-                    .child("This crew has no roles. Add at least one before starting a mission.")
+                    .child(crate::i18n::text("ui.this_crew_has_no_roles_add_at_least_one_before_starting_a_mission"))
             }))
             .child(
                 Field::new(
                     "start-mission-title-field",
-                    "Mission title",
+                    crate::i18n::text("ui.mission_title"),
                     modal.title.clone(),
                 )
                 .emphasized(true)
-                .subtitle("Short label shown in the missions list and event log."),
+                .subtitle(crate::i18n::text("ui.short_label_shown_in_the_missions_list_and_event_log")),
             )
             .child(
-                Field::new("start-mission-goal-field", "Goal", modal.goal.clone()).tag("optional")
+                Field::new("start-mission-goal-field", crate::i18n::text("ui.goal"), modal.goal.clone()).tag(crate::i18n::text("word.optional"))
                     .emphasized(true)
                     .subtitle(
                         lead.map(|lead| {
-                            format!(
-                                "Delivered to @{} (lead) on mission start.",
-                                lead.slot.slot_handle
-                            )
+                            crate::i18n::tf("format.delivered_to_lead_on_mission_start", &[("handle", (lead.slot.slot_handle).to_string())])
                         })
-                        .unwrap_or_else(|| if modal.crew_id.is_empty() { "Shared with every role that joins. Give each one its own task when you add it.".into() } else { "Delivered to the crew lead on mission start.".into() }),
+                        .unwrap_or_else(|| if modal.crew_id.is_empty() { crate::i18n::text("ui.shared_with_every_role_that_joins_give_each_one_its_own_task_when_you_add_it").into() } else { crate::i18n::text("ui.delivered_to_the_crew_lead_on_mission_start").into() }),
                     ),
             )
             .child(
                 Field::new(
                     "start-mission-cwd-field",
-                    "Working directory",
+                    crate::i18n::text("ui.working_directory"),
                     WorkingDirField::new(
                         modal.cwd.clone(),
                         modal.submitting,
@@ -460,7 +465,7 @@ impl NativeRoot {
                     .browse_focus(modal.browse_focus.clone()),
                 )
                 .emphasized(true)
-                .subtitle(if modal.crew_id.is_empty() { "Every role you add starts here. Leave blank to use its default directory or your home directory." } else { "Each role starts here. Leave blank to use its default directory or your home directory." }),
+                .subtitle(if modal.crew_id.is_empty() { crate::i18n::text("ui.every_role_you_add_starts_here_leave_blank_to_use_its_default_directory_or_your_home_direc") } else { crate::i18n::text("ui.each_role_starts_here_leave_blank_to_use_its_default_directory_or_your_home_directory") }),
             )
             ;
         let footer = div().w_full().flex().items_center().justify_end().child(
@@ -469,7 +474,7 @@ impl NativeRoot {
                 .items_center()
                 .gap_2()
                 .child(
-                    Button::new("cancel-start-mission", "Cancel")
+                    Button::new("cancel-start-mission", crate::i18n::text("ui.cancel"))
                         .shortcut("esc")
                         .focus_handle(modal.cancel_focus.clone())
                         .disabled(modal.submitting)
@@ -482,9 +487,9 @@ impl NativeRoot {
                     Button::new(
                         "submit-start-mission",
                         if modal.submitting {
-                            "Starting…"
+                            crate::i18n::text("ui.starting")
                         } else {
-                            "Start mission"
+                            crate::i18n::text("ui.start_mission")
                         },
                     )
                     .shortcut(keymap::fixed_shortcut("cmd-enter"))
@@ -556,7 +561,7 @@ fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
         .child(modal.crew_select.clone())
         .children(modal.crew_id.is_empty().then(|| div().border_t_1().border_color(theme::border()).px_4().py_3()
             .text_size(theme::text_ui()).text_color(theme::muted())
-            .child("No roles at start. Add them one at a time from the mission once it starts; each joins as a worker.")))
+            .child(crate::i18n::text("ui.no_roles_at_start_add_them_one_at_a_time_from_the_mission_once_it_starts_each_joins_as_a_w"))))
         .children((!modal.roster.is_empty()).then(|| {
             div()
                 .border_t_1()
@@ -619,10 +624,22 @@ fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
         }))
 }
 
+fn crew_summary_message(count: usize, lead: Option<&str>) -> i18n::Text {
+    if let Some(lead) = lead {
+        i18n::message_count("count.slots_lead", count, &[("lead", lead.to_owned())])
+    } else if count == 0 {
+        i18n::message("ui.no_slots_yet")
+    } else {
+        i18n::message_count("count.slots", count, &[])
+    }
+}
+
 fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
-    let empty = SelectOption::new("", "No crew")
-        .description("start empty · add roles from the mission")
-        .trigger_description("start empty")
+    let empty = SelectOption::new("", crate::i18n::message("ui.no_crew"))
+        .description(crate::i18n::message(
+            "ui.start_empty_add_roles_from_the_mission",
+        ))
+        .trigger_description(crate::i18n::message("ui.start_empty"))
         .leading(SelectLeading::new("no-crew", |size| {
             div()
                 .flex_none()
@@ -650,7 +667,7 @@ fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
             let key = format!("crew:{}:{handles:?}", crew.crew.id);
             SelectOption::new(crew.crew.id.clone(), crew.crew.name.clone())
                 .separator_before(index == 0)
-                .description(crew_summary(
+                .description(crew_summary_message(
                     crew.role_count as usize,
                     crew.members
                         .iter()

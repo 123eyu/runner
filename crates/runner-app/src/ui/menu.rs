@@ -19,6 +19,9 @@ pub type DismissHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MenuItem {
     pub label: SharedString,
+    label_source: crate::i18n::Text,
+    description_source: Option<crate::i18n::Text>,
+    tooltip_source: Option<crate::i18n::Text>,
     pub description: Option<SharedString>,
     pub icon: Option<SharedString>,
     pub shortcut: Option<SharedString>,
@@ -29,9 +32,23 @@ pub struct MenuItem {
 }
 
 impl MenuItem {
-    pub fn new(label: impl Into<SharedString>) -> Self {
+    fn relocalize(&mut self) {
+        self.label = self.label_source.resolve();
+        if let Some(source) = &self.description_source {
+            self.description = Some(source.resolve());
+        }
+        if let Some(source) = &self.tooltip_source {
+            self.tooltip = Some(source.resolve());
+        }
+    }
+
+    pub fn new(label: impl Into<crate::i18n::Text>) -> Self {
+        let label_source = label.into();
         Self {
-            label: label.into(),
+            label: label_source.resolve(),
+            label_source,
+            description_source: None,
+            tooltip_source: None,
             description: None,
             icon: None,
             shortcut: None,
@@ -42,8 +59,10 @@ impl MenuItem {
         }
     }
 
-    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
-        self.description = Some(description.into());
+    pub fn description(mut self, description: impl Into<crate::i18n::Text>) -> Self {
+        let source = description.into();
+        self.description = Some(source.resolve());
+        self.description_source = Some(source);
         self
     }
 
@@ -58,8 +77,10 @@ impl MenuItem {
     }
 
     /// Hover copy for the row — the only way a disabled item can say why.
-    pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
-        self.tooltip = Some(tooltip.into());
+    pub fn tooltip(mut self, tooltip: impl Into<crate::i18n::Text>) -> Self {
+        let source = tooltip.into();
+        self.tooltip = Some(source.resolve());
+        self.tooltip_source = Some(source);
         self
     }
 
@@ -296,7 +317,7 @@ pub struct PopoverMenu {
     min_width: Pixels,
     trigger_size: IconButtonSize,
     trigger_icon: SharedString,
-    trigger_tooltip: Option<SharedString>,
+    trigger_tooltip: Option<crate::i18n::Text>,
     return_focus: Option<FocusHandle>,
     menu_scroll: ScrollHandle,
     menu_scrollbar: Entity<Scrollbar>,
@@ -323,7 +344,7 @@ impl PopoverMenu {
             min_width: px(160.),
             trigger_size: IconButtonSize::Md,
             trigger_icon: "more-horizontal.svg".into(),
-            trigger_tooltip: Some("More actions".into()),
+            trigger_tooltip: Some(crate::i18n::message("ui.more_actions")),
             return_focus: None,
             menu_scroll,
             menu_scrollbar,
@@ -346,7 +367,7 @@ impl PopoverMenu {
         self
     }
 
-    pub fn trigger_tooltip(mut self, trigger_tooltip: impl Into<SharedString>) -> Self {
+    pub fn trigger_tooltip(mut self, trigger_tooltip: impl Into<crate::i18n::Text>) -> Self {
         self.trigger_tooltip = Some(trigger_tooltip.into());
         self
     }
@@ -427,109 +448,115 @@ impl PopoverMenu {
             return None;
         }
         let menu_entity = cx.weak_entity();
-        let rows = self.items.iter().cloned().enumerate().map(|(index, item)| {
-            let active = self.state.highlighted == index;
-            let click_entity = menu_entity.clone();
-            let hover_entity = menu_entity.clone();
-            let foreground = if item.destructive {
-                theme::danger()
-            } else if item.disabled {
-                theme::faint()
-            } else {
-                theme::text()
-            };
-            let separator_before = item.separator_before;
-            let row = div()
-                .id(("popover-item", index))
-                .when(cfg!(test), |row| {
-                    row.debug_selector(move || format!("POPOVER_ITEM_{index}"))
-                })
-                .w_full()
-                .px(rems(10. / 16.))
-                .py(rems(if item.description.is_some() {
-                    8. / 16.
+        let rows = self
+            .items
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, mut item)| {
+                item.relocalize();
+                let active = self.state.highlighted == index;
+                let click_entity = menu_entity.clone();
+                let hover_entity = menu_entity.clone();
+                let foreground = if item.destructive {
+                    theme::danger()
+                } else if item.disabled {
+                    theme::faint()
                 } else {
-                    6. / 16.
-                }))
-                .flex()
-                .items_center()
-                .gap(rems(10. / 16.))
-                .rounded(rems(4. / 16.))
-                .opacity(if item.disabled { 0.5 } else { 1. })
-                .when(active, |row| row.bg(theme::sidebar_selected()))
-                .when(!item.disabled, |row| {
-                    row.cursor_pointer()
-                        .hover(|row| row.bg(theme::sidebar_selected()))
-                        .on_hover(move |hovered, _, cx| {
-                            if *hovered {
-                                let _ = hover_entity.update(cx, |menu, cx| {
-                                    if menu.state.highlighted != index {
-                                        menu.state.highlighted = index;
-                                        cx.notify();
-                                    }
-                                });
-                            }
-                        })
-                })
-                .children(item.icon.map(|icon| {
-                    svg()
-                        .flex_none()
-                        .path(icon)
-                        .size(rems(14. / 16.))
-                        .text_color(foreground)
-                }))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .text_size(theme::text_body())
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(foreground)
-                                .child(item.label),
-                        )
-                        .children(item.description.map(|description| {
-                            div()
-                                .text_size(theme::text_meta())
-                                .text_color(theme::faint())
-                                .child(description)
-                        })),
-                )
-                .children(item.shortcut.map(|shortcut| {
-                    div()
-                        .flex_none()
-                        .text_size(theme::text_meta())
-                        .text_color(theme::faint())
-                        .child(shortcut)
-                }))
-                .when_some(item.tooltip, |row, tooltip| {
-                    row.tooltip(move |_, cx| tooltip_view(tooltip.clone(), cx))
-                })
-                .when(!item.disabled, |row| {
-                    row.on_click(move |_, window, cx| {
-                        let _ = click_entity.update(cx, |menu, cx| {
-                            menu.state.close();
-                            menu.restore_focus(window, cx);
-                            (menu.on_activate)(index, window, cx);
-                            cx.notify();
-                        });
+                    theme::text()
+                };
+                let separator_before = item.separator_before;
+                let row = div()
+                    .id(("popover-item", index))
+                    .when(cfg!(test), |row| {
+                        row.debug_selector(move || format!("POPOVER_ITEM_{index}"))
                     })
-                });
-            div()
-                .w_full()
-                .when(separator_before, |wrapper| {
-                    wrapper.child(
+                    .w_full()
+                    .px(rems(10. / 16.))
+                    .py(rems(if item.description.is_some() {
+                        8. / 16.
+                    } else {
+                        6. / 16.
+                    }))
+                    .flex()
+                    .items_center()
+                    .gap(rems(10. / 16.))
+                    .rounded(rems(4. / 16.))
+                    .opacity(if item.disabled { 0.5 } else { 1. })
+                    .when(active, |row| row.bg(theme::sidebar_selected()))
+                    .when(!item.disabled, |row| {
+                        row.cursor_pointer()
+                            .hover(|row| row.bg(theme::sidebar_selected()))
+                            .on_hover(move |hovered, _, cx| {
+                                if *hovered {
+                                    let _ = hover_entity.update(cx, |menu, cx| {
+                                        if menu.state.highlighted != index {
+                                            menu.state.highlighted = index;
+                                            cx.notify();
+                                        }
+                                    });
+                                }
+                            })
+                    })
+                    .children(item.icon.map(|icon| {
+                        svg()
+                            .flex_none()
+                            .path(icon)
+                            .size(rems(14. / 16.))
+                            .text_color(foreground)
+                    }))
+                    .child(
                         div()
-                            .mx_1()
-                            .py_1()
-                            .child(div().h(px(1.)).w_full().bg(theme::border())),
+                            .flex_1()
+                            .min_w(px(0.))
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(theme::text_body())
+                                    .font_weight(FontWeight::NORMAL)
+                                    .text_color(foreground)
+                                    .child(item.label),
+                            )
+                            .children(item.description.map(|description| {
+                                div()
+                                    .text_size(theme::text_meta())
+                                    .text_color(theme::faint())
+                                    .child(description)
+                            })),
                     )
-                })
-                .child(row)
-        });
+                    .children(item.shortcut.map(|shortcut| {
+                        div()
+                            .flex_none()
+                            .text_size(theme::text_meta())
+                            .text_color(theme::faint())
+                            .child(shortcut)
+                    }))
+                    .when_some(item.tooltip, |row, tooltip| {
+                        row.tooltip(move |_, cx| tooltip_view(tooltip.clone(), cx))
+                    })
+                    .when(!item.disabled, |row| {
+                        row.on_click(move |_, window, cx| {
+                            let _ = click_entity.update(cx, |menu, cx| {
+                                menu.state.close();
+                                menu.restore_focus(window, cx);
+                                (menu.on_activate)(index, window, cx);
+                                cx.notify();
+                            });
+                        })
+                    });
+                div()
+                    .w_full()
+                    .when(separator_before, |wrapper| {
+                        wrapper.child(
+                            div()
+                                .mx_1()
+                                .py_1()
+                                .child(div().h(px(1.)).w_full().bg(theme::border())),
+                        )
+                    })
+                    .child(row)
+            });
         let menu = div()
             .id("popover-menu-items")
             .relative()
@@ -567,6 +594,9 @@ impl PopoverMenu {
 
 impl Render for PopoverMenu {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        for item in &mut self.items {
+            item.relocalize();
+        }
         let zoom = app_zoom(window);
         let entity = cx.entity();
         let click_entity = entity.clone();
@@ -578,7 +608,7 @@ impl Render for PopoverMenu {
                 click_entity.update(cx, |menu, cx| menu.toggle(window, cx));
             });
         let trigger = match self.trigger_tooltip.clone() {
-            Some(tooltip) => trigger.tooltip(tooltip),
+            Some(tooltip) => trigger.tooltip(tooltip.resolve()),
             None => trigger,
         };
         let capture = cx.entity();
@@ -737,106 +767,112 @@ impl ContextMenu {
         }
         let width = context_menu_width(app_zoom(window));
         let entity = cx.weak_entity();
-        let rows = self.items.iter().cloned().enumerate().map(|(index, item)| {
-            let active = self.state.highlighted == index;
-            let click_entity = entity.clone();
-            let hover_entity = entity.clone();
-            let foreground = if item.destructive {
-                theme::danger()
-            } else if item.disabled {
-                theme::faint()
-            } else {
-                theme::text()
-            };
-            let separator_before = item.separator_before;
-            let row = div()
-                .id(("context-menu-item", index))
-                .when(cfg!(test), |row| {
-                    row.debug_selector(move || format!("CONTEXT_MENU_ITEM_{index}"))
-                })
-                .w_full()
-                .px(rems(10. / 16.))
-                .py(rems(if item.description.is_some() {
-                    8. / 16.
+        let rows = self
+            .items
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, mut item)| {
+                item.relocalize();
+                let active = self.state.highlighted == index;
+                let click_entity = entity.clone();
+                let hover_entity = entity.clone();
+                let foreground = if item.destructive {
+                    theme::danger()
+                } else if item.disabled {
+                    theme::faint()
                 } else {
-                    6. / 16.
-                }))
-                .flex()
-                .items_center()
-                .gap(rems(10. / 16.))
-                .rounded(rems(4. / 16.))
-                .opacity(if item.disabled { 0.5 } else { 1. })
-                .when(active, |row| row.bg(theme::sidebar_selected()))
-                .when(!item.disabled, |row| {
-                    row.cursor_pointer()
-                        .hover(|row| row.bg(theme::sidebar_selected()))
-                        .on_hover(move |hovered, _, cx| {
-                            if *hovered {
-                                let _ = hover_entity.update(cx, |menu, cx| {
-                                    if menu.state.highlighted != index {
-                                        menu.state.highlighted = index;
-                                        cx.notify();
-                                    }
-                                });
-                            }
-                        })
-                })
-                .children(item.icon.map(|icon| {
-                    svg()
-                        .flex_none()
-                        .path(icon)
-                        .size(rems(14. / 16.))
-                        .text_color(foreground)
-                }))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .text_size(theme::text_body())
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(foreground)
-                                .child(item.label),
-                        )
-                        .children(item.description.map(|description| {
-                            div()
-                                .text_size(theme::text_meta())
-                                .text_color(theme::faint())
-                                .child(description)
-                        })),
-                )
-                .children(item.shortcut.map(|shortcut| {
-                    div()
-                        .flex_none()
-                        .pl(rems(12. / 16.))
-                        .text_size(theme::text_meta())
-                        .text_color(theme::faint())
-                        .child(shortcut)
-                }))
-                .when_some(item.tooltip, |row, tooltip| {
-                    row.tooltip(move |_, cx| tooltip_view(tooltip.clone(), cx))
-                })
-                .when(!item.disabled, |row| {
-                    row.on_click(move |_, window, cx| {
-                        let _ =
-                            click_entity.update(cx, |menu, cx| menu.activate(index, window, cx));
+                    theme::text()
+                };
+                let separator_before = item.separator_before;
+                let row = div()
+                    .id(("context-menu-item", index))
+                    .when(cfg!(test), |row| {
+                        row.debug_selector(move || format!("CONTEXT_MENU_ITEM_{index}"))
                     })
-                });
-            div()
-                .w_full()
-                .when(separator_before, |wrapper| {
-                    wrapper.child(
+                    .w_full()
+                    .px(rems(10. / 16.))
+                    .py(rems(if item.description.is_some() {
+                        8. / 16.
+                    } else {
+                        6. / 16.
+                    }))
+                    .flex()
+                    .items_center()
+                    .gap(rems(10. / 16.))
+                    .rounded(rems(4. / 16.))
+                    .opacity(if item.disabled { 0.5 } else { 1. })
+                    .when(active, |row| row.bg(theme::sidebar_selected()))
+                    .when(!item.disabled, |row| {
+                        row.cursor_pointer()
+                            .hover(|row| row.bg(theme::sidebar_selected()))
+                            .on_hover(move |hovered, _, cx| {
+                                if *hovered {
+                                    let _ = hover_entity.update(cx, |menu, cx| {
+                                        if menu.state.highlighted != index {
+                                            menu.state.highlighted = index;
+                                            cx.notify();
+                                        }
+                                    });
+                                }
+                            })
+                    })
+                    .children(item.icon.map(|icon| {
+                        svg()
+                            .flex_none()
+                            .path(icon)
+                            .size(rems(14. / 16.))
+                            .text_color(foreground)
+                    }))
+                    .child(
                         div()
-                            .mx_1()
-                            .py_1()
-                            .child(div().h(px(1.)).w_full().bg(theme::border())),
+                            .flex_1()
+                            .min_w(px(0.))
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(theme::text_body())
+                                    .font_weight(FontWeight::NORMAL)
+                                    .text_color(foreground)
+                                    .child(item.label),
+                            )
+                            .children(item.description.map(|description| {
+                                div()
+                                    .text_size(theme::text_meta())
+                                    .text_color(theme::faint())
+                                    .child(description)
+                            })),
                     )
-                })
-                .child(row)
-        });
+                    .children(item.shortcut.map(|shortcut| {
+                        div()
+                            .flex_none()
+                            .pl(rems(12. / 16.))
+                            .text_size(theme::text_meta())
+                            .text_color(theme::faint())
+                            .child(shortcut)
+                    }))
+                    .when_some(item.tooltip, |row, tooltip| {
+                        row.tooltip(move |_, cx| tooltip_view(tooltip.clone(), cx))
+                    })
+                    .when(!item.disabled, |row| {
+                        row.on_click(move |_, window, cx| {
+                            let _ = click_entity
+                                .update(cx, |menu, cx| menu.activate(index, window, cx));
+                        })
+                    });
+                div()
+                    .w_full()
+                    .when(separator_before, |wrapper| {
+                        wrapper.child(
+                            div()
+                                .mx_1()
+                                .py_1()
+                                .child(div().h(px(1.)).w_full().bg(theme::border())),
+                        )
+                    })
+                    .child(row)
+            });
         let menu = div()
             .id(self.id.clone())
             .tab_index(0)
@@ -867,6 +903,9 @@ impl ContextMenu {
 
 impl Render for ContextMenu {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        for item in &mut self.items {
+            item.relocalize();
+        }
         if !self.state.open {
             return div().into_any_element();
         }

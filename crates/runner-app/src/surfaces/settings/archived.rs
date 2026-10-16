@@ -15,9 +15,6 @@ use runner_app::ui::{
 use runner_core::protocol::model::Mission;
 use runner_core::protocol::session::DirectSessionEntry;
 
-#[cfg(target_os = "macos")]
-use objc2_foundation::{NSDate, NSDateFormatter, NSString};
-
 use crate::app_store::AppStore;
 use crate::chat_icon::ChatIcon;
 use crate::theme;
@@ -36,9 +33,9 @@ impl ArchivedFilter {
 
     fn label(self) -> &'static str {
         match self {
-            Self::All => "All",
-            Self::Missions => "Missions",
-            Self::Chats => "Chats",
+            Self::All => crate::i18n::text("ui.all"),
+            Self::Missions => crate::i18n::text("ui.missions"),
+            Self::Chats => crate::i18n::text("ui.chats"),
         }
     }
 }
@@ -89,8 +86,13 @@ impl ArchivedPane {
         cx: &mut Context<Self>,
     ) -> Self {
         let search = cx.new(|input_cx| {
-            let mut input = TextField::new(input_cx.focus_handle(), "", "Search archived…", false)
-                .text_size(theme::text_body());
+            let mut input = TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.search_archived"),
+                false,
+            )
+            .text_size(theme::text_body());
             input.set_bare(true, input_cx);
             input
         });
@@ -423,7 +425,7 @@ impl ArchivedPane {
             .child(
                 Button::new(
                     SharedString::from(format!("restore-{}-{}", item.kind.key(), item.id)),
-                    "Restore",
+                    crate::i18n::text("ui.restore"),
                 )
                 .size(ButtonSize::Sm)
                 .variant(ButtonVariant::Secondary)
@@ -493,14 +495,14 @@ impl Render for ArchivedPane {
                             .mt_1()
                             .text_size(theme::text_body())
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Nothing archived yet"),
+                            .child(crate::i18n::text("ui.nothing_archived_yet")),
                     )
                     .child(
                         div()
                             .text_size(theme::text_ui())
                             .text_color(theme::muted())
                             .child(
-                                "Archive a chat or mission from the sidebar and it will land here.",
+                                crate::i18n::text("ui.archive_a_chat_or_mission_from_the_sidebar_and_it_will_land_here"),
                             ),
                     )
                     .into_any_element(),
@@ -513,7 +515,7 @@ impl Render for ArchivedPane {
                     .text_center()
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
-                    .child("No archived items match.")
+                    .child(crate::i18n::text("ui.no_archived_items_match"))
                     .into_any_element()])
                 .into_any_element(),
             )
@@ -533,11 +535,13 @@ impl Render for ArchivedPane {
             .gap_5()
             .child(
                 PaneHeader::new(
-                    "Archived",
-                    "Everything you've archived — restore anytime, or delete permanently.",
+                    crate::i18n::text("ui.archived"),
+                    crate::i18n::text(
+                        "ui.everything_you_ve_archived_restore_anytime_or_delete_permanently",
+                    ),
                 )
                 .action(
-                    Button::new("archived-delete-all", "Delete all")
+                    Button::new("archived-delete-all", crate::i18n::text("ui.delete_all"))
                         .icon("trash.svg")
                         .size(ButtonSize::Md)
                         .variant(ButtonVariant::Danger)
@@ -624,13 +628,10 @@ impl Render for ArchivedConfirmOverlay {
         let cancel_pane = pane.clone();
         let confirm_pane = pane;
         ConfirmDialog::new(
-            "Delete all archived items?",
-            format!(
-                "This permanently deletes all {count} archived {}, including mission event logs. This can't be undone.",
-                if count == 1 { "item" } else { "items" }
-            ),
-            "Delete all",
-            "Deleting…",
+            crate::i18n::text("ui.delete_all_archived_items"),
+            crate::i18n::tnf("format.this_permanently_deletes_all_archived_including_mission_event_logs_this_can_t", count, &[]),
+            crate::i18n::text("ui.delete_all"),
+            crate::i18n::text("ui.deleting"),
             busy,
             Rc::new(move |_, cx| {
                 confirm_pane.update(cx, |pane, pane_cx| pane.delete_all(pane_cx));
@@ -729,31 +730,14 @@ fn format_timestamp(timestamp: DateTime<Utc>, now: DateTime<Local>) -> String {
     localized_timestamp(timestamp, same_day)
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn localized_timestamp_template(time_only: bool) -> &'static str {
-    if time_only {
-        "jm"
-    } else {
-        "MMM d"
-    }
-}
-
-#[cfg(target_os = "macos")]
 fn localized_timestamp(timestamp: DateTime<Local>, time_only: bool) -> String {
-    let date = NSDate::dateWithTimeIntervalSince1970(timestamp.timestamp_millis() as f64 / 1000.);
-    let formatter = NSDateFormatter::new();
-    let template = NSString::from_str(localized_timestamp_template(time_only));
-    formatter.setLocalizedDateFormatFromTemplate(&template);
-    formatter.stringFromDate(&date).to_string()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn localized_timestamp(timestamp: DateTime<Local>, time_only: bool) -> String {
-    if time_only {
-        timestamp.format("%H:%M").to_string()
-    } else {
-        timestamp.format("%b %-d").to_string()
-    }
+    timestamp
+        .format(crate::i18n::text(if time_only {
+            "date.time24"
+        } else {
+            "date.short"
+        }))
+        .to_string()
 }
 
 #[cfg(test)]
@@ -904,9 +888,17 @@ mod tests {
     }
 
     #[test]
-    fn archived_timestamps_use_the_platform_formatter() {
-        assert_eq!(localized_timestamp_template(true), "jm");
-        assert_eq!(localized_timestamp_template(false), "MMM d");
+    fn archived_timestamps_follow_the_display_language() {
+        let date = "2026-10-16T13:45:00Z"
+            .parse::<DateTime<Utc>>()
+            .unwrap()
+            .with_timezone(&Local);
+        crate::i18n::testing::with_locale(crate::i18n::Locale::English, || {
+            assert_eq!(localized_timestamp(date, false), "Oct 16")
+        });
+        crate::i18n::testing::with_locale(crate::i18n::Locale::SimplifiedChinese, || {
+            assert_eq!(localized_timestamp(date, false), "10月16日")
+        });
         let now = Local::now();
         assert!(!format_timestamp(now.with_timezone(&Utc), now).is_empty());
     }

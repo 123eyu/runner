@@ -101,6 +101,7 @@ pub struct SettingsRow {
     label_icon: Option<(SharedString, Hsla)>,
     subtitle: Option<SharedString>,
     subtitle_color: Option<Hsla>,
+    wrap_control: bool,
     control: AnyElement,
 }
 
@@ -111,6 +112,7 @@ impl SettingsRow {
             label_icon: None,
             subtitle: None,
             subtitle_color: None,
+            wrap_control: false,
             control: control.into_any_element(),
         }
     }
@@ -129,6 +131,11 @@ impl SettingsRow {
         self.subtitle_color = Some(color);
         self
     }
+
+    pub fn wrap_control(mut self) -> Self {
+        self.wrap_control = true;
+        self
+    }
 }
 
 impl RenderOnce for SettingsRow {
@@ -138,11 +145,21 @@ impl RenderOnce for SettingsRow {
             .items_center()
             .justify_between()
             .gap(rems(24. / 16.))
+            .when(self.wrap_control, |row| {
+                row.flex_wrap()
+                    .gap_y(rems(12. / 16.))
+                    .debug_selector(|| "SETTINGS_WRAPPED_ROW".into())
+            })
             .px_4()
             .py_3()
             .child(
                 div()
                     .min_w(px(0.))
+                    .when(self.wrap_control, |text| {
+                        text.flex_1()
+                            .flex_basis(rems(200. / 16.))
+                            .debug_selector(|| "SETTINGS_WRAPPED_ROW_TEXT".into())
+                    })
                     .flex()
                     .flex_col()
                     .gap(rems(2. / 16.))
@@ -169,6 +186,10 @@ impl RenderOnce for SettingsRow {
                     })
                     .children(self.subtitle.map(|subtitle| {
                         div()
+                            .when(self.wrap_control, |description| {
+                                description
+                                    .debug_selector(|| "SETTINGS_WRAPPED_ROW_DESCRIPTION".into())
+                            })
                             .text_size(theme::text_meta())
                             .text_color(self.subtitle_color.unwrap_or_else(theme::muted))
                             .child(subtitle)

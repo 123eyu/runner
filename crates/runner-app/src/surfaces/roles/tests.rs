@@ -86,7 +86,7 @@ fn role_handle_validation_matches_the_shipped_contract() {
 fn runtime_default_labels_include_known_values() {
     let runtimes = [runtime_with_defaults(Some("gpt-5.6-sol"), Some("xhigh"))];
     assert_eq!(
-        runtime_model_placeholder(&runtimes, "codex", None),
+        runtime_model_placeholder(&runtimes, "codex", None).resolve(),
         "default (gpt-5.6-sol)"
     );
     assert_eq!(
@@ -96,7 +96,7 @@ fn runtime_default_labels_include_known_values() {
 
     let runtimes = [runtime_with_defaults(None, None)];
     assert_eq!(
-        runtime_model_placeholder(&runtimes, "codex", None),
+        runtime_model_placeholder(&runtimes, "codex", None).resolve(),
         "default"
     );
     assert_eq!(
@@ -2054,4 +2054,207 @@ fn settings_returns_to_the_same_creating_draft() {
         })
         .unwrap();
     page.visual.run_until_parked();
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn chinese_effort_summary_translates_values_without_changing_model_names() {
+    crate::i18n::testing::with_locale(crate::i18n::Locale::SimplifiedChinese, || {
+        assert_eq!(
+            super::logic::role_effort_label(Some("high")),
+            ("高".into(), false)
+        );
+        assert_eq!(
+            super::logic::role_effort_label(Some("medium")),
+            ("中".into(), false)
+        );
+        assert_eq!(super::logic::role_effort_label(None), ("默认".into(), true));
+        assert_eq!(
+            super::logic::role_setting_label(Some("high")),
+            ("high".into(), false)
+        );
+        let mut page = role_page_harness("chinese-effort-summary");
+        let role = create_test_role(&page.core, "literal-handle", None);
+        runner_daemon::ops::role::role_update(
+            &page.core,
+            &role.id,
+            runner_daemon::ops::role::UpdateRoleInput {
+                model: Some(Some("high".into())),
+                effort: Some(Some("high".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        page.open_role("literal-handle");
+        assert!(page.visual.debug_bounds("COLUMN_TEXT 高").is_some());
+        assert!(page.visual.debug_bounds("COLUMN_TEXT high").is_some());
+        assert!(page.visual.debug_bounds("SETUP_ROW 思考强度").is_some());
+        page.host
+            .update(&mut page.visual, |root, window, cx| {
+                root.open_roles(window, cx)
+            })
+            .unwrap();
+        page.visual
+            .simulate_resize(gpui::size(gpui::px(1600.), gpui::px(1000.)));
+        page.visual.run_until_parked();
+        assert!(page
+            .visual
+            .debug_bounds("ROLE_TABLE_CELL Effort 高")
+            .is_some());
+        assert!(page
+            .visual
+            .debug_bounds("ROLE_TABLE_CELL Model high")
+            .is_some());
+    });
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn existing_role_validation_follows_language_changes_from_a_peer_window() {
+    use crate::i18n::{testing::with_locale, Language, Locale};
+    with_locale(Locale::English, || {
+        let mut page = role_page_harness("role-validation-locale");
+        page.host
+            .update(&mut page.visual, |root, window, cx| {
+                root.open_create_role(window, cx)
+            })
+            .unwrap();
+        let store = page
+            .host
+            .read_with(&page.visual, |root, _| root.app_store.clone())
+            .unwrap();
+        let peer = page._cx.add_window(|window, cx| {
+            crate::NativeRoot::new(
+                "role-peer".into(),
+                page._temp.path().join("logs"),
+                None,
+                None,
+                store,
+                window,
+                cx,
+            )
+        });
+        let draft = page
+            .host
+            .read_with(&page.visual, |root, _| {
+                root.role_surfaces.create.as_ref().unwrap().handle.clone()
+            })
+            .unwrap();
+        draft.update(&mut page.visual, |field, cx| {
+            field.set_text("invalid!", cx);
+            field.select_all(cx);
+        });
+        page.visual.run_until_parked();
+        let caret = draft.read_with(&page.visual, |field, _| field.caret_offset());
+        for (language, expected) in [
+            (Language::SimplifiedChinese, "小写字母、数字、- 或 _；须以字母或数字开头；最多 32 个字符。"),
+            (Language::English, "Lowercase letters, digits, '-' or '_'; must start with a letter or digit; up to 32 chars."),
+        ] {
+            peer.update(&mut page.visual, |root, _, cx| root.app_store.update(cx, |store, cx| store.update_settings(|settings| { settings.language = language; true }, false, cx))).unwrap();
+            page.visual.run_until_parked();
+            page.host.read_with(&page.visual, |root, cx| {
+                let form = root.role_surfaces.create.as_ref().unwrap();
+                assert_eq!(crate::i18n::text(form.handle_error.unwrap()), expected);
+                assert_eq!(form.handle.entity_id(), draft.entity_id());
+                assert_eq!(form.handle.read(cx).text(), "invalid!");
+                assert_eq!(form.handle.read(cx).caret_offset(), caret);
+            }).unwrap();
+        }
+    });
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn refreshed_role_runtime_placeholders_follow_peer_language_changes() {
+    use crate::i18n::{testing::with_locale, Language, Locale};
+    with_locale(Locale::English, || {
+        let mut page = role_page_harness("role-runtime-placeholder-locale");
+        let store = page
+            .host
+            .read_with(&page.visual, |root, _| root.app_store.clone())
+            .unwrap();
+        store.update(&mut page.visual, |store, _| {
+            store.settings.language = Language::English;
+            store.settings.disabled_agents = Runtime::ALL
+                .into_iter()
+                .map(|runtime| runtime.key().to_owned())
+                .collect();
+        });
+        page.host
+            .update(&mut page.visual, |root, window, cx| {
+                root.open_create_role(window, cx)
+            })
+            .unwrap();
+        let (name, runtime) = page
+            .host
+            .read_with(&page.visual, |root, _| {
+                let form = root.role_surfaces.create.as_ref().unwrap();
+                (form.display_name.clone(), form.runtime_select.clone())
+            })
+            .unwrap();
+        name.update(&mut page.visual, |field, cx| {
+            field.set_text("literal {name} 草稿", cx);
+            field.select_all(cx);
+        });
+        let caret = name.read_with(&page.visual, |field, _| field.caret_offset());
+        let peer = page._cx.add_window(|window, cx| {
+            crate::NativeRoot::new(
+                "role-placeholder-peer".into(),
+                page._temp.path().join("logs"),
+                None,
+                None,
+                store,
+                window,
+                cx,
+            )
+        });
+        for (checking, english, chinese) in [
+            (
+                false,
+                "No enabled agents detected",
+                "未检测到已启用的智能体",
+            ),
+            (true, "Detecting agents…", "正在检测智能体…"),
+        ] {
+            page.core.runtime_discovery.write().unwrap().checking = checking;
+            page.core
+                .events
+                .emit("runtime/changed", &serde_json::Value::Null);
+            page.visual.run_until_parked();
+            runtime.read_with(&page.visual, |select, _| {
+                assert_eq!(select.placeholder_text(), english)
+            });
+            for (language, expected) in [
+                (Language::SimplifiedChinese, chinese),
+                (Language::English, english),
+            ] {
+                peer.update(&mut page.visual, |root, _, cx| {
+                    root.app_store.update(cx, |store, cx| {
+                        store.update_settings(
+                            |settings| {
+                                settings.language = language;
+                                true
+                            },
+                            false,
+                            cx,
+                        )
+                    })
+                })
+                .unwrap();
+                page.visual.run_until_parked();
+                runtime.read_with(&page.visual, |select, _| {
+                    assert_eq!(select.placeholder_text(), expected)
+                });
+                page.host
+                    .read_with(&page.visual, |root, cx| {
+                        let form = root.role_surfaces.create.as_ref().unwrap();
+                        assert_eq!(form.runtime_select.entity_id(), runtime.entity_id());
+                        assert_eq!(form.display_name.entity_id(), name.entity_id());
+                        assert_eq!(form.display_name.read(cx).text(), "literal {name} 草稿");
+                        assert_eq!(form.display_name.read(cx).caret_offset(), caret);
+                    })
+                    .unwrap();
+            }
+        }
+    });
 }

@@ -50,17 +50,22 @@ impl MissionWorkspace {
             .min_width(px(160.))
             .trigger_size(IconButtonSize::Md)
             .trigger_icon("more-horizontal.svg")
-            .trigger_tooltip("Mission actions")
+            .trigger_tooltip(crate::i18n::message("ui.mission_actions"))
         });
-        let mission_id_copy =
-            cx.new(|copy_cx| CopyValueButton::new(copy_cx.focus_handle(), None, "Copy mission ID"));
+        let mission_id_copy = cx.new(|copy_cx| {
+            CopyValueButton::new(
+                copy_cx.focus_handle(),
+                None,
+                crate::i18n::message("ui.copy_mission_id"),
+            )
+        });
         let composer_root = workspace;
         let composer_input = cx.new(move |input_cx| {
             let key_root = composer_root.clone();
             TextField::textarea(
                 input_cx.focus_handle(),
                 "",
-                "Message the crew — @handle to address one session",
+                crate::i18n::message("ui.message_the_crew_handle_to_address_one_session"),
                 1,
                 false,
             )
@@ -594,10 +599,11 @@ impl MissionWorkspace {
         }
         if reactions.reload_tabs && self.mission.is_some() && !self.archived() {
             if let Err(error) = self.load_mission_layout(cx) {
-                self.error = Some(error.to_string());
+                self.error = Some(error.to_string().into());
             }
         }
-        if revisions.settings != previous.settings
+        if revisions.locale != previous.locale
+            || revisions.settings != previous.settings
             || (reactions.terminal_wake && self.is_active(cx))
         {
             cx.notify();

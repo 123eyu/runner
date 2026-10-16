@@ -12,6 +12,7 @@ use crate::ui::tooltip::Tooltip;
 pub struct CopyValueButton {
     value: Option<String>,
     label: SharedString,
+    label_source: crate::i18n::Text,
     labeled: bool,
     show_when_empty: bool,
     copied: bool,
@@ -23,11 +24,13 @@ impl CopyValueButton {
     pub fn new(
         focus_handle: FocusHandle,
         value: Option<String>,
-        label: impl Into<SharedString>,
+        label: impl Into<crate::i18n::Text>,
     ) -> Self {
+        let label_source = label.into();
         Self {
             value: value.filter(|value| !value.is_empty()),
-            label: label.into(),
+            label: label_source.resolve(),
+            label_source,
             labeled: false,
             show_when_empty: false,
             copied: false,
@@ -96,6 +99,7 @@ impl Focusable for CopyValueButton {
 
 impl Render for CopyValueButton {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.label = self.label_source.resolve();
         let available = self.value.is_some();
         if !available && !self.show_when_empty {
             return div().into_any_element();
@@ -173,15 +177,18 @@ impl Render for CopyValueButton {
             )
             .children(labeled.then(|| {
                 if copied {
-                    "Copied".into()
+                    crate::i18n::text("ui.copied").into()
                 } else {
                     self.label.clone()
                 }
             }));
         Tooltip::new(
-            SharedString::from(format!("copy-value-tooltip-{}", self.label)),
+            SharedString::from(format!(
+                "copy-value-tooltip-{}",
+                self.label_source.identity()
+            )),
             if copied {
-                SharedString::from("Copied")
+                SharedString::from(crate::i18n::text("ui.copied"))
             } else {
                 self.label.clone()
             },

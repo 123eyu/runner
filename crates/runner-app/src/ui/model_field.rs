@@ -41,7 +41,7 @@ impl ModelField {
     ) -> Self {
         let suggestions = model_options(suggestions);
         input.update(cx, |input, input_cx| {
-            input.set_placeholder("default", input_cx);
+            input.set_placeholder(crate::i18n::message("word.default"), input_cx);
             input.set_placeholder_as_value(true, input_cx);
             input.set_hover_border(true, input_cx);
             input.set_disabled_cursor_not_allowed(true, input_cx);
@@ -198,6 +198,9 @@ impl ModelField {
 
 impl Render for ModelField {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        for option in &mut self.suggestions {
+            option.relocalize();
+        }
         let open = self.state.is_open();
         let has_suggestions = !self.suggestions.is_empty();
         let entity = cx.entity();
@@ -291,9 +294,20 @@ fn model_options(options: &[RuntimeCatalogOption]) -> Vec<SelectOption> {
     options
         .iter()
         .map(|option| {
-            let mut mapped = SelectOption::new(option.value.clone(), option.label.clone());
+            let mut mapped = SelectOption::new(
+                option.value.clone(),
+                if option.value.is_empty() {
+                    crate::i18n::message("word.default")
+                } else {
+                    option.label.clone().into()
+                },
+            );
             if let Some(description) = &option.description {
-                mapped = mapped.description(description.clone());
+                mapped = mapped.description(if option.value.is_empty() {
+                    crate::i18n::message("model.default_description")
+                } else {
+                    description.clone().into()
+                });
             }
             mapped
         })

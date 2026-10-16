@@ -112,11 +112,11 @@ impl SessionControl {
 
     fn default_label(&self) -> &'static str {
         match self.kind {
-            SessionControlKind::Resume => "Resume",
-            SessionControlKind::Resuming => "Resuming…",
-            SessionControlKind::Stop => "Stop",
-            SessionControlKind::Restart => "Restart",
-            SessionControlKind::Back => "Back to role",
+            SessionControlKind::Resume => crate::i18n::text("ui.resume"),
+            SessionControlKind::Resuming => crate::i18n::text("ui.resuming"),
+            SessionControlKind::Stop => crate::i18n::text("ui.stop"),
+            SessionControlKind::Restart => crate::i18n::text("ui.restart"),
+            SessionControlKind::Back => crate::i18n::text("ui.back_to_role"),
         }
     }
 }

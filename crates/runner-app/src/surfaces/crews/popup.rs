@@ -20,7 +20,7 @@ use runner_core::protocol::slot::UpdateSlotInput;
 
 use super::*;
 use crate::chat_icon::ChatIcon;
-use crate::surfaces::profile_page::{override_dot, plural, text_action};
+use crate::surfaces::profile_page::{override_dot, text_action};
 use crate::surfaces::roles::logic::{
     effort_options, ensure_runtime_present, runtime_display_name, runtime_models,
 };
@@ -32,7 +32,7 @@ const POPUP_LABEL_WIDTH: f32 = 82.;
 /// A popup field: the popup less its padding and the label column.
 const POPUP_FIELD_WIDTH: f32 = POPUP_WIDTH - 2. * 16. - POPUP_LABEL_WIDTH;
 const RUNTIME_NOTE: &str =
-    "A different runtime starts from its own agent defaults; set overrides here.";
+    "ui.a_different_runtime_starts_from_its_own_agent_defaults_set_overrides_here";
 
 fn speed_value(speed: Option<CodexSpeed>) -> &'static str {
     match speed {
@@ -44,9 +44,9 @@ fn speed_value(speed: Option<CodexSpeed>) -> &'static str {
 
 fn speed_label(speed: Option<CodexSpeed>) -> &'static str {
     match speed {
-        None => "Inherit",
-        Some(CodexSpeed::Standard) => "Standard",
-        Some(CodexSpeed::Fast) => "Fast",
+        None => crate::i18n::text("ui.inherit"),
+        Some(CodexSpeed::Standard) => crate::i18n::text("ui.standard"),
+        Some(CodexSpeed::Fast) => crate::i18n::text("ui.fast"),
     }
 }
 
@@ -57,9 +57,25 @@ pub(super) fn inherited_label(
     own_runtime: bool,
     role_value: Option<&str>,
 ) -> String {
+    inherited_source(runtime, own_runtime, role_value)
+        .resolve()
+        .to_string()
+}
+
+fn inherited_source(runtime: &str, own_runtime: bool, role_value: Option<&str>) -> i18n::Text {
     match role_value.filter(|value| own_runtime && !value.trim().is_empty()) {
-        Some(value) => value.to_owned(),
-        None => format!("{} default", runtime_display_name(runtime)),
+        Some(value) => value.into(),
+        None => i18n::messagef(
+            "format.default",
+            &[("runtime", runtime_display_name(runtime))],
+        ),
+    }
+}
+
+fn inherited_effort_source(runtime: &str, own_runtime: bool, value: Option<&str>) -> i18n::Text {
+    match value.filter(|value| own_runtime && !value.trim().is_empty()) {
+        Some(value) => runner_app::ui::select::effort_label(value, value),
+        None => inherited_source(runtime, own_runtime, None),
     }
 }
 
@@ -246,7 +262,7 @@ impl NativeRoot {
                                 .gap_1()
                                 .text_color(theme::text())
                                 .hover(|link| link.underline())
-                                .child("Open role")
+                                .child(crate::i18n::text("ui.open_role"))
                                 .child(
                                     svg()
                                         .flex_none()
@@ -260,7 +276,7 @@ impl NativeRoot {
             .child(
                 IconButton::new("crew-slot-popup-close", "close.svg")
                     .size(IconButtonSize::Sm)
-                    .tooltip("Close")
+                    .tooltip(crate::i18n::text("ui.close"))
                     .on_press(move |window, cx| {
                         close_root.update(cx, |this, cx| this.close_slot_popup(window, cx));
                     }),
@@ -301,7 +317,7 @@ impl NativeRoot {
                         .size(rems(11. / 16.))
                         .text_color(theme::muted()),
                 )
-                .child("Reset")
+                .child(crate::i18n::text("ui.reset"))
         };
         div()
             .flex()
@@ -314,9 +330,15 @@ impl NativeRoot {
                         row.debug_selector(|| "CREW_SLOT_RUNTIME_EDIT".into())
                     })
                     .child(override_row(
-                        "Runtime",
+                        crate::i18n::text("ui.runtime"),
                         form.runtime_select.clone().into_any_element(),
-                        format!("role: {}", runtime_display_name(&slot.role.runtime)),
+                        crate::i18n::tf(
+                            "format.role",
+                            &[(
+                                "setting",
+                                (runtime_display_name(&slot.role.runtime)).to_string(),
+                            )],
+                        ),
                         form.runtime.is_some().then(|| {
                             reset(
                                 "slot-reset-runtime",
@@ -328,9 +350,15 @@ impl NativeRoot {
                     )),
             )
             .child(override_row(
-                "Model",
+                crate::i18n::text("ui.model"),
                 form.model_field.clone().into_any_element(),
-                format!("role: {}", role_value(slot.role.model.as_deref())),
+                crate::i18n::tf(
+                    "format.role",
+                    &[(
+                        "setting",
+                        (role_value(slot.role.model.as_deref())).to_string(),
+                    )],
+                ),
                 model_set.then(|| {
                     reset(
                         "slot-reset-model",
@@ -341,9 +369,20 @@ impl NativeRoot {
                 true,
             ))
             .child(override_row(
-                "Effort",
+                crate::i18n::text("ui.effort"),
                 form.effort_select.clone().into_any_element(),
-                format!("role: {}", role_value(slot.role.effort.as_deref())),
+                crate::i18n::tf(
+                    "format.role",
+                    &[(
+                        "setting",
+                        runner_app::ui::select::effort_label(
+                            &role_value(slot.role.effort.as_deref()),
+                            &role_value(slot.role.effort.as_deref()),
+                        )
+                        .resolve()
+                        .to_string(),
+                    )],
+                ),
                 (!form.effort.is_empty()).then(|| {
                     reset(
                         "slot-reset-effort",
@@ -362,12 +401,18 @@ impl NativeRoot {
                                 row.debug_selector(|| "CREW_SLOT_SPEED_EDIT".into())
                             })
                             .child(override_row(
-                                "Speed",
+                                crate::i18n::text("ui.speed"),
                                 form.speed_select.clone().into_any_element(),
                                 if own_runtime {
-                                    format!("role: {}", speed_label(slot.role.codex_speed))
+                                    crate::i18n::tf(
+                                        "format.role",
+                                        &[(
+                                            "setting",
+                                            (speed_label(slot.role.codex_speed)).to_string(),
+                                        )],
+                                    )
                                 } else {
-                                    "Codex default".into()
+                                    crate::i18n::text("ui.codex_default").into()
                                 },
                                 form.speed.map(|_| {
                                     reset(
@@ -392,7 +437,7 @@ impl NativeRoot {
                                 .pl_4()
                                 .text_size(theme::text_meta())
                                 .text_color(theme::faint())
-                                .child("Fast uses more credits.")
+                                .child(crate::i18n::text("ui.fast_uses_more_credits"))
                         }),
                     )
                 },
@@ -407,7 +452,7 @@ impl NativeRoot {
                             .pt_2()
                             .text_size(theme::text_meta())
                             .text_color(theme::danger())
-                            .child(error)
+                            .child(error.resolve())
                     }),
             )
             .into_any_element()
@@ -434,14 +479,16 @@ impl NativeRoot {
                         edit.debug_selector(|| "CREW_SLOT_EDIT_OVERRIDES".into())
                     })
                     .child(
-                        Button::new("crew-slot-edit-overrides", "Edit overrides")
-                            .icon("sliders-horizontal.svg")
-                            .size(ButtonSize::Sm)
-                            .on_press(move |window, cx| {
-                                edit_root.update(cx, |this, cx| {
-                                    this.start_slot_override_edit(window, cx)
-                                });
-                            }),
+                        Button::new(
+                            "crew-slot-edit-overrides",
+                            crate::i18n::text("ui.edit_overrides"),
+                        )
+                        .icon("sliders-horizontal.svg")
+                        .size(ButtonSize::Sm)
+                        .on_press(move |window, cx| {
+                            edit_root
+                                .update(cx, |this, cx| this.start_slot_override_edit(window, cx));
+                        }),
                     ),
             )
             .child(
@@ -453,18 +500,18 @@ impl NativeRoot {
                         Button::new(
                             "crew-slot-set-lead",
                             if slot.slot.lead {
-                                "Lead"
+                                crate::i18n::text("ui.lead")
                             } else {
-                                "Set as lead"
+                                crate::i18n::text("ui.set_as_lead")
                             },
                         )
                         .icon("star.svg")
                         .size(ButtonSize::Sm)
                         .disabled(slot.slot.lead)
                         .tooltip(if slot.slot.lead {
-                            "This slot leads the crew"
+                            crate::i18n::text("ui.this_slot_leads_the_crew")
                         } else {
-                            "Make this slot the crew's lead"
+                            crate::i18n::text("ui.make_this_slot_the_crew_s_lead")
                         })
                         .on_press(move |window, cx| {
                             let slot_id = lead_id.clone();
@@ -502,7 +549,7 @@ impl NativeRoot {
                         .size(rems(12. / 16.))
                         .text_color(theme::danger()),
                 )
-                .child("Remove"),
+                .child(crate::i18n::text("ui.remove")),
             )
             .into_any_element()
     }
@@ -521,10 +568,10 @@ impl NativeRoot {
                     .flex_1()
                     .text_size(theme::text_meta())
                     .text_color(theme::faint())
-                    .child("Saves to this slot only."),
+                    .child(crate::i18n::text("ui.saves_to_this_slot_only")),
             )
             .child(
-                Button::new("crew-slot-override-cancel", "Cancel")
+                Button::new("crew-slot-override-cancel", crate::i18n::text("ui.cancel"))
                     .size(ButtonSize::Sm)
                     .disabled(form.saving)
                     .on_press(move |_, cx| {
@@ -539,7 +586,11 @@ impl NativeRoot {
                     .child(
                         Button::new(
                             "crew-slot-override-save",
-                            if form.saving { "Saving…" } else { "Save" },
+                            if form.saving {
+                                crate::i18n::text("ui.saving")
+                            } else {
+                                crate::i18n::text("ui.save")
+                            },
                         )
                         .size(ButtonSize::Sm)
                         .variant(ButtonVariant::Primary)
@@ -598,9 +649,9 @@ impl NativeRoot {
             .width(px(POPUP_FIELD_WIDTH))
             .min_menu_width(px(POPUP_FIELD_WIDTH))
             .placeholder(if agents_checking {
-                "Detecting agents…"
+                crate::i18n::message("ui.detecting_agents")
             } else {
-                "No enabled agents detected"
+                crate::i18n::message("ui.no_enabled_agents_detected")
             })
         });
         let model_value = slot.slot.model_override.clone().unwrap_or_default();
@@ -640,9 +691,9 @@ impl NativeRoot {
                 select_cx.focus_handle(),
                 speed_value(speed),
                 vec![
-                    SelectOption::new("", "Inherit"),
-                    SelectOption::new("standard", "Standard"),
-                    SelectOption::new("fast", "Fast"),
+                    SelectOption::new("", crate::i18n::message("ui.inherit")),
+                    SelectOption::new("standard", crate::i18n::message("ui.standard")),
+                    SelectOption::new("fast", crate::i18n::message("ui.fast")),
                 ],
                 Rc::new(move |value, _, cx| {
                     speed_root.update(cx, |this, cx| {
@@ -709,7 +760,7 @@ impl NativeRoot {
             .clone()
             .unwrap_or_else(|| slot.role.runtime.clone());
         let own_runtime = runtime == slot.role.runtime;
-        let placeholder = inherited_label(&runtime, own_runtime, slot.role.model.as_deref());
+        let placeholder = inherited_source(&runtime, own_runtime, slot.role.model.as_deref());
         form.model.update(cx, |input, input_cx| {
             input.set_placeholder(placeholder, input_cx)
         });
@@ -739,15 +790,18 @@ impl NativeRoot {
             true,
             form.model.read(cx).text(),
         );
-        let inherited = inherited_label(&runtime, own_runtime, slot.role.effort.as_deref());
+        let inherited = inherited_effort_source(&runtime, own_runtime, slot.role.effort.as_deref());
         match options.iter_mut().find(|option| option.value.is_empty()) {
-            Some(blank) => blank.label = inherited.into(),
+            Some(blank) => *blank = blank.clone().with_label(inherited),
             None => options.insert(0, SelectOption::new("", inherited)),
         }
         // A stored effort the catalog does not list stays chosen rather than
         // being dropped on the next save.
         if !options.iter().any(|option| option.value == form.effort) {
-            options.push(SelectOption::new(form.effort.clone(), form.effort.clone()));
+            options.push(SelectOption::new(
+                form.effort.clone(),
+                runner_app::ui::select::effort_label(&form.effort, &form.effort),
+            ));
         }
         let effort = form.effort.clone();
         form.effort_select.update(cx, |select, select_cx| {
@@ -911,7 +965,7 @@ impl NativeRoot {
                 None => Some(None),
                 Some(Some(runtime)) => Some(Some(runtime)),
                 Some(None) => {
-                    form.error = Some("Pick a runtime Runner knows.".into());
+                    form.error = Some(crate::i18n::message("ui.pick_a_runtime_runner_knows"));
                     cx.notify();
                     return;
                 }
@@ -951,7 +1005,7 @@ impl NativeRoot {
                     Err(error) => {
                         if let Some(form) = this.slot_override_form() {
                             form.saving = false;
-                            form.error = Some(error);
+                            form.error = Some(error.into());
                         }
                     }
                 }
@@ -967,7 +1021,7 @@ fn role_value(value: Option<&str>) -> String {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("default")
+        .unwrap_or(crate::i18n::text("word.default"))
         .to_owned()
 }
 
@@ -988,7 +1042,7 @@ fn runtime_note() -> gpui::Div {
         .text_size(theme::text_meta())
         .line_height(rems(1.))
         .text_color(theme::faint())
-        .child(RUNTIME_NOTE)
+        .child(crate::i18n::text(RUNTIME_NOTE))
 }
 
 /// A setup row while editing: the label, the control, and under it the
@@ -1113,31 +1167,68 @@ fn popup_view_rows(slot: &SlotWithRole) -> AnyElement {
         .px_4()
         .py_1()
         .child(row(
-            "Runtime",
+            crate::i18n::text("ui.runtime"),
             runtime_value,
-            format!("role: {}", runtime_display_name(&slot.role.runtime)),
+            crate::i18n::tf(
+                "format.role",
+                &[(
+                    "setting",
+                    (runtime_display_name(&slot.role.runtime)).to_string(),
+                )],
+            ),
             true,
         ))
         .child(row(
-            "Model",
+            crate::i18n::text("ui.model"),
             value(
                 setup.model.clone().unwrap_or_else(|| {
                     inherited_label(&setup.runtime, own_runtime, slot.role.model.as_deref())
                 }),
                 setup.model_overridden,
             ),
-            format!("role: {}", role_value(slot.role.model.as_deref())),
+            crate::i18n::tf(
+                "format.role",
+                &[(
+                    "setting",
+                    (role_value(slot.role.model.as_deref())).to_string(),
+                )],
+            ),
             true,
         ))
         .child(row(
-            "Effort",
+            crate::i18n::text("ui.effort"),
             value(
-                setup.effort.clone().unwrap_or_else(|| {
-                    inherited_label(&setup.runtime, own_runtime, slot.role.effort.as_deref())
-                }),
+                setup
+                    .effort
+                    .as_ref()
+                    .map(|effort| {
+                        runner_app::ui::select::effort_label(effort, effort)
+                            .resolve()
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| {
+                        inherited_effort_source(
+                            &setup.runtime,
+                            own_runtime,
+                            slot.role.effort.as_deref(),
+                        )
+                        .resolve()
+                        .to_string()
+                    }),
                 setup.effort_overridden,
             ),
-            format!("role: {}", role_value(slot.role.effort.as_deref())),
+            crate::i18n::tf(
+                "format.role",
+                &[(
+                    "setting",
+                    runner_app::ui::select::effort_label(
+                        &role_value(slot.role.effort.as_deref()),
+                        &role_value(slot.role.effort.as_deref()),
+                    )
+                    .resolve()
+                    .to_string(),
+                )],
+            ),
             crate::runtime_ui::catalog_capabilities(&[], &setup.runtime).codex_speed,
         ))
         .when(
@@ -1149,12 +1240,18 @@ fn popup_view_rows(slot: &SlotWithRole) -> AnyElement {
                             row.debug_selector(|| "CREW_SLOT_SPEED_VIEW".into())
                         })
                         .child(row(
-                            "Speed",
+                            crate::i18n::text("ui.speed"),
                             value(speed_label(setup.speed).into(), setup.speed_overridden),
                             if own_runtime {
-                                format!("role: {}", speed_label(slot.role.codex_speed))
+                                crate::i18n::tf(
+                                    "format.role",
+                                    &[(
+                                        "setting",
+                                        (speed_label(slot.role.codex_speed)).to_string(),
+                                    )],
+                                )
                             } else {
-                                "Codex default".into()
+                                crate::i18n::text("ui.codex_default").into()
                             },
                             false,
                         )),
@@ -1167,7 +1264,7 @@ fn popup_view_rows(slot: &SlotWithRole) -> AnyElement {
                         .pl_4()
                         .text_size(theme::text_meta())
                         .text_color(theme::faint())
-                        .child("Fast uses more credits.")
+                        .child(crate::i18n::text("ui.fast_uses_more_credits"))
                 }))
             },
         )
@@ -1195,7 +1292,7 @@ fn popup_command_and_prompt(slot: &SlotWithRole) -> AnyElement {
         .px_4()
         .pt_2()
         .pb_4()
-        .child(label("Command".into()))
+        .child(label(crate::i18n::text("ui.command").into()))
         .child(
             div()
                 .rounded(rems(4. / 16.))
@@ -1217,14 +1314,17 @@ fn popup_command_and_prompt(slot: &SlotWithRole) -> AnyElement {
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(label(format!("Prompt · from @{}", slot.role.handle)))
+                .child(label(crate::i18n::tf(
+                    "format.prompt_from",
+                    &[("handle", (slot.role.handle).to_string())],
+                )))
                 .children(prompt.map(|prompt| {
                     div()
                         .flex_none()
                         .font_family(theme::UI_MONOSPACE_FONT)
                         .text_size(theme::text_caption())
                         .text_color(theme::faint())
-                        .child(plural(prompt.lines().count() as i64, "line", "lines"))
+                        .child(crate::i18n::tn("count.lines", prompt.lines().count()))
                 })),
         )
         .child(match prompt {
@@ -1232,7 +1332,7 @@ fn popup_command_and_prompt(slot: &SlotWithRole) -> AnyElement {
                 .text_size(theme::text_ui())
                 .italic()
                 .text_color(theme::faint())
-                .child("The role has no system prompt.")
+                .child(crate::i18n::text("ui.the_role_has_no_system_prompt"))
                 .into_any_element(),
             Some(prompt) => div()
                 .relative()

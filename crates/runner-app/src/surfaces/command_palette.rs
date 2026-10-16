@@ -29,13 +29,13 @@ enum PaletteKind {
 impl PaletteKind {
     fn label(self) -> &'static str {
         match self {
-            Self::Command => "command",
-            Self::Mission => "mission",
-            Self::Chat => "chat",
-            Self::Terminal => "terminal",
-            Self::Role => "role",
-            Self::Crew => "crew",
-            Self::Settings => "settings",
+            Self::Command => crate::i18n::text("noun.command"),
+            Self::Mission => crate::i18n::text("noun.mission"),
+            Self::Chat => crate::i18n::text("noun.chat"),
+            Self::Terminal => crate::i18n::text("noun.terminal"),
+            Self::Role => crate::i18n::text("noun.role"),
+            Self::Crew => crate::i18n::text("noun.crew"),
+            Self::Settings => crate::i18n::text("noun.settings"),
         }
     }
 
@@ -132,14 +132,26 @@ fn palette_items(
         runtime: None,
         live: false,
         id: "new-terminal".into(),
-        label: "New terminal".into(),
+        label: crate::i18n::text("ui.new_terminal").into(),
         destination: PaletteDestination::NewTerminal,
-        search_text: "new terminal shell drawer".into(),
+        search_text: format!(
+            "{} {}",
+            i18n::text("ui.new_terminal_shell_drawer"),
+            i18n::text_for(i18n::Locale::English, "ui.new_terminal_shell_drawer")
+        ),
         order: 0,
     });
     for (id, label, destination) in [
-        ("new-chat", "New chat", PaletteDestination::NewChat),
-        ("new-mission", "New mission", PaletteDestination::NewMission),
+        (
+            "new-chat",
+            crate::i18n::text("ui.new_chat"),
+            PaletteDestination::NewChat,
+        ),
+        (
+            "new-mission",
+            crate::i18n::text("ui.new_mission"),
+            PaletteDestination::NewMission,
+        ),
     ] {
         items.push(PaletteItem {
             kind: PaletteKind::Command,
@@ -159,9 +171,16 @@ fn palette_items(
                 runtime: None,
                 live: false,
                 id: "uninstall-runner-command".into(),
-                label: "Uninstall runner command".into(),
+                label: crate::i18n::text("ui.uninstall_runner_command").into(),
                 destination: PaletteDestination::UninstallRunnerCommand,
-                search_text: "uninstall runner command cli path".into(),
+                search_text: format!(
+                    "{} {}",
+                    i18n::text("ui.uninstall_runner_command_cli_path"),
+                    i18n::text_for(
+                        i18n::Locale::English,
+                        "ui.uninstall_runner_command_cli_path"
+                    )
+                ),
                 order: 1,
             });
         }
@@ -171,9 +190,13 @@ fn palette_items(
                 runtime: None,
                 live: false,
                 id: "install-runner-command".into(),
-                label: "Install runner command".into(),
+                label: crate::i18n::text("ui.install_runner_command").into(),
                 destination: PaletteDestination::InstallRunnerCommand,
-                search_text: "install runner command cli path".into(),
+                search_text: format!(
+                    "{} {}",
+                    i18n::text("ui.install_runner_command_cli_path"),
+                    i18n::text_for(i18n::Locale::English, "ui.install_runner_command_cli_path")
+                ),
                 order: 1,
             });
         }
@@ -240,11 +263,36 @@ fn palette_items(
         runtime: None,
         live: false,
         id: "settings".into(),
-        label: "Settings".into(),
+        label: crate::i18n::text("ui.settings").into(),
         destination: PaletteDestination::Settings,
-        search_text: "settings preferences".into(),
+        search_text: format!(
+            "{} {}",
+            crate::i18n::text("ui.settings_preferences"),
+            i18n::text_for(i18n::Locale::English, "ui.settings_preferences")
+        ),
         order: 0,
     });
+    for item in &mut items {
+        let id = if item.kind == PaletteKind::Settings {
+            "open-settings"
+        } else {
+            item.id.as_str()
+        };
+        if matches!(item.kind, PaletteKind::Command | PaletteKind::Settings) {
+            if let Some(entry) = keymap::entry(id) {
+                item.label = entry.title().to_owned();
+                item.search_text = format!(
+                    "{} {} {} {} {}",
+                    item.search_text,
+                    entry.title(),
+                    entry.description(),
+                    i18n::text_for(i18n::Locale::English, entry.title_key),
+                    i18n::text_for(i18n::Locale::English, entry.description_key)
+                )
+                .to_lowercase();
+            }
+        }
+    }
     items
 }
 
@@ -280,13 +328,18 @@ impl CommandPaletteState {
         let palette = cx.entity();
         let input = cx.new(move |input_cx| {
             let key_palette = palette.clone();
-            let mut input = TextField::new(input_cx.focus_handle(), "", "Search…", false)
-                .text_size(theme::text_title())
-                .key_interceptor(Rc::new(move |event, window, cx| {
-                    key_palette.update(cx, |palette, palette_cx| {
-                        palette.on_input_key_down(event, window, palette_cx)
-                    })
-                }));
+            let mut input = TextField::new(
+                input_cx.focus_handle(),
+                "",
+                crate::i18n::message("ui.command_palette_search_placeholder"),
+                false,
+            )
+            .text_size(theme::text_title())
+            .key_interceptor(Rc::new(move |event, window, cx| {
+                key_palette.update(cx, |palette, palette_cx| {
+                    palette.on_input_key_down(event, window, palette_cx)
+                })
+            }));
             input.set_bare(true, input_cx);
             input.set_right_padding(0., input_cx);
             input
@@ -315,6 +368,29 @@ impl CommandPaletteState {
             previous_focus: None,
             _input_subscription: input_subscription,
         }
+    }
+
+    pub(crate) fn locale_changed(&mut self, cx: &mut Context<Self>) {
+        let selected = filtered_palette_items(&self.items, &self.query)
+            .get(self.active_index)
+            .map(|item| item.destination.clone());
+        let store = self.app_store.read(cx);
+        self.items = palette_items(
+            &store.missions,
+            &store.sessions,
+            &store.roles,
+            &store.crews,
+            store.runner_command_status(),
+        );
+        let filtered = filtered_palette_items(&self.items, &self.query);
+        self.active_index = selected
+            .and_then(|selected| {
+                filtered
+                    .iter()
+                    .position(|item| item.destination == selected)
+            })
+            .unwrap_or(0);
+        cx.notify();
     }
 
     pub(crate) fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -565,9 +641,9 @@ impl Render for CommandPaletteState {
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
                 .child(if self.query.trim().is_empty() {
-                    "No commands, missions, chats, roles, or crews yet."
+                    crate::i18n::text("ui.no_commands_missions_chats_roles_or_crews_yet")
                 } else {
-                    "No matches."
+                    crate::i18n::text("ui.no_matches")
                 })
                 .into_any_element()
         } else {
@@ -589,7 +665,7 @@ impl Render for CommandPaletteState {
                         .text_size(theme::text_caption())
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::faint())
-                        .child("RECENTS")
+                        .child(crate::i18n::text("heading.recents"))
                 }))
                 .children(rows)
                 .into_any_element()
@@ -877,5 +953,111 @@ mod tests {
                 assert_eq!(items[0].icon().color(theme::muted(), false), theme::muted());
             }
         }
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod localization_tests {
+    use super::*;
+
+    #[test]
+    fn palette_refresh_preserves_drafts_and_destination_and_clamps_a_query_with_no_matches() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        i18n::testing::with_locale(i18n::Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = gpui::TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            let window = cx.add_window(|window, cx| {
+                NativeRoot::new(
+                    "palette-locale".into(),
+                    temp.path().join("logs"),
+                    None,
+                    None,
+                    store,
+                    window,
+                    cx,
+                )
+            });
+            let palette = window
+                .read_with(&cx, |root, _| root.command_palette.clone())
+                .unwrap();
+            palette.update(&mut cx, |palette, cx| {
+                palette.locale_changed(cx);
+                assert_eq!(
+                    filtered_palette_items(&palette.items, "preferences")[0].id,
+                    "settings"
+                )
+            });
+            i18n::set_active_locale(i18n::Locale::SimplifiedChinese);
+            palette.update(&mut cx, |palette, cx| {
+                palette.locale_changed(cx);
+                assert_eq!(
+                    filtered_palette_items(&palette.items, "preferences")[0].id,
+                    "settings"
+                );
+                palette.query = "新建".into();
+                palette.active_index = 2;
+                palette
+                    .input
+                    .update(cx, |field, cx| field.set_text("新建", cx));
+                assert_eq!(
+                    filtered_palette_items(&palette.items, &palette.query)[2].id,
+                    "new-mission"
+                );
+            });
+            i18n::set_active_locale(i18n::Locale::English);
+            palette.update(&mut cx, |palette, cx| {
+                palette.locale_changed(cx);
+                assert_eq!(
+                    filtered_palette_items(&palette.items, "preferences")[0].id,
+                    "settings"
+                );
+                assert_eq!(palette.query, "新建");
+                assert_eq!(palette.input.read(cx).text(), "新建");
+                assert!(filtered_palette_items(&palette.items, &palette.query).is_empty());
+                assert_eq!(palette.active_index, 0);
+                palette.query.clear();
+                palette.input.update(cx, |field, cx| field.reset("", cx));
+                palette.active_index = filtered_palette_items(&palette.items, "")
+                    .iter()
+                    .position(|item| item.id == "new-mission")
+                    .unwrap();
+            });
+            i18n::set_active_locale(i18n::Locale::SimplifiedChinese);
+            palette.update(&mut cx, |palette, cx| {
+                palette.locale_changed(cx);
+                assert_eq!(
+                    filtered_palette_items(&palette.items, "")[palette.active_index].id,
+                    "new-mission"
+                );
+                assert_eq!(palette.input.read(cx).text(), "");
+            });
+        });
+    }
+
+    #[test]
+    fn translated_commands_search_by_label_description_and_original_aliases() {
+        i18n::testing::with_locale(i18n::Locale::SimplifiedChinese, || {
+            let items = palette_items(&[], &[], &[], &[], None);
+            assert_eq!(filtered_palette_items(&items, "新建对话")[0].id, "new-chat");
+            assert_eq!(
+                filtered_palette_items(&items, "当前空窗格")[0].id,
+                "new-terminal"
+            );
+            assert_eq!(filtered_palette_items(&items, "new chat")[0].id, "new-chat");
+            assert_eq!(
+                filtered_palette_items(&items, "shell")[0].id,
+                "new-terminal"
+            );
+            assert_eq!(
+                items
+                    .iter()
+                    .find(|item| item.id == "settings")
+                    .unwrap()
+                    .label,
+                "打开设置"
+            );
+            assert_eq!(PaletteKind::Mission.label(), "任务");
+        });
     }
 }

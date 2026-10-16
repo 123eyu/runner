@@ -71,7 +71,7 @@ pub type SearchHandler = Rc<dyn Fn(String, &mut App)>;
 
 pub struct SearchInput {
     input: Entity<TextField>,
-    label: SharedString,
+    label_source: crate::i18n::Text,
     last_value: String,
     disabled: bool,
     on_change: SearchHandler,
@@ -81,11 +81,12 @@ pub struct SearchInput {
 impl SearchInput {
     pub fn new(
         value: impl Into<String>,
-        label: impl Into<SharedString>,
-        placeholder: impl Into<SharedString>,
+        label: impl Into<crate::i18n::Text>,
+        placeholder: impl Into<crate::i18n::Text>,
         on_change: SearchHandler,
         cx: &mut Context<Self>,
     ) -> Self {
+        let label_source = label.into();
         let value = value.into();
         let input = cx.new(|input_cx| {
             let mut input =
@@ -104,7 +105,7 @@ impl SearchInput {
         });
         Self {
             input,
-            label: label.into(),
+            label_source,
             last_value: value,
             disabled: false,
             on_change,
@@ -159,9 +160,11 @@ impl Render for SearchInput {
         let focus_handle = self.input.read(cx).focus_handle();
         let entity = cx.entity();
         let clear_key_entity = entity.clone();
-        let label = self.label.clone();
         div()
-            .id(SharedString::from(format!("search-input-{label}")))
+            .id(SharedString::from(format!(
+                "search-input-{}",
+                self.label_source.identity()
+            )))
             .w_full()
             .max_w(rems(320. / 16.))
             .flex()
@@ -189,7 +192,10 @@ impl Render for SearchInput {
             .child(div().min_w(px(0.)).flex_1().child(self.input.clone()))
             .when(value_present && !disabled, |search| {
                 let button = div()
-                    .id(SharedString::from(format!("search-clear-{label}")))
+                    .id(SharedString::from(format!(
+                        "search-clear-{}",
+                        self.label_source.identity()
+                    )))
                     .tab_index(0)
                     .flex_none()
                     .flex()
@@ -479,9 +485,19 @@ impl RenderOnce for EmptyStateCard {
 /// is active.
 pub fn count_label(filtered: usize, total: usize, noun: &str, searching: bool) -> String {
     if searching {
-        format!("{filtered} of {total} {noun}")
+        crate::i18n::tf(
+            "format.of",
+            &[
+                ("filtered", (filtered).to_string()),
+                ("total", (total).to_string()),
+                ("noun", (noun).to_string()),
+            ],
+        )
     } else {
-        format!("{total} {noun}")
+        crate::i18n::tf(
+            "list.total",
+            &[("total", total.to_string()), ("noun", noun.to_string())],
+        )
     }
 }
 
@@ -576,14 +592,20 @@ impl PaginatedListPage {
 impl RenderOnce for PaginatedListPage {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let load_failed = !self.loaded && !self.loading;
-        let error = self
-            .error
-            .or_else(|| load_failed.then(|| format!("Failed to load {}.", self.noun).into()));
+        let error = self.error.or_else(|| {
+            load_failed.then(|| {
+                crate::i18n::tf(
+                    "format.failed_to_load",
+                    &[("items", (self.noun).to_string())],
+                )
+                .into()
+            })
+        });
         let body = if self.loading && !self.loaded {
             div()
                 .text_size(theme::text_title())
                 .text_color(theme::muted())
-                .child("Loading…")
+                .child(crate::i18n::text("ui.loading"))
                 .into_any_element()
         } else if !self.loaded {
             div().into_any_element()

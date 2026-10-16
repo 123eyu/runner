@@ -7,13 +7,13 @@ pub fn working_dir_placeholder(owner_path: Option<&str>, default_path: &str) -> 
         .filter(|path| !path.trim().is_empty())
         .map(str::to_owned)
         .or_else(|| effective_working_dir("", false, default_path))
-        .unwrap_or_else(|| "Home directory".to_owned())
+        .unwrap_or_else(|| crate::i18n::text("ui.home_directory").to_owned())
 }
 
 pub fn working_dir_text_field(
     focus_handle: FocusHandle,
     text: impl Into<String>,
-    placeholder: impl Into<SharedString>,
+    placeholder: impl Into<crate::i18n::Text>,
 ) -> TextField {
     TextField::new(focus_handle, text, placeholder, true).compact_path()
 }

@@ -1582,7 +1582,7 @@ fn stop_all_confirm_names_the_slot_count_and_preserves_recovery_copy() {
     assert_eq!(stop_all_title(3), "Stop all 3 running slots?");
     assert_eq!(stop_all_title(2), "Stop all 2 running slots?");
     assert_eq!(stop_all_title(1), "Stop the running slot?");
-    assert_eq!(STOP_ALL_BODY, "Every slot's PTY is killed and whatever turn it is on is cut off. The mission stays open; each slot can be resumed with its conversation, or restarted with its brief.");
+    assert_eq!(crate::i18n::text(STOP_ALL_BODY), "Every slot's PTY is killed and whatever turn it is on is cut off. The mission stays open; each slot can be resumed with its conversation, or restarted with its brief.");
 }
 
 #[test]
@@ -1921,4 +1921,27 @@ fn asynchronous_slot_removal_withdraws_a_question_when_it_reveals_the_feed() {
         .dismissed_system_notifications()
         .iter()
         .any(|tag| tag.as_ref() == "question:removed-slot-question"));
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn saved_action_failure_translates_its_wrapper_and_keeps_backend_details_literal() {
+    use crate::i18n::{self, Locale};
+    i18n::testing::with_locale(Locale::English, || {
+        let failure = action_failure(
+            i18n::message("action.resume_mission"),
+            "backend_error: literal {action} 中文",
+        );
+        assert_eq!(
+            failure.resolve(),
+            "Couldn't resume the mission: literal {action} 中文"
+        );
+        i18n::set_active_locale(Locale::SimplifiedChinese);
+        assert_eq!(failure.resolve(), "无法恢复任务：literal {action} 中文");
+        i18n::set_active_locale(Locale::English);
+        assert_eq!(
+            failure.resolve(),
+            "Couldn't resume the mission: literal {action} 中文"
+        );
+    });
 }

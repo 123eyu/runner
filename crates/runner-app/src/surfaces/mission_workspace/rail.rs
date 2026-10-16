@@ -91,7 +91,7 @@ impl MissionWorkspace {
             .child(
                 div().ml_auto().child(
                     IconButton::new("collapse-mission-rail", "panel-right-open.svg")
-                        .tooltip("Collapse sessions panel")
+                        .tooltip(crate::i18n::text("ui.collapse_sessions_panel"))
                         .on_press(move |_, cx| {
                             collapse_root.update(cx, |this, cx| {
                                 this.update_app_settings(cx, true, |settings| {
@@ -193,7 +193,7 @@ impl MissionWorkspace {
             .flex()
             .flex_col()
             .gap_3()
-            .child(rail_section_label("Sessions"));
+            .child(rail_section_label(crate::i18n::text("ui.sessions")));
         let root = cx.entity();
         for session in &self.sessions {
             let session_id = session.session.id.clone();
@@ -265,7 +265,7 @@ impl MissionWorkspace {
                                 "log-out.svg",
                             )
                             .size(runner_app::ui::IconButtonSize::Sm)
-                            .tooltip("Remove from mission")
+                            .tooltip(crate::i18n::text("ui.remove_from_mission"))
                             .stop_click_propagation(true)
                             .disabled(disabled)
                             .on_press(move |window, cx| {
@@ -285,9 +285,9 @@ impl MissionWorkspace {
                 let badge_width = window
                     .text_system()
                     .shape_line(
-                        "LEAD".into(),
+                        crate::i18n::text("heading.lead").into(),
                         theme::text_micro().to_pixels(window.rem_size()),
-                        &[badge_style.to_run("LEAD".len())],
+                        &[badge_style.to_run(crate::i18n::text("heading.lead").len())],
                         None,
                     )
                     .width
@@ -517,7 +517,7 @@ impl MissionWorkspace {
                     .debug_selector(|| "MISSION_RAIL_NO_ROLES".into())
                     .text_size(theme::text_ui())
                     .text_color(theme::faint())
-                    .child("No roles yet."),
+                    .child(crate::i18n::text("ui.mission_roster_empty")),
             );
         }
         if mission_slot_actions_available(
@@ -533,7 +533,7 @@ impl MissionWorkspace {
                 div()
                     .debug_selector(|| "MISSION_RAIL_ADD_ROLE".into())
                     .child(
-                        Button::new("mission-add-role", "Add role")
+                        Button::new("mission-add-role", crate::i18n::text("ui.add_role"))
                             .full_width(true)
                             .variant(ButtonVariant::Outline)
                             .icon("plus.svg")
@@ -584,7 +584,10 @@ impl MissionWorkspace {
             let result = task.await;
             let _ = weak.update(cx, |this, cx| {
                 if let Err(error) = result {
-                    this.error = Some(format!("Couldn't reveal the working directory: {error}"));
+                    this.error = Some(crate::i18n::messagef(
+                        "format.couldn_t_reveal_the_working_directory",
+                        &[("error", (error).to_string())],
+                    ));
                     cx.notify();
                 }
             });
@@ -611,9 +614,9 @@ impl MissionWorkspace {
             .flex()
             .flex_col()
             .gap_4()
-            .child(rail_section_label("Mission detail"))
+            .child(rail_section_label(crate::i18n::text("ui.mission_detail")))
             .child(meta_section(
-                "Mission ID",
+                crate::i18n::text("ui.mission_id"),
                 div()
                     .flex()
                     .items_start()
@@ -631,7 +634,7 @@ impl MissionWorkspace {
                     .child(self.mission_id_copy.clone()),
             ))
             .child(meta_section(
-                "Goal",
+                crate::i18n::text("ui.goal"),
                 match goal {
                     Some(goal) if !goal.is_empty() => div()
                         .text_size(theme::text_ui())
@@ -643,33 +646,33 @@ impl MissionWorkspace {
                         .text_size(theme::text_ui())
                         .italic()
                         .text_color(theme::faint())
-                        .child("No goal set.")
+                        .child(crate::i18n::text("ui.no_goal_set"))
                         .into_any_element(),
                     None => div()
                         .text_size(theme::text_ui())
                         .italic()
                         .text_color(theme::faint())
-                        .child("Loading…")
+                        .child(crate::i18n::text("ui.loading"))
                         .into_any_element(),
                 },
             ));
         panel = panel.child(meta_section(
-            "Working dir",
+            crate::i18n::text("ui.working_dir"),
             mission.cwd.clone().map_or_else(
                 || {
                     div()
                         .text_size(theme::text_ui())
                         .italic()
                         .text_color(theme::faint())
-                        .child("No cwd set.")
+                        .child(crate::i18n::text("ui.no_cwd_set"))
                         .into_any_element()
                 },
                 |cwd| {
                     let reveal = cwd.clone();
                     #[cfg(target_os = "macos")]
-                    let reveal_label = "Reveal in Finder";
+                    let reveal_label = crate::i18n::text("ui.reveal_in_finder");
                     #[cfg(windows)]
-                    let reveal_label = "Reveal in Explorer";
+                    let reveal_label = crate::i18n::text("ui.reveal_in_explorer");
                     Tooltip::new(
                         "reveal-mission-cwd-tooltip",
                         reveal_label,
@@ -701,7 +704,7 @@ impl MissionWorkspace {
         panel
             .children(permission_mode.map(|mode| {
                 meta_section(
-                    "Permissions",
+                    crate::i18n::text("ui.permissions"),
                     div()
                         .id("mission-permission-mode")
                         .text_size(theme::text_ui())
@@ -710,7 +713,7 @@ impl MissionWorkspace {
                 )
             }))
             .child(meta_section(
-                "Started",
+                crate::i18n::text("ui.started"),
                 div()
                     .flex()
                     .items_center()
@@ -752,12 +755,12 @@ impl MissionWorkspace {
                 div()
                     .text_size(theme::text_heading())
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Rename mission"),
+                    .child(crate::i18n::text("ui.rename_mission")),
             )
             .child(
                 IconButton::new("close-mission-rename", "close.svg")
                     .focus_handle(modal.close_focus.clone())
-                    .tooltip("Close rename")
+                    .tooltip(crate::i18n::text("ui.close_rename"))
                     .disabled(submitting)
                     .on_press(move |window, cx| {
                         close_root.update(cx, |this, cx| this.close_mission_rename(window, cx));
@@ -778,16 +781,20 @@ impl MissionWorkspace {
                     }),
             )
             .child(
-                Field::new("mission-rename-name", "Name", modal.input.clone())
-                    .focus_target(modal.input.read(cx).focus_handle())
-                    .emphasized(true),
+                Field::new(
+                    "mission-rename-name",
+                    crate::i18n::text("ui.name"),
+                    modal.input.clone(),
+                )
+                .focus_target(modal.input.read(cx).focus_handle())
+                .emphasized(true),
             );
         let footer = div()
             .flex()
             .items_center()
             .gap_2()
             .child(
-                Button::new("cancel-mission-rename", "Cancel")
+                Button::new("cancel-mission-rename", crate::i18n::text("ui.cancel"))
                     .focus_handle(modal.cancel_focus.clone())
                     .disabled(submitting)
                     .on_press(move |window, cx| {
@@ -797,7 +804,11 @@ impl MissionWorkspace {
             .child(
                 Button::new(
                     "submit-mission-rename",
-                    if submitting { "Saving…" } else { "Save" },
+                    if submitting {
+                        crate::i18n::text("ui.saving")
+                    } else {
+                        crate::i18n::text("ui.save")
+                    },
                 )
                 .focus_handle(modal.submit_focus.clone())
                 .variant(ButtonVariant::Primary)
@@ -919,19 +930,16 @@ fn format_relative_time(started_at: chrono::DateTime<Utc>) -> String {
         .num_minutes()
         .max(0);
     if minutes < 1 {
-        "just now".into()
+        crate::i18n::text("ui.just_now").into()
     } else if minutes < 60 {
-        format!(
-            "{minutes} minute{} ago",
-            if minutes == 1 { "" } else { "s" }
-        )
+        crate::i18n::tnf("format.minute_ago", (minutes) as usize, &[])
     } else {
         let hours = minutes / 60;
         if hours < 24 {
-            format!("{hours} hour{} ago", if hours == 1 { "" } else { "s" })
+            crate::i18n::tnf("format.hour_ago", (hours) as usize, &[])
         } else {
             let days = hours / 24;
-            format!("{days} day{} ago", if days == 1 { "" } else { "s" })
+            crate::i18n::tnf("format.day_ago", (days) as usize, &[])
         }
     }
 }
