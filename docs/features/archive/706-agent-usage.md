@@ -4,7 +4,7 @@
 > Priority: P2, milestone 0.11 (moved from 0.12 on 2026-09-23: Jason wants to use it), so it ships in a 0.11.x patch. Platforms: macOS and Windows.
 > Status: shipped in [0.11.4](https://github.com/yicheng47/runner/releases/tag/v0.11.4) on 2026-09-23; archived 2026-10-01. The original scope and dated decisions follow. Design settled 2026-09-23.
 > Design: `design/specs/706-agent-usage.pen`: `706 — Usage icon in the Settings row, popover open` (`z08zW`) and `706 — Usage icon states` (`aFl82`).
-> Related: [533](./533-agent-cli-updates.md) (agent CLI updates: the popover's Agent settings gear carries its update dot), [562](../562-mission-spawn.md) (a lead choosing a runtime per spawn).
+> Related: [533](./533-agent-cli-updates.md) (agent CLI updates: the popover's Agent settings gear carries its update dot), [562](./562-mission-spawn.md) (a lead choosing a runtime per spawn).
 > Prior art: Orca's status-bar usage meters and popover (`~/repos/ai/orca/src/main/rate-limits/`, `src/renderer/src/components/status-bar/`), read 2026-09-23.
 
 ## Motivation

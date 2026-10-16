@@ -1,6 +1,6 @@
 # Runner as an environment for agents
 
-> Direction, 2026-09-23, from Jason after a month of daily use. Not yet folded into [`vision.md`](./vision.md); that happens once [562](../features/562-mission-spawn.md) ships and the vocabulary changes with it.
+> Direction, 2026-09-23, from Jason after a month of daily use. Not yet folded into [`vision.md`](./vision.md); that happens once [562](../features/archive/562-mission-spawn.md) ships and the vocabulary changes with it.
 
 ## The shift
 

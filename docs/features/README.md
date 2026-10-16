@@ -6,7 +6,6 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [562 — Missions as containers](./562-mission-spawn.md) — the roster, independent sessions, add/remove-role and empty-start phases have shipped, and [#562](https://github.com/yicheng47/runner/issues/562) closed on 2026-10-16; the lead's verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916), the starting-chat return path in [#748](https://github.com/yicheng47/runner/issues/748).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation, through Runner's delivery gate; spec under review ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, direct delivery, catch-up and unread-only reads; draft to reconcile with the delivery reliability work ([#826](https://github.com/yicheng47/runner/issues/826)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
@@ -15,13 +14,9 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 Future work, including [iOS follow-through](https://github.com/yicheng47/runner/issues/912), [shell/agent separation](https://github.com/yicheng47/runner/issues/795), [localization](https://github.com/yicheng47/runner/issues/565) and [pi MCP management](https://github.com/yicheng47/runner/issues/764), stays in its issue until development starts. Milestones and priorities are listed in the [roadmap](../roadmap.md), not duplicated in this index.
 
-## Merged since the last release
-
-- [809 — User documentation](./809-user-docs.md) — merged in [#911](https://github.com/yicheng47/runner/pull/911) after 0.16.2. The [guide](../guide/README.md), [authoring conventions](../guide-authoring.md) and [validation record](../tests/809-user-docs.md) own the implemented behavior and remaining validation gaps; website integration is separate.
-
 ## Recently shipped
 
-Reconciled on 2026-10-15 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
+Reconciled on 2026-10-16 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
 
 | Spec | Shipped in |
 | --- | --- |
@@ -47,7 +42,8 @@ Reconciled on 2026-10-15 against closed issues and published releases. These spe
 | [723 — Grok Build runtime](./archive/723-grok-build-runtime.md) | 0.15.2, 2026-10-12 ([#871](https://github.com/yicheng47/runner/pull/871), follow-up [#872](https://github.com/yicheng47/runner/pull/872)), enabled by default; native Windows and Linux unverified |
 | [701 — Desktop notifications](./archive/701-desktop-notifications.md) | 0.16.1, 2026-10-14 ([#891](https://github.com/yicheng47/runner/pull/891)); the operating system's own notifications, background-only, with chat events on and four mission events off by default; native checks were left to Jason's PR build |
 | [592 — OpenCode v2 runtime](./archive/592-opencode-runtime.md) | 0.16.1, 2026-10-14 ([#876](https://github.com/yicheng47/runner/pull/876)) from a contributor's fork after the original #592 closed unbuilt; enabled by default; inference-dependent native checks and Windows unverified |
-| [849 — Start mission dialog redesign](./archive/849-start-mission-modal.md) | 0.16.2, 2026-10-15 ([#906](https://github.com/yicheng47/runner/pull/906)), with No crew for [562](./562-mission-spawn.md)'s Phase 3; native Windows unverified |
+| [849 — Start mission dialog redesign](./archive/849-start-mission-modal.md) | 0.16.2, 2026-10-15 ([#906](https://github.com/yicheng47/runner/pull/906)), with No crew for [562](./archive/562-mission-spawn.md)'s Phase 3; native Windows unverified |
+| [562 — Missions as containers](./archive/562-mission-spawn.md) | 0.15.2 to 0.16.2; [#562](https://github.com/yicheng47/runner/issues/562) closed 2026-10-16. The roster in 0.15.2 ([#868](https://github.com/yicheng47/runner/pull/868)), independent sessions in 0.15.3 ([#874](https://github.com/yicheng47/runner/pull/874)), adding and removing roles in 0.16.0 ([#889](https://github.com/yicheng47/runner/pull/889)) and the empty start in 0.16.2 ([#906](https://github.com/yicheng47/runner/pull/906)). The lead's own verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916), the starting-chat return path in [#748](https://github.com/yicheng47/runner/issues/748) |
 
 ## Selected decision records
 

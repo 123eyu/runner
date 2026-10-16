@@ -1,6 +1,6 @@
 # 878 — a session records its launch definition: plan
 
-Implementation plan for [#878](https://github.com/yicheng47/runner/issues/878) (bug, P2, milestone 0.16), the prerequisite for [#562](https://github.com/yicheng47/runner/issues/562)'s Phase 2. The rule it implements is "What is copied, and when" in [`docs/features/562-mission-spawn.md`](../../features/562-mission-spawn.md): roles and crews are templates, and a session records its whole launch definition when it spawns, so later role edits never change it. The mission brief is [`briefs/878-session-launch-definition.md`](https://github.com/yicheng47/runner/blob/v0.16.2/docs/impls/briefs/878-session-launch-definition.md). Line numbers are as of `7fd40b9c`.
+Implementation plan for [#878](https://github.com/yicheng47/runner/issues/878) (bug, P2, milestone 0.16), the prerequisite for [#562](https://github.com/yicheng47/runner/issues/562)'s Phase 2. The rule it implements is "What is copied, and when" in [`docs/features/562-mission-spawn.md`](../../features/archive/562-mission-spawn.md): roles and crews are templates, and a session records its whole launch definition when it spawns, so later role edits never change it. The mission brief is [`briefs/878-session-launch-definition.md`](https://github.com/yicheng47/runner/blob/v0.16.2/docs/impls/briefs/878-session-launch-definition.md). Line numbers are as of `7fd40b9c`.
 
 ## What happens today
 

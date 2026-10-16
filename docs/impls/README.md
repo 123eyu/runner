@@ -6,7 +6,7 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 ## Active
 
-- [`562-mission-spawn/`](./562-mission-spawn/README.md) — missions as containers ([#562](https://github.com/yicheng47/runner/issues/562)): Phase 1 shipped in [#868](https://github.com/yicheng47/runner/pull/868), session independence in [#874](https://github.com/yicheng47/runner/pull/874), Phase 2's adding and removing roles in [#889](https://github.com/yicheng47/runner/pull/889) (0.16.0) and Phase 3's empty start in [#906](https://github.com/yicheng47/runner/pull/906) (0.16.2); #562 closed on 2026-10-16, and the lead's own verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916).
+No plan is in flight.
 
 ## Archive
 
@@ -16,6 +16,7 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 Retained plans are in [`archive/`](./archive/). Keep migration and compatibility decisions, failure analysis, runtime probes and program logs. Old Tauri UI instructions and shipped briefs that only repeat a retained spec are pruned; git history holds their original text. Historical links to pruned plans use a fixed revision. Multi-mission programs keep a folder with a condensed README:
 
+- [`562-mission-spawn/`](./archive/562-mission-spawn/README.md) — missions as containers ([#562](https://github.com/yicheng47/runner/issues/562), closed 2026-10-16): the roster in [#868](https://github.com/yicheng47/runner/pull/868) (0.15.2), session independence in [#874](https://github.com/yicheng47/runner/pull/874) (0.15.3), adding and removing roles in [#889](https://github.com/yicheng47/runner/pull/889) (0.16.0) and the empty start in [#906](https://github.com/yicheng47/runner/pull/906) (0.16.2); the lead's own verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916).
 - [`645-runnerd/`](./archive/645-runnerd/README.md) — `runnerd`, the daemon that owns sessions and state so they outlive the app ([#645](https://github.com/yicheng47/runner/issues/645), shipped 2026-10-06 in 0.13.0 through four missions, [#805](https://github.com/yicheng47/runner/pull/805) to [#811](https://github.com/yicheng47/runner/pull/811)); the CLI followed onto its client protocol in [#822](https://github.com/yicheng47/runner/pull/822) (#821), and remote machines continue as [#808](https://github.com/yicheng47/runner/issues/808).
 - [`648-runner-cli/`](./archive/648-runner-cli/README.md) — the general `runner` CLI, its agent skill and the MCP removal ([#648](https://github.com/yicheng47/runner/issues/648), shipped 2026-09-20 in 0.11.0 through five missions, [#650](https://github.com/yicheng47/runner/pull/650) to [#667](https://github.com/yicheng47/runner/pull/667)); the Windows checks continue as [#668](https://github.com/yicheng47/runner/issues/668).
 - [`539-pi-runtime/`](./archive/539-pi-runtime/README.md) — pi as a runtime with hook status ([#539](https://github.com/yicheng47/runner/issues/539), shipped 2026-09-20 in 0.11.0 in [#646](https://github.com/yicheng47/runner/pull/646) and [#649](https://github.com/yicheng47/runner/pull/649)); the fixture and the JASONPC pass continue as [#668](https://github.com/yicheng47/runner/issues/668).

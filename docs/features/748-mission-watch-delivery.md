@@ -3,7 +3,7 @@
 > Tracking issue: [#748](https://github.com/yicheng47/runner/issues/748). Priority: P1, milestone 0.16 (moved from 0.12 to 0.13 on 2026-10-03, to 0.15 on 2026-10-07 and to 0.14 on 2026-10-08, renumbered 0.16 on 2026-10-10). Platforms: macOS and Windows.
 > Status: spec, waiting for Jason's comments. No design: nothing new is drawn, and the notices are text typed into the chat's own pane.
 > Part of [#562](https://github.com/yicheng47/runner/issues/562), delegating work to other agents, since 2026-10-11: this is the path that brings a delegated worker's result back to the chat that started it.
-> Related: the watch contract from #686 ([test record](../tests/archive/686-watch-cli-started-missions.md)), which this replaces inside Runner chats; [704](https://github.com/yicheng47/runner/issues/704), which first specified `RUNNER_SESSION_ID` and closed unbuilt on 2026-10-11, so this spec carries it; [562](./562-mission-spawn.md), whose outside seats can later use the same delivery.
+> Related: the watch contract from #686 ([test record](../tests/archive/686-watch-cli-started-missions.md)), which this replaces inside Runner chats; [704](https://github.com/yicheng47/runner/issues/704), which first specified `RUNNER_SESSION_ID` and closed unbuilt on 2026-10-11, so this spec carries it; [562](./archive/562-mission-spawn.md), whose outside seats can later use the same delivery.
 
 ## Motivation
 

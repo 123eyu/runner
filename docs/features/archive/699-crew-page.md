@@ -4,7 +4,7 @@
 
 > Tracking issue: [#699](https://github.com/yicheng47/runner/issues/699)
 > Priority: P1, 0.12 release blocker. Platforms: macOS and Windows.
-> History: split from [393](./393-role-page.md) on 2026-09-22. The role page goes first, and this page follows in the same layout language. It is built against the roster model that [#562](../562-mission-spawn.md) settles.
+> History: split from [393](./393-role-page.md) on 2026-09-22. The role page goes first, and this page follows in the same layout language. It is built against the roster model that [#562](./562-mission-spawn.md) settles.
 
 ## Motivation
 

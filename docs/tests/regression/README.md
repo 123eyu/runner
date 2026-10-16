@@ -66,7 +66,7 @@ When a feature's test record is archived in a [release's docs sweep](../../../AG
 
 ## Not carried over
 
-All 51 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
+All 52 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 
 | Archive record/check left out | Reason / current owner |
 | --- | --- |
@@ -95,4 +95,5 @@ All 51 archive records were considered. Their lasting current live checks are li
 | [#592 OpenCode](../archive/592-opencode-runtime.md): synthetic plugin, SQLite history, model-query and JSONC fixtures, the free-tier provider failures and the local fork's allocation and variant rechecks | Automated in the OpenCode adapter's own tests; provider failures are account history, not product behavior. OpenCode runs the existing `RT-*`, `SET-AGENT-*`, `SET-SKILL-*` and `SET-MCP-*` templates as an additional runtime, plus `RT-OPENCODE-01/02/03`. |
 | [#701 notifications](../archive/701-desktop-notifications.md): controller, rule and settings round-trip tests, and the superseded mission master switch and completion-off defaults | CI owns the [notification controller](../../../crates/runner-app/src/notifications.rs) tests. The final four independent mission switches and background-only posting are `SET-NOTIF-01` to `SET-NOTIF-09`. |
 | [#878 launch definitions](../archive/878-session-launch-definition.md): LD-3's previous-build conversion and migration 0026/0027 | One-time upgrade; CI owns the conversion and schema snapshot tests. Ongoing launch freezing is `RT-LAUNCH-01` and `MIS-ROSTER-03`, and the stop divider is `MIS-FEED-02`. |
+| [#809 user guide](../archive/809-user-docs.md): Markdown parsing, link and GitHub-rendering checks, generator determinism and stale/missing-output failures, and the source audit | Documentation validation, not product behavior. CI's guide CLI check on both platforms owns reference freshness, and `SET-INSTALL-01` covers the installed command. The record's fresh-install walkthrough stays an unverified acceptance gap. |
 | [M6.1](../archive/m6-1-input-state-smoke.md), [M6.6](../archive/m6-6-resize-smoke.md): old backend byte-latch/ring purge, `gpui-nightly` versus Tauri-main and internal ioctl/DB-count assertions | Retired structure/CI detail. Native drafts/IME and immediate resize/reattach/geometry/memory behavior remain `TERM-*`, `WS-*` and `MIS-*`. |

@@ -50,4 +50,8 @@ Provider setup links use the URLs from Runner's runtime catalog. No provider ins
 - GitHub's renderer returned valid GFM for every page; pixel-level GitHub/browser layout inspection was not performed.
 - The website's rendering, release-tag ingestion and `/docs` deployment belong to its repository. README website links remain deferred until that route is confirmed live.
 
+## Regression suite
+
+No live case was promoted in the 0.16.3 sweep. The change is documentation; CI's guide CLI check on both platforms keeps the generated reference current, and the walkthrough gap above is not a maintained case. The [suite's ledger](../regression/README.md#not-carried-over) records this exclusion.
+
 CI results belong to the PR checks. This record reports the local checks above and does not substitute for the required macOS and Windows CI jobs.

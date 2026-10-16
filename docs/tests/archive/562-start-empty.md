@@ -4,7 +4,7 @@ Archived in the 0.16.2 docs sweep on 2026-10-15. Lasting live checks are maintai
 
 ## Scope and candidate
 
-Phase 3 of [the implementation plan](../../impls/562-mission-spawn/plan.md#phase-3--start-empty), including [#849's Start mission dialog](../../features/archive/849-start-mission-modal.md). Worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-start-empty`, branch `feat/562-start-empty`. Working-tree review, frozen-candidate QA, five commits, then open PR and macOS/Windows CI; no merge or release is authorized. Native Windows is unverified.
+Phase 3 of [the implementation plan](../../impls/archive/562-mission-spawn/plan.md#phase-3--start-empty), including [#849's Start mission dialog](../../features/archive/849-start-mission-modal.md). Worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-start-empty`, branch `feat/562-start-empty`. Working-tree review, frozen-candidate QA, five commits, then open PR and macOS/Windows CI; no merge or release is authorized. Native Windows is unverified.
 
 A new must-fix was reported by Jason at 06:29 UTC on 2026-10-15: Codex add-role inbox delivery entered the composer during MCP startup and its Enter was lost. The startup-delivery correction below is awaiting clean working-tree review and a new run of every selected native check; the previous matrix is historical evidence, not validation of this correction. Jason authorized a separate sixth fix commit.
 

@@ -2,7 +2,7 @@
 
 Archived in the 0.16.2 docs sweep on 2026-10-15. Lasting live checks are maintained as MIS-ADD-01 and MIS-REM-01 in [Missions](../regression/missions.md); the draft cases below are the origin, and historical verdicts and platform gaps are preserved.
 
-Branch: `feat/562-add-remove-roles`, worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-add-remove-roles`. Phase 2 follows [the plan](../../impls/562-mission-spawn/plan.md), decisions 1–15. Native Windows remains unverified.
+Branch: `feat/562-add-remove-roles`, worktree `/Users/jason/repos/yicheng47/runner/.worktrees/feat-562-add-remove-roles`. Phase 2 follows [the plan](../../impls/archive/562-mission-spawn/plan.md), decisions 1–15. Native Windows remains unverified.
 
 ## Selected checks and reasons
 
