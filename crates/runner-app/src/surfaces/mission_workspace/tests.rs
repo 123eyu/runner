@@ -1586,6 +1586,24 @@ fn stop_all_confirm_names_the_slot_count_and_preserves_recovery_copy() {
 }
 
 #[test]
+fn signal_rows_show_router_and_runner_as_system_without_changing_the_event() {
+    for (from, kind, seed, name) in [
+        ("router", "mission_warning", "system", "system"),
+        ("runner", "mission_warning", "system", "system"),
+        ("worker", "mission_warning", "worker", "@worker"),
+        ("human", "slot_restarted", "human", "you"),
+        ("human", "ask_lead", "human", "@human"),
+    ] {
+        let mut event = signal(kind, serde_json::json!({"message":"queued"}));
+        event.from = from.into();
+        let (author_seed, author_name) = mission_signal_author(&event);
+        assert_eq!(author_seed, seed);
+        assert_eq!(author_name, name);
+        assert_eq!(event.from, from);
+    }
+}
+
+#[test]
 fn slot_restarted_feed_row_uses_payload_handle_and_describes_fresh_brief() {
     let event = signal(
         "slot_restarted",

@@ -252,6 +252,18 @@ fn stop_all_title(running_count: usize) -> String {
 const STOP_ALL_BODY: &str =
     "ui.every_slot_s_pty_is_killed_and_whatever_turn_it_is_on_is_cut_off_the_mission_stays_open_ea";
 
+fn mission_signal_author(event: &Event) -> (&str, String) {
+    match event.from.as_str() {
+        "router" | "runner" => ("system", "system".into()),
+        "human"
+            if event.signal_type.as_ref().map(|kind| kind.as_str()) == Some("slot_restarted") =>
+        {
+            ("human", "you".into())
+        }
+        author => (author, format!("@{author}")),
+    }
+}
+
 fn slot_restart_signal_summary(event: &Event) -> Option<String> {
     (event.signal_type.as_ref().map(|kind| kind.as_str()) == Some("slot_restarted")).then(|| {
         crate::i18n::tf(
