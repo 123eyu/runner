@@ -25,6 +25,8 @@ On Windows, agents run natively without WSL. Claude Code and pi's bash tool need
 
 Runner does not install the agent CLIs or supply subscriptions. Where supported, **Settings → Agents** offers **Update** when a newer CLI version is available. The update runs the agent's own updater in a terminal.
 
+The dot on the Usage popover's **Agent settings** gear indicates an agent CLI update. Opening Usage or **Settings → Agents** refreshes the installed CLI versions, so the dot clears once every enabled agent is up to date. Updating Runner does not update these separately installed CLIs.
+
 ## Make the `runner` command available
 
 Open **Settings → General → Command line**. This command is optional for a first chat, but useful when working from a shell or asking another agent to operate Runner.
