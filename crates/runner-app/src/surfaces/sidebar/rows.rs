@@ -2,7 +2,7 @@ use super::*;
 use crate::surfaces::sidebar_logic::AttentionState;
 use crate::*;
 use runner_app::ui::TextField;
-use runner_core::protocol::model::Runtime;
+use runner_core::protocol::model::{MissionStatus, Runtime};
 use runner_core::protocol::node::NodeType;
 
 impl Sidebar {
@@ -203,6 +203,11 @@ impl Sidebar {
         summary: &runner_core::protocol::mission::MissionSummary,
     ) -> runner_app::ui::agent_status::StatusRollup {
         let mut entries = summary.session_statuses.clone();
+        if summary.mission.status == MissionStatus::Running && !summary.any_session_live {
+            for (_, status) in &mut entries {
+                status.unread_since = None;
+            }
+        }
         if self.archiving_missions.contains(&summary.mission.id) {
             for (_, status) in &mut entries {
                 mark_archiving_status(status);
