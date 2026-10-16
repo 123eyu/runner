@@ -326,7 +326,8 @@ fn run_probe(
 /// updater, on background threads. Answers are cached for six hours per app
 /// run; `force` (Refresh) skips the cache. While discovery is still
 /// resolving executables the check waits for it, so a CLI that discovery is
-/// about to find is checked too.
+/// about to find is checked too. Installed versions are re-probed on every
+/// request, even while registry answers are cached.
 pub(crate) fn request_latest(
     pool: &Arc<DbPool>,
     shell_env: &SharedShellEnv,
@@ -392,6 +393,7 @@ fn request_latest_with(
             continue;
         }
         let runtime = definition.name;
+        request_probes(pool, shell_env, discovery, events, &[runtime], true);
         let shell_env = Arc::clone(shell_env);
         let discovery = Arc::clone(discovery);
         let events = events.clone();
@@ -1075,6 +1077,88 @@ mod tests {
             .unwrap()
             .contains(&"@openai/codex".to_owned()));
         assert_eq!(discovery.read().unwrap().versions.deferred_latest, None);
+    }
+
+    #[test]
+    fn update_check_reprobes_installed_version_with_a_cached_latest() {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        let command = bin.path().join("codex");
+        #[cfg(windows)]
+        let command = bin.path().join("codex.cmd");
+        #[cfg(unix)]
+        let script = "#!/bin/sh\necho 'codex-cli 0.155.0'\n";
+        #[cfg(windows)]
+        let script = "@echo off\r\necho codex-cli 0.155.0\r\n";
+        std::fs::write(&command, script).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let command = command.to_str().unwrap();
+        let pool = Arc::new(crate::db::open_in_memory().unwrap());
+        for runtime in crate::runtimes::catalogs() {
+            crate::db::set_runtime_override(&pool, runtime.name.key(), Some(command)).unwrap();
+        }
+        let shell_env = Arc::new(RwLock::new(LoginShellEnv {
+            path: Some(bin.path().display().to_string()),
+            vars: Default::default(),
+        }));
+        let discovery = discovery();
+        let events = EventChannel::new();
+        {
+            let mut state = discovery.write().unwrap();
+            state.checking = false;
+            let versions = &mut state.versions;
+            let generation = versions.begin_probe(Runtime::Codex, command, true).unwrap();
+            versions.finish_probe(
+                Runtime::Codex,
+                generation,
+                command.into(),
+                Some("0.153.4".into()),
+            );
+        }
+        check_latest(
+            &discovery,
+            &events,
+            Runtime::Codex,
+            "latest",
+            false,
+            Instant::now(),
+            || Some("0.155.0".into()),
+        );
+        assert_eq!(available(&discovery, "0.153.4").as_deref(), Some("0.155.0"));
+
+        let mut changes = events.subscribe();
+        request_latest_with(&pool, &shell_env, &discovery, &events, false, |_, _, _| {
+            None
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if changes.try_recv().is_ok()
+                && discovery
+                    .read()
+                    .unwrap()
+                    .versions
+                    .installed(Runtime::Codex, command)
+                    == Some("0.155.0")
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "version refresh did not notify the UI"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let status = super::super::status_list(&pool, &shell_env, &discovery).unwrap();
+        let codex = status
+            .runtimes
+            .iter()
+            .find(|runtime| runtime.name == Runtime::Codex)
+            .unwrap();
+        assert_eq!(codex.installed_version.as_deref(), Some("0.155.0"));
+        assert_eq!(codex.available_version, None);
     }
 
     #[cfg(unix)]

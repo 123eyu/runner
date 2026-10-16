@@ -549,7 +549,7 @@ impl NativeRoot {
         let agent_settings = Tooltip::new(
             "usage-agent-settings-tooltip",
             if update_dot {
-                "Agent settings · Update available"
+                "Agent settings · Agent CLI update available"
             } else {
                 "Agent settings"
             },
