@@ -2,6 +2,10 @@
 
 Start with the failing agent or command, then check Runner's settings and diagnostics. The steps below preserve existing chats and missions while you identify the problem.
 
+## Runner does not open
+
+Runner starts its background service before showing a window. If that fails, Runner records the reason in `runner.log` and, on Windows, shows it in a **Runner could not start** dialog. The log is in `~/Library/Logs/com.wycstudios.runner` on macOS and `%APPDATA%\com.wycstudios.runner\logs` on Windows. Include the message when you [report the problem](#collect-a-useful-bug-report).
+
 ## An agent is missing or fails to start
 
 1. Run the agent in your usual terminal. If it cannot start or sign in there, finish its own setup first.

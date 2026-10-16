@@ -1921,9 +1921,22 @@ fn print_startup_paths(paths: &NativePaths) {
 #[cfg(not(test))]
 fn main() {
     if let Err(error) = run() {
-        eprintln!("Runner failed: {error:#}");
+        let message = format!("{error:#}");
+        runner_app::logging::startup_failure(&message);
+        eprintln!("Runner failed: {message}");
+        #[cfg(windows)]
+        show_startup_error(&message);
         std::process::exit(1);
     }
+}
+
+/// Release builds on Windows have no console, so a failed start is invisible without a dialog.
+#[cfg(all(windows, not(test)))]
+fn show_startup_error(message: &str) {
+    use windows::core::HSTRING;
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let text = HSTRING::from(format!("Runner could not start.\n\n{message}"));
+    unsafe { MessageBoxW(None, &text, &HSTRING::from("Runner"), MB_OK | MB_ICONERROR) };
 }
 
 #[cfg(test)]
