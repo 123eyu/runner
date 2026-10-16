@@ -104,7 +104,7 @@ impl Render for AboutPane {
                     .justify_center()
                     .text_size(theme::text_meta())
                     .text_color(theme::faint())
-                    .child("© 2026 wyc studios"),
+                    .child("© 2026 Yicheng Wang (Jason Wang)"),
             )
     }
 }

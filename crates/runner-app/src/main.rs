@@ -81,6 +81,7 @@ use toast::ToastHost;
 actions!(
     runner_app_ui,
     [
+        AboutRunner,
         CloseTab,
         CloseWindow,
         CheckForUpdates,
@@ -1627,6 +1628,10 @@ fn run() -> Result<()> {
                 cx.activate(true);
             });
         });
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &AboutRunner, _| {
+            platform_ui::show_about_panel();
+        });
         cx.on_action(|_: &CheckForUpdates, cx| {
             global_updater(cx).read(cx).check_for_updates();
         });
@@ -1683,6 +1688,8 @@ pub(crate) fn app_menus() -> Vec<Menu> {
             name: "Runner".into(),
             disabled: false,
             items: vec![
+                #[cfg(target_os = "macos")]
+                MenuItem::action("About Runner", AboutRunner),
                 MenuItem::action("Check for Updates…", CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),

@@ -59,4 +59,6 @@ Start a new session after changing a registration or global skill switch. These 
 
 ## Collect a useful bug report
 
+Find the Runner version in **Runner → About Runner** on macOS, or **Settings → About** on either platform. The macOS About window shows the app icon, version and build identity, and copyright. Released builds include their commit identifier; local development builds show `dev`.
+
 Open **Settings → Diagnostics → Open log folder**. Include the Runner version, operating system, agent CLI and version, the steps that failed, and the visible error in a [GitHub issue](https://github.com/yicheng47/runner/issues/new). Share only the relevant log excerpt after removing secrets and private conversation content. Keep the original sessions and logs until you have captured the evidence; deleting application data is not a first troubleshooting step.

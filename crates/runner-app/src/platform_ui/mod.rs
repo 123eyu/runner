@@ -3,6 +3,9 @@ mod macos;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(all(target_os = "macos", not(test)))]
+pub(crate) use macos::show_about_panel;
+
 #[cfg(target_os = "macos")]
 pub(crate) use macos::{
     activate_update_hint, finish_window_close, navigation_left, other_shortcut_modifiers_held,
