@@ -157,7 +157,7 @@ impl MissionWorkspace {
                 - 16. * self.settings(cx).app_zoom;
             pane = pane.child(self.render_inbox_blocked_pill(
                 session_id.clone(),
-                blocked.unread_count,
+                blocked,
                 idle && !status.observation.needs_you(),
                 status.observation.needs_you(),
                 pane_width < 600. * self.settings(cx).app_zoom,
@@ -182,12 +182,14 @@ impl MissionWorkspace {
     fn render_inbox_blocked_pill(
         &self,
         session_id: String,
-        unread_count: usize,
+        blocked: DeliveryBlocked,
         idle: bool,
         needs_you: bool,
         narrow: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let unread_count = blocked.unread_count;
+        let unsubmitted = blocked.reason.as_deref() == Some("unsubmitted");
         let root = cx.entity();
         let clear_root = root;
         div()
@@ -216,7 +218,9 @@ impl MissionWorkspace {
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::warning())
-                    .child(if unread_count > 1 {
+                    .child(if unsubmitted {
+                        crate::i18n::text("ui.message_not_submitted_press_return").into()
+                    } else if unread_count > 1 {
                         crate::i18n::tf(
                             "format.inbox_waiting",
                             &[("unread_count", (unread_count).to_string())],
@@ -225,7 +229,7 @@ impl MissionWorkspace {
                         crate::i18n::text("ui.inbox_waiting").into()
                     }),
             )
-            .children((!narrow).then(|| {
+            .children((!narrow && !unsubmitted).then(|| {
                 div().text_color(theme::muted()).child(if needs_you {
                     crate::i18n::text("ui.respond_to_the_agent_s_prompt_to_release_delivery")
                 } else {

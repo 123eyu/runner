@@ -5,6 +5,6 @@ session_status_rows=published
   busy@hook [running/working/hook]
 200
 2400
-2500 status=running/ready/hook outcome="completed" activity="idle"
+2500 status=running/ready/hook outcome="completed" activity="idle" delivery=["Idle"]
   idle@hook [running/ready/hook outcome="completed"]
 2600 status=running/ready/hook outcome="completed" unread_since=1767225602600 completion_armed=false result={"completion_consumed":true,"viewed":false}

@@ -824,7 +824,14 @@ mod tests {
             let log =
                 event_log::EventLog::open(&event_log::mission_dir(data.path(), Some("c"), "m"))
                     .unwrap();
-            let (_, body) = router.launch().prompt_channels(&log, "claude-code");
+            let loaded = load(&state.db.get().unwrap(), data.path(), &mission).unwrap();
+            let (_, body) = crate::router::prompt::member_prompt_channels(
+                crate::runtimes::for_key("claude-code"),
+                &loaded.slots[0],
+                &loaded.slots,
+                &loaded.file,
+                &log,
+            );
             let body = body.unwrap();
             assert!(body.contains("Original crew") && body.contains("ORIGINAL_RULES"));
             assert!(!body.contains("new-worker") && !body.contains("EDITED_RULES"));

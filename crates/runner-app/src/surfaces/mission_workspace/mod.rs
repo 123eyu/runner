@@ -298,6 +298,7 @@ pub(crate) struct MissionRenameModal {
 #[derive(Clone, Debug)]
 struct DeliveryBlocked {
     unread_count: usize,
+    reason: Option<String>,
 }
 
 pub(crate) struct MissionWorkspace {

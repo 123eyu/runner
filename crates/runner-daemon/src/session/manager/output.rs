@@ -496,7 +496,15 @@ impl SessionManager {
         else {
             return Ok(false);
         };
+        let terminal = session.terminal.clone();
         drop(session);
+        if let Some(terminal) = terminal {
+            if bytes == b"\r" {
+                terminal.track_delivery_submit();
+            } else if let Ok(text) = std::str::from_utf8(bytes) {
+                terminal.track_delivery_input(text);
+            }
+        }
         self.write_stdin_bytes(&rt_session, bytes)?;
         drop(delivery);
         if bytes == b"\r" {
@@ -599,7 +607,9 @@ impl SessionManager {
                     source,
                     status: session.model.status().clone(),
                 });
-            let input_cleared = effects.input_cleared;
+            let input_cleared = effects
+                .input_cleared
+                .then_some(router::SessionDeliveryEvent::ReadinessChanged);
             if let Err(error) = self.write_stdin_bytes(&rt_session, bytes) {
                 session.model.apply(
                     SessionEvent::InputWriteFailed(previous),
@@ -620,7 +630,7 @@ impl SessionManager {
         let input_queue_drained = delivery.next_served == delivery.next_ticket;
         let successful_clear = outcome
             .as_ref()
-            .is_ok_and(|(_, _, _, input_cleared)| *input_cleared);
+            .is_ok_and(|(_, _, _, input_cleared)| input_cleared.is_some());
         gate.ready.notify_all();
         drop(delivery);
         if input_queue_drained && !successful_clear {
@@ -630,8 +640,8 @@ impl SessionManager {
         if submitted {
             self.capture_codex_session_key(session_id);
         }
-        if input_cleared {
-            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::InputCleared);
+        if let Some(event) = input_cleared {
+            self.notify_delivery_event(session_id, event);
         }
         if let Some(transition) = transition.as_ref() {
             if let Some(sink) = mission_status_sink.as_ref() {
@@ -665,7 +675,11 @@ impl SessionManager {
         Ok(())
     }
 
-    fn write_stdin_bytes(&self, rt_session: &RuntimeSession, bytes: &[u8]) -> Result<()> {
+    pub(super) fn write_stdin_bytes(
+        &self,
+        rt_session: &RuntimeSession,
+        bytes: &[u8],
+    ) -> Result<()> {
         // ASCII CR (0x0D) is what claude-code's TUI editor reads as
         // "Enter" — bare-byte writes that just contain `\r` map to
         // `send_key("Enter")`. Everything else routes as a literal

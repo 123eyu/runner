@@ -38,6 +38,35 @@ pub struct TerminalModel {
 }
 
 impl TerminalModel {
+    pub fn input_rows(&self) -> Vec<String> {
+        let term = self.term.lock();
+        (0..term.screen_lines())
+            .map(|row| crate::replay::row_cells(&term, row as i32))
+            .collect()
+    }
+
+    /// Serialize the revision and row checks through the write with native input observations.
+    pub fn with_unchanged_input<T>(
+        &self,
+        revision: u64,
+        probe: &crate::delivery_probe::InputProbe,
+        write: impl FnOnce() -> T,
+    ) -> Option<T> {
+        let mut tracker = self.input_tracker.lock().unwrap();
+        if tracker.reset_guard() != revision
+            || probe.state(&self.input_rows()) != crate::delivery_probe::ProbeState::Present
+        {
+            return None;
+        }
+        {
+            let term = self.term.lock_unfair();
+            tracker.track_delivery_submit(Instant::now(), &term);
+        }
+        let result = write();
+        drop(tracker);
+        Some(result)
+    }
+
     pub fn take_workers(&self) -> Vec<thread::JoinHandle<()>> {
         std::mem::take(&mut *self.workers.lock().unwrap())
     }
@@ -393,6 +422,17 @@ impl TerminalModel {
         };
         self.publish_input(observation);
     }
+    /// Observe the injected composer's echo without advancing the person's input revision.
+    pub fn track_delivery_input(&self, text: &str) {
+        let mut tracker = self.input_tracker.lock().unwrap();
+        let term = self.term.lock_unfair();
+        tracker.track_delivery_input(text, Instant::now(), &term);
+    }
+    pub fn track_delivery_submit(&self) {
+        let mut tracker = self.input_tracker.lock().unwrap();
+        let term = self.term.lock_unfair();
+        tracker.track_delivery_submit(Instant::now(), &term);
+    }
     pub fn input_reset_guard(&self) -> u64 {
         self.input_tracker.lock().unwrap().reset_guard()
     }
@@ -432,5 +472,90 @@ impl TerminalModel {
     }
     pub fn is_shell(&self) -> bool {
         self.cwd_reports.is_some()
+    }
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::*;
+    use crate::delivery_probe::InputProbe;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct Host {
+        entered: AtomicBool,
+    }
+    impl TerminalHost for Host {
+        fn write_input(&self, _: &str, _: &[u8]) -> Result<()> {
+            Ok(())
+        }
+        fn write_reply(&self, _: &str, _: &[u8]) -> Result<()> {
+            Ok(())
+        }
+        fn report_input_state(&self, _: &str, _: InputObservation) {}
+        fn set_live_title(&self, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+        fn resize(&self, _: &str, _: u16, _: u16) -> Result<()> {
+            Ok(())
+        }
+        fn is_local_host(&self, _: &str) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn resubmit_serializes_composition_at_the_revision_check_and_write_boundary() {
+        let host = Arc::new(Host::default());
+        let model = TerminalModel::new(
+            host.clone(),
+            "delivery".into(),
+            80,
+            4,
+            ModelOptions::default(),
+        )
+        .unwrap();
+        model.feed_output(1, b"> ");
+        let text = "[inbox] 1 new messages — run `runner msg read` to view.";
+        let mut probe = InputProbe::new(model.input_rows(), text);
+        model.feed_output(2, text.as_bytes());
+        probe.locate(&model.input_rows());
+        let revision = model.input_reset_guard();
+        let (start, go) = mpsc::channel();
+        let (ready, started) = mpsc::channel();
+        let (done, finished) = mpsc::channel();
+        let observing = model.clone();
+        let observing_host = host.clone();
+        let observer = thread::spawn(move || {
+            go.recv_timeout(Duration::from_secs(2)).unwrap();
+            ready.send(()).unwrap();
+            observing.observe_input(&InputEvent::Composing { composing: true });
+            assert!(observing_host.entered.load(Ordering::SeqCst));
+            done.send(()).unwrap();
+        });
+        assert_eq!(
+            model.with_unchanged_input(revision, &probe, || {
+                assert!(model.input_tracker.try_lock().is_err());
+                start.send(()).unwrap();
+                started.recv_timeout(Duration::from_secs(2)).unwrap();
+                assert!(finished.try_recv().is_err());
+                host.entered.store(true, Ordering::SeqCst);
+            }),
+            Some(())
+        );
+        observer.join().unwrap();
+        finished.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(
+            model.with_unchanged_input(revision, &probe, || panic!(
+                "composition must suppress Enter"
+            )),
+            None::<()>
+        );
+        let workers = model.take_workers();
+        drop(model);
+        for worker in workers {
+            worker.join().unwrap();
+        }
     }
 }

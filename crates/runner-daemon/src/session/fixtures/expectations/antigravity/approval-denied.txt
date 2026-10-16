@@ -7,7 +7,7 @@ session_status_rows=published
 300
 400 quiescent=false result={"gate":"ready"}
 500 quiescent=true delivery=["DeliveryFinished"]
-600 status=running/ready/hook outcome="interrupted" activity="idle" completion_armed=false quiescent=false delivery=["InputQueueDrained"]
+600 status=running/ready/hook outcome="interrupted" activity="idle" completion_armed=false quiescent=false delivery=["InputQueueDrained","Idle"]
   idle@hook [running/ready/hook outcome="interrupted"]
 700
 800 result={"completion_consumed":false,"viewed":false}

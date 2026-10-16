@@ -6,7 +6,7 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 ## Active
 
-No plan is in flight.
+- [`907-reliable-delivery.md`](./907-reliable-delivery.md) — reliable mission message delivery ([#907](https://github.com/yicheng47/runner/issues/907)): mission messaging formalized as a small durable queue: the session manager owns readiness, one dispatcher per mission pushes idempotent notifications, every delivery attempt is confirmed, the router's cursor is a log offset, and the person's answers become messages; plan, ahead of #826's direct delivery.
 
 ## Archive
 

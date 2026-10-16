@@ -45,6 +45,13 @@ pub fn feed(term: &mut Term<VoidListener>, bytes: &[u8]) {
 /// One visible row as a string: wide chars keep their glyph, spacer
 /// cells are skipped, zero-width combining marks are re-attached.
 pub fn row_to_string<T>(term: &Term<T>, line: i32) -> String {
+    let mut s = row_cells(term, line);
+    s.truncate(s.trim_end().len());
+    s
+}
+
+/// Preserve trailing space cells for probes that join a wrapped line.
+pub fn row_cells<T>(term: &Term<T>, line: i32) -> String {
     let grid = term.grid();
     let row = &grid[Line(line)];
     let mut s = String::new();
@@ -61,7 +68,6 @@ pub fn row_to_string<T>(term: &Term<T>, line: i32) -> String {
             s.extend(zw.iter());
         }
     }
-    s.truncate(s.trim_end().len());
     s
 }
 

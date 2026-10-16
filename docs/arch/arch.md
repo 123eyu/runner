@@ -503,7 +503,7 @@ Two subscribers to each mission's file, both fed by one `notify` watcher:
 
 #### Startup replay
 
-On router boot: open the mission's file, fold `human_question` / `human_response` and `session_status` rows into in-memory state, record the replay high-water mark, then tail from the current end. Replay rebuilds projections; it never re-runs historical stdin pushes or inbox nudges.
+On router boot: open the mission's file, fold `human_question` / `human_response` rows into in-memory state, record the byte offset after the last reconstructed entry (the router cursor), then handle only appends beyond that offset. Event IDs remain the cumulative ack contract; a later append with a lower ID still reaches the router. Replay rebuilds projections; it never re-runs historical stdin pushes or inbox nudges.
 
 ## 8. Signal router
 
@@ -519,10 +519,10 @@ Add records `role_joined` before publishing `roster.json`, then updates the rout
 | Event | Fixed handler |
 |---|---|
 | `mission_goal` | No runtime side effect; the launch prompt was composed before spawn and this event remains the durable goal record. |
-| `human_said` | Inject CLI-provided `payload.text` to `payload.target` if present, otherwise to the lead, or every live member if there is no lead. |
+| `human_said` | Append a message from `human` to `payload.target`, or broadcast when no target is given. |
 | `ask_human` | Append a `human_question` event for the UI. |
-| `human_response` | Look up the matching `question_id` and inject the answer to the session that emitted the original `ask_human`. |
-| `session_status` | Update the latest-status map from `payload.state`; `runner_status`, the row's name before #632, is read the same way. |
+| `human_response` | Append a message from `human` to the original asker, with `payload.question_id`; retain the signal as the card record. |
+| `session_status` | The feed renders status; readiness comes directly from the session manager. |
 | message (any) | Inject a one-line inbox nudge to the recipient (directed) or to every other roster member (broadcast); a message to the virtual `human` handle is rendered in the feed and not nudged. |
 | `inbox_read` | Internal — owned by the bus's projection layer to track read watermarks. |
 
@@ -565,26 +565,50 @@ Causality is carried in-payload rather than on the envelope. The canonical `ques
 
 1. **Worker asks the lead.** Worker sends `runner msg post --to <lead>`; the router nudges the lead to read its inbox.
 2. **Lead decides.** Answer from own context via a directed message (pull-based, plus the nudge), or escalate with `ask_human` and `payload.on_behalf_of: "<handle>"`; the UI shows the attribution chain (*@impl → @architect → you*).
-3. **Human responds.** The router injects the result into the lead's stdin; the lead forwards it to the worker as a directed message.
+3. **Human responds.** The router appends the answer as a durable message to the asker; the lead reads it with `runner msg read` and forwards it to the worker as a directed message.
 
 ### 8.4 Read-mostly mission feed
 
 The mission feed answers what is happening across the crew; the selected terminal pane is where the operator talks to a crew member. Crew members cannot address a virtual `human` message recipient: `runner msg post --to human` fails with guidance to answer in TUI output. The feed keeps its render paths for historical `human_said`, `human_response`, and messages addressed to `human`, so old logs replay unchanged.
 
-### 8.5 Who does delivery, and when
+### 8.5 Delivery model
 
-| | Sender addresses recipient? | What the router does | When |
-|---|:---:|---|---|
-| Signal | No — fixed handler decides | Injects the handler's text | Through the delivery gate |
-| Broadcast message | No | One-line inbox nudge to every other slot | Through the delivery gate |
-| Direct message | Yes (`--to`) | One-line inbox nudge to that slot | Through the delivery gate |
+Mission messaging is a small durable queue with push delivery. This section names its parts in standard message-queue terms; the decisions, the code and the tests below use these terms, and architecture §8.5 takes this section in the commit that adds the dispatcher. Names already in the log (`inbox_read`, `up_to`) do not change.
 
-Message *bodies* are never pushed; recipients read them with `msg read`. What the router pushes is the wake-up line, and every push — handler text or nudge — goes through the per-slot **delivery gate and outbox** in `router/mod.rs`:
+| Term | In Runner | Code or log name |
+| --- | --- | --- |
+| Stream | The mission's event log: append-only, with one total order, the order of the file, and each append under `flock`. | `events.ndjson`, `EventLog` |
+| Producer | Anything that appends: the `runner` CLI, the daemon's mission operations, the router. | `EventLog::append` |
+| Message | An event with `kind: "message"`. Signals are not messages and are not queued for subscribers. | `EventKind::Message` |
+| Subscriber | One mission member, addressed by its handle. The person is not a subscriber; a message to `human` is in no subscription. | roster handle |
+| Subscription | The messages a subscriber receives: `from ≠ h` and (`to` is null or `to = h`), starting at the subscriber's `role_joined`, or at mission start for an original member. | bus `RoleInbox` |
+| Ack | A cumulative acknowledgement written by or for the subscriber: every message in its subscription with an ID at or below `up_to` is consumed. Acks only move forward; the bus ignores a stale one. | `inbox_read { up_to }` signal |
+| Backlog | The subscription's messages after the latest ack. | bus unread count (`InboxUpdate.unread_count`) |
+| Dispatcher | The per-mission loop that pushes notifications to subscribers with a backlog. | `router/dispatch.rs` (new) |
+| Notification | The line that tells a subscriber it has a backlog. It carries no message, is composed at send time from the backlog, and is idempotent. | `[inbox] N new messages — run runner msg read to view.` |
+| Delivery attempt | Typing one notification into the subscriber's terminal, submitting it, and confirming that it was taken. | `Attempt` |
+| Readiness | Flow control: whether the subscriber's session can take input now. The session manager owns it. | `SessionManager::delivery_readiness` |
+| In-flight limit | One attempt per subscriber at a time. | — |
+| Redelivery | A new notification to an idle subscriber whose backlog is still there, after a backoff. | the reconciliation deadline |
+| Router cursor | The router's own position in the stream, as a byte offset. The router acts only on events past it. | `AppendedEvent.next_offset` |
 
-- **Draft-aware.** The reducer combines native composer observations with the byte latch. Drafting holds delivery even when the composer is hidden; Submitted holds it for 2 s; observed Idle overrides a stale latch. With no composer observation, printable input and pastes set the latch, and Enter/Ctrl-C clear it. A separate 2 s recent-input window also holds delivery. `reserve_delivery` reads the model's hold reason under the existing gate/state lock order, preserving #794's logging. The delivery waits in the outbox and the pane shows a "delivery waiting" pill (`router/delivery-blocked`).
-- **Turn-boundary.** Deliveries are spaced by an 80 ms cooldown and a 30 s reconciliation re-nudge covers a nudge that landed while the agent was mid-tool-call; latest-wins absorbs bursts. The planned hook adapter in [#347](../features/archive/347-hook-based-session-status.md) will supply verified turn boundaries; v0.8.9 still uses inferred idle.
-- **Queued until resume.** A delivery to a stopped or resuming slot is queued, announced once per outbox with a `mission_warning` ("queued until the session resumes"), flushed on `Respawned`, and dropped with a second warning if the session exits for good. Nothing is silently lost and nothing hard-fails (M6.8).
-- **Never on replay.** Events at or below the replay high-water mark are not re-dispatched, so a restart does not re-nudge anyone with mail they already saw.
+Guarantees:
+
+- **Durability.** A message is durable once appended, and no message is held only in memory, so a session exit, a stop or a daemon restart loses none.
+- **At-least-once notification.** A subscriber with a backlog is notified until it acks. A duplicate notification is harmless; a lost one is repaired by redelivery.
+- **Order.** A subscriber reads its messages in stream order, and its attempts are serial.
+- **Soft dispatcher state.** Everything the dispatcher holds is rebuilt from the stream on mount: backlogs from acks, the cursor from the log's end.
+- **Who acks.** Today the subscriber acks by reading, through `runner msg read`. #826's Phase 3 makes a confirmed attempt that carries the messages themselves an ack written for the subscriber.
+
+Not in this model: partitions, consumer groups, exactly-once delivery, per-message acks, dead-letter queues and priorities. A subscriber whose attempt is unsubmitted is paused, not dead-lettered: its backlog stays until a later attempt is confirmed or it acks.
+
+Readiness belongs to the session manager. One dispatcher driver per mission handles channel inputs and deadlines, without holding router state across session-manager calls. It waits for a bus projection batch to include its acks before notifying from that backlog. Attempts are allowed while the agent is busy; redelivery runs every 30 seconds and on Idle, only for idle subscribers, with a two-minute backoff. Pending spawn, startup, drafts, recent typing and human approvals hold attempts. A stopped session keeps its backlog and warns once until it resumes.
+
+Each attempt types a notification and presses Enter after `SUBMIT_DELAY` (80 ms on macOS, 300 ms on Windows for #753), then releases the input gate. For 1.5 seconds it watches for a real runtime `TurnStarted` or for the probe's captured input rows to clear. Only then is the outcome Confirmed and synthetic busy published. If the exact typed text remains in the same rows, one additional Enter is allowed under an atomic generation/local-input/approval check. Text still present after a second window gives Unsubmitted and pauses the subscriber with “Message not submitted — press Return”; clearing the input resumes it. An unfound or ambiguous probe, or local input during confirmation, gives Unverified, is logged with its runtime, and leaves the backlog for redelivery. Draft and approval holds show “Inbox waiting (N)”. Approval and bridge releases and successful raw Enter/Ctrl-C writes emit `ReadinessChanged`; they do not count as input-clear evidence. The terminal composer tracks injected notifications and generated submissions without advancing the local-input revision; generated submissions keep their bookkeeping internal, so a later output-observed clear can provide `InputCleared` evidence. After a height change makes the original probe unknown, input-clear evidence can release the pause only after readiness is Ready. A probe that still positively sees the notification always retains the pause.
+
+Fresh starts and reopens share `mount_mission_router`; only the session registration and replay mode differ. Router reconstruction and cold sidebar counts use the same `pending_asks` fold, including cards whose original ask is missing. Start, add-role and respawn share `member_prompt_channels`, including the no-lead mission goal rule.
+
+Person signals carry `delivery: "inbox"`; their derived messages carry `source_event`. Reopen repairs a marked signal whose message was not appended before the daemon stopped. Legacy unmarked signals stay projection-only on replay. Answer messages include `question_id` and `Answer to "<prompt, first 80 characters>": <choice>`; the feed hides the derived answer because the card records the choice. Untargeted human messages broadcast without a lead fallback.
 
 ## 9. The `runner` CLI
 

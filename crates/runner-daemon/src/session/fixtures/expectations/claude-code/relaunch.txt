@@ -4,19 +4,19 @@ session_status_rows=published
   busy@spawn [running/working/baseline]
 200
 300 result={"history_exists":true,"missing_reuses_key":false,"missing_resume_on_launch":false}
-400 status=running/idle/hook activity="idle"
+400 status=running/idle/hook activity="idle" delivery=["Idle"]
   idle@hook [running/idle/hook]
 500 status=running/working/hook activity="busy" completion_armed=true
   busy@hook [running/working/hook]
-600 status=running/ready/hook outcome="completed" activity="idle"
+600 status=running/ready/hook outcome="completed" activity="idle" delivery=["Idle"]
   idle@hook [running/ready/hook outcome="completed"]
 700 status=starting/unavailable/unavailable activity=null completion_armed=false quiescent=false delivery=["Exited"]
 800 status=running/working/baseline activity="busy" quiescent=true delivery=["Respawned"]
   busy@spawn [running/working/baseline]
 900 result={"history_exists":true,"missing_reuses_key":false,"missing_resume_on_launch":false}
-1000 status=running/idle/hook activity="idle"
+1000 status=running/idle/hook activity="idle" delivery=["Idle"]
   idle@hook [running/idle/hook]
 1100 status=running/working/hook activity="busy" completion_armed=true
   busy@hook [running/working/hook]
-1200 status=running/ready/hook outcome="completed" activity="idle"
+1200 status=running/ready/hook outcome="completed" activity="idle" delivery=["Idle"]
   idle@hook [running/ready/hook outcome="completed"]

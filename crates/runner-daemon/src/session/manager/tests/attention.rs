@@ -71,7 +71,7 @@ fn normalized_status_snapshot_wait_gate_resolution_and_bridge_failure() {
         .0
         .lock()
         .unwrap()
-        .contains(&router::SessionDeliveryEvent::InputCleared));
+        .contains(&router::SessionDeliveryEvent::ReadinessChanged));
     manager
         .session_state("status")
         .unwrap()

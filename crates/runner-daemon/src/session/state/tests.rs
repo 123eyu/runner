@@ -7,6 +7,109 @@ fn now() -> Now {
     }
 }
 
+#[test]
+fn recorded_drafts_keep_delivery_held_after_recent_input_expires() {
+    use alacritty_terminal::term::test::TermSize;
+    use alacritty_terminal::vte::ansi::Processor;
+    use runner_terminal::fixtures::{decode_chunk, Fixture, FixtureEvent, FixtureInput};
+    use runner_terminal::input_state::InputTracker;
+    use runner_terminal::replay::new_term;
+
+    for name in [
+        "input-codex-multiline-paste",
+        "input-codex-active-tool-paste",
+        "input-codex-coalesced-typing",
+    ] {
+        let fixture = Fixture::load(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../runner-terminal/fixtures/{name}.ndjson")),
+        )
+        .unwrap();
+        let start = now();
+        let mut term = new_term(fixture.header.cols, fixture.header.rows);
+        let mut parser: Processor = Processor::new();
+        let mut tracker = InputTracker::new(start.monotonic);
+        let mut model = SessionModel::default();
+        model.apply(
+            SessionEvent::Composer {
+                observation: tracker.initial_observation(start.monotonic),
+                live: true,
+            },
+            start,
+        );
+        for event in fixture.events {
+            let (ms, observation) = match event {
+                FixtureEvent::Data { ms, data } => {
+                    parser.advance(&mut term, &decode_chunk(&data).unwrap());
+                    (
+                        ms,
+                        tracker.observe_output(start.monotonic + Duration::from_millis(ms), &term),
+                    )
+                }
+                FixtureEvent::Input {
+                    ms,
+                    input: FixtureInput::Event(input),
+                } => {
+                    use runner_terminal::input_state::InputEvent;
+                    use runner_terminal::mappings::InputKind;
+                    let class = match &input {
+                        InputEvent::Paste { .. }
+                        | InputEvent::Key {
+                            kind: InputKind::Content { .. },
+                        } => Some(LocalInputClass::SetPending),
+                        InputEvent::Composing { composing: false } => None,
+                        _ => panic!("unexpected input in the unsent draft fixture"),
+                    };
+                    model.apply(
+                        SessionEvent::Input {
+                            class,
+                            submitted: false,
+                        },
+                        Now {
+                            monotonic: start.monotonic + Duration::from_millis(ms),
+                            ..start
+                        },
+                    );
+                    (
+                        ms,
+                        tracker.observe_input(
+                            &input,
+                            start.monotonic + Duration::from_millis(ms),
+                            &term,
+                        ),
+                    )
+                }
+                FixtureEvent::Resize { cols, rows, .. } => {
+                    term.resize(TermSize::new(cols as usize, rows as usize));
+                    continue;
+                }
+                _ => panic!("unexpected event in the unsent draft fixture"),
+            };
+            if let Some(observation) = observation {
+                model.apply(
+                    SessionEvent::Composer {
+                        observation,
+                        live: true,
+                    },
+                    Now {
+                        monotonic: start.monotonic + Duration::from_millis(ms),
+                        ..start
+                    },
+                );
+            }
+        }
+        let later = start.monotonic + Duration::from_secs(10);
+        assert_eq!(
+            model.draft_hold(later),
+            Some(crate::router::DeliveryReservation::Drafting {
+                composer_visible: true
+            }),
+            "{name}"
+        );
+        assert!(!model.draft_quiescent(later), "{name}");
+    }
+}
+
 fn transition(
     model: &mut SessionModel,
     state: SessionActivityState,

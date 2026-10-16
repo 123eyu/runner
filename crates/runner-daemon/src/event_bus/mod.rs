@@ -62,6 +62,8 @@ pub trait BusEmitter: Send + Sync + 'static {
     fn appended(&self, ev: &AppendedEvent);
     fn inbox_updated(&self, ev: &InboxUpdate);
     fn watermark_advanced(&self, ev: &WatermarkUpdate);
+    /// Projections include every entry and ack in this read batch.
+    fn caught_up(&self) {}
 }
 
 /// Production emitter — fans out to `event/appended`, `inbox/updated`,
@@ -377,6 +379,7 @@ impl BusState {
             }
         }
         self.next_offset = new_offset;
+        emitter.caught_up();
         Ok(())
     }
 
