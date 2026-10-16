@@ -1,0 +1,1014 @@
+{
+  "version": "2.21",
+  "children": [
+    {
+      "type": "frame",
+      "id": "BUCWv",
+      "x": 1000,
+      "y": 0,
+      "name": "cmp/ToggleOn",
+      "reusable": true,
+      "width": 40,
+      "height": 22,
+      "fill": "$accent",
+      "cornerRadius": 11,
+      "padding": 2,
+      "justifyContent": "end",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "ellipse",
+          "id": "C76tvZ",
+          "name": "knob",
+          "fill": "#FFFFFF",
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "dkqPP",
+      "x": 2000,
+      "y": 0,
+      "name": "cmp/ToggleOff",
+      "reusable": true,
+      "width": 40,
+      "height": 22,
+      "fill": "$raised",
+      "cornerRadius": 11,
+      "stroke": "$line",
+      "strokeWidth": 1,
+      "strokeAlignment": "inner",
+      "padding": 2,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "ellipse",
+          "id": "F3gBK3",
+          "name": "knob",
+          "fill": "$text-3",
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "IelRd",
+      "x": 3000,
+      "y": 0,
+      "name": "cmp/Button",
+      "reusable": true,
+      "fill": "$raised",
+      "cornerRadius": 8,
+      "gap": 6,
+      "padding": [
+        8,
+        12
+      ],
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "icon",
+          "id": "ZU031",
+          "x": 0,
+          "y": 0,
+          "name": "icon",
+          "enabled": false,
+          "width": 13,
+          "height": 13,
+          "icon": "refresh-cw",
+          "library": "lucide",
+          "fill": "$text-2"
+        },
+        {
+          "type": "text",
+          "id": "wUh0u",
+          "name": "label",
+          "fill": "$text-1",
+          "content": "Button",
+          "fontFamily": "$font-ui",
+          "fontSize": 12,
+          "fontWeight": "500"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "O75mx",
+      "x": 0,
+      "y": 0,
+      "name": "cmp/SettingsRow",
+      "reusable": true,
+      "width": 880,
+      "gap": 32,
+      "padding": [
+        18,
+        20
+      ],
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "zT3xx",
+          "name": "lbl",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 4,
+          "children": [
+            {
+              "type": "text",
+              "id": "dAXi1",
+              "name": "title",
+              "fill": "$text-1",
+              "content": "Setting title",
+              "fontFamily": "$font-ui",
+              "fontSize": 14,
+              "fontWeight": "500"
+            },
+            {
+              "type": "text",
+              "id": "k8gz2",
+              "name": "description",
+              "fill": "$text-2",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "One sentence that says what the setting does.",
+              "fontFamily": "$font-ui",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "zUS0e",
+          "name": "control",
+          "slot": [
+            "BUCWv",
+            "dkqPP",
+            "IelRd"
+          ],
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "id": "vtHAK",
+              "type": "ref",
+              "ref": "BUCWv",
+              "name": "toggle"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "Ca8To",
+      "x": 0,
+      "y": 180,
+      "name": "cmp/LanguageDropdown",
+      "reusable": true,
+      "width": 176,
+      "height": 34,
+      "fill": "$bg",
+      "cornerRadius": 6,
+      "stroke": "$line-strong",
+      "strokeWidth": 1,
+      "gap": 8,
+      "padding": [
+        0,
+        10
+      ],
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "T6BtH",
+          "name": "Selected language",
+          "fill": "$text-1",
+          "content": "System",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "icon",
+          "id": "xtBm9",
+          "name": "Open language menu",
+          "width": 12,
+          "height": 12,
+          "icon": "chevron-down",
+          "library": "lucide",
+          "fill": "$text-2"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "DhOgA",
+      "x": 0,
+      "y": 340,
+      "name": "565 — General · English",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 920,
+      "height": 380,
+      "fill": "$bg",
+      "cornerRadius": 12,
+      "layout": "vertical",
+      "gap": 22,
+      "padding": 32,
+      "children": [
+        {
+          "type": "frame",
+          "id": "iP9bg",
+          "name": "Page heading",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "JhXnS",
+              "name": "Title",
+              "fill": "$text-1",
+              "content": "General",
+              "fontFamily": "$font-ui",
+              "fontSize": 26,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "uHxmf",
+              "name": "Subtitle",
+              "fill": "$text-2",
+              "content": "Defaults and startup behavior.",
+              "fontFamily": "$font-ui",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "zWPK9",
+          "name": "General settings",
+          "width": "fill_container",
+          "fill": "$panel",
+          "cornerRadius": 10,
+          "stroke": "$line",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "children": [
+            {
+              "id": "c3cmk",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Language row",
+              "width": "fill_container",
+              "descendants": {
+                "dAXi1": {
+                  "content": "Language"
+                },
+                "k8gz2": {
+                  "content": "Choose Runner’s display language. Changes apply immediately."
+                },
+                "zUS0e": {
+                  "id": "GSf3O",
+                  "type": "ref",
+                  "ref": "Ca8To",
+                  "name": "Language dropdown",
+                  "descendants": {
+                    "T6BtH": {
+                      "content": "System"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "rectangle",
+              "id": "ShqY1",
+              "name": "Language row divider",
+              "fill": "$line",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "id": "vrfHJ",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Working directory row",
+              "width": "fill_container",
+              "descendants": {
+                "dAXi1": {
+                  "content": "Default working directory"
+                },
+                "k8gz2": {
+                  "content": "Default for new chats. Leave blank to use your home directory."
+                },
+                "zUS0e": {
+                  "type": "text",
+                  "id": "z1h6gp",
+                  "name": "Example directory",
+                  "fill": "$text-2",
+                  "content": "~/Projects",
+                  "fontFamily": "$font-mono",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              }
+            },
+            {
+              "type": "rectangle",
+              "id": "AZbKb",
+              "name": "Row divider",
+              "fill": "$line",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "id": "fhbQU",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "App zoom row",
+              "width": "fill_container",
+              "descendants": {
+                "dAXi1": {
+                  "content": "App zoom"
+                },
+                "k8gz2": {
+                  "content": "Whole-app scale. Terminal canvas settings are in Terminal."
+                },
+                "zUS0e": {
+                  "type": "text",
+                  "id": "sPpOt",
+                  "name": "Zoom value",
+                  "fill": "$text-1",
+                  "content": "100%",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "o0D0C",
+      "x": 1000,
+      "y": 340,
+      "name": "565 — General · 简体中文",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 920,
+      "height": 380,
+      "fill": "$bg",
+      "cornerRadius": 12,
+      "layout": "vertical",
+      "gap": 22,
+      "padding": 32,
+      "children": [
+        {
+          "type": "frame",
+          "id": "rn3eJ",
+          "name": "Page heading",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "ZTT8g",
+              "name": "Title",
+              "fill": "$text-1",
+              "content": "通用",
+              "fontFamily": "$font-ui",
+              "fontSize": 26,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "Lf1HG",
+              "name": "Subtitle",
+              "fill": "$text-2",
+              "content": "默认设置与启动行为。",
+              "fontFamily": "$font-ui",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "qUfaT",
+          "name": "General settings",
+          "width": "fill_container",
+          "fill": "$panel",
+          "cornerRadius": 10,
+          "stroke": "$line",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "children": [
+            {
+              "id": "g52M63",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Language row",
+              "width": "fill_container",
+              "descendants": {
+                "dAXi1": {
+                  "content": "语言"
+                },
+                "k8gz2": {
+                  "content": "选择 Runner 的显示语言。更改立即生效。"
+                },
+                "zUS0e": {
+                  "id": "hwy7u",
+                  "type": "ref",
+                  "ref": "Ca8To",
+                  "name": "Language dropdown",
+                  "descendants": {
+                    "T6BtH": {
+                      "content": "简体中文"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "rectangle",
+              "id": "S3QFl",
+              "name": "Language row divider",
+              "fill": "$line",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "id": "hV6qG",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Working directory row",
+              "width": "fill_container",
+              "descendants": {
+                "dAXi1": {
+                  "content": "默认工作目录"
+                },
+                "k8gz2": {
+                  "content": "新对话的默认目录。留空则使用主目录。"
+                },
+                "zUS0e": {
+                  "type": "text",
+                  "id": "XIxzb",
+                  "name": "Example directory",
+                  "fill": "$text-2",
+                  "content": "~/Projects",
+                  "fontFamily": "$font-mono",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              }
+            },
+            {
+              "type": "rectangle",
+              "id": "iw4bH",
+              "name": "Row divider",
+              "fill": "$line",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "id": "JQ7nq",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "App zoom row",
+              "width": "fill_container",
+              "descendants": {
+                "dAXi1": {
+                  "content": "界面缩放"
+                },
+                "k8gz2": {
+                  "content": "缩放整个界面。终端画布在「终端」中单独设置。"
+                },
+                "zUS0e": {
+                  "type": "text",
+                  "id": "Vkyiy",
+                  "name": "Zoom value",
+                  "fill": "$text-1",
+                  "content": "100%",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "themes": {
+    "mode": [
+      "dark",
+      "light"
+    ]
+  },
+  "variables": {
+    "bg": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#15161B",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#F6F6F8",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "panel": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#1D1E23",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#FFFFFF",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "line-strong": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#2A2C33",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#D6D8DF",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "text-low": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#5A5C66",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#9A9CA6",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "font-ui": {
+      "type": "string",
+      "value": "Inter"
+    },
+    "raised": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#272930",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#ECEDF1",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "accent": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#00FF9C",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#00A66A",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "font-mono": {
+      "type": "string",
+      "value": "JetBrains Mono"
+    },
+    "text-mid": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#9A9BA5",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#5F616B",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "border": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#272930",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#E4E5EA",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "text-hi": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#DCDCE0",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#1C1D22",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "warn": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#FFB020",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#C27C0E",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "accent-ink": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#001F10",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#FFFFFF",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "sidebar": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#272930",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#EEEFF3",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "sidebar-sel": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#333640",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#E1E3E9",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "sidebar-sel-border": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#3B3E49",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#D3D6DE",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "line": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#272930",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#E4E5EA",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "text-2": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#9A9BA5",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#5F616B",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "text-1": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#DCDCE0",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#1C1D22",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "text-3": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#5A5C66",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#9A9CA6",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "sidebar-selected": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#333640",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#E1E3E9",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "sidebar-selected-border": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#3B3E49",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#D3D6DE",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "hairline": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#24262C",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#ECEDF1",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "danger": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#E5484D",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#D63B57",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "info": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#39E5FF",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#0A8FB3",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "glass-edge": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#FFFFFF55",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#FFFFFFD9",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "glass-separator": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#FFFFFF12",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#1C1D2218",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "glass-a-chrome": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#272930E0",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#EEEFF3E6",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "glass-floating": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#20232CE0",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#FFFFFFE6",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    },
+    "glass-selected": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#FFFFFF12",
+          "theme": {
+            "mode": "dark"
+          }
+        },
+        {
+          "value": "#1C1D220C",
+          "theme": {
+            "mode": "light"
+          }
+        }
+      ]
+    }
+  },
+  "fileToken": "97996564-d453-4820-97d1-d6d441e12aae"
+}
