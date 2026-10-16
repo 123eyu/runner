@@ -635,7 +635,7 @@ runner ask <question> [--context <text>] [--mission <mission>] [--as <handle>]
 runner ask --human <prompt> --choices <a,b,...> [--mission <mission>] [--as <handle>]
 ```
 
-Every command accepts `--json` for JSON output and `-q` for result ids. stdout carries data; stderr carries diagnostics. Exit 0 is success, 1 means the tool refused the operation, 2 is usage or reference resolution, 3 means the app is not running, and 5 means the connection to the socket was denied although the socket exists, which is a command sandbox such as Codex's default one: the caller runs the command again outside the sandbox. 4 is reserved for #562. `spawn`, `ps`, `wait`, `stop <handle>`, and `done` are reserved for #562.
+Every command accepts `--json` for JSON output and `-q` for result ids. stdout carries data; stderr carries diagnostics. Exit 0 is success, 1 means the tool refused the operation, 2 is usage or reference resolution, 3 means the app is not running, and 5 means the connection to the socket was denied although the socket exists, which is a command sandbox such as Codex's default one: the caller runs the command again outside the sandbox. 4 is reserved for [#916](https://github.com/yicheng47/runner/issues/916)'s `wait` timing out. `spawn`, `ps`, `wait`, `stop <handle>`, and `done` are reserved for [#916](https://github.com/yicheng47/runner/issues/916), the lead's verbs; `runner help` still labels them `RESERVED FOR #562`.
 
 ### 9.2 References and defaults
 

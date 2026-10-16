@@ -6,7 +6,7 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [562 — Missions as containers](./562-mission-spawn.md) — the roster, independent sessions, add/remove-role and empty-start phases have shipped; remaining delegation work stays with [#562](https://github.com/yicheng47/runner/issues/562).
+- [562 — Missions as containers](./562-mission-spawn.md) — the roster, independent sessions, add/remove-role and empty-start phases have shipped, and [#562](https://github.com/yicheng47/runner/issues/562) closed on 2026-10-16; the lead's verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916), the starting-chat return path in [#748](https://github.com/yicheng47/runner/issues/748).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation, through Runner's delivery gate; spec under review ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, direct delivery, catch-up and unread-only reads; draft to reconcile with the delivery reliability work ([#826](https://github.com/yicheng47/runner/issues/826)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).

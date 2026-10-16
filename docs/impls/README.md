@@ -6,7 +6,7 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 ## Active
 
-- [`562-mission-spawn/`](./562-mission-spawn/README.md) — missions as containers ([#562](https://github.com/yicheng47/runner/issues/562)): Phase 1 shipped in [#868](https://github.com/yicheng47/runner/pull/868), session independence in [#874](https://github.com/yicheng47/runner/pull/874), Phase 2's adding and removing roles in [#889](https://github.com/yicheng47/runner/pull/889) (0.16.0) and Phase 3's empty start in [#906](https://github.com/yicheng47/runner/pull/906) (0.16.2); the lead's own verbs and outside seats remain.
+- [`562-mission-spawn/`](./562-mission-spawn/README.md) — missions as containers ([#562](https://github.com/yicheng47/runner/issues/562)): Phase 1 shipped in [#868](https://github.com/yicheng47/runner/pull/868), session independence in [#874](https://github.com/yicheng47/runner/pull/874), Phase 2's adding and removing roles in [#889](https://github.com/yicheng47/runner/pull/889) (0.16.0) and Phase 3's empty start in [#906](https://github.com/yicheng47/runner/pull/906) (0.16.2); #562 closed on 2026-10-16, and the lead's own verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916).
 
 ## Archive
 

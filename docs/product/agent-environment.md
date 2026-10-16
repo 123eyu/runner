@@ -23,11 +23,11 @@ Claude Code's subagents spawn Claude and Codex's spawn Codex. No vendor has a re
 | Need | How Runner meets it | State |
 | --- | --- | --- |
 | A place to work together | The mission as a container that owns its roster, seeded from a crew or started empty | [#562](https://github.com/yicheng47/runner/issues/562), 0.16 |
-| Identity | Roster handles; outside agents take a seat | 648 decisions shipped; seats in #562 |
+| Identity | Roster handles; outside agents take a seat | 648 decisions shipped; seats in [#916](https://github.com/yicheng47/runner/issues/916) |
 | Coordination | The mission bus: signals, messages, the inbox | Shipped |
-| Handing off directly | An empty mission started from the chat with a worker added to it, its results typed back into that chat | [#562](https://github.com/yicheng47/runner/issues/562) with [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
+| Handing off directly | An empty mission started from the chat with a worker added to it, its results typed back into that chat | Shipped in [#562](https://github.com/yicheng47/runner/issues/562) (0.16.2); results back into the chat in [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
 | Living past the app | Sessions continue in runnerd when the app quits ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), shipped in 0.13 |
-| Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | In #562 |
+| Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | With the lead's verbs in [#916](https://github.com/yicheng47/runner/issues/916) |
 | Reaching the person | A message to the lead, then `ask_human`; a mission without a lead asks the person directly; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701); `ask_lead` retired in [#562](https://github.com/yicheng47/runner/issues/562) Phase 3 |
 | Keeping track | Plan usage is shipped; the token ledger is unscheduled. Remote control starts in the browser, then adds iOS; the desktop Active view is separate | [#706](https://github.com/yicheng47/runner/issues/706), [#630](https://github.com/yicheng47/runner/issues/630), [#836](https://github.com/yicheng47/runner/issues/836), [#912](https://github.com/yicheng47/runner/issues/912), [#887](https://github.com/yicheng47/runner/issues/887) |
 
@@ -46,7 +46,7 @@ The direction holds if this works end to end without the person touching anythin
 3. The worker's session appears in the app, where the person can watch it but is not interrupted.
 4. The chat waits, reads the worker's report from its inbox, and stops the worker or closes the mission.
 
-Steps 1, 2 and 4 are #562 (empty missions and add-role, outside seats, `spawn`, `wait`, `done`). Step 3 was settled in #562's Phase 3: the mission appears in the sidebar without taking focus.
+Steps 1 and 2 work today from outside the mission: #562 shipped empty missions and add-role, so the chat starts a mission and adds a worker with its task. Seats, `spawn`, `wait` and `done` are [#916](https://github.com/yicheng47/runner/issues/916), and [#748](https://github.com/yicheng47/runner/issues/748) brings the report back into the chat for step 4. Step 3 was settled in #562's Phase 3: the mission appears in the sidebar without taking focus.
 
 ## Open questions
 
@@ -55,4 +55,4 @@ Steps 1, 2 and 4 are #562 (empty missions and add-role, outside seats, `spawn`, 
 
 ## Roadmap implications
 
-The [roadmap](../roadmap.md) owns release scheduling. The session host has shipped; mission delegation is being completed through #562, #748 and reliable delivery. File review follows. Remote supervision starts with browser access to local hosts, then iOS on the same protocol, then desktop-to-desktop SSH. Historical milestone numbers from the original September direction are superseded by that plan.
+The [roadmap](../roadmap.md) owns release scheduling. The session host and #562's mission delegation have shipped; delegation's follow-through is #748, reliable delivery (#907) and the lead's verbs (#916). File review follows. Remote supervision starts with browser access to local hosts, then iOS on the same protocol, then desktop-to-desktop SSH. Historical milestone numbers from the original September direction are superseded by that plan.
