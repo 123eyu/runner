@@ -13,6 +13,44 @@ pub(crate) const PRIMARY_MODIFIER: &str = "⌘";
 pub(crate) const SHORTCUT_REQUIREMENTS: &str =
     "Shortcuts must include ⌘, Control, or Option. Function keys can be used alone.";
 
+#[cfg(not(test))]
+pub(crate) fn show_about_panel() {
+    use objc2::{runtime::AnyObject, MainThreadMarker};
+    use objc2_app_kit::{
+        NSAboutPanelOptionApplicationIcon, NSAboutPanelOptionApplicationName,
+        NSAboutPanelOptionApplicationVersion, NSAboutPanelOptionVersion, NSApplication,
+    };
+    use objc2_foundation::{ns_string, NSDictionary, NSString};
+
+    let main_thread = MainThreadMarker::new().expect("About Runner must open on the main thread");
+    let app = NSApplication::sharedApplication(main_thread);
+    let icon = app
+        .applicationIconImage()
+        .expect("Runner app icon is installed");
+    let version = NSString::from_str(&runner_app::version::display_version());
+    let values: [&AnyObject; 5] = [
+        ns_string!("Runner").as_ref(),
+        version.as_ref(),
+        ns_string!("").as_ref(),
+        ns_string!("© 2026 Yicheng Wang (Jason Wang)").as_ref(),
+        icon.as_ref(),
+    ];
+    unsafe {
+        let options = NSDictionary::from_slices(
+            &[
+                NSAboutPanelOptionApplicationName,
+                NSAboutPanelOptionApplicationVersion,
+                // The shared version already includes the commit or development marker.
+                NSAboutPanelOptionVersion,
+                ns_string!("Copyright"),
+                NSAboutPanelOptionApplicationIcon,
+            ],
+            &values,
+        );
+        app.orderFrontStandardAboutPanelWithOptions(&options);
+    }
+}
+
 pub(crate) fn primary_modifier_held(modifiers: gpui::Modifiers) -> bool {
     modifiers.platform
 }
