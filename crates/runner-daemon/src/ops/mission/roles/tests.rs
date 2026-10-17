@@ -110,13 +110,24 @@ fn add_and_remove_keep_roster_log_router_and_history_across_remount() {
     assert_eq!(events[join].payload["model"], "test-model");
     assert_eq!(events[join].payload["effort"], "high");
     assert_eq!(events[join].payload["speed"], serde_json::Value::Null);
-    assert_eq!(events[join + 1].from, "runner");
-    assert!(events[join + 1].payload["text"]
+    // The mounted router can append its own events between add_role's writes,
+    // so the notice and task are found in order rather than at fixed offsets.
+    let join_notice = join
+        + events[join..]
+            .iter()
+            .position(|event| event.from == "runner")
+            .unwrap();
+    assert!(events[join_notice].payload["text"]
         .as_str()
         .unwrap()
         .contains("@lead (lead), @coder and @coder-2"));
-    assert_eq!(events[join + 2].to.as_deref(), Some("coder-2"));
-    assert_eq!(events[join + 2].payload["text"], "tiny task");
+    let task = join_notice
+        + events[join_notice..]
+            .iter()
+            .position(|event| event.payload["text"] == "tiny task")
+            .unwrap();
+    assert_eq!(events[task].from, "human");
+    assert_eq!(events[task].to.as_deref(), Some("coder-2"));
     {
         let conn = fixture.state.db.get().unwrap();
         let row = repo::session::get_row(&conn, &added.session_id)
@@ -183,7 +194,15 @@ fn add_and_remove_keep_roster_log_router_and_history_across_remount() {
         })
         .unwrap();
     assert_eq!(events[leave].payload["session_id"], added.session_id);
-    assert_eq!(events[leave + 1].from, "runner");
+    let leave_notice = leave
+        + events[leave..]
+            .iter()
+            .position(|event| event.from == "runner")
+            .unwrap();
+    assert!(events[leave_notice].payload["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("@coder-2 left the mission."));
     assert!(fixture.post(None).is_ok());
     let next = fixture.add(None).unwrap();
     assert_eq!(next.handle, "coder-3");
