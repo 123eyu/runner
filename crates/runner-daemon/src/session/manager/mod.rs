@@ -1592,7 +1592,13 @@ impl SessionManager {
         let Some(session) = self.session_state(session_id) else {
             return Default::default();
         };
-        let bridge_failed = matches!(event, SessionEvent::BridgeFailed { .. });
+        // A recovered conversation drops status to the output baseline, so the
+        // startup hold stops waiting for a hook turn end that may never come.
+        let bridge_failed = match &event {
+            SessionEvent::BridgeFailed { .. } => true,
+            SessionEvent::Agent { event, .. } => event.conversation_recovered(),
+            _ => false,
+        };
         let (status, sink, effects, startup_ready) = {
             let mut session = session.lock().unwrap();
             if launch.is_some_and(|launch| {

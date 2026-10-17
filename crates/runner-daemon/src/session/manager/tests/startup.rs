@@ -262,6 +262,28 @@ fn router_output_fallback_requires_output_startup_grace_and_idle_including_bridg
 }
 
 #[test]
+fn codex_conversation_recovery_in_first_turn_falls_back_to_output_release() {
+    let fixture = StartupFixture::new();
+    fixture.queue("answer after recovery");
+    let now = Instant::now();
+    let output = fixture.launch("codex", true, now);
+    let launch = output.stop_flag();
+    fixture.event(Runtime::Codex, AgentEvent::TurnStarted);
+    fixture
+        .manager
+        .startup_output("session", &launch, b"first turn", now);
+    fixture.event(Runtime::Codex, AgentEvent::ConversationRecovered);
+    fixture
+        .manager
+        .release_settled_startup("session", &launch, now + Duration::from_secs(1));
+    fixture.held();
+    fixture
+        .manager
+        .release_settled_startup("session", &launch, now + Duration::from_secs(12));
+    fixture.submitted();
+}
+
+#[test]
 fn router_startup_exit_keeps_existing_drop_warning_and_does_not_deliver_on_resume() {
     let fixture = StartupFixture::new();
     fixture.queue("task before exit");
