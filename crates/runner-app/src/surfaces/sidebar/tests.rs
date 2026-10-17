@@ -94,6 +94,125 @@ fn seeded_store(
 }
 
 #[test]
+fn paused_mission_hides_unread_without_acknowledging_sessions() {
+    use runner_app::ui::agent_status::StatusRollup;
+    use runner_core::protocol::model::MissionStatus;
+    use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (_, store) = seeded_store(&mut cx, temp.path());
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    store.update(&mut cx, |store, _| {
+        let summary = &mut store.missions[0];
+        summary.mission.status = MissionStatus::Running;
+        summary.any_session_live = false;
+        summary.session_statuses = ["coder", "reviewer"]
+            .into_iter()
+            .map(|id| {
+                (
+                    id.into(),
+                    AgentStatus {
+                        lifecycle: Lifecycle::Stopped,
+                        unread_since: Some(1),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+    });
+    let tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let summary = &store.read(cx).missions[0];
+        let rollup = sidebar.mission_status_rollup(summary);
+        assert_eq!(rollup.priority_value(), 0);
+        assert_eq!(rollup.target(), None);
+        assert_eq!(rollup.tooltip(), "");
+        assert!(summary
+            .session_statuses
+            .iter()
+            .all(|(_, status)| status.unread_since == Some(1)));
+        let rows = sidebar.resolved_sidebar_rows_for_tabs(&tabs, cx);
+        assert_eq!(rows[0].attention(), AttentionState::None);
+
+        let mut collapsed = rollup;
+        collapsed.entries.push((
+            "other-chat".into(),
+            AgentStatus {
+                unread_since: Some(2),
+                ..Default::default()
+            },
+        ));
+        assert_eq!(collapsed.priority_value(), 2);
+        assert_eq!(collapsed.target(), Some("other-chat"));
+        assert_eq!(collapsed.tooltip(), "1 unread response");
+    });
+
+    store.update(&mut cx, |store, _| {
+        let summary = &mut store.missions[0];
+        summary.session_statuses[0].1.unread_since = None;
+        summary.any_session_live = true;
+        summary.session_statuses[1].1.lifecycle = Lifecycle::Running;
+        summary.session_statuses[1].1.observation.activity = Activity::Ready;
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rollup = sidebar.mission_status_rollup(&store.read(cx).missions[0]);
+        assert_eq!(rollup.priority_value(), 2);
+        assert_eq!(rollup.target(), Some("reviewer"));
+        assert_eq!(rollup.tooltip(), "1 unread response");
+        let rows = sidebar.resolved_sidebar_rows_for_tabs(&tabs, cx);
+        assert_eq!(rows[0].attention(), AttentionState::Unread);
+        assert_eq!(StatusRollup::priority(&rollup.entries[0].1), 0);
+    });
+}
+
+#[test]
+fn paused_mission_preserves_error_and_approval_attention() {
+    use runner_core::protocol::model::MissionStatus;
+    use runner_core::protocol::status::{AgentStatus, HumanInteraction, Lifecycle, WaitReason};
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (_, store) = seeded_store(&mut cx, temp.path());
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let mut summary = store.read(cx).missions[0].clone();
+        summary.mission.status = MissionStatus::Running;
+        summary.any_session_live = false;
+        let mut status = AgentStatus {
+            lifecycle: Lifecycle::Running,
+            unread_since: Some(1),
+            ..Default::default()
+        };
+        status.observation.interactions.push(HumanInteraction {
+            id: "approval".into(),
+            reason: WaitReason::Approval,
+            owners: vec![],
+            since: 1,
+        });
+        summary.session_statuses = vec![("reviewer".into(), status)];
+        let approval = sidebar.mission_status_rollup(&summary);
+        assert_eq!(approval.priority_value(), 4);
+        assert_eq!(approval.target(), Some("reviewer"));
+        assert_eq!(approval.tooltip(), "1 approval needed");
+
+        summary.session_statuses[0].1.lifecycle = Lifecycle::Error;
+        summary.session_statuses[0].1.error_since = Some(1);
+        let error = sidebar.mission_status_rollup(&summary);
+        assert_eq!(error.priority_value(), 5);
+        assert_eq!(error.target(), Some("reviewer"));
+        assert_eq!(error.tooltip(), "1 error");
+        assert_eq!(summary.session_statuses[0].1.unread_since, Some(1));
+
+        summary.session_statuses[0].1.error_since = None;
+        summary.session_statuses[0].1.failed_since = Some(1);
+        let failure = sidebar.mission_status_rollup(&summary);
+        assert_eq!(failure.priority_value(), 5);
+        assert_eq!(failure.tooltip(), "1 response failed");
+    });
+}
+
+#[test]
 fn sidebar_shortcuts_skip_empty_and_drawer_only_tabs() {
     let temp = tempfile::tempdir().unwrap();
     let mut cx = TestAppContext::single();

@@ -26,6 +26,8 @@ Mission launches use the runtime's broad-access mode, generally **Bypass**; pi u
 - **Stop the mission** to halt its members. **Resume** resumes stopped sessions.
 - **Archive** stops active members and removes the mission from active lists. Its feed remains available under **Settings → Archived**. Restore it before resuming work.
 
+While a mission is paused, its unread-response green dot is hidden in the sidebar and collapsed groups. Unread responses remain saved, and the dot returns after resuming if any remain unread. Viewing a role's session still marks that session's response as read while paused. Error and approval indicators keep their usual behavior.
+
 A “done” message or an idle agent does not automatically mean all sessions have exited. Stopping and archiving never revert repository changes.
 
 Closing Runner can leave missions working in its background service. **Settings → General → When Runner quits** controls that choice. See [Sessions](sessions.md) for relaunch and recovery behavior.
