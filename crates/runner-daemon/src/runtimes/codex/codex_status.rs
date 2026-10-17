@@ -51,6 +51,8 @@ struct CodexParser {
     ended: bool,
     transcript_path: Option<PathBuf>,
     abort_reported: bool,
+    failure_reported: bool,
+    aborted_turn: Option<String>,
     seen: bool,
     abort_settled: bool,
 }
@@ -88,6 +90,7 @@ impl CodexParser {
             self.ended = false;
             self.transcript_path = None;
             self.abort_reported = false;
+            self.failure_reported = false;
 
             self.abort_settled = false;
             self.seen = false;
@@ -148,6 +151,7 @@ impl CodexParser {
             self.pending_tools = 0;
             self.compacting = false;
             self.abort_reported = false;
+            self.failure_reported = false;
             self.abort_settled = false;
             self.turn_finished = false;
             self.standalone_compaction = false;
@@ -168,6 +172,7 @@ impl CodexParser {
             self.pending_tools = 0;
             self.compacting = true;
             self.abort_reported = false;
+            self.failure_reported = false;
             self.abort_settled = false;
             AgentEvent::ManualCompactionStarted
         } else {
@@ -177,7 +182,7 @@ impl CodexParser {
             if self.turn_id.as_ref() != Some(&turn) {
                 return None;
             }
-            if self.abort_reported {
+            if self.abort_reported || self.failure_reported {
                 return None;
             }
             if self.standalone_compaction
@@ -245,20 +250,65 @@ impl CodexParser {
     }
     fn record(&mut self, record: &Value) -> Option<Vec<AgentEvent>> {
         let payload = &record["payload"];
-        if !self.ended
-            && self.abort_reported
-            && !self.abort_settled
+        let aborted = !self.ended
             && record["type"] == "event_msg"
             && payload["type"] == "turn_aborted"
             && payload["reason"] == "interrupted"
             && payload["turn_id"].as_str().is_some()
-            && payload["turn_id"].as_str() == self.turn_id.as_deref()
-        {
+            && payload["turn_id"].as_str() == self.turn_id.as_deref();
+        if aborted && !self.abort_reported {
+            // The transcript can show the abort before its Interrupt hook arrives.
+            self.aborted_turn = self.turn_id.clone();
+            return None;
+        }
+        if aborted && !self.abort_settled {
             self.abort_settled = true;
             self.turn_finished = true;
             return Some(vec![AgentEvent::AbortSettled]);
         }
+        // Codex runs no Stop hook for a turn that ends in an API error.
+        if !self.ended
+            && !self.abort_reported
+            && !self.turn_finished
+            && record["type"] == "event_msg"
+            && payload["type"] == "task_complete"
+            && payload.get("error").is_some_and(|error| !error.is_null())
+            && payload["turn_id"].as_str().is_some()
+            && payload["turn_id"].as_str() == self.turn_id.as_deref()
+        {
+            self.failure_reported = true;
+            self.turn_finished = true;
+            self.pending_tools = 0;
+            self.compacting = false;
+            return Some(vec![AgentEvent::TurnEnded {
+                outcome: TurnOutcome::Failed,
+            }]);
+        }
         None
+    }
+
+    fn settle_early_abort(&mut self) -> Option<Vec<AgentEvent>> {
+        if self.ended
+            || !self.abort_reported
+            || self.abort_settled
+            || self.aborted_turn.is_none()
+            || self.aborted_turn != self.turn_id
+        {
+            return None;
+        }
+        self.aborted_turn = None;
+        self.abort_settled = true;
+        self.turn_finished = true;
+        Some(vec![AgentEvent::AbortSettled])
+    }
+
+    fn reads_transcript(&self) -> bool {
+        !self.ended
+            && if self.abort_reported {
+                !self.abort_settled
+            } else {
+                self.turn_id.is_some() && !self.turn_finished
+            }
     }
 }
 
@@ -303,11 +353,17 @@ impl CodexStatusWatcher {
                 }
             }
         })?;
+        if let Some(events) = self.parser.settle_early_abort() {
+            emit(AgentEvent::Transcript {
+                runtime: Runtime::Codex,
+                events,
+            });
+        }
         self.drain_transcript(&mut emit);
         Ok(())
     }
     fn drain_transcript(&mut self, emit: &mut impl FnMut(AgentEvent) -> AdapterFeedback) {
-        if !self.parser.abort_reported || self.parser.abort_settled || self.parser.ended {
+        if !self.parser.reads_transcript() {
             return;
         }
         let Some(path) = self.parser.transcript_path.clone() else {
@@ -500,6 +556,10 @@ mod tests {
 
     fn abort(turn: &str) -> Value {
         json!({"type":"event_msg","payload":{"type":"turn_aborted","turn_id":turn,"reason":"interrupted"}})
+    }
+
+    fn failed(turn: &str) -> Value {
+        json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":turn,"last_agent_message":null,"error":{"message":"Selected model is at capacity.","codex_error_info":"server_overloaded"}}})
     }
 
     #[test]
@@ -1348,6 +1408,64 @@ mod tests {
 
         watcher.drain_status(|_, _| {}).unwrap();
         assert_eq!(watcher.observation.value.activity, Activity::Working);
+    }
+
+    #[test]
+    fn errored_task_complete_fails_the_turn_without_a_stop_hook() {
+        let mut state = CodexObservation::default();
+        observe(&mut state, report("UserPromptSubmit", "one"));
+        state.observe_transcript(&json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"one","error":null}}));
+        state.observe_transcript(&failed("old"));
+        assert_eq!(state.value.activity, Activity::Working);
+        state.observe_transcript(&failed("one"));
+        assert_eq!(state.value.activity, Activity::Ready);
+        assert_eq!(state.value.outcome, Some(TurnOutcome::Failed));
+        assert!(observe(&mut state, report("Stop", "one")).is_none());
+        assert_eq!(state.value.outcome, Some(TurnOutcome::Failed));
+        observe(&mut state, report("UserPromptSubmit", "two"));
+        assert_eq!(state.value.activity, Activity::Working);
+        assert_eq!(state.value.outcome, None);
+    }
+
+    #[test]
+    fn watcher_settles_an_abort_read_before_its_interrupt_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("rollout.jsonl");
+        fs::write(&transcript, "").unwrap();
+        let mut watcher = TestWatcher::new("current".into());
+        let mut value = report("UserPromptSubmit", "one");
+        value["transcript_path"] = json!(transcript);
+        watcher.hooks.admit(value).unwrap();
+        watcher.drain_status(|_, _| {}).unwrap();
+        let mut file = OpenOptions::new().append(true).open(&transcript).unwrap();
+        writeln!(file, "{}", abort("one")).unwrap();
+        watcher.drain_status(|_, _| {}).unwrap();
+        assert_eq!(watcher.observation.value.activity, Activity::Working);
+        watcher.hooks.admit(report("Interrupt", "one")).unwrap();
+        watcher.drain_status(|_, _| {}).unwrap();
+        assert_eq!(watcher.observation.value.activity, Activity::Ready);
+        assert_eq!(
+            watcher.observation.value.outcome,
+            Some(TurnOutcome::Interrupted)
+        );
+    }
+
+    #[test]
+    fn watcher_reads_a_failed_turn_from_the_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("rollout.jsonl");
+        fs::write(&transcript, "").unwrap();
+        let mut watcher = TestWatcher::new("current".into());
+        let mut value = report("UserPromptSubmit", "one");
+        value["transcript_path"] = json!(transcript);
+        watcher.hooks.admit(value).unwrap();
+        watcher.drain_status(|_, _| {}).unwrap();
+        assert_eq!(watcher.observation.value.activity, Activity::Working);
+        let mut file = OpenOptions::new().append(true).open(&transcript).unwrap();
+        writeln!(file, "{}", failed("one")).unwrap();
+        watcher.drain_status(|_, _| {}).unwrap();
+        assert_eq!(watcher.observation.value.activity, Activity::Ready);
+        assert_eq!(watcher.observation.value.outcome, Some(TurnOutcome::Failed));
     }
 
     #[test]
