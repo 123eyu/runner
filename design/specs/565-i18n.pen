@@ -516,6 +516,792 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "w0kWOB",
+      "x": 1000,
+      "y": 768,
+      "name": "565 — General Language row · Chinese dark · narrow 130%",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 358,
+      "fill": "$bg",
+      "layout": "vertical",
+      "padding": 1,
+      "children": [
+        {
+          "type": "frame",
+          "id": "UEJsF",
+          "name": "Existing General card · Language row detail",
+          "width": "fill_container",
+          "fill": "$panel",
+          "cornerRadius": 13,
+          "stroke": "$line",
+          "strokeWidth": 1,
+          "strokeAlignment": "inner",
+          "layout": "vertical",
+          "layoutIncludeStroke": true,
+          "children": [
+            {
+              "id": "miYlJ",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Language row · wrapped control",
+              "width": "fill_container",
+              "layout": "vertical",
+              "alignItems": "start",
+              "justifyContent": "start",
+              "gap": 15.6,
+              "padding": [
+                15.6,
+                20.8
+              ],
+              "descendants": {
+                "zT3xx": {
+                  "width": "fill_container",
+                  "gap": 2.6
+                },
+                "dAXi1": {
+                  "content": "语言",
+                  "fontSize": 18.2
+                },
+                "k8gz2": {
+                  "content": "选择 Runner 的显示语言。更改立即生效。",
+                  "fontSize": 16.9,
+                  "lineHeight": 1.4,
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container"
+                },
+                "zUS0e": {
+                  "id": "r94qmH",
+                  "type": "ref",
+                  "ref": "Ca8To",
+                  "name": "Language dropdown · same retained control",
+                  "width": 228.8,
+                  "height": 44.2,
+                  "padding": [
+                    0,
+                    13
+                  ],
+                  "descendants": {
+                    "T6BtH": {
+                      "content": "简体中文",
+                      "fontSize": 16.9
+                    },
+                    "xtBm9": {
+                      "width": 15.6,
+                      "height": 15.6
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "dUnLt",
+      "x": 1000,
+      "y": 979.5999999999999,
+      "name": "565 — General Language row · Chinese light · narrow 130%",
+      "theme": {
+        "mode": "light"
+      },
+      "clip": true,
+      "width": 358,
+      "fill": "$bg",
+      "layout": "vertical",
+      "padding": 1,
+      "children": [
+        {
+          "type": "frame",
+          "id": "gP8dn",
+          "name": "Existing General card · Language row detail",
+          "width": "fill_container",
+          "fill": "$panel",
+          "cornerRadius": 13,
+          "stroke": "$line",
+          "strokeWidth": 1,
+          "strokeAlignment": "inner",
+          "layout": "vertical",
+          "layoutIncludeStroke": true,
+          "children": [
+            {
+              "id": "X4qqI1",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Language row · wrapped control",
+              "width": "fill_container",
+              "layout": "vertical",
+              "alignItems": "start",
+              "justifyContent": "start",
+              "gap": 15.6,
+              "padding": [
+                15.6,
+                20.8
+              ],
+              "descendants": {
+                "zT3xx": {
+                  "width": "fill_container",
+                  "gap": 2.6
+                },
+                "dAXi1": {
+                  "content": "语言",
+                  "fontSize": 18.2
+                },
+                "k8gz2": {
+                  "content": "选择 Runner 的显示语言。更改立即生效。",
+                  "fontSize": 16.9,
+                  "lineHeight": 1.4,
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container"
+                },
+                "zUS0e": {
+                  "id": "mtGVZ",
+                  "type": "ref",
+                  "ref": "Ca8To",
+                  "name": "Language dropdown · same retained control",
+                  "width": 228.8,
+                  "height": 44.2,
+                  "padding": [
+                    0,
+                    13
+                  ],
+                  "descendants": {
+                    "T6BtH": {
+                      "content": "简体中文",
+                      "fontSize": 16.9
+                    },
+                    "xtBm9": {
+                      "width": 15.6,
+                      "height": 15.6
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "shTYx",
+      "x": 1000,
+      "y": 1191.1999999999998,
+      "name": "565 — General Language row · English dark · narrow 130%",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 358,
+      "fill": "$bg",
+      "layout": "vertical",
+      "padding": 1,
+      "children": [
+        {
+          "type": "frame",
+          "id": "yXLng",
+          "name": "Existing General card · Language row detail",
+          "width": "fill_container",
+          "fill": "$panel",
+          "cornerRadius": 13,
+          "stroke": "$line",
+          "strokeWidth": 1,
+          "strokeAlignment": "inner",
+          "layout": "vertical",
+          "layoutIncludeStroke": true,
+          "children": [
+            {
+              "id": "FibsE",
+              "type": "ref",
+              "ref": "O75mx",
+              "name": "Language row · wrapped control",
+              "width": "fill_container",
+              "layout": "vertical",
+              "alignItems": "start",
+              "justifyContent": "start",
+              "gap": 15.6,
+              "padding": [
+                15.6,
+                20.8
+              ],
+              "descendants": {
+                "zT3xx": {
+                  "width": "fill_container",
+                  "gap": 2.6
+                },
+                "dAXi1": {
+                  "content": "Language",
+                  "fontSize": 18.2
+                },
+                "k8gz2": {
+                  "content": "Choose Runner’s display language. Changes apply immediately.",
+                  "fontSize": 16.9,
+                  "lineHeight": 1.4,
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container"
+                },
+                "zUS0e": {
+                  "id": "p2XFPT",
+                  "type": "ref",
+                  "ref": "Ca8To",
+                  "name": "Language dropdown · same retained control",
+                  "width": 228.8,
+                  "height": 44.2,
+                  "padding": [
+                    0,
+                    13
+                  ],
+                  "descendants": {
+                    "T6BtH": {
+                      "content": "English",
+                      "fontSize": 16.9
+                    },
+                    "xtBm9": {
+                      "width": 15.6,
+                      "height": 15.6
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "eHvyt",
+      "x": 1406,
+      "y": 1191.1999999999998,
+      "name": "565 — Sidebar section headings · English · 12 px",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 252,
+      "fill": "$panel",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": [
+        24,
+        20
+      ],
+      "children": [
+        {
+          "type": "frame",
+          "id": "jByfa",
+          "name": "WORKSPACE section heading",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "HIbpU",
+              "name": "WORKSPACE toggle label",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "h9dJuI",
+                  "name": "WORKSPACE · 12 px semibold",
+                  "fill": "$text-3",
+                  "content": "WORKSPACE",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "y5Ujz1",
+          "name": "New chat navigation",
+          "width": "fill_container",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "S5WbPY",
+              "name": "New chat icon",
+              "width": 16,
+              "height": 16,
+              "icon": "message-square-plus",
+              "library": "lucide",
+              "fill": "$text-2"
+            },
+            {
+              "type": "text",
+              "id": "u2DmX",
+              "name": "New chat unchanged navigation text",
+              "fill": "$text-2",
+              "content": "New chat",
+              "fontFamily": "$font-ui",
+              "fontSize": 13,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "oKXjQ",
+          "name": "Roles navigation",
+          "width": "fill_container",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "npXB5",
+              "name": "Roles icon",
+              "width": 16,
+              "height": 16,
+              "icon": "user-round",
+              "library": "lucide",
+              "fill": "$text-2"
+            },
+            {
+              "type": "text",
+              "id": "L0iUfA",
+              "name": "Roles unchanged navigation text",
+              "fill": "$text-2",
+              "content": "Roles",
+              "fontFamily": "$font-ui",
+              "fontSize": 13
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "zo6KZ",
+          "name": "Crews navigation",
+          "width": "fill_container",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "atIv5",
+              "name": "Crews icon",
+              "width": 16,
+              "height": 16,
+              "icon": "users-round",
+              "library": "lucide",
+              "fill": "$text-2"
+            },
+            {
+              "type": "text",
+              "id": "E7V7y",
+              "name": "Crews unchanged navigation text",
+              "fill": "$text-2",
+              "content": "Crews",
+              "fontFamily": "$font-ui",
+              "fontSize": 13
+            }
+          ]
+        },
+        {
+          "type": "rectangle",
+          "id": "zQ6S2",
+          "name": "Existing workspace divider",
+          "fill": "$line",
+          "width": "fill_container",
+          "height": 1
+        },
+        {
+          "type": "frame",
+          "id": "Y94XK",
+          "name": "PROJECTS section heading",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "ZEQlB",
+              "name": "PROJECTS toggle label",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "YwVqe",
+                  "name": "PROJECTS · 12 px semibold",
+                  "fill": "$text-3",
+                  "content": "PROJECTS",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "icon",
+                  "id": "s3p0IB",
+                  "name": "Expand or collapse PROJECTS",
+                  "width": 10,
+                  "height": 10,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-3"
+                }
+              ]
+            },
+            {
+              "type": "icon",
+              "id": "JEItL",
+              "name": "Add to PROJECTS",
+              "width": 12,
+              "height": 12,
+              "icon": "plus",
+              "library": "lucide",
+              "fill": "$text-3"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "XyXoL",
+          "name": "Literal project name",
+          "fill": "$text-1",
+          "content": "runner",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "500"
+        },
+        {
+          "type": "frame",
+          "id": "a4D9Yb",
+          "name": "RECENTS section heading",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "vN9Bc",
+              "name": "RECENTS toggle label",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "QwVWz",
+                  "name": "RECENTS · 12 px semibold",
+                  "fill": "$text-3",
+                  "content": "RECENTS",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "icon",
+                  "id": "Rznem",
+                  "name": "Expand or collapse RECENTS",
+                  "width": 10,
+                  "height": 10,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-3"
+                }
+              ]
+            },
+            {
+              "type": "icon",
+              "id": "kEKkq",
+              "name": "Add to RECENTS",
+              "width": 12,
+              "height": 12,
+              "icon": "plus",
+              "library": "lucide",
+              "fill": "$text-3"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "aLemv",
+          "name": "Empty recents copy",
+          "fill": "$text-3",
+          "content": "No chats yet.",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "w6Cau",
+      "x": 1706,
+      "y": 1191.1999999999998,
+      "name": "565 — Sidebar section headings · 简体中文 · 12 px",
+      "theme": {
+        "mode": "dark"
+      },
+      "clip": true,
+      "width": 252,
+      "fill": "$panel",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": [
+        24,
+        20
+      ],
+      "children": [
+        {
+          "type": "frame",
+          "id": "zUzkp",
+          "name": "工作区 section heading",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "zZkL8",
+              "name": "工作区 toggle label",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "oiwNZ",
+                  "name": "工作区 · 12 px semibold",
+                  "fill": "$text-3",
+                  "content": "工作区",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Ii8Vg",
+          "name": "新建对话 navigation",
+          "width": "fill_container",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "hGSvJ",
+              "name": "新建对话 icon",
+              "width": 16,
+              "height": 16,
+              "icon": "message-square-plus",
+              "library": "lucide",
+              "fill": "$text-2"
+            },
+            {
+              "type": "text",
+              "id": "x2ivsW",
+              "name": "新建对话 unchanged navigation text",
+              "fill": "$text-2",
+              "content": "新建对话",
+              "fontFamily": "$font-ui",
+              "fontSize": 13,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "bEuTm",
+          "name": "角色 navigation",
+          "width": "fill_container",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "xtYjH",
+              "name": "角色 icon",
+              "width": 16,
+              "height": 16,
+              "icon": "user-round",
+              "library": "lucide",
+              "fill": "$text-2"
+            },
+            {
+              "type": "text",
+              "id": "NtHTl",
+              "name": "角色 unchanged navigation text",
+              "fill": "$text-2",
+              "content": "角色",
+              "fontFamily": "$font-ui",
+              "fontSize": 13
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "QwZdK",
+          "name": "小队 navigation",
+          "width": "fill_container",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "DMc9L",
+              "name": "小队 icon",
+              "width": 16,
+              "height": 16,
+              "icon": "users-round",
+              "library": "lucide",
+              "fill": "$text-2"
+            },
+            {
+              "type": "text",
+              "id": "c7rXal",
+              "name": "小队 unchanged navigation text",
+              "fill": "$text-2",
+              "content": "小队",
+              "fontFamily": "$font-ui",
+              "fontSize": 13
+            }
+          ]
+        },
+        {
+          "type": "rectangle",
+          "id": "hb7xA",
+          "name": "Existing workspace divider",
+          "fill": "$line",
+          "width": "fill_container",
+          "height": 1
+        },
+        {
+          "type": "frame",
+          "id": "YSlG0",
+          "name": "项目 section heading",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "bTHYZ",
+              "name": "项目 toggle label",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "aRAqn",
+                  "name": "项目 · 12 px semibold",
+                  "fill": "$text-3",
+                  "content": "项目",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "icon",
+                  "id": "BTvq6",
+                  "name": "Expand or collapse 项目",
+                  "width": 10,
+                  "height": 10,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-3"
+                }
+              ]
+            },
+            {
+              "type": "icon",
+              "id": "b8X7yI",
+              "name": "Add to 项目",
+              "width": 12,
+              "height": 12,
+              "icon": "plus",
+              "library": "lucide",
+              "fill": "$text-3"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "Is0qr",
+          "name": "Literal project name",
+          "fill": "$text-1",
+          "content": "runner",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "500"
+        },
+        {
+          "type": "frame",
+          "id": "L2POi",
+          "name": "最近 section heading",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "yoOTE",
+              "name": "最近 toggle label",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "N9jfHc",
+                  "name": "最近 · 12 px semibold",
+                  "fill": "$text-3",
+                  "content": "最近",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "icon",
+                  "id": "Z3q3Ms",
+                  "name": "Expand or collapse 最近",
+                  "width": 10,
+                  "height": 10,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-3"
+                }
+              ]
+            },
+            {
+              "type": "icon",
+              "id": "MgTkp",
+              "name": "Add to 最近",
+              "width": 12,
+              "height": 12,
+              "icon": "plus",
+              "library": "lucide",
+              "fill": "$text-3"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "YAMUu",
+          "name": "Empty recents copy",
+          "fill": "$text-3",
+          "content": "暂无对话。",
+          "fontFamily": "$font-ui",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        }
+      ]
     }
   ],
   "themes": {
