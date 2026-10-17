@@ -6,8 +6,8 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation, through Runner's delivery gate; spec under review ([#748](https://github.com/yicheng47/runner/issues/748)).
-- [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, direct delivery, catch-up and unread-only reads; draft to reconcile with the delivery reliability work ([#826](https://github.com/yicheng47/runner/issues/826)).
+- [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation, as a recipient of the mission's delivery dispatcher; spec refreshed against reliable delivery on 2026-10-17, under review ([#748](https://github.com/yicheng47/runner/issues/748)).
+- [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, message-carrying delivery, catch-up and unread-only reads; draft refreshed against reliable delivery on 2026-10-17 ([#826](https://github.com/yicheng47/runner/issues/826)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
 - [559 — Command palette](./559-command-palette.md) — command mode over the existing keymap and quick-switcher overlay ([#559](https://github.com/yicheng47/runner/issues/559)).
 - [836 — Web remote control](./836-web-remote-control.md) — Phase 1 connects a host to an account: device-code enrollment from Settings → Remote access or `runner remote login`, who may connect a host, secrets in the OS secret store, the outbound relay connection and its states; the encrypted channel, companion protocol and terminals follow ([#836](https://github.com/yicheng47/runner/issues/836)); draft.
