@@ -7,5 +7,5 @@ session_status_rows=published
 2500
 2600 status=running/working/hook completion_armed=true
   busy@hook [running/working/hook]
-2700 status=running/ready/hook outcome="completed" activity="idle"
+2700 status=running/ready/hook outcome="completed" activity="idle" delivery=["Idle"]
   idle@hook [running/ready/hook outcome="completed"]

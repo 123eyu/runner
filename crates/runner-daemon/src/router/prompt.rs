@@ -237,6 +237,44 @@ pub fn compose_launch_prompt(input: &LaunchPromptInput<'_>) -> String {
     out
 }
 
+pub(crate) fn member_prompt_channels(
+    adapter: &dyn crate::runtimes::RuntimeAdapter,
+    member: &crate::model::SlotWithRole,
+    roster: &[crate::model::SlotWithRole],
+    crew: &runner_core::mission_roster::MissionRoster,
+    log: &runner_core::event_log::EventLog,
+) -> (Option<String>, Option<String>) {
+    let goal = super::LaunchInputs::latest_mission_goal_text(log);
+    if member.slot.lead {
+        let entries = roster
+            .iter()
+            .map(|member| RosterEntry {
+                handle: &member.slot.slot_handle,
+                display_name: &member.role.display_name,
+                lead: member.slot.lead,
+            })
+            .collect::<Vec<_>>();
+        adapter.prompt_channels().lead(&LaunchPromptInput {
+            lead: LeadView {
+                handle: &member.slot.slot_handle,
+                display_name: &member.role.display_name,
+                system_prompt: member.role.system_prompt.as_deref(),
+            },
+            crew_name: &crew.crew_name,
+            mission_goal: &goal,
+            roster: &entries,
+            allowed_signals: &crate::ops::mission::all_known_signals(),
+            crew_addendum: crew.crew_addendum.as_deref(),
+        })
+    } else {
+        adapter.prompt_channels().worker(
+            member.role.system_prompt.as_deref(),
+            crew.crew_addendum.as_deref(),
+            (!roster.iter().any(|member| member.slot.lead)).then_some(goal.as_str()),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

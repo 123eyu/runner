@@ -2,9 +2,9 @@ runtime=copilot name=delayed-start-permission-prompt rules=[1,2] bugs=[] known_w
 session_status_rows=published
 100 status=running/working/baseline activity="busy" completion_armed=false quiescent=true key=null delivery=["Respawned"]
   busy@spawn [running/working/baseline]
-200 status=running/idle/hook activity="idle"
+200 status=running/idle/hook activity="idle" delivery=["Idle"]
   idle@hook [running/idle/hook]
 300 status=running/working/hook activity="busy" completion_armed=true
   busy@hook [running/working/hook]
-400 status=running/ready/hook outcome="completed" activity="idle"
+400 status=running/ready/hook outcome="completed" activity="idle" delivery=["Idle"]
   idle@hook [running/ready/hook outcome="completed"]

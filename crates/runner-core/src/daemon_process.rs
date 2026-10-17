@@ -383,7 +383,7 @@ pub fn executable_hash(path: &Path) -> io::Result<String> {
 }
 fn clean_command(command: &mut Command, data: &Path) {
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("RUNNER_") {
+        if key.to_string_lossy().starts_with("RUNNER_") && key != "RUNNER_RECORD_INPUT_FIXTURE" {
             command.env_remove(key);
         }
     }
@@ -403,7 +403,7 @@ pub fn cleaned_path(
 }
 pub fn clean_environment(data: &Path) {
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("RUNNER_") {
+        if key.to_string_lossy().starts_with("RUNNER_") && key != "RUNNER_RECORD_INPUT_FIXTURE" {
             std::env::remove_var(key);
         }
     }
@@ -417,6 +417,39 @@ pub fn clean_environment(data: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn daemon_cleanup_preserves_recording_without_mission_context() {
+        const TEST_PROCESS: &str = "DAEMON_CLEAN_ENV_TEST";
+        const RECORDING: &str = "RUNNER_RECORD_INPUT_FIXTURE";
+        if std::env::var_os(TEST_PROCESS).is_some() {
+            let data = Path::new("test-data");
+            let mut command = Command::new("runnerd");
+            clean_command(&mut command, data);
+            let removals = command
+                .get_envs()
+                .filter_map(|(key, value)| value.is_none().then_some(key))
+                .collect::<Vec<_>>();
+            assert!(removals.contains(&std::ffi::OsStr::new("RUNNER_MISSION_ID")));
+            assert!(!removals.contains(&std::ffi::OsStr::new(RECORDING)));
+            clean_environment(data);
+            assert!(std::env::var_os("RUNNER_MISSION_ID").is_none());
+            assert_eq!(std::env::var_os(RECORDING).unwrap(), "fixture-prefix");
+            return;
+        }
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon_process::tests::daemon_cleanup_preserves_recording_without_mission_context",
+                "--nocapture",
+            ])
+            .env(TEST_PROCESS, "1")
+            .env(RECORDING, "fixture-prefix")
+            .env("RUNNER_MISSION_ID", "parent-mission")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    }
 
     #[cfg(windows)]
     #[test]

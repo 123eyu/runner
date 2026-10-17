@@ -104,9 +104,19 @@ impl MissionWorkspace {
                     .get("unread_count")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or(0) as usize;
-                if blocked && unread_count > 0 {
-                    self.delivery_blocked
-                        .insert(session_id, DeliveryBlocked { unread_count });
+                let reason = event
+                    .payload
+                    .get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                if blocked && (unread_count > 0 || reason.as_deref() == Some("unsubmitted")) {
+                    self.delivery_blocked.insert(
+                        session_id,
+                        DeliveryBlocked {
+                            unread_count,
+                            reason,
+                        },
+                    );
                 } else {
                     self.delivery_blocked.remove(&session_id);
                 }

@@ -1,6 +1,6 @@
 runtime=copilot name=draft-delivery rules=[5] bugs=[766,753] known_wrong=[]
 session_status_rows=published
-100 status=running/idle/hook activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned"]
+100 status=running/idle/hook activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","Idle"]
   busy@spawn [running/working/baseline]
   idle@hook [running/idle/hook]
 200 status=running/ready/hook outcome="completed"

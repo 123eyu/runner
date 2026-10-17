@@ -578,6 +578,9 @@ struct PendingResize {
 struct SessionState {
     // Retain pre-attachment keys without exposing a runtime state that did not exist before.
     key_only: bool,
+    pending_spawn: bool,
+    delivery_runtime: String,
+    turn_started: u64,
     handle: Option<SessionHandle>,
     model: SessionModel,
     delivery_gate: Arc<DeliveryGate>,
@@ -599,8 +602,41 @@ struct SessionState {
 }
 
 impl SessionState {
+    fn delivery_readiness(
+        &self,
+        delivery: &DeliveryGateState,
+        now: Instant,
+    ) -> router::DeliveryReadiness {
+        use router::{DeliveryReadiness as R, DeliveryReservation as D};
+        if self.pending_spawn {
+            return R::Pending;
+        }
+        let Some(handle) = &self.handle else {
+            return R::Unavailable;
+        };
+        if handle.startup.is_some() {
+            return R::Starting;
+        }
+        if self.model.status().observation.needs_you() {
+            return R::NeedsYou;
+        }
+        if delivery.in_flight || delivery.next_ticket != delivery.next_served {
+            return R::InFlight;
+        }
+        if let Some(hold) = self.model.draft_hold(now) {
+            return match hold {
+                D::RecentlyTyping(delay) => R::RecentlyTyping(delay),
+                _ => R::Drafting,
+            };
+        }
+        R::Ready {
+            idle: self.model.activity() == Some(SessionActivityState::Idle),
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.handle.is_none()
+            && !self.pending_spawn
             && self.model.is_empty()
             && self.terminal.is_none()
             && self.terminal_input.is_none()
@@ -690,6 +726,16 @@ struct PreAttachmentState {
 impl Drop for PreAttachmentState {
     fn drop(&mut self) {
         if let Some(manager) = self.manager.upgrade() {
+            let pending = manager
+                .raw_session_state(&self.session_id)
+                .is_some_and(|state| {
+                    let mut state = state.lock().unwrap();
+                    std::mem::take(&mut state.pending_spawn)
+                });
+            if pending {
+                manager
+                    .notify_delivery_event(&self.session_id, router::SessionDeliveryEvent::Exited);
+            }
             manager.prune_key_only_session_state(&self.session_id);
         }
     }
@@ -1053,37 +1099,103 @@ impl SessionManager {
             .is_some_and(|session| session.lock().unwrap().handle.is_some())
     }
 
-    pub fn reserve_delivery(&self, session_id: &str) -> Result<router::DeliveryReservation> {
+    pub fn delivery_snapshot(&self, session_id: &str) -> Option<router::DeliverySnapshot> {
+        let session = self.session_state(session_id)?;
+        let gate = session.lock().unwrap().delivery_gate.clone();
+        let delivery = gate.state.lock().unwrap();
+        let session = session.lock().unwrap();
+        session.handle.as_ref()?;
+        Some(router::DeliverySnapshot {
+            rows: session
+                .terminal
+                .as_ref()
+                .map(|terminal| terminal.input_rows())
+                .unwrap_or_default(),
+            generation: delivery.generation,
+            input_revision: (
+                delivery.next_ticket,
+                session
+                    .terminal
+                    .as_ref()
+                    .map(|terminal| terminal.input_reset_guard())
+                    .unwrap_or(0),
+            ),
+            turn_started: session.turn_started,
+            runtime: session.delivery_runtime.clone(),
+        })
+    }
+
+    pub fn resubmit(
+        &self,
+        session_id: &str,
+        snapshot: &router::DeliverySnapshot,
+        probe: &runner_terminal::delivery_probe::InputProbe,
+    ) -> Result<bool> {
         let Some(session) = self.session_state(session_id) else {
-            return Ok(router::DeliveryReservation::Unavailable);
+            return Ok(false);
+        };
+        let gate = session.lock().unwrap().delivery_gate.clone();
+        let delivery = gate.state.lock().unwrap();
+        let session = session.lock().unwrap();
+        if delivery.in_flight
+            || delivery.generation != snapshot.generation
+            || delivery.next_ticket != snapshot.input_revision.0
+            || delivery.next_ticket != delivery.next_served
+            || session.model.status().observation.needs_you()
+        {
+            return Ok(false);
+        }
+        let Some(handle) = &session.handle else {
+            return Ok(false);
+        };
+        let Some(terminal) = session.terminal.clone() else {
+            return Ok(false);
+        };
+        let runtime_session = handle.runtime_session.clone();
+        drop(session);
+        terminal
+            .with_unchanged_input(snapshot.input_revision.1, probe, || {
+                self.write_stdin_bytes(&runtime_session, b"\r")
+            })
+            .transpose()
+            .map(|written| written.is_some())
+    }
+
+    pub fn delivery_readiness(&self, session_id: &str) -> router::DeliveryReadiness {
+        let Some(session) = self.raw_session_state(session_id) else {
+            return router::DeliveryReadiness::Unavailable;
+        };
+        let gate = session.lock().unwrap().delivery_gate.clone();
+        let delivery = gate.state.lock().unwrap();
+        let session = session.lock().unwrap();
+        session.delivery_readiness(&delivery, crate::session::clock::now())
+    }
+
+    pub fn reserve_delivery(&self, session_id: &str) -> Result<router::DeliveryReservation> {
+        use router::{DeliveryReadiness as R, DeliveryReservation as D};
+        let Some(session) = self.session_state(session_id) else {
+            return Ok(D::Unavailable);
         };
         let gate = session.lock().unwrap().delivery_gate.clone();
         let mut delivery = gate.state.lock().unwrap();
         let session = session.lock().unwrap();
-        if session.handle.is_none() {
-            return Ok(router::DeliveryReservation::Unavailable);
-        }
-        if session
-            .handle
-            .as_ref()
-            .is_some_and(|handle| handle.startup.is_some())
-        {
-            return Ok(router::DeliveryReservation::Starting);
-        }
-        if session.model.status().observation.needs_you() {
-            return Ok(router::DeliveryReservation::HumanInteraction);
-        }
-        if delivery.in_flight {
-            return Ok(router::DeliveryReservation::InFlight);
-        }
-        if delivery.next_ticket != delivery.next_served {
-            return Ok(router::DeliveryReservation::InFlight);
-        }
-        if let Some(hold) = session.model.draft_hold(crate::session::clock::now()) {
-            return Ok(hold);
-        }
-        delivery.in_flight = true;
-        Ok(router::DeliveryReservation::Ready(delivery.generation))
+        Ok(
+            match session.delivery_readiness(&delivery, crate::session::clock::now()) {
+                R::Ready { .. } => {
+                    delivery.in_flight = true;
+                    D::Ready(delivery.generation)
+                }
+                R::Pending | R::Unavailable => D::Unavailable,
+                R::Starting => D::Starting,
+                R::NeedsYou => D::HumanInteraction,
+                R::InFlight => D::InFlight,
+                R::RecentlyTyping(delay) => D::RecentlyTyping(delay),
+                R::Drafting => session
+                    .model
+                    .draft_hold(crate::session::clock::now())
+                    .unwrap(),
+            },
+        )
     }
 
     pub fn report_input_state(&self, session_id: &str, observation: InputObservation) {
@@ -1241,6 +1353,12 @@ impl SessionManager {
             delivery.next_served = 0;
             delivery.cancelled_tickets.clear();
             gate.ready.notify_all();
+            state.pending_spawn = false;
+            state.delivery_runtime = handle
+                .startup
+                .as_ref()
+                .map(|startup| startup.runtime.clone())
+                .unwrap_or_default();
             state.handle = Some(handle);
             state
                 .model
@@ -1313,7 +1431,8 @@ impl SessionManager {
         let session = self.session_state_or_insert(session_id);
         let mut session = session.lock().unwrap();
         let live = session.handle.is_some() && !session.killed;
-        session
+        let was_idle = session.model.activity() == Some(SessionActivityState::Idle);
+        let published = session
             .model
             .apply(
                 SessionEvent::Transition {
@@ -1324,7 +1443,13 @@ impl SessionManager {
                 super::clock::state_now(),
             )
             .publication
-            .is_some()
+            .is_some();
+        let idle = session.model.activity() == Some(SessionActivityState::Idle);
+        drop(session);
+        if idle && !was_idle {
+            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::Idle);
+        }
+        published
     }
 
     fn note_terminal_event(&self, session_id: &str, event: crate::runtimes::TerminalEvent) -> bool {
@@ -1341,11 +1466,18 @@ impl SessionManager {
             TerminalEvent::Title(state) => SessionEvent::Title { state, live },
             TerminalEvent::Ready(state) => SessionEvent::Readiness { state, live },
         };
-        session
+        let was_idle = session.model.activity() == Some(SessionActivityState::Idle);
+        let published = session
             .model
             .apply(event, super::clock::state_now())
             .publication
-            .is_some()
+            .is_some();
+        let idle = session.model.activity() == Some(SessionActivityState::Idle);
+        drop(session);
+        if idle && !was_idle {
+            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::Idle);
+        }
+        published
     }
 
     fn publish_direct_terminal_event(
@@ -1404,6 +1536,9 @@ impl SessionManager {
             .ok_or_else(|| Error::msg(format!("session not found: {session_id}")))?;
         let (sink, activity_revision) = {
             let session = session.lock().unwrap();
+            if session.model.activity() == Some(SessionActivityState::Busy) {
+                return Ok(());
+            }
             let sink = session.mission_status_sink.clone().ok_or_else(|| {
                 Error::msg(format!("session has no mission status sink: {session_id}"))
             })?;
@@ -1592,6 +1727,13 @@ impl SessionManager {
         let Some(session) = self.session_state(session_id) else {
             return Default::default();
         };
+        let composer_cleared = matches!(
+            &event,
+            SessionEvent::Agent {
+                event: super::state::agent::AgentEvent::EditorDraft { drafting: false },
+                ..
+            }
+        );
         // A recovered conversation drops status to the output baseline, so the
         // startup hold stops waiting for a hook turn end that may never come.
         let bridge_failed = match &event {
@@ -1599,7 +1741,7 @@ impl SessionManager {
             SessionEvent::Agent { event, .. } => event.conversation_recovered(),
             _ => false,
         };
-        let (status, sink, effects, startup_ready) = {
+        let (status, sink, effects, startup_ready, became_idle) = {
             let mut session = session.lock().unwrap();
             if launch.is_some_and(|launch| {
                 launch.load(Ordering::Acquire)
@@ -1617,7 +1759,14 @@ impl SessionManager {
                 }
                 _ => {}
             }
+            let turn_started = matches!(&event, SessionEvent::Agent { event, live: true } if agent_turn_started(event));
+            let was_idle = session.model.activity() == Some(SessionActivityState::Idle);
             let effects = session.model.apply(event, super::clock::state_now());
+            if turn_started && effects.agent_feedback.accepted {
+                session.turn_started = session.turn_started.wrapping_add(1);
+            }
+            let became_idle =
+                !was_idle && session.model.activity() == Some(SessionActivityState::Idle);
             let status = session.model.status().clone();
             let startup_ready = session.handle.as_mut().is_some_and(|handle| {
                 let Some(startup) = handle.startup.as_mut() else {
@@ -1638,6 +1787,7 @@ impl SessionManager {
                 session.mission_status_sink.clone(),
                 effects,
                 startup_ready,
+                became_idle,
             )
         };
         if let Some((state, source)) = effects.publication {
@@ -1655,11 +1805,21 @@ impl SessionManager {
                 }
             }
         }
+        if became_idle {
+            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::Idle);
+        }
         if startup_ready {
             self.notify_delivery_event(session_id, router::SessionDeliveryEvent::StartupReady);
         }
         if effects.input_cleared {
-            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::InputCleared);
+            self.notify_delivery_event(
+                session_id,
+                if composer_cleared {
+                    router::SessionDeliveryEvent::InputCleared
+                } else {
+                    router::SessionDeliveryEvent::ReadinessChanged
+                },
+            );
         }
         effects.agent_feedback
     }
@@ -1948,4 +2108,15 @@ fn emit_role_activity(pool: &DbPool, role: &Role, events: &dyn SessionEvents) {
         crew_count: activity.crew_count,
         direct_session_id: activity.direct_session_id,
     });
+}
+
+fn agent_turn_started(event: &super::state::agent::AgentEvent) -> bool {
+    use super::state::agent::AgentEvent;
+    match event {
+        AgentEvent::TurnStarted => true,
+        AgentEvent::Batch { events, .. } | AgentEvent::Transcript { events, .. } => {
+            events.iter().any(agent_turn_started)
+        }
+        _ => false,
+    }
 }

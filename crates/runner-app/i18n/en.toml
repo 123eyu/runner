@@ -670,6 +670,7 @@
 "ui.match_the_os_or_pin_to_light_or_dark" = "Match the OS, or pin to light or dark."
 "ui.maximize" = "Maximize"
 "ui.message_everyone_handle_to_address_one" = "Message everyone — @handle to address one"
+"ui.message_not_submitted_press_return" = "Message not submitted — press Return"
 "ui.message_the_crew_handle_to_address_one_session" = "Message the crew — @handle to address one session"
 "ui.minimize" = "Minimize"
 "ui.mission_actions" = "Mission actions"

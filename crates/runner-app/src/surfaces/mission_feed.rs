@@ -139,8 +139,18 @@ fn can_join_group(author: &str, grouped: &[Event], event: &Event) -> bool {
 
 pub(crate) fn group_feed_blocks(events: &[Event]) -> Vec<FeedBlock> {
     let mut blocks = Vec::new();
+    let relayed: std::collections::HashSet<_> = events
+        .iter()
+        .filter(|event| event.kind == EventKind::Message)
+        .filter_map(|event| event.payload["source_event"].as_str())
+        .collect();
     for event in events {
-        if is_hidden_system_signal(event) {
+        if is_hidden_system_signal(event)
+            || (event.kind == EventKind::Message && event.payload.get("question_id").is_some())
+            || (event.kind == EventKind::Signal
+                && event.signal_type.as_ref().map(SignalType::as_str) == Some("human_said")
+                && relayed.contains(event.id.as_str()))
+        {
             continue;
         }
         if is_message_like(event) {
@@ -318,5 +328,80 @@ mod tests {
         route.to = Some("reviewer".into());
         let late = event("c", 302, "coder", EventKind::Message, None);
         assert_eq!(group_feed_blocks(&[first, route, late]).len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod answer_delivery_tests {
+    use super::*;
+    use runner_core::model::EventDraft;
+    fn envelope(draft: EventDraft, id: &str) -> Event {
+        Event {
+            id: id.into(),
+            ts: chrono::Utc::now(),
+            crew_id: draft.crew_id,
+            mission_id: draft.mission_id,
+            kind: draft.kind,
+            from: draft.from,
+            to: draft.to,
+            signal_type: draft.signal_type,
+            payload: draft.payload,
+        }
+    }
+    #[test]
+    fn answer_messages_hide_behind_the_existing_card_and_legacy_signals_still_render() {
+        let question = envelope(
+            EventDraft::signal(
+                None,
+                "m",
+                "router",
+                SignalType::new("human_question"),
+                serde_json::json!({"prompt":"continue?"}),
+            ),
+            "q",
+        );
+        let response = envelope(
+            EventDraft::signal(
+                None,
+                "m",
+                "human",
+                SignalType::new("human_response"),
+                serde_json::json!({"question_id":"q","choice":"yes"}),
+            ),
+            "r",
+        );
+        let mut answer = envelope(
+            EventDraft::message(
+                None,
+                "m",
+                "human",
+                Some("worker".into()),
+                "Answer to continue: yes",
+            ),
+            "a",
+        );
+        answer.payload["question_id"] = "q".into();
+        let blocks = group_feed_blocks(&[question.clone(), response.clone(), answer]);
+        assert_eq!(blocks.len(), 2);
+        assert!(matches!(blocks[0], FeedBlock::AskCard(_)));
+        let projection = project_asks(&[question, response]);
+        assert_eq!(projection.resolved_asks["q"], "yes");
+    }
+    #[test]
+    fn a_relayed_human_said_is_shown_once_and_legacy_human_said_is_kept() {
+        let signal = envelope(
+            EventDraft::signal(
+                None,
+                "m",
+                "human",
+                SignalType::new("human_said"),
+                serde_json::json!({"text":"hello"}),
+            ),
+            "s",
+        );
+        assert_eq!(group_feed_blocks(std::slice::from_ref(&signal)).len(), 1);
+        let mut message = envelope(EventDraft::message(None, "m", "human", None, "hello"), "m");
+        message.payload["source_event"] = "s".into();
+        assert_eq!(group_feed_blocks(&[signal, message]).len(), 1);
     }
 }

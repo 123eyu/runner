@@ -670,6 +670,7 @@
 "ui.match_the_os_or_pin_to_light_or_dark" = "跟随系统，或固定为浅色、深色。"
 "ui.maximize" = "最大化"
 "ui.message_everyone_handle_to_address_one" = "向所有人发送消息，使用 @handle 指定成员"
+"ui.message_not_submitted_press_return" = "消息未提交 — 请按回车键"
 "ui.message_the_crew_handle_to_address_one_session" = "向小队发送消息，使用 @handle 指定会话"
 "ui.minimize" = "最小化"
 "ui.mission_actions" = "任务操作"

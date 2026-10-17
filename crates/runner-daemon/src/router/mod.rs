@@ -1,34 +1,16 @@
-// Signal router v0 — flat parent-process dispatcher.
-//
-// What this is. The lead is the agent that *thinks* about
-// coordination — it plans, dispatches workers via directed messages,
-// decides when to escalate. The router is the parent-process plumbing
-// underneath: spawn-time prompt composition, cross-process stdin push
-// (`ask_lead`, `human_said`, `human_response`), the UI bridge
-// (`ask_human` → `human_question` event), and the runner-availability
-// map (`session_status`). See arch §5.5 and
-// docs/impls/archive/0001-v0-mvp.md `C8 — Signal router v0`.
-//
-// What this is not. There is no policy engine, no rule abstraction, no
-// per-crew config in MVP. Handlers are a flat `match signal_type { … }`.
-// The crew-level prompt layer is `crew.system_prompt_addendum`, spliced
-// on mission spawns — not read or acted on here.
-//
-// Per arch §5.5.0 invariant: messages never trigger router actions. Only
-// `EventKind::Signal` reaches the dispatcher; messages flow through the
-// inbox projection in `event_bus`.
+// Mission stream routing, subscriber notifications and human-question cards.
 
+pub(crate) mod dispatch;
 mod handlers;
 pub mod prompt;
 pub mod runtime;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::sync::{mpsc, Arc, Mutex, Weak};
+use std::time::Duration;
 
-use runner_core::event_log::EventLog;
+use runner_core::event_log::{EventLog, LogEntry};
 use runner_core::model::{Event, EventDraft, EventKind, SignalType};
 use serde::Serialize;
 
@@ -38,26 +20,32 @@ use crate::events::EventChannel;
 use crate::model::SlotWithRole;
 use crate::session::manager::SessionManager;
 
-/// What the router uses to push bytes into a child's PTY. The full
-/// `SessionManager` impls it; tests use a recording fake. Lives behind a
-/// trait so the router doesn't pull a PTY runtime into unit tests.
+/// Terminal rows and session counters observed for one delivery attempt.
+#[derive(Clone, Debug)]
+pub struct DeliverySnapshot {
+    pub rows: Vec<String>,
+    pub generation: u64,
+    pub input_revision: (u64, u64),
+    pub turn_started: u64,
+    pub runtime: String,
+}
+
+/// Session-manager port for readiness, reservations and notification attempts.
 pub trait StdinInjector: Send + Sync + 'static {
-    /// Raw stdin bytes — used by `inject_and_submit` for the
-    /// already-running-agent paths (`human_said`, `ask_lead`).
-    /// `\r` becomes Enter, anything else is a literal byte stream.
-    fn inject(&self, session_id: &str, bytes: &[u8]) -> Result<()>;
-
-    /// Snapshot used by diagnostics/tests. Delivery uses the atomic
-    /// reservation below so a keystroke cannot race a separate query.
-    fn input_quiescent(&self, session_id: &str) -> bool;
-
-    fn session_live(&self, session_id: &str) -> bool;
+    fn delivery_readiness(&self, session_id: &str) -> DeliveryReadiness;
 
     fn reserve_delivery(&self, session_id: &str) -> Result<DeliveryReservation>;
 
     fn inject_reserved(&self, session_id: &str, token: u64, bytes: &[u8]) -> Result<bool>;
 
     fn finish_delivery(&self, session_id: &str, token: u64);
+    fn delivery_snapshot(&self, session_id: &str) -> Option<DeliverySnapshot>;
+    fn resubmit(
+        &self,
+        session_id: &str,
+        snapshot: &DeliverySnapshot,
+        probe: &runner_terminal::delivery_probe::InputProbe,
+    ) -> Result<bool>;
 
     fn synthesize_wake_busy(&self, session_id: &str, draft: EventDraft) -> Result<()>;
 
@@ -75,10 +63,10 @@ pub struct DeliveryBlockedEvent {
     pub handle: String,
     pub unread_count: usize,
     pub blocked: bool,
+    pub reason: Option<String>,
 }
 
 pub trait RouterUiNotifier: Send + Sync + 'static {
-    /// Called with the router state locked; implementations must not call back into the router.
     fn delivery_blocked(&self, event: &DeliveryBlockedEvent);
 }
 
@@ -91,16 +79,8 @@ impl RouterUiNotifier for ChannelRouterUiNotifier {
 }
 
 impl StdinInjector for SessionManager {
-    fn inject(&self, session_id: &str, bytes: &[u8]) -> Result<()> {
-        SessionManager::inject_stdin(self, session_id, bytes)
-    }
-
-    fn input_quiescent(&self, session_id: &str) -> bool {
-        SessionManager::input_quiescent(self, session_id)
-    }
-
-    fn session_live(&self, session_id: &str) -> bool {
-        SessionManager::session_live(self, session_id)
+    fn delivery_readiness(&self, session_id: &str) -> DeliveryReadiness {
+        SessionManager::delivery_readiness(self, session_id)
     }
 
     fn reserve_delivery(&self, session_id: &str) -> Result<DeliveryReservation> {
@@ -113,6 +93,18 @@ impl StdinInjector for SessionManager {
 
     fn finish_delivery(&self, session_id: &str, token: u64) {
         SessionManager::finish_delivery(self, session_id, token)
+    }
+
+    fn delivery_snapshot(&self, session_id: &str) -> Option<DeliverySnapshot> {
+        SessionManager::delivery_snapshot(self, session_id)
+    }
+    fn resubmit(
+        &self,
+        session_id: &str,
+        snapshot: &DeliverySnapshot,
+        probe: &runner_terminal::delivery_probe::InputProbe,
+    ) -> Result<bool> {
+        SessionManager::resubmit(self, session_id, snapshot, probe)
     }
 
     fn synthesize_wake_busy(&self, session_id: &str, draft: EventDraft) -> Result<()> {
@@ -129,6 +121,18 @@ impl StdinInjector for SessionManager {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryReadiness {
+    Ready { idle: bool },
+    Pending,
+    Starting,
+    Drafting,
+    RecentlyTyping(Duration),
+    NeedsYou,
+    InFlight,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryReservation {
     Unavailable,
     Starting,
@@ -142,7 +146,9 @@ pub enum DeliveryReservation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionDeliveryEvent {
+    Idle,
     InputCleared,
+    ReadinessChanged,
     InputQueueDrained,
     DeliveryFinished,
     Respawned,
@@ -154,179 +160,80 @@ pub trait SessionDeliveryListener: Send + Sync + 'static {
     fn session_delivery_event(&self, session_id: &str, event: SessionDeliveryEvent);
 }
 
-// `SessionActivityState` now lives in `session::runtime` because the forwarder
-// is the authoritative source (issue #124). The router consumes it via
-// `session_status` events the forwarder and hook adapters append. Both
-// converge under latest-wins, so the router doesn't branch on `payload.source`.
 pub use crate::session::runtime::SessionActivityState;
 
-/// Inputs to the launch-prompt composer, captured at mount for fresh
-/// respawns. The lead row also doubles as the lead-resolved handle the dispatcher routes to.
-/// Fields are pre-merged from (slot, role template) so the composer
-/// doesn't need to know about the join shape.
 pub(crate) struct LaunchInputs {
-    crew_name: String,
     lead: Option<LeadRow>,
     roster: Mutex<Vec<RosterRow>>,
-    allowed_signals: Vec<SignalType>,
-    /// `crew.system_prompt_addendum` snapshot at mount/resume time
-    /// (Layer 2 of the system-prompt stack, #54). Used by
-    /// the fresh-respawn composer so the
-    /// relaunched lead sees the same composed prompt the first spawn
-    /// got. `None` / empty → no splice.
-    crew_addendum: Option<String>,
 }
 
 pub(crate) struct LeadRow {
-    /// `slot.slot_handle` — the in-mission identity. The router
-    /// routes by this everywhere; the underlying template handle is
-    /// not used in mission contexts.
     handle: String,
-    display_name: String,
-    /// `role.system_prompt` — the brief shown in the lead's launch
-    /// prompt. Comes from the role template since system_prompt
-    /// isn't yet a per-slot override (deferred).
-    system_prompt: Option<String>,
 }
 
 #[derive(Clone)]
 pub(crate) struct RosterRow {
     handle: String,
-    display_name: String,
     lead: bool,
 }
 
 // Windows Codex suppresses Enter after rapid input. Let its paste-burst
 // suppression window expire before submitting (#753).
 const SUBMIT_DELAY: Duration = Duration::from_millis(if cfg!(windows) { 300 } else { 80 });
-const INPUT_CLEAR_FLUSH_GRACE: Duration = Duration::from_millis(500);
-const RECONCILIATION_TICK_INTERVAL: Duration = Duration::from_secs(30);
-const RECONCILIATION_RENUDGE_BACKOFF: Duration = Duration::from_secs(2 * 60);
-const RECONCILIATION_NUDGE: &str = "[inbox] unread messages — run `runner msg read` to view.";
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DeliveryKind {
-    InboxNudge,
-    Relay,
+#[derive(Default)]
+struct RouterState {
+    session_by_handle: HashMap<String, String>,
+    pending_asks: HashMap<String, PendingAsk>,
+    cursor: u64,
+    unread_by_handle: HashMap<String, usize>,
+    projecting_unread: HashMap<String, usize>,
+    changed_backlogs: HashSet<String>,
+    backlogs_initialized: bool,
 }
 
 #[derive(Clone)]
-struct QueuedDelivery {
-    kind: DeliveryKind,
-    body: Vec<u8>,
-    count: usize,
-    message_id: Option<String>,
+pub(crate) struct PendingAsk {
+    pub asker: Option<String>,
+    pub prompt: String,
 }
 
-#[derive(Default)]
-struct SessionOutbox {
-    handle: String,
-    deliveries: VecDeque<QueuedDelivery>,
-    submit_in_flight: bool,
-    pending_input_blocked: bool,
-    retry_scheduled: bool,
-    retry_generation: u64,
-    hold_reason: Option<DeliveryReservation>,
-}
-
-impl SessionOutbox {
-    fn enqueue(&mut self, delivery: QueuedDelivery) {
-        if delivery.body.is_empty() {
-            return;
+pub(crate) fn pending_asks(entries: &[LogEntry]) -> HashMap<String, PendingAsk> {
+    let mut askers = HashMap::new();
+    let mut pending = HashMap::new();
+    for entry in entries {
+        let event = &entry.event;
+        if event.kind != EventKind::Signal {
+            continue;
         }
-        if delivery.kind == DeliveryKind::InboxNudge {
-            if let Some(existing) = self
-                .deliveries
-                .iter_mut()
-                .find(|queued| queued.kind == DeliveryKind::InboxNudge)
-            {
-                existing.count += delivery.count;
-                existing.message_id = existing.message_id.take().max(delivery.message_id);
-                existing.body = format!(
-                    "[inbox] {} new messages — run `runner msg read` to view.",
-                    existing.count
-                )
-                .into_bytes();
-                return;
+        match event.signal_type.as_ref().map(|signal| signal.as_str()) {
+            Some("ask_human") => {
+                askers.insert(event.id.as_str(), event.from.as_str());
             }
-        }
-        self.deliveries.push_back(delivery);
-    }
-
-    fn hold(&mut self, session_id: &str, reason: DeliveryReservation) {
-        if self.hold_reason == Some(reason)
-            || matches!(
-                (self.hold_reason, reason),
-                (
-                    Some(DeliveryReservation::RecentlyTyping(_)),
-                    DeliveryReservation::RecentlyTyping(_)
-                )
-            )
-        {
-            return;
-        }
-        self.hold_reason = Some(reason);
-        log::info!(
-            "router delivery held session={session_id} handle=@{} reason={reason:?}",
-            self.handle
-        );
-    }
-
-    fn release(&mut self, session_id: &str, trigger: &str) {
-        if let Some(reason) = self.hold_reason.take() {
-            log::info!("router delivery released session={session_id} handle=@{} reason={reason:?} trigger={trigger}", self.handle);
-        }
-    }
-}
-
-/// Mutable per-mission state. Rebuilt on reopen by replaying the log into
-/// `reconstruct_from_log` — no separate persistence layer.
-#[derive(Default)]
-struct RouterState {
-    /// Resolved at mount from the spawned `SpawnedSession` rows. The map is
-    /// authoritative for the mission's lifetime; if a child is stopped the
-    /// entry stays so deliveries can wait for its next `Respawned` event.
-    session_by_handle: HashMap<String, String>,
-    /// `human_question.id` → asker handle. Populated when an `ask_human`
-    /// is dispatched (the appended card's id is the canonical question_id
-    /// per arch §5.5.0) and consumed by the matching `human_response`.
-    pending_asks: HashMap<String, String>,
-    /// Latest `session_status` per handle.
-    status: HashMap<String, SessionActivityState>,
-    /// Replay high-water ULID. Set by `reconstruct_from_log` on reopen;
-    /// `handle_event` short-circuits any event whose `id` is `≤` this so
-    /// the bus's initial replay doesn't re-inject historical stdin or
-    /// re-emit `human_question` cards. `None` for fresh missions.
-    replay_high_water: Option<String>,
-    outbox_by_session: HashMap<String, SessionOutbox>,
-    blocked_unread_by_session: HashMap<String, usize>,
-    /// Fresh mission rows registered before their background PTY spawn.
-    /// Deliveries wait in the normal outbox until `Respawned` marks the
-    /// session live.
-    pending_sessions: HashSet<String>,
-    live_sessions: HashSet<String>,
-    unread_by_handle: HashMap<String, usize>,
-    watermark_by_handle: HashMap<String, String>,
-    latest_inbox_id: HashMap<String, String>,
-    last_reconciliation_nudge: HashMap<String, Instant>,
-}
-
-struct ReconciliationClock {
-    shutdown: Arc<(Mutex<bool>, Condvar)>,
-    handle: Option<JoinHandle<()>>,
-}
-
-impl ReconciliationClock {
-    fn stop(mut self) {
-        let (shutdown, wake) = self.shutdown.as_ref();
-        *shutdown.lock().unwrap() = true;
-        wake.notify_all();
-        if let Some(handle) = self.handle.take() {
-            if handle.thread().id() != std::thread::current().id() {
-                let _ = handle.join();
+            Some("human_question") => {
+                let asker = event.payload["triggered_by"]
+                    .as_str()
+                    .and_then(|id| askers.get(id))
+                    .map(|asker| (*asker).to_owned());
+                pending.insert(
+                    event.id.clone(),
+                    PendingAsk {
+                        asker,
+                        prompt: event.payload["prompt"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned(),
+                    },
+                );
             }
+            Some("human_response") => {
+                if let Some(id) = event.payload["question_id"].as_str() {
+                    pending.remove(id);
+                }
+            }
+            _ => {}
         }
     }
+    pending
 }
 
 /// One mission's router. Mounted by `mission_start` after sessions spawn,
@@ -340,7 +247,9 @@ pub struct Router {
     ui_notifier: Arc<dyn RouterUiNotifier>,
     launch: LaunchInputs,
     state: Mutex<RouterState>,
-    reconciliation_clock: Mutex<Option<ReconciliationClock>>,
+    dispatch_tx: mpsc::Sender<dispatch::Input>,
+    dispatch_rx: Mutex<Option<mpsc::Receiver<dispatch::Input>>>,
+    driver: Mutex<Option<dispatch::Driver>>,
     weak_self: Weak<Router>,
 }
 
@@ -351,16 +260,17 @@ impl Router {
     pub fn new(
         mission_id: String,
         crew_id: Option<String>,
-        crew_name: String,
+        _crew_name: String,
         roster: &[SlotWithRole],
-        allowed_signals: Vec<SignalType>,
-        crew_addendum: Option<String>,
+        _allowed_signals: Vec<SignalType>,
+        _crew_addendum: Option<String>,
         log: Arc<EventLog>,
         injector: Arc<dyn StdinInjector>,
         ui_notifier: Arc<dyn RouterUiNotifier>,
     ) -> Result<Arc<Self>> {
-        let launch = LaunchInputs::new(crew_name, roster, allowed_signals, crew_addendum)?;
+        let launch = LaunchInputs::new(roster);
 
+        let (dispatch_tx, dispatch_rx) = mpsc::channel();
         Ok(Arc::new_cyclic(|weak_self| Self {
             mission_id,
             crew_id,
@@ -369,7 +279,9 @@ impl Router {
             ui_notifier,
             launch,
             state: Mutex::new(RouterState::default()),
-            reconciliation_clock: Mutex::new(None),
+            dispatch_tx,
+            dispatch_rx: Mutex::new(Some(dispatch_rx)),
+            driver: Mutex::new(None),
             weak_self: weak_self.clone(),
         }))
     }
@@ -377,7 +289,6 @@ impl Router {
     pub fn add_roster_member(&self, member: &SlotWithRole) {
         self.launch.roster.lock().unwrap().push(RosterRow {
             handle: member.slot.slot_handle.clone(),
-            display_name: member.role.display_name.clone(),
             lead: member.slot.lead,
         });
     }
@@ -388,46 +299,23 @@ impl Router {
             .lock()
             .unwrap()
             .retain(|slot| slot.handle != handle);
-        let mut state = self.state.lock().unwrap();
-        if let Some(session_id) = state.session_by_handle.remove(handle) {
-            state.outbox_by_session.remove(&session_id);
-            state.pending_sessions.remove(&session_id);
-            state.live_sessions.remove(&session_id);
-            state.blocked_unread_by_session.remove(&session_id);
-            state.last_reconciliation_nudge.remove(&session_id);
+        {
+            let mut state = self.state.lock().unwrap();
+            state.session_by_handle.remove(handle);
+            state.unread_by_handle.remove(handle);
+            state.projecting_unread.remove(handle);
+            state.changed_backlogs.remove(handle);
         }
-        state.unread_by_handle.remove(handle);
-        state.watermark_by_handle.remove(handle);
-        state.latest_inbox_id.remove(handle);
+        self.dispatch(dispatch::Input::RosterChanged);
     }
 
-    /// Register existing session ids so handlers can find which PTY owns
-    /// each handle. Reopen paths use this for already-live sessions; a
-    /// stopped/crashed row remains non-live so injection waits for respawn.
     pub fn register_sessions(&self, sessions: &[(String, String)]) {
-        self.register_sessions_inner(sessions, false);
-    }
-
-    /// Fresh-start path. Session rows and router handles exist before
-    /// the sequential background PTY spawns begin, so an early channel post
-    /// must queue its nudge instead of warning that the later slot is absent.
-    pub fn register_pending_sessions(&self, sessions: &[(String, String)]) {
-        self.register_sessions_inner(sessions, true);
-    }
-
-    fn register_sessions_inner(&self, sessions: &[(String, String)], pending: bool) {
         {
             let mut state = self.state.lock().unwrap();
             for (handle, session_id) in sessions {
                 state
                     .session_by_handle
                     .insert(handle.clone(), session_id.clone());
-                if pending {
-                    state.pending_sessions.insert(session_id.clone());
-                    state.live_sessions.remove(session_id);
-                } else if self.injector.session_live(session_id) {
-                    state.live_sessions.insert(session_id.clone());
-                }
             }
         }
         let listener: Weak<dyn SessionDeliveryListener> = self.weak_self.clone();
@@ -435,96 +323,59 @@ impl Router {
             self.injector
                 .register_delivery_listener(session_id, listener.clone());
         }
+        self.dispatch(dispatch::Input::RosterChanged);
     }
 
-    /// Reopen path only — fold historical projection state from the log
-    /// without firing handler side effects, and set the replay high-water
-    /// mark so the subsequent bus mount's initial replay no-ops past it.
-    ///
-    /// What is rebuilt:
-    /// - `pending_asks` from `ask_human` → `human_question` pairs (the
-    ///   card id is the canonical `question_id`; we walk in append order
-    ///   to match each ask with its following card via
-    ///   `human_question.payload.triggered_by`). Asks already answered
-    ///   by a `human_response` are removed.
-    /// - `session_status` from the latest `session_status` row per handle.
-    ///
-    /// What is *not* rebuilt: stdin pushes. Ask-lead relays, human_said
-    /// echoes, and message_nudge fan-outs are all
-    /// live-only side effects. Per the C8 plan, replay does not re-inject
-    /// prompts into a sleeping LLM.
-    ///
-    /// Fresh missions skip reconstruction because they have no historical
-    /// projections to rebuild.
+    pub fn register_pending_sessions(&self, sessions: &[(String, String)]) {
+        self.register_sessions(sessions);
+    }
+
+    /// Rebuild projection state without replaying historical notification attempts.
     pub fn reconstruct_from_log(&self) -> Result<()> {
-        // Lossy read so a single malformed NDJSON line — a buggy CLI
-        // release, a partial write the writer recovered from — doesn't
-        // make the whole reopen fail. The bus uses the same forgiveness
-        // (`read_from_lossy` in `event_bus::BusState::tick`); reopen must
-        // tolerate at least the same set of histories the bus does.
         let (entries, skipped) = self.log.read_from_lossy(0)?;
         for skip in &skipped {
             log::warn!(
                 "reconstruct skipping malformed line for mission {} at offset {} ({})",
                 self.mission_id,
                 skip.offset,
-                skip.error,
+                skip.error
             );
         }
-
-        // Walk once, building a transient ask_human.id → asker map so we
-        // can pair the next human_question with the right asker. Once the
-        // pairing lands in pending_asks, the ask_human.id is no longer
-        // needed.
-        let mut ask_human_asker: HashMap<String, String> = HashMap::new();
-        let mut pending: HashMap<String, String> = HashMap::new();
-        let mut status: HashMap<String, SessionActivityState> = HashMap::new();
-        let mut last_id: Option<String> = None;
-
-        for entry in &entries {
+        let cursor = entries
+            .iter()
+            .map(|entry| entry.next_offset)
+            .chain(skipped.iter().map(|skip| skip.next_offset))
+            .max()
+            .unwrap_or(0);
+        let delivered: HashSet<_> = entries
+            .iter()
+            .filter(|entry| entry.event.kind == EventKind::Message)
+            .filter_map(|entry| entry.event.payload["source_event"].as_str())
+            .collect();
+        for (index, entry) in entries.iter().enumerate() {
             let event = &entry.event;
-            last_id = Some(event.id.clone());
-            if !matches!(event.kind, EventKind::Signal) {
+            if event.kind != EventKind::Signal
+                || event.payload["delivery"].as_str() != Some("inbox")
+                || delivered.contains(event.id.as_str())
+            {
                 continue;
             }
-            let Some(t) = event.signal_type.as_ref() else {
-                continue;
-            };
-            match t.as_str() {
-                "ask_human" => {
-                    ask_human_asker.insert(event.id.clone(), event.from.clone());
-                }
-                "human_question" => {
-                    let triggered_by = event.payload.get("triggered_by").and_then(|v| v.as_str());
-                    if let Some(ask_id) = triggered_by {
-                        if let Some(asker) = ask_human_asker.remove(ask_id) {
-                            pending.insert(event.id.clone(), asker);
-                        }
-                    }
-                }
-                "human_response" => {
-                    if let Some(qid) = event.payload.get("question_id").and_then(|v| v.as_str()) {
-                        pending.remove(qid);
-                    }
-                }
-                "session_status" | "runner_status" => {
-                    let s = match event.payload.get("state").and_then(|v| v.as_str()) {
-                        Some("busy") => Some(SessionActivityState::Busy),
-                        Some("idle") => Some(SessionActivityState::Idle),
-                        _ => None,
-                    };
-                    if let Some(s) = s {
-                        status.insert(event.from.clone(), s);
+            match event.signal_type.as_ref().map(SignalType::as_str) {
+                Some("human_said") => handlers::append_human_said(self, event)?,
+                Some("human_response") => {
+                    if let Some(ask) = event.payload["question_id"]
+                        .as_str()
+                        .and_then(|id| pending_asks(&entries[..index]).remove(id))
+                    {
+                        handlers::append_answer(self, event, &ask)?;
                     }
                 }
                 _ => {}
             }
         }
-
         let mut state = self.state.lock().unwrap();
-        state.pending_asks = pending;
-        state.status = status;
-        state.replay_high_water = last_id;
+        state.pending_asks = pending_asks(&entries);
+        state.cursor = cursor;
         Ok(())
     }
 
@@ -540,14 +391,13 @@ impl Router {
     /// replay). Messages are nudged-only — the message body lives in
     /// the inbox projection per arch §5.5.0; the router just wakes the
     /// recipient with a one-line stdin notification.
-    pub fn handle_event(&self, event: &Event) {
-        // Watermark check covers both messages and signals in one place
-        // — replay must not re-nudge inbox recipients with stale "you
-        // have mail" lines they already saw on the original delivery.
-        if let Some(w) = self.state.lock().unwrap().replay_high_water.as_deref() {
-            if event.id.as_bytes() <= w.as_bytes() {
+    pub fn handle_event(&self, event: &Event, next_offset: u64) {
+        {
+            let mut state = self.state.lock().unwrap();
+            if next_offset <= state.cursor {
                 return;
             }
+            state.cursor = next_offset;
         }
         match event.kind {
             EventKind::Message => handlers::message_nudge(self, event),
@@ -560,7 +410,20 @@ impl Router {
                     "human_said" => handlers::human_said(self, event),
                     "ask_human" => handlers::ask_human(self, event),
                     "human_response" => handlers::human_response(self, event),
-                    "session_status" | "runner_status" => handlers::session_status(self, event),
+                    "human_question" => {
+                        self.state
+                            .lock()
+                            .unwrap()
+                            .pending_asks
+                            .entry(event.id.clone())
+                            .or_insert_with(|| PendingAsk {
+                                asker: None,
+                                prompt: event.payload["prompt"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            });
+                    }
                     // mission_start, mission_stopped, inbox_read,
                     // human_question, mission_warning — observed but
                     // not routed here. inbox_read is owned by the
@@ -573,780 +436,90 @@ impl Router {
         }
     }
 
-    // ---- helpers used by handlers --------------------------------------
-
-    /// Mark a runner as busy when the router is about to wake them via
-    /// stdin injection (issue #32). Appends a synthetic `session_status`
-    /// busy event with `from = handle` so the workspace rail projection
-    /// keys the badge against the recipient, and updates router state so
-    /// back-to-back nudges within
-    /// the same task don't churn the log. Skips for the virtual `human`
-    /// handle and skips if the recipient is already marked busy.
-    ///
-    /// Centralized here so the policy applies uniformly to every wake
-    /// source: directed/broadcast `message_nudge`, `ask_lead` relay,
-    /// `human_said`, and `human_response`.
-    ///
-    /// Post-issue-#124: the session forwarder also fires `session_status`
-    /// busy on the agent's first response byte. This path remains as a
-    /// faster cover for the inject→idle race (we may inject before the
-    /// agent has written any byte yet) and as defense against an agent
-    /// that stays silent past the forwarder's 750ms threshold —
-    /// without this, a slow-to-respond agent could appear `idle` to the
-    /// user immediately after a nudge. Latest-wins absorbs the
-    /// follow-up forwarder event without churn.
-    ///
-    /// Post-issue-#385: the append routes through the SessionManager
-    /// (not `log.append`) so the forwarder dedup key
-    /// (`session.activity`) updates atomically with the event — a
-    /// direct append left the key stale and the paired end-of-turn
-    /// idle was deduped away, sticking the rail on busy.
-    fn synthesize_wake_busy(&self, handle: &str) {
-        if handle == "human" {
-            return;
-        }
-        let session_id = {
-            let state = self.state.lock().unwrap();
-            if matches!(state.status.get(handle), Some(SessionActivityState::Busy)) {
-                return;
-            }
-            state.session_by_handle.get(handle).cloned()
-        };
-        let Some(session_id) = session_id else {
-            log::error!(
-                "cannot synthesize session_status busy for @{handle} on mission {}: no session",
-                self.mission_id,
-            );
-            return;
-        };
-        let draft = EventDraft::signal(
-            self.crew_id.as_deref(),
-            self.mission_id.clone(),
-            handle,
-            SignalType::new("session_status"),
-            serde_json::json!({ "state": "busy" }),
-        );
-        if let Err(e) = self.injector.synthesize_wake_busy(&session_id, draft) {
-            log::error!(
-                "failed to synthesize session_status busy for @{handle} on mission {}: {e}",
-                self.mission_id,
-            );
-            return;
-        }
-        self.set_status(handle.to_string(), SessionActivityState::Busy);
-    }
-
-    pub(crate) fn inject_and_submit(&self, handle: &str, body: &[u8]) -> Result<()> {
-        self.inject_delivery(handle, body, DeliveryKind::Relay)
-            .map(|_| ())
-    }
-
-    pub(crate) fn inject_inbox_nudge(
-        &self,
-        handle: &str,
-        body: &[u8],
-        message_id: Option<&str>,
-    ) -> Result<()> {
-        self.inject_delivery_at(handle, body, DeliveryKind::InboxNudge, message_id, None)
-            .map(|_| ())
-    }
-
-    /// Reserve a clean input box through the delayed Enter, or park the
-    /// payload until the session manager reports that local input cleared.
-    fn inject_delivery(&self, handle: &str, body: &[u8], kind: DeliveryKind) -> Result<bool> {
-        self.inject_delivery_at(handle, body, kind, None, None)
-    }
-
-    fn inject_delivery_at(
-        &self,
-        handle: &str,
-        body: &[u8],
-        kind: DeliveryKind,
-        message_id: Option<&str>,
-        reconciliation: Option<(Instant, Duration)>,
-    ) -> Result<bool> {
-        let delivery = QueuedDelivery {
-            kind,
-            body: body.to_vec(),
-            count: 1,
-            message_id: message_id.map(str::to_owned),
-        };
-        // A delayed bare Enter has no payload left to deliver after the
-        // user's draft clears, so parking it would create a stray submit.
-        let deferable = !delivery.body.is_empty();
-        let mut retry = None;
-        let mut deferred_notice = None;
-        let (session_id, ready) = {
-            let mut state = self.state.lock().unwrap();
-            let Some(session_id) = state.session_by_handle.get(handle).cloned() else {
-                return Err(crate::error::Error::msg(format!(
-                    "router: no live session for handle @{handle}"
-                )));
-            };
-            if let Some((now, backoff)) = reconciliation {
-                let delivery_pending = state
-                    .outbox_by_session
-                    .get(&session_id)
-                    .is_some_and(|outbox| outbox.submit_in_flight || !outbox.deliveries.is_empty());
-                let backoff_active = state
-                    .last_reconciliation_nudge
-                    .get(handle)
-                    .is_some_and(|last| now.saturating_duration_since(*last) < backoff);
-                if !state.live_sessions.contains(&session_id)
-                    || state.unread_by_handle.get(handle).copied().unwrap_or(0) == 0
-                    || !matches!(state.status.get(handle), Some(SessionActivityState::Idle))
-                    || delivery_pending
-                    || backoff_active
-                {
-                    return Ok(false);
-                }
-            }
-            let mut delivery = delivery;
-            if reconciliation.is_some() {
-                delivery.message_id = state.latest_inbox_id.get(handle).cloned();
-            }
-            if let Some(outbox) = state.outbox_by_session.get_mut(&session_id) {
-                if outbox.submit_in_flight || !outbox.deliveries.is_empty() {
-                    if outbox.submit_in_flight {
-                        outbox.hold(&session_id, DeliveryReservation::InFlight);
-                    }
-                    outbox.enqueue(delivery);
-                    self.blocked_transition(&mut state, &session_id);
-                    return Ok(true);
-                }
-            }
-            let pending_spawn = state.pending_sessions.contains(&session_id);
-            if pending_spawn || !state.live_sessions.contains(&session_id) {
-                if reconciliation.is_some() || !deferable {
-                    return Ok(false);
-                }
-                let outbox = state
-                    .outbox_by_session
-                    .entry(session_id.clone())
-                    .or_default();
-                let first_deferred = outbox.deliveries.is_empty();
-                outbox.handle = handle.to_string();
-                outbox.pending_input_blocked = false;
-                outbox.enqueue(delivery);
-                outbox.hold(&session_id, DeliveryReservation::Unavailable);
-                self.blocked_transition(&mut state, &session_id);
-                drop(state);
-                if first_deferred && !pending_spawn {
-                    self.warn(format!(
-                        "delivery to @{handle} queued until the session resumes"
-                    ));
-                }
-                return Ok(true);
-            }
-            match self.injector.reserve_delivery(&session_id)? {
-                DeliveryReservation::Unavailable => {
-                    if reconciliation.is_some() || !deferable {
-                        return Ok(false);
-                    }
-                    state.live_sessions.remove(&session_id);
-                    let outbox = state
-                        .outbox_by_session
-                        .entry(session_id.clone())
-                        .or_default();
-                    let first_deferred = outbox.deliveries.is_empty();
-                    outbox.handle = handle.to_string();
-                    outbox.pending_input_blocked = false;
-                    outbox.enqueue(delivery);
-                    outbox.hold(&session_id, DeliveryReservation::Unavailable);
-                    self.blocked_transition(&mut state, &session_id);
-                    if first_deferred {
-                        deferred_notice = Some(handle.to_string());
-                    }
-                    (session_id, None)
-                }
-                DeliveryReservation::Ready(token) => {
-                    if let Some((now, _)) = reconciliation {
-                        state
-                            .last_reconciliation_nudge
-                            .insert(handle.to_string(), now);
-                    }
-                    let outbox = state
-                        .outbox_by_session
-                        .entry(session_id.clone())
-                        .or_default();
-                    outbox.handle = handle.to_string();
-                    outbox.submit_in_flight = true;
-                    outbox.pending_input_blocked = false;
-                    self.blocked_transition(&mut state, &session_id);
-                    (session_id, Some((delivery, token)))
-                }
-                DeliveryReservation::RecentlyTyping(delay) => {
-                    if reconciliation.is_some() {
-                        return Ok(false);
-                    }
-                    if deferable {
-                        let outbox = state
-                            .outbox_by_session
-                            .entry(session_id.clone())
-                            .or_default();
-                        outbox.handle = handle.to_string();
-                        outbox.pending_input_blocked = false;
-                        outbox.enqueue(delivery);
-                        outbox.hold(&session_id, DeliveryReservation::RecentlyTyping(delay));
-                        retry = Some((session_id.clone(), delay));
-                        self.blocked_transition(&mut state, &session_id);
-                    }
-                    (session_id, None)
-                }
-                reason @ (DeliveryReservation::Drafting { .. }
-                | DeliveryReservation::LocalInputPending
-                | DeliveryReservation::HumanInteraction) => {
-                    if reconciliation.is_some() {
-                        return Ok(false);
-                    }
-                    if deferable {
-                        let outbox = state
-                            .outbox_by_session
-                            .entry(session_id.clone())
-                            .or_default();
-                        outbox.handle = handle.to_string();
-                        outbox.pending_input_blocked = true;
-                        outbox.enqueue(delivery);
-                        outbox.hold(&session_id, reason);
-                        self.blocked_transition(&mut state, &session_id);
-                    }
-                    (session_id, None)
-                }
-                reason @ (DeliveryReservation::Starting | DeliveryReservation::InFlight) => {
-                    if reconciliation.is_some() {
-                        return Ok(false);
-                    }
-                    if deferable {
-                        let outbox = state
-                            .outbox_by_session
-                            .entry(session_id.clone())
-                            .or_default();
-                        outbox.handle = handle.to_string();
-                        outbox.pending_input_blocked = false;
-                        outbox.enqueue(delivery);
-                        outbox.hold(&session_id, reason);
-                        self.blocked_transition(&mut state, &session_id);
-                    }
-                    (session_id, None)
-                }
-            }
-        };
-        if let Some(handle) = deferred_notice {
-            self.warn(format!(
-                "delivery to @{handle} queued until the session resumes"
-            ));
-        }
-        if let Some((session_id, delay)) = retry {
-            self.schedule_outbox_retry(session_id, delay);
-        }
-        if let Some((delivery, token)) = ready {
-            if let Err(error) = self.start_reserved_delivery(&session_id, handle, delivery, token) {
-                if reconciliation.is_some() {
-                    self.state
-                        .lock()
-                        .unwrap()
-                        .last_reconciliation_nudge
-                        .remove(handle);
-                }
-                return Err(error);
-            }
-        }
-        Ok(true)
-    }
-
-    fn reconcile_inbox_at(&self, now: Instant, backoff: Duration) -> usize {
-        let handles: Vec<String> = self
-            .state
-            .lock()
-            .unwrap()
-            .session_by_handle
-            .keys()
-            .cloned()
-            .collect();
-        handles
-            .into_iter()
-            .filter(|handle| {
-                match self.inject_delivery_at(
-                    handle,
-                    RECONCILIATION_NUDGE.as_bytes(),
-                    DeliveryKind::InboxNudge,
-                    None,
-                    Some((now, backoff)),
-                ) {
-                    Ok(nudged) => nudged,
-                    Err(error) => {
-                        log::warn!(
-                            "inbox reconciliation nudge to @{handle} on mission {} failed: {error}",
-                            self.mission_id
-                        );
-                        false
-                    }
-                }
-            })
-            .count()
-    }
-
-    fn start_reconciliation_tick_with_timings(
-        self: &Arc<Self>,
-        interval: Duration,
-        backoff: Duration,
-    ) {
-        let mut clock = self.reconciliation_clock.lock().unwrap();
-        if clock.is_some() {
-            return;
-        }
-        let shutdown = Arc::new((Mutex::new(false), Condvar::new()));
-        let shutdown_for_thread = Arc::clone(&shutdown);
-        let router = Arc::downgrade(self);
-        let mission_id = self.mission_id.clone();
-        let handle = std::thread::Builder::new()
-            .name(format!("inbox-reconcile-{mission_id}"))
-            .spawn(move || {
-                let (stopped, wake) = shutdown_for_thread.as_ref();
-                loop {
-                    let guard = stopped.lock().unwrap();
-                    let (guard, _) = wake
-                        .wait_timeout_while(guard, interval, |stopped| !*stopped)
-                        .unwrap();
-                    if *guard {
-                        return;
-                    }
-                    drop(guard);
-                    let Some(router) = router.upgrade() else {
-                        return;
-                    };
-                    router.reconcile_inbox_at(Instant::now(), backoff);
-                }
-            });
-        let handle = match handle {
-            Ok(handle) => handle,
-            Err(error) => {
-                log::warn!(
-                    "spawn inbox reconciliation clock for mission {mission_id} failed: {error}"
-                );
-                return;
-            }
-        };
-        *clock = Some(ReconciliationClock {
-            shutdown,
-            handle: Some(handle),
-        });
-    }
-
-    fn stop_reconciliation_tick(&self) {
-        if let Some(clock) = self.reconciliation_clock.lock().unwrap().take() {
-            clock.stop();
-        }
-    }
-
-    fn blocked_transition(&self, state: &mut RouterState, session_id: &str) {
-        let Some(handle) = state
-            .outbox_by_session
-            .get(session_id)
-            .map(|outbox| outbox.handle.clone())
-            .or_else(|| {
-                state
-                    .session_by_handle
-                    .iter()
-                    .find_map(|(handle, id)| (id == session_id).then(|| handle.clone()))
-            })
-        else {
-            return;
-        };
-        let unread_count = state.unread_by_handle.get(&handle).copied().unwrap_or(0);
-        let blocked = unread_count > 0
-            && state
-                .outbox_by_session
-                .get(session_id)
-                .is_some_and(|outbox| {
-                    outbox.pending_input_blocked && !outbox.deliveries.is_empty()
-                });
-        let previous = state.blocked_unread_by_session.get(session_id).copied();
-        let event = match (previous, blocked) {
-            (None, false) => None,
-            (Some(previous), true) if previous == unread_count => None,
-            (_, true) => {
-                state
-                    .blocked_unread_by_session
-                    .insert(session_id.to_string(), unread_count);
-                Some(DeliveryBlockedEvent {
-                    mission_id: self.mission_id.clone(),
-                    session_id: session_id.to_string(),
-                    handle,
-                    unread_count,
-                    blocked: true,
-                })
-            }
-            (Some(_), false) => {
-                state.blocked_unread_by_session.remove(session_id);
-                Some(DeliveryBlockedEvent {
-                    mission_id: self.mission_id.clone(),
-                    session_id: session_id.to_string(),
-                    handle,
-                    unread_count,
-                    blocked: false,
-                })
-            }
-        };
-        if let Some(event) = event {
-            self.ui_notifier.delivery_blocked(&event);
-        }
-    }
-
-    fn clear_blocked_transitions(&self) {
-        let mut state = self.state.lock().unwrap();
-        for (session_id, outbox) in &mut state.outbox_by_session {
-            outbox.release(session_id, "RouterUnmounted");
-        }
-        let reported = std::mem::take(&mut state.blocked_unread_by_session);
-        for (session_id, _) in reported {
-            let Some(handle) = state
-                .outbox_by_session
-                .get(&session_id)
-                .map(|outbox| outbox.handle.clone())
-                .or_else(|| {
-                    state
-                        .session_by_handle
-                        .iter()
-                        .find_map(|(handle, id)| (id == &session_id).then(|| handle.clone()))
-                })
-            else {
-                continue;
-            };
-            let event = DeliveryBlockedEvent {
-                mission_id: self.mission_id.clone(),
-                session_id,
-                unread_count: state.unread_by_handle.get(&handle).copied().unwrap_or(0),
-                handle,
-                blocked: false,
-            };
-            self.ui_notifier.delivery_blocked(&event);
-        }
-    }
-
-    fn set_unread(&self, handle: &str, unread_count: usize) {
-        let mut state = self.state.lock().unwrap();
-        state
-            .unread_by_handle
-            .insert(handle.to_string(), unread_count);
-        if let Some(session_id) = state.session_by_handle.get(handle).cloned() {
-            self.blocked_transition(&mut state, &session_id);
-        }
+    fn dispatch(&self, input: dispatch::Input) {
+        let _ = self.dispatch_tx.send(input);
     }
 
     fn update_inbox(&self, update: &InboxUpdate) {
-        {
-            let mut state = self.state.lock().unwrap();
-            if let Some(id) = &update.last_id {
-                state
-                    .latest_inbox_id
-                    .insert(update.role_handle.clone(), id.clone());
-            }
-            if let Some(watermark) = &update.watermark {
-                state
-                    .watermark_by_handle
-                    .insert(update.role_handle.clone(), watermark.clone());
-            }
-        }
-        self.set_unread(&update.role_handle, update.unread_count);
-    }
-
-    fn update_watermark(&self, update: &WatermarkUpdate) {
         self.state
             .lock()
             .unwrap()
-            .watermark_by_handle
-            .insert(update.role_handle.clone(), update.watermark.clone());
-        self.set_unread(&update.role_handle, update.unread_count);
+            .projecting_unread
+            .insert(update.role_handle.clone(), update.unread_count);
     }
 
-    fn start_reserved_delivery(
+    fn update_watermark(&self, update: &WatermarkUpdate) {
+        self.update_inbox(&InboxUpdate {
+            mission_id: update.mission_id.clone(),
+            role_handle: update.role_handle.clone(),
+            unread_count: update.unread_count,
+            last_id: None,
+            watermark: Some(update.watermark.clone()),
+        });
+    }
+
+    fn backlogs_projected(&self) {
+        let changed = {
+            let mut state = self.state.lock().unwrap();
+            let initial = !state.backlogs_initialized;
+            state.backlogs_initialized = true;
+            for (handle, count) in std::mem::take(&mut state.projecting_unread) {
+                if state.unread_by_handle.insert(handle.clone(), count) != Some(count) {
+                    state.changed_backlogs.insert(handle);
+                }
+            }
+            std::mem::take(&mut state.changed_backlogs)
+                .into_iter()
+                .map(|handle| {
+                    let initial_backlog =
+                        initial && state.unread_by_handle.get(&handle).copied().unwrap_or(0) > 0;
+                    (handle, initial_backlog)
+                })
+                .collect::<Vec<_>>()
+        };
+        for (handle, initial_backlog) in changed {
+            self.dispatch(dispatch::Input::Backlog {
+                handle,
+                initial_backlog,
+            });
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn dispatch_at(
         &self,
-        session_id: &str,
-        handle: &str,
-        delivery: QueuedDelivery,
-        token: u64,
-    ) -> Result<()> {
-        let stale = delivery.kind == DeliveryKind::InboxNudge
-            && delivery.message_id.as_ref().is_some_and(|id| {
-                self.state
-                    .lock()
-                    .unwrap()
-                    .watermark_by_handle
-                    .get(handle)
-                    .is_some_and(|watermark| id <= watermark)
-            });
-        if stale {
-            log::info!("router stale inbox nudge skipped session={session_id} handle=@{handle} message_id={} trigger=InboxRead", delivery.message_id.as_deref().unwrap());
-            self.injector.finish_delivery(session_id, token);
-            return Ok(());
-        }
-        if !delivery.body.is_empty() {
-            match self
-                .injector
-                .inject_reserved(session_id, token, &delivery.body)
-            {
-                Ok(true) => {}
-                Ok(false) => {
-                    self.cancel_started_delivery(session_id);
-                    self.injector.finish_delivery(session_id, token);
-                    return Err(crate::error::Error::msg(format!(
-                        "router: session {session_id} changed before delivery"
-                    )));
-                }
-                Err(error) => {
-                    self.injector.finish_delivery(session_id, token);
-                    return Err(error);
-                }
+        dispatcher: &mut dispatch::Dispatcher,
+        now: std::time::Instant,
+    ) {
+        let rx = self.dispatch_rx.lock().unwrap();
+        if let Some(rx) = rx.as_ref() {
+            while let Ok(input) = rx.try_recv() {
+                dispatcher.advance(self, Some(input), now);
             }
         }
-        let injector = Arc::clone(&self.injector);
-        let sid = session_id.to_string();
-        std::thread::spawn(move || {
-            std::thread::sleep(SUBMIT_DELAY);
-            let _ = injector.inject_reserved(&sid, token, b"\r");
-            injector.finish_delivery(&sid, token);
-        });
-        self.synthesize_wake_busy(handle);
-        Ok(())
+        dispatcher.advance(self, None, now);
     }
 
-    fn cancel_started_delivery(&self, session_id: &str) {
-        let mut state = self.state.lock().unwrap();
-        let Some(outbox) = state.outbox_by_session.get_mut(session_id) else {
-            return;
-        };
-        outbox.submit_in_flight = false;
-        if outbox.deliveries.is_empty() {
-            state.outbox_by_session.remove(session_id);
-        }
-        self.blocked_transition(&mut state, session_id);
-    }
-
-    fn flush_outbox(&self, session_id: &str, trigger: &str) {
-        let handle = {
-            let mut state = self.state.lock().unwrap();
-            let Some(outbox) = state.outbox_by_session.get(session_id) else {
-                return;
-            };
-            if outbox.submit_in_flight || outbox.deliveries.is_empty() {
-                return;
-            }
-            let handle = outbox.handle.clone();
-            let watermark = state.watermark_by_handle.get(&handle).cloned();
-            let outbox = state.outbox_by_session.get_mut(session_id).unwrap();
-            outbox.deliveries.retain(|delivery| {
-                let stale = delivery.kind == DeliveryKind::InboxNudge
-                    && delivery.message_id.as_ref().zip(watermark.as_ref()).is_some_and(|(id, watermark)| id <= watermark);
-                if stale {
-                    log::info!("router stale inbox nudge skipped session={session_id} handle=@{handle} message_id={} trigger={trigger}", delivery.message_id.as_deref().unwrap());
-                }
-                !stale
-            });
-            if outbox.deliveries.is_empty() {
-                outbox.release(session_id, trigger);
-                outbox.pending_input_blocked = false;
-                state.outbox_by_session.remove(session_id);
-                self.blocked_transition(&mut state, session_id);
-                return;
-            }
-            handle
-        };
-
-        let reservation = match self.injector.reserve_delivery(session_id) {
-            Ok(reservation) => reservation,
-            Err(error) => {
-                let dropped = {
-                    let mut state = self.state.lock().unwrap();
-                    let dropped =
-                        state
-                            .outbox_by_session
-                            .remove(session_id)
-                            .map_or(0, |mut outbox| {
-                                outbox.release(session_id, "ReservationFailed");
-                                outbox.deliveries.len()
-                            });
-                    self.blocked_transition(&mut state, session_id);
-                    dropped
-                };
-                self.warn(format!(
-                    "router: dropped {dropped} deferred deliveries for {session_id}: {error}"
+    fn start_dispatcher(self: &Arc<Self>) {
+        let mut driver = self.driver.lock().unwrap();
+        if driver.is_none() {
+            if let Some(rx) = self.dispatch_rx.lock().unwrap().take() {
+                *driver = Some(dispatch::Driver::start(
+                    Arc::downgrade(self),
+                    self.dispatch_tx.clone(),
+                    rx,
                 ));
-                return;
-            }
-        };
-        match reservation {
-            DeliveryReservation::Unavailable => {
-                let mut state = self.state.lock().unwrap();
-                state.live_sessions.remove(session_id);
-                if let Some(outbox) = state.outbox_by_session.get_mut(session_id) {
-                    outbox.pending_input_blocked = false;
-                    outbox.hold(session_id, DeliveryReservation::Unavailable);
-                }
-                self.blocked_transition(&mut state, session_id);
-            }
-            DeliveryReservation::Ready(token) => {
-                let delivery = {
-                    let mut state = self.state.lock().unwrap();
-                    let Some(outbox) = state.outbox_by_session.get_mut(session_id) else {
-                        drop(state);
-                        self.injector.finish_delivery(session_id, token);
-                        return;
-                    };
-                    let Some(delivery) = outbox.deliveries.pop_front() else {
-                        drop(state);
-                        self.injector.finish_delivery(session_id, token);
-                        return;
-                    };
-                    outbox.submit_in_flight = true;
-                    outbox.pending_input_blocked = false;
-                    outbox.release(session_id, trigger);
-                    self.blocked_transition(&mut state, session_id);
-                    delivery
-                };
-                if let Err(error) =
-                    self.start_reserved_delivery(session_id, &handle, delivery, token)
-                {
-                    log::warn!("deferred router delivery to {session_id} failed: {error}");
-                }
-            }
-            DeliveryReservation::RecentlyTyping(delay) => {
-                {
-                    let mut state = self.state.lock().unwrap();
-                    let Some(outbox) = state.outbox_by_session.get_mut(session_id) else {
-                        return;
-                    };
-                    outbox.pending_input_blocked = false;
-                    outbox.hold(session_id, DeliveryReservation::RecentlyTyping(delay));
-                    self.blocked_transition(&mut state, session_id);
-                }
-                self.schedule_outbox_retry(session_id.to_string(), delay);
-            }
-            reason @ (DeliveryReservation::Drafting { .. }
-            | DeliveryReservation::LocalInputPending
-            | DeliveryReservation::HumanInteraction) => {
-                let mut state = self.state.lock().unwrap();
-                let Some(outbox) = state.outbox_by_session.get_mut(session_id) else {
-                    return;
-                };
-                outbox.pending_input_blocked = true;
-                outbox.hold(session_id, reason);
-                self.blocked_transition(&mut state, session_id);
-            }
-            reason @ (DeliveryReservation::Starting | DeliveryReservation::InFlight) => {
-                let mut state = self.state.lock().unwrap();
-                let Some(outbox) = state.outbox_by_session.get_mut(session_id) else {
-                    return;
-                };
-                outbox.pending_input_blocked = false;
-                outbox.hold(session_id, reason);
-                self.blocked_transition(&mut state, session_id);
             }
         }
     }
 
-    fn schedule_outbox_retry(&self, session_id: String, delay: Duration) {
-        let generation = {
-            let mut state = self.state.lock().unwrap();
-            let Some(outbox) = state.outbox_by_session.get_mut(&session_id) else {
-                return;
-            };
-            if outbox.retry_scheduled {
-                return;
-            }
-            outbox.retry_scheduled = true;
-            outbox.retry_generation = outbox.retry_generation.wrapping_add(1);
-            outbox.retry_generation
-        };
-        let router = self.weak_self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            if let Some(router) = router.upgrade() {
-                {
-                    let mut state = router.state.lock().unwrap();
-                    let Some(outbox) = state.outbox_by_session.get_mut(&session_id) else {
-                        return;
-                    };
-                    if outbox.retry_generation != generation {
-                        return;
-                    }
-                    outbox.retry_scheduled = false;
-                }
-                router.flush_outbox(&session_id, "RecentlyTypingElapsed");
-            }
-        });
+    fn stop_dispatcher(&self) {
+        if let Some(driver) = self.driver.lock().unwrap().take() {
+            driver.stop();
+        }
     }
 
-    fn schedule_outbox_flush(&self, session_id: String, delay: Duration) {
-        let generation = {
-            let mut state = self.state.lock().unwrap();
-            let Some(outbox) = state.outbox_by_session.get_mut(&session_id) else {
-                return;
-            };
-            if outbox.deliveries.is_empty() {
-                return;
-            }
-            outbox.retry_generation = outbox.retry_generation.wrapping_add(1);
-            outbox.retry_scheduled = false;
-            outbox.submit_in_flight = false;
-            outbox.retry_generation
-        };
-        let router = self.weak_self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            if let Some(router) = router.upgrade() {
-                let current = router
-                    .state
-                    .lock()
-                    .unwrap()
-                    .outbox_by_session
-                    .get(&session_id)
-                    .map(|outbox| outbox.retry_generation);
-                if current != Some(generation) {
-                    return;
-                }
-                router.flush_outbox(&session_id, "InputCleared");
-            }
-        });
-    }
-
-    fn schedule_delivery_cooldown(&self, session_id: String) {
-        let generation = {
-            let mut state = self.state.lock().unwrap();
-            let Some(outbox) = state.outbox_by_session.get_mut(&session_id) else {
-                return;
-            };
-            outbox.retry_generation = outbox.retry_generation.wrapping_add(1);
-            outbox.retry_generation
-        };
-        let router = self.weak_self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(SUBMIT_DELAY);
-            let Some(router) = router.upgrade() else {
-                return;
-            };
-            {
-                let mut state = router.state.lock().unwrap();
-                let Some(outbox) = state.outbox_by_session.get_mut(&session_id) else {
-                    return;
-                };
-                if outbox.retry_generation != generation {
-                    return;
-                }
-                outbox.submit_in_flight = false;
-            }
-            router.flush_outbox(&session_id, "DeliveryFinished");
-            let mut state = router.state.lock().unwrap();
-            if state
-                .outbox_by_session
-                .get(&session_id)
-                .is_some_and(|outbox| !outbox.submit_in_flight && outbox.deliveries.is_empty())
-            {
-                state.outbox_by_session.remove(&session_id);
-            }
-        });
-    }
-
+    #[cfg(test)]
     pub(crate) fn launch(&self) -> &LaunchInputs {
         &self.launch
     }
@@ -1393,15 +566,17 @@ impl Router {
         Ok(())
     }
 
-    pub(crate) fn record_pending_ask(&self, question_id: String, asker: String) {
-        self.state
-            .lock()
-            .unwrap()
-            .pending_asks
-            .insert(question_id, asker);
+    pub(crate) fn record_pending_ask(&self, question_id: String, asker: String, prompt: &str) {
+        self.state.lock().unwrap().pending_asks.insert(
+            question_id,
+            PendingAsk {
+                asker: Some(asker),
+                prompt: prompt.to_owned(),
+            },
+        );
     }
 
-    pub(crate) fn take_pending_ask(&self, question_id: &str) -> Option<String> {
+    pub(crate) fn take_pending_ask(&self, question_id: &str) -> Option<PendingAsk> {
         self.state.lock().unwrap().pending_asks.remove(question_id)
     }
 
@@ -1413,10 +588,6 @@ impl Router {
     /// new pending asks).
     pub fn pending_ask_count(&self) -> usize {
         self.state.lock().unwrap().pending_asks.len()
-    }
-
-    pub(crate) fn set_status(&self, handle: String, status: SessionActivityState) {
-        self.state.lock().unwrap().status.insert(handle, status);
     }
 
     /// Append a `mission_warning` event when a handler hits an unexpected or
@@ -1494,117 +665,32 @@ impl Router {
 
 impl SessionDeliveryListener for Router {
     fn session_delivery_event(&self, session_id: &str, event: SessionDeliveryEvent) {
-        match event {
-            SessionDeliveryEvent::InputCleared => {
-                self.schedule_outbox_flush(session_id.to_string(), INPUT_CLEAR_FLUSH_GRACE);
-            }
-            SessionDeliveryEvent::StartupReady => self.flush_outbox(session_id, "StartupReady"),
-            SessionDeliveryEvent::InputQueueDrained => {
-                self.flush_outbox(session_id, "InputQueueDrained")
-            }
-            SessionDeliveryEvent::DeliveryFinished => {
-                self.schedule_delivery_cooldown(session_id.to_string());
-            }
-            SessionDeliveryEvent::Respawned => {
-                let mut state = self.state.lock().unwrap();
-                state.pending_sessions.remove(session_id);
-                state.live_sessions.insert(session_id.to_string());
-                if let Some(outbox) = state.outbox_by_session.get_mut(session_id) {
-                    outbox.submit_in_flight = false;
-                    outbox.retry_scheduled = false;
-                    outbox.retry_generation = outbox.retry_generation.wrapping_add(1);
-                }
-                drop(state);
-                self.flush_outbox(session_id, "Respawned");
-            }
-            SessionDeliveryEvent::Exited => {
-                let dropped = {
-                    let mut state = self.state.lock().unwrap();
-                    state.pending_sessions.remove(session_id);
-                    state.live_sessions.remove(session_id);
-                    let dropped =
-                        state
-                            .outbox_by_session
-                            .remove(session_id)
-                            .map_or(0, |mut outbox| {
-                                outbox.release(session_id, "Exited");
-                                outbox.deliveries.len()
-                            });
-                    self.blocked_transition(&mut state, session_id);
-                    dropped
-                };
-                if dropped > 0 {
-                    self.warn(format!(
-                        "router: dropped {dropped} deferred deliveries because session {session_id} exited"
-                    ));
-                }
-            }
-        }
+        self.dispatch(dispatch::Input::Session {
+            session_id: session_id.to_owned(),
+            event,
+        });
     }
 }
 
 impl LaunchInputs {
-    pub(crate) fn new(
-        crew_name: String,
-        roster: &[SlotWithRole],
-        allowed_signals: Vec<SignalType>,
-        crew_addendum: Option<String>,
-    ) -> Result<Self> {
-        let lead = roster.iter().find(|m| m.slot.lead).map(|m| LeadRow {
-            handle: m.slot.slot_handle.clone(),
-            display_name: m.role.display_name.clone(),
-            system_prompt: m.role.system_prompt.clone(),
-        });
-        let roster_rows = roster
-            .iter()
-            .map(|m| RosterRow {
-                handle: m.slot.slot_handle.clone(),
-                display_name: m.role.display_name.clone(),
-                lead: m.slot.lead,
-            })
-            .collect();
-
-        Ok(Self {
-            crew_name,
-            lead,
-            roster: Mutex::new(roster_rows),
-            allowed_signals,
-            crew_addendum,
-        })
-    }
-
-    pub(crate) fn prompt_channels(
-        &self,
-        log: &EventLog,
-        runtime_key: &str,
-    ) -> (Option<String>, Option<String>) {
-        let Some(lead) = self.lead() else {
-            return (None, None);
-        };
-        let goal = Self::latest_mission_goal_text(log);
-        let rows = self.roster();
-        let roster: Vec<crate::router::prompt::RosterEntry> = rows
-            .iter()
-            .map(|slot| crate::router::prompt::RosterEntry {
-                handle: slot.handle(),
-                display_name: slot.display_name(),
-                lead: slot.is_lead(),
-            })
-            .collect();
-        crate::runtimes::for_key(runtime_key)
-            .prompt_channels()
-            .lead(&crate::router::prompt::LaunchPromptInput {
-                lead: crate::router::prompt::LeadView {
-                    handle: lead.handle(),
-                    display_name: lead.display_name(),
-                    system_prompt: lead.system_prompt(),
-                },
-                crew_name: self.crew_name(),
-                mission_goal: &goal,
-                roster: &roster,
-                allowed_signals: self.allowed_signals(),
-                crew_addendum: self.crew_addendum(),
-            })
+    fn new(roster: &[SlotWithRole]) -> Self {
+        Self {
+            lead: roster
+                .iter()
+                .find(|member| member.slot.lead)
+                .map(|member| LeadRow {
+                    handle: member.slot.slot_handle.clone(),
+                }),
+            roster: Mutex::new(
+                roster
+                    .iter()
+                    .map(|member| RosterRow {
+                        handle: member.slot.slot_handle.clone(),
+                        lead: member.slot.lead,
+                    })
+                    .collect(),
+            ),
+        }
     }
 
     pub(crate) fn latest_mission_goal_text(log: &EventLog) -> String {
@@ -1632,41 +718,14 @@ impl LaunchInputs {
         String::new()
     }
 
-    pub(crate) fn crew_name(&self) -> &str {
-        &self.crew_name
-    }
-    pub(crate) fn lead(&self) -> Option<&LeadRow> {
-        self.lead.as_ref()
-    }
     pub(crate) fn roster(&self) -> Vec<RosterRow> {
         self.roster.lock().unwrap().clone()
-    }
-    pub(crate) fn allowed_signals(&self) -> &[SignalType] {
-        &self.allowed_signals
-    }
-    pub(crate) fn crew_addendum(&self) -> Option<&str> {
-        self.crew_addendum.as_deref()
-    }
-}
-
-impl LeadRow {
-    pub(crate) fn handle(&self) -> &str {
-        &self.handle
-    }
-    pub(crate) fn display_name(&self) -> &str {
-        &self.display_name
-    }
-    pub(crate) fn system_prompt(&self) -> Option<&str> {
-        self.system_prompt.as_deref()
     }
 }
 
 impl RosterRow {
     pub(crate) fn handle(&self) -> &str {
         &self.handle
-    }
-    pub(crate) fn display_name(&self) -> &str {
-        &self.display_name
     }
     pub(crate) fn is_lead(&self) -> bool {
         self.lead
@@ -1675,18 +734,21 @@ impl RosterRow {
 
 /// `BusEmitter` adapter so the existing `BusRegistry::mount` machinery can
 /// drive the router. Appended events feed the dispatcher; inbox and watermark
-/// projections keep the reconciliation clock's unread snapshot current.
+/// projections publish a backlog snapshot after each complete bus read batch.
 pub struct RouterSubscriber(pub Arc<Router>);
 
 impl BusEmitter for RouterSubscriber {
     fn appended(&self, ev: &AppendedEvent) {
-        self.0.handle_event(&ev.event);
+        self.0.handle_event(&ev.event, ev.next_offset);
     }
     fn inbox_updated(&self, ev: &InboxUpdate) {
         self.0.update_inbox(ev);
     }
     fn watermark_advanced(&self, ev: &WatermarkUpdate) {
         self.0.update_watermark(ev);
+    }
+    fn caught_up(&self) {
+        self.0.backlogs_projected();
     }
 }
 
@@ -1719,6 +781,11 @@ impl BusEmitter for CompositeBusEmitter {
             s.watermark_advanced(ev);
         }
     }
+    fn caught_up(&self) {
+        for s in &self.subs {
+            s.caught_up();
+        }
+    }
 }
 
 /// Process-wide registry of live routers, keyed by mission id. Mirrors
@@ -1735,41 +802,24 @@ impl RouterRegistry {
     }
 
     pub fn register(&self, mission_id: String, router: Arc<Router>) {
-        self.register_with_timings(
-            mission_id,
-            router,
-            RECONCILIATION_TICK_INTERVAL,
-            RECONCILIATION_RENUDGE_BACKOFF,
-        );
-    }
-
-    fn register_with_timings(
-        &self,
-        mission_id: String,
-        router: Arc<Router>,
-        interval: Duration,
-        backoff: Duration,
-    ) {
-        log::info!("router mounted: mission={mission_id}");
         let previous = self
             .routers
             .lock()
             .unwrap()
-            .insert(mission_id, Arc::clone(&router));
+            .insert(mission_id.clone(), router.clone());
         if let Some(previous) = previous {
             if !Arc::ptr_eq(&previous, &router) {
-                previous.stop_reconciliation_tick();
-                previous.clear_blocked_transitions();
+                previous.stop_dispatcher();
             }
         }
-        router.start_reconciliation_tick_with_timings(interval, backoff);
+        router.start_dispatcher();
+        log::info!("router mounted: mission={mission_id}");
     }
 
     pub fn unregister(&self, mission_id: &str) {
         let router = self.routers.lock().unwrap().remove(mission_id);
         if let Some(router) = router {
-            router.stop_reconciliation_tick();
-            router.clear_blocked_transitions();
+            router.stop_dispatcher();
             log::info!("router unmounted: mission={mission_id}");
         }
     }
@@ -1781,8 +831,7 @@ impl RouterRegistry {
 
 impl Drop for Router {
     fn drop(&mut self) {
-        self.stop_reconciliation_tick();
-        self.clear_blocked_transitions();
+        self.stop_dispatcher();
     }
 }
 

@@ -432,6 +432,13 @@ pub async fn mission_signal_impl(
     let mission_dir =
         event_log::mission_dir(&state.app_data_dir, mission.crew_id.as_deref(), &mission.id);
     let log = EventLog::open(&mission_dir)?;
+    let mut payload = input.payload;
+    if matches!(input.signal_type.as_str(), "human_said" | "human_response") {
+        let object = payload
+            .as_object_mut()
+            .ok_or_else(|| Error::msg("person signal payload must be an object"))?;
+        object.insert("delivery".into(), "inbox".into());
+    }
     let event = log.append(EventDraft {
         crew_id: mission.crew_id.clone(),
         mission_id: mission.id.clone(),
@@ -439,7 +446,7 @@ pub async fn mission_signal_impl(
         from,
         to: None,
         signal_type: Some(SignalType::new(input.signal_type)),
-        payload: input.payload,
+        payload,
     })?;
     Ok(event)
 }
@@ -544,11 +551,6 @@ pub async fn mission_start_impl_with_size(
     input: MissionStart,
     initial_size: Option<(u16, u16)>,
 ) -> Result<StartMissionOutput> {
-    use crate::event_bus::{BusEmitter, ChannelBusEvents};
-    use crate::router::{
-        open_log_for_mission, ChannelRouterUiNotifier, CompositeBusEmitter, Router,
-        RouterSubscriber, StdinInjector,
-    };
     use crate::session::manager::SessionEvents;
     use std::sync::Arc;
 
@@ -582,71 +584,38 @@ pub async fn mission_start_impl_with_size(
         let conn = state.db.get()?;
         roster::load(&conn, &state.app_data_dir, &out.mission)?
     };
-    let crew_name = loaded.file.crew_name;
-    let crew_addendum = loaded.file.crew_addendum;
     let roster = loaded.slots;
-    let allowed_signals = all_known_signals();
     let events_log_path = event_log::events_path(
         &state.app_data_dir,
         out.mission.crew_id.as_deref(),
         &out.mission.id,
     );
 
-    // Effective mission goal — the same text as the `mission_goal`
-    // event opened by `start()` above (the override, else "").
-    // Used here to compose the lead's launch prompt before the spawn
-    // loop, so the body can land via the positional `[PROMPT]` argv
-    // at process boot rather than racing the post-spawn paste path.
-    // See `docs/impls/archive/0007-spawn-time-prompt-delivery.md`.
-    let goal_text: String = out.mission.goal_override.clone().unwrap_or_default();
-
-    // Pre-compose each slot's prompt channels. The established runtimes
-    // keep the complete body as their first turn. Pi puts the durable
-    // layers in its system-prompt file and gives only the lead its goal.
-    let prompt_channels: Vec<(Option<String>, Option<String>)> = {
-        let roster_entries: Vec<crate::router::prompt::RosterEntry> = roster
-            .iter()
-            .map(|m| crate::router::prompt::RosterEntry {
-                handle: m.slot.slot_handle.as_str(),
-                display_name: m.role.display_name.as_str(),
-                lead: m.slot.lead,
-            })
-            .collect();
-        roster
-            .iter()
-            .map(|m| {
-                let adapter = crate::runtimes::for_key(
-                    m.slot
-                        .runtime_override
-                        .as_deref()
-                        .unwrap_or(&m.role.runtime),
-                );
-                if m.slot.lead {
-                    adapter
-                        .prompt_channels()
-                        .lead(&crate::router::prompt::LaunchPromptInput {
-                            lead: crate::router::prompt::LeadView {
-                                handle: m.slot.slot_handle.as_str(),
-                                display_name: m.role.display_name.as_str(),
-                                system_prompt: m.role.system_prompt.as_deref(),
-                            },
-                            crew_name: crew_name.as_str(),
-                            mission_goal: goal_text.as_str(),
-                            roster: &roster_entries,
-                            allowed_signals: &allowed_signals,
-                            crew_addendum: crew_addendum.as_deref(),
-                        })
-                } else {
-                    adapter.prompt_channels().worker(
-                        m.role.system_prompt.as_deref(),
-                        crew_addendum.as_deref(),
-                        (!roster.iter().any(|member| member.slot.lead))
-                            .then_some(goal_text.as_str()),
-                    )
-                }
-            })
-            .collect()
-    };
+    let mission_dir = event_log::mission_dir(
+        &state.app_data_dir,
+        out.mission.crew_id.as_deref(),
+        &out.mission.id,
+    );
+    let log_arc = crate::router::open_log_for_mission(&mission_dir)?;
+    let prompt_channels: Vec<_> = roster
+        .iter()
+        .map(|member| {
+            let adapter = crate::runtimes::for_key(
+                member
+                    .slot
+                    .runtime_override
+                    .as_deref()
+                    .unwrap_or(&member.role.runtime),
+            );
+            crate::router::prompt::member_prompt_channels(
+                adapter,
+                member,
+                &roster,
+                &loaded.file,
+                &log_arc,
+            )
+        })
+        .collect();
 
     // Enforce the composed-body argv ceiling before spawning any PTY.
     // Per-field persist caps don't compose to this bound (see
@@ -664,57 +633,6 @@ pub async fn mission_start_impl_with_size(
         }
     }
 
-    // Build the router up front (opens the log, validates the lead, holds
-    // empty state). It does NOT subscribe to the bus yet — see ordering
-    // below.
-    let mission_dir = event_log::mission_dir(
-        &state.app_data_dir,
-        out.mission.crew_id.as_deref(),
-        &out.mission.id,
-    );
-    let log_arc = match open_log_for_mission(&mission_dir) {
-        Ok(l) => l,
-        Err(e) => {
-            // Couldn't open the log — roll the mission row back. Bus isn't
-            // mounted yet, no sessions were spawned, nothing to clean up.
-            if let Ok(conn) = state.db.get() {
-                let _ = repo::mission::abort(&conn, &out.mission.id, Utc::now());
-            }
-            return Err(e);
-        }
-    };
-    let injector: Arc<dyn StdinInjector> = Arc::clone(&state.sessions) as Arc<dyn StdinInjector>;
-    let router = match Router::new(
-        out.mission.id.clone(),
-        out.mission.crew_id.clone(),
-        crew_name,
-        &roster,
-        allowed_signals,
-        crew_addendum.clone(),
-        Arc::clone(&log_arc),
-        injector,
-        Arc::new(ChannelRouterUiNotifier(state.events.clone())),
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            if let Ok(conn) = state.db.get() {
-                let _ = repo::mission::abort(&conn, &out.mission.id, Utc::now());
-            }
-            return Err(e);
-        }
-    };
-
-    // Spawn sessions BEFORE the bus mounts so `register_sessions` can
-    // populate the handle→session_id map up front. The launch prompt is
-    // already part of each pending spawn; the map must be ready before
-    // later coordination events can target sessions.
-    //
-    // The bus's initial replay reads from offset 0, so the opening
-    // `mission_start` / `mission_goal` events still surface even though
-    // the watcher attaches after the writes. Spawning sessions before
-    // mount is safe: their PTYs come up here, but `runner` CLI invocations
-    // start concurrently with the mount, and replay picks up any log rows
-    // written before the watcher attaches.
     let emitter: Arc<dyn SessionEvents> = Arc::new(state.session_events());
     let mut spawned_pairs: Vec<(String, String)> = Vec::with_capacity(roster.len());
     let mut pendings: Vec<crate::session::PendingMissionSpawn> = Vec::with_capacity(roster.len());
@@ -767,28 +685,7 @@ pub async fn mission_start_impl_with_size(
             }
         }
     }
-    // Register the full session map BEFORE the bus mount. From this point
-    // any event the bus's initial replay delivers to the router will land
-    // on a fully-wired handle map.
-    router.register_pending_sessions(&spawned_pairs);
-
-    // Now mount the bus. Initial replay from offset 0 picks up the opening
-    // events (durable since `start()` committed them under the DB tx) and
-    // fans them to the GPUI event channel and RouterSubscriber. Fresh
-    // missions have no historical projections to reconstruct.
-    let roster_handles: Vec<String> = roster.iter().map(|m| m.slot.slot_handle.clone()).collect();
-    let channel_emitter: Arc<dyn BusEmitter> = Arc::new(ChannelBusEvents(state.events.clone()));
-    let router_emitter: Arc<dyn BusEmitter> = Arc::new(RouterSubscriber(Arc::clone(&router)));
-    let composite: Arc<dyn BusEmitter> = Arc::new(CompositeBusEmitter::new(vec![
-        channel_emitter,
-        router_emitter,
-    ]));
-    if let Err(e) = state.buses.mount(
-        out.mission.id.clone(),
-        &mission_dir,
-        &roster_handles,
-        composite,
-    ) {
+    if let Err(e) = mount_mission_router(state, &out.mission, Mount::Fresh(&spawned_pairs)) {
         // Bus didn't attach — drop the pending PTY spawns, DELETE the
         // session rows (no PTYs ever forked for them at this point),
         // abort the mission. `pendings` going out of scope releases
@@ -803,8 +700,6 @@ pub async fn mission_start_impl_with_size(
         }
         return Err(e);
     }
-
-    state.routers.register(out.mission.id.clone(), router);
 
     // Dispatch the gate-blocked PTY-spawn phase to a background task
     // so this RPC returns now. The frontend already has every
@@ -931,13 +826,6 @@ pub async fn mission_attach(state: &AppCore, mission_id: &str) -> Result<Mission
 /// Returns `Ok(())` (no-op) when the mission's router is already
 /// registered, or when the mission isn't in the `running` state.
 pub(crate) async fn ensure_mission_router_mounted(state: &AppCore, mission_id: &str) -> Result<()> {
-    use crate::event_bus::{BusEmitter, ChannelBusEvents};
-    use crate::router::{
-        open_log_for_mission, ChannelRouterUiNotifier, CompositeBusEmitter, Router,
-        RouterSubscriber, StdinInjector,
-    };
-    use std::sync::Arc;
-
     // Idempotent: if the router is already mounted for this mission,
     // just return. The frontend calls attach on every workspace mount
     // (including back-and-forth navigation), so this happens often.
@@ -959,22 +847,30 @@ pub(crate) async fn ensure_mission_router_mounted(state: &AppCore, mission_id: &
         return Ok(());
     }
 
-    let loaded = {
-        let conn = state.db.get()?;
-        roster::load(&conn, &state.app_data_dir, &mission)?
+    mount_mission_router(state, &mission, Mount::Reopen)?;
+    Ok(())
+}
+
+enum Mount<'a> {
+    Fresh(&'a [(String, String)]),
+    Reopen,
+}
+
+fn mount_mission_router(state: &AppCore, mission: &Mission, mount: Mount<'_>) -> Result<()> {
+    use crate::event_bus::{BusEmitter, ChannelBusEvents};
+    use crate::router::{
+        open_log_for_mission, ChannelRouterUiNotifier, CompositeBusEmitter, Router,
+        RouterSubscriber, StdinInjector,
     };
+    use std::sync::Arc;
+    let loaded = roster::load(&*state.db.get()?, &state.app_data_dir, mission)?;
     let crew_name = loaded.file.crew_name;
     let crew_addendum = loaded.file.crew_addendum;
     let roster = loaded.slots;
     let allowed_signals = all_known_signals();
-
-    // Pull the latest session_id per slot for this mission so the
-    // rebuilt Router can resolve `slot_handle → session_id` for stdin
-    // injection. Independent of whether the panes are alive: the
-    // mapping is what the Router holds in memory, not anything about
-    // pane state. Filter to non-archived rows so a deleted-and-
-    // re-added slot doesn't pull a stale row.
-    let session_pairs: Vec<(String, String)> = {
+    let session_pairs: Vec<(String, String)> = if let Mount::Fresh(pending) = mount {
+        pending.to_vec()
+    } else {
         let conn = state.db.get()?;
         let mut out = Vec::with_capacity(roster.len());
         for member in &roster {
@@ -1006,11 +902,10 @@ pub(crate) async fn ensure_mission_router_mounted(state: &AppCore, mission_id: &
     )?;
     router.register_sessions(&session_pairs);
 
-    // Set the replay watermark so the bus's initial replay doesn't
-    // re-fire `mission_goal` / `human_said` / `ask_lead` — handlers
-    // would re-inject historical stdin into the (about-to-be-resumed)
-    // PTYs. Pending_asks / session_status also rehydrate here.
-    router.reconstruct_from_log()?;
+    // Restore pending asks and skip replaying historical events through live handlers.
+    if matches!(mount, Mount::Reopen) {
+        router.reconstruct_from_log()?;
+    }
 
     let roster_handles: Vec<String> = roster.iter().map(|m| m.slot.slot_handle.clone()).collect();
     let channel_emitter: Arc<dyn BusEmitter> = Arc::new(ChannelBusEvents(state.events.clone()));
@@ -1331,31 +1226,7 @@ fn count_pending_asks_from_log(mission_dir: &Path) -> usize {
         Ok((entries, _skipped)) => entries,
         Err(_) => return 0,
     };
-    // pending: human_question.id → still unanswered. Removed when a
-    // matching human_response lands. Mirrors Router::reconstruct_from_log
-    // so a reopen sees the same state as the live registry would have.
-    let mut pending: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for entry in &entries {
-        let event = &entry.event;
-        if !matches!(event.kind, runner_core::model::EventKind::Signal) {
-            continue;
-        }
-        let Some(t) = event.signal_type.as_ref() else {
-            continue;
-        };
-        match t.as_str() {
-            "human_question" => {
-                pending.insert(event.id.clone());
-            }
-            "human_response" => {
-                if let Some(qid) = event.payload.get("question_id").and_then(|v| v.as_str()) {
-                    pending.remove(qid);
-                }
-            }
-            _ => {}
-        }
-    }
-    pending.len()
+    crate::router::pending_asks(&entries).len()
 }
 
 fn latest_session_statuses_from_log(
@@ -2421,20 +2292,19 @@ mod tests {
         // `spawn` takes for a respawned lead.
         let crew = crew::get(&conn, &crew_id).unwrap();
         let roster = slot::list(&conn, &crew_id).unwrap();
-        let launch = crate::router::LaunchInputs::new(
-            crew.name,
-            &roster,
-            all_known_signals(),
-            crew.system_prompt_addendum,
-        )
-        .unwrap();
         let log = EventLog::open(&event_log::mission_dir(
             tmp.path(),
             Some(&crew_id),
             &out.mission.id,
         ))
         .unwrap();
-        let (system_prompt, first_turn) = launch.prompt_channels(&log, Runtime::ClaudeCode.key());
+        let (system_prompt, first_turn) = crate::router::prompt::member_prompt_channels(
+            crate::runtimes::for_key(Runtime::ClaudeCode.key()),
+            &roster[0],
+            &roster,
+            &roster::snapshot(Some(&crew), &roster),
+            &log,
+        );
         let prompt = format!(
             "{}{}",
             system_prompt.unwrap_or_default(),

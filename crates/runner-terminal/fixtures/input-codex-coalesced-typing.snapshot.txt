@@ -1,0 +1,30 @@
+cols=89 rows=29 cursor=25,34
+|  == Coordination ==
+|  - You are the human's counterpart. Workers message you with questions.
+|  - Reply to a worker with `runner msg post --to <handle> "…"`; broadcasts omit `--to`.
+|  - The operator watches the terminals and types directly into a runner's pane.
+|  - Read your inbox with `runner msg read` — it's pull-based.
+|  - Escalate to the human (with structured choices) via `runner signal ask_human
+|  --payload '{"prompt":"…","choices":["yes","no"],"on_behalf_of":"<asker>"}'`.
+|  - The team can change while the mission runs; your inbox announces every join and
+|  leave, and `runner mission show` lists the current team.
+|  - Busy/idle is inferred from your terminal activity.
+|  - Allowed signal types: mission_goal, human_said, ask_human, human_question,
+|  human_response, session_status, inbox_read.
+|
+|
+|
+|  <!-- runner-codex-session-key-capture:01M54BNGQM9302HW4SPK5ATJZA -->
+|
+|
+|• READY QA921-F4-CAPTURE
+|
+|  Worked for 8s • 3:19 PM
+|
+|
+|› Run one terminal command and wait for it to finish: python3 -u -c "import time;
+|  [(print(i, flush=True), time.sleep(2)) for i in range(1,41)]". Then reply TOOL-
+|  CAPTURE-921 only. No other work.
+|
+|  GPT-6.1-Sol low fast · weekly 30% left
+|                                                               ⚠ 2 warnings · f2 to view

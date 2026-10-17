@@ -1,15 +1,15 @@
 runtime=antigravity name=escape-tool rules=[] bugs=[783] known_wrong=[]
 session_status_rows=published
-2200 status=running/idle/baseline activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned"]
+2200 status=running/idle/baseline activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","Idle"]
   busy@spawn [running/working/baseline]
   idle@forwarder [running/idle/baseline]
 2300 quiescent=false delivery=["InputQueueDrained"]
-2400 status=running/working/baseline activity="busy" completion_armed=true quiescent=true delivery=["InputCleared"]
+2400 status=running/working/baseline activity="busy" completion_armed=true quiescent=true delivery=["ReadinessChanged"]
   busy@input-submit [running/working/baseline]
 2500 status=running/working/hook
   busy@hook [running/working/hook]
 2600
-2700 status=running/ready/hook outcome="interrupted" activity="idle" completion_armed=false quiescent=false delivery=["InputQueueDrained"]
+2700 status=running/ready/hook outcome="interrupted" activity="idle" completion_armed=false quiescent=false delivery=["InputQueueDrained","Idle"]
   idle@hook [running/ready/hook outcome="interrupted"]
 2800
 2900

@@ -5,6 +5,7 @@ use super::*;
 const STARTUP_OUTPUT_GRACE: Duration = Duration::from_secs(10);
 
 pub(super) struct StartupDelivery {
+    pub(super) runtime: String,
     hooks: bool,
     pending_turn: bool,
     started: Instant,
@@ -17,6 +18,7 @@ impl StartupDelivery {
     pub(super) fn new(runtime: &str, pending_turn: bool, now: Instant) -> Self {
         let hooks = crate::runtimes::for_key(runtime).startup_delivery_uses_hooks(pending_turn);
         Self {
+            runtime: runtime.to_owned(),
             hooks,
             pending_turn,
             started: now,

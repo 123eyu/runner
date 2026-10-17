@@ -1,6 +1,6 @@
 runtime=copilot name=approval-completion-cancel rules=[6,8] bugs=[] known_wrong=[]
 session_status_rows=published
-100 status=running/idle/hook activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned"]
+100 status=running/idle/hook activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","Idle"]
   busy@spawn [running/working/baseline]
   idle@hook [running/idle/hook]
 200 status=running/working/hook activity="busy" completion_armed=true
@@ -13,7 +13,7 @@ session_status_rows=published
   busy@hook [running/working/hook detail="using_tools" interactions=[{"id":"copilot-1","reason":"approval","owners":["copilot-tool-1"],"since":1767225600600}]]
 700 status=running/unavailable/hook outcome="interrupted" interactions=[{"id":"copilot-1","reason":"approval","owners":["copilot-tool-1"],"since":1767225600600}] completion_armed=false delivery=["InputQueueDrained"]
   busy@hook [running/unavailable/hook outcome="interrupted" interactions=[{"id":"copilot-1","reason":"approval","owners":["copilot-tool-1"],"since":1767225600600}]]
-800 status=running/ready/hook outcome="interrupted" activity="idle" delivery=["InputCleared"]
+800 status=running/ready/hook outcome="interrupted" activity="idle" delivery=["Idle","ReadinessChanged"]
   idle@hook [running/ready/hook outcome="interrupted"]
 900 result={"completion_consumed":false,"viewed":false}
 1000

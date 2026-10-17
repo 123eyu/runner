@@ -934,6 +934,12 @@ impl SessionManager {
             return Err(error);
         }
 
+        self.raw_session_state(&session_id)
+            .expect("registered mission session")
+            .lock()
+            .unwrap()
+            .pending_spawn = true;
+
         Ok(PendingMissionSpawn {
             pre_attachment: PreAttachmentState {
                 manager: Arc::downgrade(self),
@@ -2424,7 +2430,6 @@ impl SessionManager {
             mission_id: String,
             mission_cwd: Option<String>,
             slot_handle: String,
-            lead: bool,
             roster: crate::ops::mission::roster::LoadedRoster,
         }
         let mission_ctx: Option<MissionCtx> = match (
@@ -2460,7 +2465,6 @@ impl SessionManager {
                     mission_id: mission.id,
                     mission_cwd: mission.cwd,
                     slot_handle: slot.slot_handle.clone(),
-                    lead: slot.lead,
                     roster,
                 })
             }
@@ -2704,39 +2708,23 @@ impl SessionManager {
             || adapter.prompt_channels().system_prompt
         {
             if let Some(ctx) = mission_ctx.as_ref() {
-                if ctx.lead {
-                    let mut roster = ctx.roster.slots.clone();
-                    if let Some(lead) = roster.iter_mut().find(|member| member.slot.lead) {
-                        lead.role.system_prompt.clone_from(&role.system_prompt);
-                    }
-                    let launch = router::LaunchInputs::new(
-                        ctx.roster.file.crew_name.clone(),
-                        &roster,
-                        crate::ops::mission::all_known_signals(),
-                        ctx.roster.file.crew_addendum.clone(),
-                    )?;
-                    let log = open_mission_event_log(
-                        app_data_dir,
-                        ctx.crew_id.as_deref(),
-                        &ctx.mission_id,
-                    )
-                    .ok_or_else(|| Error::msg("mission event log unavailable"))?;
-                    launch.prompt_channels(&log, &role.runtime)
-                } else {
-                    let log = open_mission_event_log(
-                        app_data_dir,
-                        ctx.crew_id.as_deref(),
-                        &ctx.mission_id,
-                    )
-                    .ok_or_else(|| Error::msg("mission event log unavailable"))?;
-                    let goal = (!ctx.roster.slots.iter().any(|member| member.slot.lead))
-                        .then(|| router::LaunchInputs::latest_mission_goal_text(&log));
-                    adapter.prompt_channels().worker(
-                        role.system_prompt.as_deref(),
-                        ctx.roster.file.crew_addendum.as_deref(),
-                        goal.as_deref(),
-                    )
-                }
+                let mut roster = ctx.roster.slots.clone();
+                let member = roster
+                    .iter_mut()
+                    .find(|member| member.slot.slot_handle == ctx.slot_handle)
+                    .ok_or_else(|| Error::msg("mission member missing from roster"))?;
+                member.role.system_prompt.clone_from(&role.system_prompt);
+                let member = member.clone();
+                let log =
+                    open_mission_event_log(app_data_dir, ctx.crew_id.as_deref(), &ctx.mission_id)
+                        .ok_or_else(|| Error::msg("mission event log unavailable"))?;
+                router::prompt::member_prompt_channels(
+                    adapter,
+                    &member,
+                    &roster,
+                    &ctx.roster.file,
+                    &log,
+                )
             } else {
                 // A fresh agy conversation has no persona unless it is resent: agy
                 // takes no system prompt, and its lost conversation held the first turn.

@@ -1,10 +1,10 @@
 runtime=copilot name=approval-denied rules=[6,8] bugs=[] known_wrong=[]
 session_status_rows=published
-100 status=running/idle/hook activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned"]
+100 status=running/idle/hook activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","Idle"]
   busy@spawn [running/working/baseline]
   idle@hook [running/idle/hook]
 200 quiescent=false delivery=["InputQueueDrained"]
-300 activity="busy" completion_armed=true quiescent=true delivery=["InputCleared"]
+300 activity="busy" completion_armed=true quiescent=true delivery=["ReadinessChanged"]
   busy@input-submit [running/idle/hook]
 400 status=running/working/hook
   busy@hook [running/working/hook]
@@ -15,7 +15,7 @@ session_status_rows=published
   busy@hook [running/working/hook detail="using_tools" interactions=[{"id":"copilot-1","reason":"approval","owners":["copilot-tool-1"],"since":1767225600700}]]
 800 result={"gate":"human_interaction"}
 900
-1000 status=running/working/hook detail="using_tools" quiescent=true delivery=["InputCleared"]
+1000 status=running/working/hook detail="using_tools" quiescent=true delivery=["ReadinessChanged"]
   busy@hook [running/working/hook detail="using_tools"]
 1100 status=running/working/hook
   busy@hook [running/working/hook]

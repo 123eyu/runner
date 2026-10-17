@@ -6,6 +6,7 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::Color;
 pub use runner_core::protocol::terminal::InputEvent;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InputState {
@@ -45,6 +46,7 @@ struct Probe {
     styles_before: Vec<Vec<CellStyle>>,
     started: Instant,
     weak_match: bool,
+    submitted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,6 +121,20 @@ impl InputTracker {
         self.emit_if_changed(now)
     }
 
+    pub fn track_delivery_input<T>(&mut self, text: &str, now: Instant, term: &Term<T>) {
+        self.expire_probe(now);
+        self.observe_content(text, true, now, term);
+    }
+
+    pub fn track_delivery_submit<T>(&mut self, now: Instant, term: &Term<T>) {
+        match &mut self.state {
+            TrackerState::Probing(probe) | TrackerState::Reprobing { probe, .. } => {
+                probe.submitted = true;
+            }
+            _ => self.submit(now, term),
+        }
+    }
+
     pub fn observe_output<T>(&mut self, now: Instant, term: &Term<T>) -> Option<InputObservation> {
         let state = std::mem::replace(&mut self.state, TrackerState::Idle);
         self.state = match state {
@@ -133,18 +149,26 @@ impl InputTracker {
                         &rows_after,
                         &probe.typed,
                         probe.weak_match,
+                        term.columns(),
                     ) {
                         Some(matched) => {
                             let placeholder_style = probe_placeholder_style(&probe, &matched, term);
-                            TrackerState::Drafting(Composer {
+                            let composer = Composer {
                                 row: matched.row,
                                 prefix: matched.prefix,
-                                empty_forms: vec![probe.rows_before[matched.row].clone()],
+                                empty_forms: vec![probe.rows_before[matched.before_row].clone()],
                                 last_form: rows_after[matched.row].clone(),
                                 visible: true,
-                                submitted_form: None,
+                                submitted_form: probe
+                                    .submitted
+                                    .then(|| rows_after[matched.row].clone()),
                                 placeholder_style,
-                            })
+                            };
+                            if probe.submitted {
+                                TrackerState::Submitted(composer)
+                            } else {
+                                TrackerState::Drafting(composer)
+                            }
                         }
                         None => TrackerState::Probing(probe),
                     }
@@ -160,8 +184,9 @@ impl InputTracker {
                     &rows_after,
                     &probe.typed,
                     probe.weak_match,
+                    term.columns(),
                 ) {
-                    let before = &probe.rows_before[matched.row];
+                    let before = &probe.rows_before[matched.before_row];
                     if composer_text_is_empty(before, &matched.prefix, &composer.empty_forms)
                         && !composer.empty_forms.contains(before)
                     {
@@ -174,8 +199,12 @@ impl InputTracker {
                     composer.prefix = matched.prefix;
                     composer.last_form = rows_after[matched.row].clone();
                     composer.visible = true;
-                    composer.submitted_form = None;
-                    TrackerState::Drafting(composer)
+                    composer.submitted_form = probe.submitted.then(|| composer.last_form.clone());
+                    if probe.submitted {
+                        TrackerState::Submitted(composer)
+                    } else {
+                        TrackerState::Drafting(composer)
+                    }
                 } else if now.duration_since(probe.started) <= ECHO_WINDOW {
                     TrackerState::Reprobing { probe, composer }
                 } else {
@@ -212,6 +241,8 @@ impl InputTracker {
             TrackerState::Probing(mut probe) => {
                 probe.typed.push_str(&probe_text(text));
                 probe.weak_match |= pasted && weak_paste_match(text);
+                probe.started = now;
+                probe.submitted = false;
                 TrackerState::Probing(probe)
             }
             TrackerState::Reprobing {
@@ -220,6 +251,8 @@ impl InputTracker {
             } => {
                 probe.typed.push_str(&probe_text(text));
                 probe.weak_match |= pasted && weak_paste_match(text);
+                probe.started = now;
+                probe.submitted = false;
                 TrackerState::Reprobing { probe, composer }
             }
             TrackerState::Drafting(mut composer) => {
@@ -384,6 +417,7 @@ impl InputTracker {
 #[derive(Debug, Eq, PartialEq)]
 struct EchoMatch {
     row: usize,
+    before_row: usize,
     prefix: String,
     empty_before: bool,
     kind: EchoMatchKind,
@@ -396,7 +430,7 @@ enum EchoMatchKind {
     Weak,
 }
 
-fn visible_rows<T>(term: &Term<T>) -> Vec<String> {
+pub(crate) fn visible_rows<T>(term: &Term<T>) -> Vec<String> {
     (0..term.screen_lines())
         .map(|row| row_to_string(term, row as i32))
         .collect()
@@ -433,6 +467,7 @@ fn new_probe<T>(text: &str, pasted: bool, now: Instant, term: &Term<T>) -> Probe
         styles_before: visible_row_styles(term),
         started: now,
         weak_match: pasted && weak_paste_match(text),
+        submitted: false,
     }
 }
 
@@ -488,8 +523,8 @@ fn probe_placeholder_style<T>(
     term: &Term<T>,
 ) -> Option<CellStyle> {
     let placeholder = snapshot_content_style(
-        &probe.rows_before[matched.row],
-        &probe.styles_before[matched.row],
+        &probe.rows_before[matched.before_row],
+        &probe.styles_before[matched.before_row],
         &matched.prefix,
     );
     let draft = row_content_style(term, matched.row, &matched.prefix);
@@ -501,25 +536,36 @@ fn locate_echo(
     after: &[String],
     typed: &str,
     weak_match: bool,
+    columns: usize,
 ) -> Option<EchoMatch> {
-    before
+    after
         .iter()
-        .zip(after)
         .enumerate()
-        .filter(|(_, (before, after))| before != after)
-        .filter_map(|(row, (before, after))| {
-            match_prompt_prefix(before, after, typed, weak_match).map(|(prefix, kind)| EchoMatch {
-                row,
-                empty_before: before.trim_end() == prefix.trim_end(),
-                prefix,
-                kind,
-            })
+        .filter(|(row, text)| before.get(*row) != Some(*text))
+        .flat_map(|(row, text)| {
+            before
+                .iter()
+                .enumerate()
+                .filter(move |(before_row, before)| after.get(*before_row) != Some(*before))
+                .filter_map(move |(before_row, before)| {
+                    match_prompt_prefix(before, text, typed, weak_match, columns).map(
+                        |(prefix, kind)| EchoMatch {
+                            row,
+                            before_row,
+                            empty_before: before.trim_end() == prefix.trim_end(),
+                            prefix,
+                            kind,
+                        },
+                    )
+                })
         })
         .min_by_key(|matched| {
             (
                 matched.kind,
+                matched.row != matched.before_row,
                 !matched.empty_before,
                 matched.prefix.chars().count(),
+                matched.row.abs_diff(matched.before_row),
                 matched.row,
             )
         })
@@ -530,6 +576,7 @@ fn match_prompt_prefix(
     after: &str,
     typed: &str,
     weak_match: bool,
+    columns: usize,
 ) -> Option<(String, EchoMatchKind)> {
     if before == after {
         return None;
@@ -559,10 +606,18 @@ fn match_prompt_prefix(
     if decorated.is_some() {
         return decorated;
     }
-    if !weak_match {
+    let prefix = common_prefix(before, after);
+    let prefix = if looks_like_prompt_prefix(prefix) {
+        prefix
+    } else {
+        prefix.char_indices().rev().find_map(|(index, character)| {
+            let candidate = &prefix[..index + character.len_utf8()];
+            looks_like_prompt_prefix(candidate).then_some(candidate)
+        })?
+    };
+    if !weak_match && typed.width() <= columns.saturating_sub(prefix.width()) {
         return None;
     }
-    let prefix = common_prefix(before, after);
     let remainder = &after[prefix.len()..];
     (looks_like_prompt_prefix(prefix) && !remainder.trim().is_empty())
         .then(|| (prefix.to_owned(), EchoMatchKind::Weak))
@@ -634,9 +689,10 @@ mod tests {
         let before = vec!["assistant ".into(), "❯ Try a task".into(), "$ ".into()];
         let after = vec!["assistant h".into(), "❯ h".into(), "$ h".into()];
         assert_eq!(
-            locate_echo(&before, &after, "h", false),
+            locate_echo(&before, &after, "h", false, 40),
             Some(EchoMatch {
                 row: 2,
+                before_row: 2,
                 prefix: "$ ".into(),
                 empty_before: true,
                 kind: EchoMatchKind::Exact,
@@ -653,7 +709,7 @@ mod tests {
             ),
             ("| > Ask Codex           |", "| > h                   |"),
         ] {
-            assert!(locate_echo(&[before.into()], &[after.into()], "h", false).is_some());
+            assert!(locate_echo(&[before.into()], &[after.into()], "h", false, 40).is_some());
         }
 
         let before = vec!["  └ ".into(), "> Try a task            <ret> send".into()];
@@ -661,7 +717,69 @@ mod tests {
             "  └ hooked 12 files".into(),
             "> h                     <ret> send".into(),
         ];
-        assert_eq!(locate_echo(&before, &after, "h", false).unwrap().row, 1);
+        assert_eq!(locate_echo(&before, &after, "h", false, 40).unwrap().row, 1);
+    }
+
+    #[test]
+    fn a_transcript_echo_cannot_reuse_an_unchanged_prompt_on_another_row() {
+        let before = vec!["old output".into(), "› Ask Codex".into()];
+        let after = vec!["› hello".into(), "› Ask Codex".into()];
+        assert!(locate_echo(&before, &after, "hello", false, 40).is_none());
+    }
+
+    #[test]
+    fn coalesced_native_input_holds_across_the_prompt_wrap_boundary() {
+        use crate::replay::screen_snapshot;
+
+        for (prefix, prompt_width) in [("› ", 2), ("界› ", 4)] {
+            let available = 12 - prompt_width;
+            for length in [available, available + 1, 12, 13] {
+                let start = Instant::now();
+                let mut term = new_term(12, 4);
+                feed(&mut term, format!("{prefix}Ask").as_bytes());
+                let mut tracker = InputTracker::new(start);
+                tracker.initial_observation(start);
+                let text = &"abcdefghijklm"[..length];
+                for (ms, character) in text.chars().enumerate() {
+                    tracker.observe_input(
+                        &InputEvent::Key {
+                            kind: InputKind::Content {
+                                text: character.to_string(),
+                            },
+                        },
+                        start + Duration::from_millis(ms as u64),
+                        &term,
+                    );
+                }
+                let split = text.len().min(available);
+                feed(
+                    &mut term,
+                    format!("\x1b[H\x1b[J{prefix}{}", &text[..split]).as_bytes(),
+                );
+                if split < text.len() {
+                    feed(
+                        &mut term,
+                        format!("\r\n{}{}", " ".repeat(prompt_width), &text[split..]).as_bytes(),
+                    );
+                }
+                tracker.observe_output(start + Duration::from_millis(30), &term);
+                tracker.observe_output(start + Duration::from_secs(3), &term);
+                assert_eq!(
+                    tracker.current_reported_state().state,
+                    InputState::Drafting,
+                    "prefix={prefix:?} length={length}\n{}",
+                    screen_snapshot(&term)
+                );
+                feed(&mut term, format!("\x1b[H\x1b[J{prefix}Ask").as_bytes());
+                assert_eq!(
+                    tracker
+                        .observe_output(start + Duration::from_secs(4), &term)
+                        .unwrap()
+                        .state,
+                    InputState::Idle
+                );
+            }
+        }
     }
 
     #[test]
@@ -740,11 +858,12 @@ mod tests {
                 "❯ [Pasted text #1 +19 lines]",
                 "line one",
                 true,
+                40,
             ),
             Some(("❯ ".into(), EchoMatchKind::Weak))
         );
         assert_eq!(
-            match_prompt_prefix("assistant ", "assistant [Pasted text]", "line", true),
+            match_prompt_prefix("assistant ", "assistant [Pasted text]", "line", true, 40),
             None
         );
     }
@@ -994,6 +1113,62 @@ mod tests {
             .observe_output(start + Duration::from_millis(9), &term)
             .unwrap();
         assert_eq!(idle.state, InputState::Idle);
+    }
+
+    #[test]
+    fn delivery_submit_before_echo_accepts_a_rotated_empty_form_without_local_input() {
+        let start = Instant::now();
+        let mut term = new_term(80, 4);
+        feed(&mut term, "\x1b[2;1H❯ First placeholder".as_bytes());
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.track_delivery_input("[inbox] task", start, &term);
+        tracker.track_delivery_submit(start, &term);
+        feed(&mut term, "\r\x1b[K❯ [inbox] task".as_bytes());
+        assert_eq!(
+            tracker
+                .observe_output(start + Duration::from_millis(5), &term)
+                .unwrap()
+                .state,
+            InputState::Submitted
+        );
+        feed(&mut term, "\r\x1b[K❯ Different placeholder".as_bytes());
+        assert_eq!(
+            tracker
+                .observe_output(start + Duration::from_millis(9), &term)
+                .unwrap()
+                .state,
+            InputState::Idle
+        );
+        assert_eq!(tracker.reset_guard(), 0);
+    }
+
+    #[test]
+    fn local_content_after_a_generated_submit_remains_a_draft() {
+        let start = Instant::now();
+        let mut term = new_term(80, 4);
+        feed(&mut term, "\x1b[2;1H❯ First placeholder".as_bytes());
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.track_delivery_input("[inbox] task", start, &term);
+        tracker.track_delivery_submit(start, &term);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: " draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, "\r\x1b[K❯ [inbox] task draft".as_bytes());
+        assert_eq!(
+            tracker
+                .observe_output(start + Duration::from_millis(5), &term)
+                .unwrap()
+                .state,
+            InputState::Drafting
+        );
     }
 
     #[test]

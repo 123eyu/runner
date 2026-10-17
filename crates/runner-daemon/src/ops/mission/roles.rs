@@ -174,12 +174,12 @@ fn add_checked(
             .as_deref()
             .unwrap_or(&member.role.runtime),
     );
-    let goal = (!loaded.slots.iter().any(|member| member.slot.lead))
-        .then(|| crate::router::LaunchInputs::latest_mission_goal_text(&log));
-    let (system_prompt, first_turn) = adapter.prompt_channels().worker(
-        member.role.system_prompt.as_deref(),
-        loaded.file.crew_addendum.as_deref(),
-        goal.as_deref(),
+    let (system_prompt, first_turn) = crate::router::prompt::member_prompt_channels(
+        adapter,
+        &member,
+        &loaded.slots,
+        &loaded.file,
+        &log,
     );
     if let Some(body) = &first_turn {
         super::ensure_first_turn_fits(&handle, body)?;

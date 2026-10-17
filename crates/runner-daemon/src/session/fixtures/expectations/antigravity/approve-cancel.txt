@@ -5,7 +5,7 @@ session_status_rows=published
   busy@hook [running/working/hook]
 200
 300
-400 delivery=["InputCleared"]
-500 status=running/ready/hook outcome="interrupted" activity="idle" completion_armed=false quiescent=false delivery=["InputQueueDrained"]
+400 delivery=["ReadinessChanged"]
+500 status=running/ready/hook outcome="interrupted" activity="idle" completion_armed=false quiescent=false delivery=["InputQueueDrained","Idle"]
   idle@hook [running/ready/hook outcome="interrupted"]
 600 result={"completion_consumed":false,"viewed":false}

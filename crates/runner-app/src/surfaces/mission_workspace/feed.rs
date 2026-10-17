@@ -668,18 +668,14 @@ impl MissionWorkspace {
             serde_json::to_string_pretty(&event.payload)
                 .unwrap_or_else(|_| event.payload.to_string())
         };
-        let avatar_seed = if event.from == "human" {
-            "human".to_owned()
-        } else {
-            event.from.clone()
-        };
+        let (author_seed, author_name) = mission_signal_author(&event);
         div()
             .id(SharedString::from(format!("mission-signal-{event_id}")))
             .px_4()
             .flex()
             .items_start()
             .gap_3()
-            .child(RoleAvatar::new(avatar_seed, 35.))
+            .child(RoleAvatar::new(author_seed.to_owned(), 35.))
             .child(
                 div()
                     .min_w(px(0.))
@@ -699,14 +695,8 @@ impl MissionWorkspace {
                                     .font_family(theme::UI_MONOSPACE_FONT)
                                     .text_size(theme::text_body())
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(runner_app::ui::hue_for_seed(&event.from).color())
-                                    .child(
-                                        if signal == "slot_restarted" && event.from == "human" {
-                                            "you".to_owned()
-                                        } else {
-                                            format!("@{}", event.from)
-                                        },
-                                    ),
+                                    .text_color(runner_app::ui::hue_for_seed(author_seed).color())
+                                    .child(author_name),
                             )
                             .child(
                                 div()
