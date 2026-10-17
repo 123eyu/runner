@@ -94,17 +94,14 @@ fn is_mission_goal(event: &Event) -> bool {
 
 fn grouping_route(event: &Event) -> String {
     if event.kind == EventKind::Message {
-        return format!("target:{}", event.to.as_deref().unwrap_or_default());
+        return format!("target:{}", event.recipients().join(","));
     }
     match event.signal_type.as_ref().map(SignalType::as_str) {
-        Some("human_said") => format!(
-            "target:{}",
-            event
-                .payload
-                .get("target")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-        ),
+        Some("human_said") => {
+            serde_json::from_value::<runner_core::Recipients>(event.payload["target"].clone())
+                .map(|recipients| format!("target:{}", recipients.as_slice().join(",")))
+                .unwrap_or_else(|_| format!("target:{}", event.payload["target"]))
+        }
         Some("human_response") => format!(
             "question:{}",
             event
@@ -205,14 +202,14 @@ pub(crate) fn message_target(
     askers_by_question: &HashMap<String, String>,
 ) -> Option<String> {
     if event.kind == EventKind::Message {
-        return event.to.clone();
+        return (!event.recipients().is_empty()).then(|| event.recipients().join(", @"));
     }
     match event.signal_type.as_ref().map(SignalType::as_str) {
-        Some("human_said") | Some("mission_goal") => event
-            .payload
-            .get("target")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
+        Some("human_said") | Some("mission_goal") => {
+            let recipients: runner_core::Recipients =
+                serde_json::from_value(event.payload["target"].clone()).ok()?;
+            (!recipients.is_empty()).then(|| recipients.as_slice().join(", @"))
+        }
         Some("human_response") => Some(
             event
                 .payload
@@ -238,7 +235,7 @@ mod tests {
             mission_id: "mission".into(),
             kind,
             from: from.into(),
-            to: None,
+            to: Default::default(),
             signal_type: signal.map(SignalType::new),
             payload: serde_json::json!({ "text": id }),
         }
@@ -321,11 +318,48 @@ mod tests {
     }
 
     #[test]
+    fn several_recipients_render_in_messages_and_legacy_person_signals() {
+        let mut message = event("a", 0, "coder", EventKind::Message, None);
+        message.to = runner_core::Recipients::new(vec!["reviewer".into(), "qa".into()]);
+        assert_eq!(
+            message_target(&message, &HashMap::new()).as_deref(),
+            Some("reviewer, @qa")
+        );
+        let mut person = event("b", 0, "human", EventKind::Signal, Some("human_said"));
+        person.payload["target"] = serde_json::json!(["reviewer", "qa"]);
+        assert_eq!(
+            message_target(&person, &HashMap::new()).as_deref(),
+            Some("reviewer, @qa")
+        );
+    }
+
+    #[test]
+    fn unconverted_human_said_groups_with_messages_to_the_same_recipients() {
+        for target in [
+            serde_json::json!(null),
+            serde_json::json!("coder"),
+            serde_json::json!(["coder", "reviewer"]),
+        ] {
+            let mut signal = event("signal", 0, "human", EventKind::Signal, Some("human_said"));
+            signal.payload["target"] = target.clone();
+            let mut message = event("message", 1, "human", EventKind::Message, None);
+            message.to = serde_json::from_value(target).unwrap();
+            let blocks = group_feed_blocks(&[signal, message]);
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(
+                &blocks[0],
+                FeedBlock::MessageGroup { author, events }
+                    if author == "human" && events.iter().map(|event| event.id.as_str()).collect::<Vec<_>>() == ["signal", "message"]
+            ));
+        }
+    }
+
+    #[test]
     fn grouping_breaks_on_route_and_time_window() {
         let mut first = event("a", 0, "coder", EventKind::Message, None);
-        first.to = Some("lead".into());
+        first.to = Some("lead".into()).into();
         let mut route = event("b", 1, "coder", EventKind::Message, None);
-        route.to = Some("reviewer".into());
+        route.to = Some("reviewer".into()).into();
         let late = event("c", 302, "coder", EventKind::Message, None);
         assert_eq!(group_feed_blocks(&[first, route, late]).len(), 3);
     }

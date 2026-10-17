@@ -499,7 +499,16 @@ fn feed_event_lines(value: &Value) -> Vec<String> {
                 event
                     .get("to")
                     .filter(|value| !value.is_null())
-                    .map(|value| cell_width(Some(value), 20))
+                    .map(|value| {
+                        match serde_json::from_value::<runner_core::Recipients>(value.clone()) {
+                            Ok(recipients) if !recipients.is_empty() => cell_width(
+                                Some(&Value::String(recipients.as_slice().join(", "))),
+                                20,
+                            ),
+                            Ok(_) => "all".to_owned(),
+                            Err(_) => cell_width(Some(value), 20),
+                        }
+                    })
                     .unwrap_or_else(|| "all".to_owned()),
                 cell_width(kind, 24),
                 event_text(event),
@@ -1207,6 +1216,29 @@ mod tests {
                 "session-id  codex    coder  Fix CLI  running  working   /repo",
             ]
         );
+    }
+
+    #[test]
+    fn mission_feed_text_names_single_multiple_and_broadcast_recipients() {
+        for (targets, label) in [
+            (json!("coder"), "coder"),
+            (json!(["coder", "reviewer"]), "coder, reviewer"),
+            (json!(null), "all"),
+            (json!([]), "all"),
+        ] {
+            let feed = json!({
+                "events": [{"event": {"id": "1", "ts": "2026-09-18T10:20:30Z", "kind": "message", "from": "human", "to": targets, "payload": {"text": "check"}}}],
+                "next_offset": 42
+            });
+            let line = format!("10:20:30  human -> {label}  message  check");
+            assert_eq!(
+                render_default(View::MissionFeed, &feed),
+                [line.clone(), "next_offset  42".into()]
+            );
+            let mut output = Vec::new();
+            write_feed_events(&feed, false, false, &mut output).unwrap();
+            assert_eq!(String::from_utf8(output).unwrap(), format!("{line}\n"));
+        }
     }
 
     #[test]
