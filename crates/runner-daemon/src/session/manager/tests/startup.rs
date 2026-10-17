@@ -284,6 +284,52 @@ fn codex_conversation_recovery_in_first_turn_falls_back_to_output_release() {
 }
 
 #[test]
+fn codex_interrupted_first_turn_releases_the_startup_hold_once_the_abort_settles() {
+    let fixture = StartupFixture::new();
+    fixture.queue("task after interrupt");
+    let now = Instant::now();
+    let _output = fixture.launch("codex", true, now);
+    fixture.event(Runtime::Codex, AgentEvent::TurnStarted);
+    fixture.event(
+        Runtime::Codex,
+        AgentEvent::TurnEnded {
+            outcome: crate::session::status::TurnOutcome::Interrupted,
+        },
+    );
+    fixture.held();
+    fixture.manager.publish_agent_event(
+        "session",
+        AgentEvent::Transcript {
+            runtime: Runtime::Codex,
+            events: vec![AgentEvent::AbortSettled],
+        },
+        &Capture::default(),
+    );
+    fixture.submitted();
+}
+
+#[test]
+fn codex_failed_first_turn_releases_the_startup_hold() {
+    let fixture = StartupFixture::new();
+    fixture.queue("task after failure");
+    let now = Instant::now();
+    let _output = fixture.launch("codex", true, now);
+    fixture.event(Runtime::Codex, AgentEvent::TurnStarted);
+    fixture.held();
+    fixture.manager.publish_agent_event(
+        "session",
+        AgentEvent::Transcript {
+            runtime: Runtime::Codex,
+            events: vec![AgentEvent::TurnEnded {
+                outcome: crate::session::status::TurnOutcome::Failed,
+            }],
+        },
+        &Capture::default(),
+    );
+    fixture.submitted();
+}
+
+#[test]
 fn router_startup_exit_keeps_existing_drop_warning_and_does_not_deliver_on_resume() {
     let fixture = StartupFixture::new();
     fixture.queue("task before exit");
