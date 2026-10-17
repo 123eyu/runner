@@ -6,7 +6,6 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [565 — English and Simplified Chinese UI](./565-i18n.md) — embedded catalogs, live language selection, translated UI and platform validation ([#565](https://github.com/yicheng47/runner/issues/565)).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation, through Runner's delivery gate; spec under review ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, direct delivery, catch-up and unread-only reads; draft to reconcile with the delivery reliability work ([#826](https://github.com/yicheng47/runner/issues/826)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
@@ -17,7 +16,7 @@ Future work, including [iOS follow-through](https://github.com/yicheng47/runner/
 
 ## Recently shipped
 
-Reconciled on 2026-10-16 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
+Reconciled on 2026-10-17 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
 
 | Spec | Shipped in |
 | --- | --- |
@@ -45,6 +44,7 @@ Reconciled on 2026-10-16 against closed issues and published releases. These spe
 | [592 — OpenCode v2 runtime](./archive/592-opencode-runtime.md) | 0.16.1, 2026-10-14 ([#876](https://github.com/yicheng47/runner/pull/876)) from a contributor's fork after the original #592 closed unbuilt; enabled by default; inference-dependent native checks and Windows unverified |
 | [849 — Start mission dialog redesign](./archive/849-start-mission-modal.md) | 0.16.2, 2026-10-15 ([#906](https://github.com/yicheng47/runner/pull/906)), with No crew for [562](./archive/562-mission-spawn.md)'s Phase 3; native Windows unverified |
 | [562 — Missions as containers](./archive/562-mission-spawn.md) | 0.15.2 to 0.16.2; [#562](https://github.com/yicheng47/runner/issues/562) closed 2026-10-16. The roster in 0.15.2 ([#868](https://github.com/yicheng47/runner/pull/868)), independent sessions in 0.15.3 ([#874](https://github.com/yicheng47/runner/pull/874)), adding and removing roles in 0.16.0 ([#889](https://github.com/yicheng47/runner/pull/889)) and the empty start in 0.16.2 ([#906](https://github.com/yicheng47/runner/pull/906)). The lead's own verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916), the starting-chat return path in [#748](https://github.com/yicheng47/runner/issues/748) |
+| [565 — English and Simplified Chinese UI](./archive/565-i18n.md) | 0.16.4, 2026-10-17 ([#926](https://github.com/yicheng47/runner/pull/926)); System, English and 简体中文 in Settings → General, switching live across windows. The final candidate's native retest was waived; native Windows and an alternate OS language unverified |
 
 ## Selected decision records
 

@@ -13,9 +13,9 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 | Windows, tabs, panes, sidebar, cwd and drawers | [workspace.md](workspace.md) | 31 | 6 | 25 |
 | Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 35 | 4 | 31 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
-| Agents, settings, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 32 | 4 | 28 |
+| Agents, settings, language, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 36 | 4 | 32 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| **Total** | | **202** | **37** | **165** |
+| **Total** | | **206** | **37** | **169** |
 
 `regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 
@@ -66,7 +66,7 @@ When a feature's test record is archived in a [release's docs sweep](../../../AG
 
 ## Not carried over
 
-All 52 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
+All 53 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 
 | Archive record/check left out | Reason / current owner |
 | --- | --- |
@@ -96,4 +96,5 @@ All 52 archive records were considered. Their lasting current live checks are li
 | [#701 notifications](../archive/701-desktop-notifications.md): controller, rule and settings round-trip tests, and the superseded mission master switch and completion-off defaults | CI owns the [notification controller](../../../crates/runner-app/src/notifications.rs) tests. The final four independent mission switches and background-only posting are `SET-NOTIF-01` to `SET-NOTIF-09`. |
 | [#878 launch definitions](../archive/878-session-launch-definition.md): LD-3's previous-build conversion and migration 0026/0027 | One-time upgrade; CI owns the conversion and schema snapshot tests. Ongoing launch freezing is `RT-LAUNCH-01` and `MIS-ROSTER-03`, and the stop divider is `MIS-FEED-02`. |
 | [#809 user guide](../archive/809-user-docs.md): Markdown parsing, link and GitHub-rendering checks, generator determinism and stale/missing-output failures, and the source audit | Documentation validation, not product behavior. CI's guide CLI check on both platforms owns reference freshness, and `SET-INSTALL-01` covers the installed command. The record's fresh-install walkthrough stays an unverified acceptance gap. |
+| [#565 localization](../archive/565-i18n.md): catalog key and placeholder parity, formatter and plural cases, locale mapping, cache-invalidation fixtures, the source and catalog-cleanup audits, and the Windows hook-reporter fixture fix | CI owns them in the [localization module](../../../crates/runner-app/src/i18n.rs), the settings, palette and menu tests and the CLI daemon-process tests. Native switching, persistence, search and layout are `SET-LANG-01` to `SET-LANG-04`; the waived final retest and the Windows and alternate-language gaps stay in the record. |
 | [M6.1](../archive/m6-1-input-state-smoke.md), [M6.6](../archive/m6-6-resize-smoke.md): old backend byte-latch/ring purge, `gpui-nightly` versus Tauri-main and internal ioctl/DB-count assertions | Retired structure/CI detail. Native drafts/IME and immediate resize/reattach/geometry/memory behavior remain `TERM-*`, `WS-*` and `MIS-*`. |
