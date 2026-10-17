@@ -2,7 +2,7 @@
 
 > Tracking issue: [#826](https://github.com/yicheng47/runner/issues/826). Priority: P2, milestone 0.16. Platforms: macOS and Windows.
 > Status: draft spec from Jason's 2026-10-08 design discussion, refreshed on 2026-10-17 against the delivery model that [#921](https://github.com/yicheng47/runner/pull/921) shipped for #907. No design: nothing new is drawn except the composer's multi-target picker, which follows its existing single-target chip.
-> Related: arch §4.2–§4.3 and §8.1/§8.5 (messages, inbox, delivery model), #907's [plan](../impls/907-reliable-delivery.md#relation-to-826), [#753](../tests/archive/753-inbox-delivery.md) (Windows Codex input delivery), [748](./748-mission-watch-delivery.md) (the watching chat, another recipient of the same dispatcher).
+> Related: arch §4.2–§4.3 and §8.1/§8.5 (messages, inbox, delivery model), #907's [plan](../impls/907-reliable-delivery.md#relation-to-826), [#753](../tests/archive/753-inbox-delivery.md) (Windows Codex input delivery), [748](./748-mission-watch-delivery.md) (the starting chat's return path, on hold).
 
 ## Motivation
 
@@ -61,7 +61,7 @@ Agent-side polling; threads or per-message priority; waking a member for other m
 
 ## Relation to 748
 
-[748](./748-mission-watch-delivery.md) adds the chat that started a mission as another recipient of the same dispatcher. Either can land first. Both write an ack after a Confirmed attempt; whichever lands first adds that step and the other reuses it. 748 wakes on broadcasts and counts any message with recipients, so several recipients need no change there.
+[748](./748-mission-watch-delivery.md) proposed the chat that started a mission as another recipient of the same dispatcher. It is on hold for a new design since 2026-10-17, so this spec lands first and adds the ack written after a Confirmed attempt itself.
 
 ## Verification
 
