@@ -18,12 +18,13 @@ File a new feature as an issue.
 
 1. Ask the user to describe the feature (motivation, scope, key decisions) unless they already have.
 2. **Pick a priority** (see Priority below). If the user didn't state one, propose one and confirm before filing. Don't file unlabeled.
-3. Set a milestone only when the user names one.
-4. Create the issue with labels `feature` and the chosen `P0`/`P1`/`P2`/`P3`:
+3. **Pick a readiness label** (see Readiness below) and propose it together with the priority. A feature with new UI or open questions is `needs-design`.
+4. Set a milestone only when the user names one.
+5. Create the issue with labels `feature`, the chosen `P0`/`P1`/`P2`/`P3` and the readiness label, if any:
    - Title: `feat: <short description>`
    - Body: Motivation, Scope, and Open questions when there are any. The issue holds the design discussion until development starts.
-   - Command shape: `gh issue create --label feature --label P1 --title "…" --body "…" [--milestone 0.16]`
-5. Report the issue URL, priority and milestone. Do not create a spec or edit any doc.
+   - Command shape: `gh issue create --label feature --label P1 [--label needs-design] --title "…" --body "…" [--milestone 0.16]`
+6. Report the issue URL, priority, readiness and milestone. Do not create a spec or edit any doc.
 
 #### `list`
 Show all features, sorted by priority.
@@ -32,7 +33,7 @@ Show all features, sorted by priority.
    `gh issue list --label feature --state open --limit 50 --json number,title,labels,milestone,createdAt,assignees`
 2. List the spec files in `docs/features/` (excluding README); most features have none until development starts.
 3. Sort the rows by priority (`P0` first, then `P1`, `P2`, `P3`, then unlabeled-by-priority last). Within a priority bucket, sort by issue number ascending.
-4. Present a combined view: **Priority**, feature name, **#** (issue), **Milestone**, spec file (if one exists), **Created**. Issues without a P-label show `—` in priority and a callout asking the user to triage them.
+4. Present a combined view: **Priority**, **Readiness** (`agent-ready`, `needs-design` or —), feature name, **#** (issue), **Milestone**, spec file (if one exists), **Created**. Issues without a P-label show `—` in priority and a callout asking the user to triage them.
 5. If the user asks for closed/shipped features too, repeat with `--state all` and add a **State** column.
 
 #### `spec <issue-number>`
@@ -57,11 +58,29 @@ Set or change the priority of an existing feature.
    (Removing all four is safe — `gh` ignores remove-label for labels not present.)
 2. Confirm the new priority.
 
+#### `ready <issue-number> <agent-ready|needs-design|none>`
+Set or change an existing feature's readiness.
+
+1. Remove both readiness labels, then add the new one unless it is `none`:
+   `gh issue edit <number> --remove-label agent-ready --remove-label needs-design [--add-label <readiness>]`
+2. Confirm the new readiness.
+
 ## Labels
 
 - `feature` — all feature issues use this label.
 - `bug` — for bug reports (not managed by this skill).
 - `P0` / `P1` / `P2` / `P3` — priority, exactly one per issue.
+- `agent-ready` / `needs-design` — readiness, at most one per issue (see Readiness below).
+
+## Readiness
+
+A readiness label says what has to happen before development can start. Many features get neither.
+
+- **`needs-design`** — development cannot start yet: the feature adds or changes UI that has no signed-off Pencil frame, it has open questions the user must decide, or it spans several surfaces and needs a spec or plan first. Most new features start here.
+- **`agent-ready`** — small and fully specified: nothing is left to decide, no UI needs drawing, and an agent can build and verify it in one pass. Build it inline, not as a crew mission.
+- **Neither** — specified but substantial work for a crew mission, or an evaluation or investigation rather than a build.
+
+Update the label as the issue moves: remove `needs-design` once the design is signed off or the questions are settled, and add `agent-ready` if what is left is small.
 
 ## Priority
 

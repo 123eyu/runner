@@ -19,7 +19,8 @@ Report a new bug.
 1. Ask the user to describe the bug: what happened, what was expected, and steps to reproduce (if known).
 2. Investigate the codebase to confirm the area of code involved. Note relevant file paths.
 3. **Pick a priority** (see Priority below). If the user didn't state one, propose one based on the bug's severity and the rubric, and confirm before filing. Don't file unlabeled.
-4. Create a GitHub Issue with labels `bug` and the chosen `P0`/`P1`/`P2`/`P3`:
+4. **Pick a readiness label** (see Readiness below) when the investigation makes it clear, and propose it together with the priority. Leave it off when unsure.
+5. Create a GitHub Issue with labels `bug`, the chosen `P0`/`P1`/`P2`/`P3` and the readiness label, if any:
    - Title: `bug: <short description>`
    - Body using this template:
 
@@ -40,8 +41,8 @@ Report a new bug.
      - OS: <if relevant>
      - Version: <app version from `crates/runner-app/Cargo.toml`>
      ```
-   - Command shape: `gh issue create --label bug --label P1 --title "…" --body "…"`
-5. Report the issue URL and the assigned priority.
+   - Command shape: `gh issue create --label bug --label P1 [--label agent-ready] --title "…" --body "…"`
+6. Report the issue URL, the assigned priority and the readiness label.
 
 #### `list`
 Show all bugs, sorted by priority.
@@ -49,7 +50,7 @@ Show all bugs, sorted by priority.
 1. Fetch open bugs with priority + metadata as JSON so they can be sorted:
    `gh issue list --label bug --state open --limit 50 --json number,title,labels,createdAt,assignees`
 2. Sort the rows by priority (`P0` first, then `P1`, `P2`, `P3`, then unlabeled-by-priority last). Within a priority bucket, sort by `createdAt` ascending (oldest first — they've been waiting longest).
-3. Present a table with columns: **Priority**, **#**, **Title**, **Created**, **Assignee** (if any). Use the priority label as the leading column so the ranking is visually obvious. Issues without a P-label show `—` in the priority column and a callout asking the user to triage them.
+3. Present a table with columns: **Priority**, **Readiness** (`agent-ready`, `needs-design` or —), **#**, **Title**, **Created**, **Assignee** (if any). Use the priority label as the leading column so the ranking is visually obvious. Issues without a P-label show `—` in the priority column and a callout asking the user to triage them.
 4. If the user asks for closed bugs too, repeat with `--state all` and add a **State** column.
 
 #### `close <issue-number>`
@@ -66,6 +67,13 @@ Set or change the priority of an existing bug.
    (Removing all four is safe — `gh` ignores remove-label for labels not present.)
 2. Confirm the new priority.
 
+#### `ready <issue-number> <agent-ready|needs-design|none>`
+Set or change an existing bug's readiness.
+
+1. Remove both readiness labels, then add the new one unless it is `none`:
+   `gh issue edit <number> --remove-label agent-ready --remove-label needs-design [--add-label <readiness>]`
+2. Confirm the new readiness.
+
 #### `view <issue-number>`
 Show details of a specific bug report.
 
@@ -76,6 +84,17 @@ Show details of a specific bug report.
 
 - `bug` — all bug issues use this label.
 - `P0` / `P1` / `P2` / `P3` — priority, exactly one per issue.
+- `agent-ready` / `needs-design` — readiness, at most one per issue (see Readiness below).
+
+## Readiness
+
+A readiness label says what has to happen before the fix can start. Many bugs get neither.
+
+- **`agent-ready`** — small and fully specified: the cause and the fix are known, nothing is left to decide, and an agent can make and verify the fix in one pass. A fix that can only be verified on a Windows host, or that needs a reproduction first, is not agent-ready. Fix it inline, not as a crew mission.
+- **`needs-design`** — the fix cannot start yet: it changes UI that has no signed-off Pencil frame, it has open questions the user must decide, or it spans several surfaces and needs a plan first.
+- **Neither** — a known but substantial fix for a crew mission, or a bug whose cause still needs investigating.
+
+Update the label as the issue moves: remove `needs-design` once the design is signed off or the questions are settled, and add `agent-ready` if what is left is small.
 
 ## Priority
 
