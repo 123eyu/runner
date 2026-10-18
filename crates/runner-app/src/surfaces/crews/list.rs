@@ -21,7 +21,7 @@ use runner_app::ui::{
     MenuItem as UiMenuItem, PaginatedListPage, Tooltip,
 };
 use runner_core::protocol::crew::CrewListItem;
-use runner_core::protocol::model::Mission;
+use runner_core::protocol::mission::MissionSummary;
 
 use crate::chat_icon::ChatIcon;
 
@@ -616,7 +616,7 @@ fn crew_table_header(columns: &[CrewColumn]) -> AnyElement {
 fn crew_table_cell(
     column: CrewColumn,
     item: &CrewListItem,
-    missions: &[&Mission],
+    missions: &[&MissionSummary],
     now: &chrono::DateTime<chrono::Local>,
 ) -> AnyElement {
     let cell = div()

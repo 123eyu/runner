@@ -493,24 +493,36 @@ pub(super) fn slot_runtime_options(
 }
 
 /// The missions the card and the list count for one crew, newest first.
-pub(super) fn crew_missions<'a>(missions: &'a [MissionSummary], crew_id: &str) -> Vec<&'a Mission> {
+pub(super) fn crew_missions<'a>(
+    missions: &'a [MissionSummary],
+    crew_id: &str,
+) -> Vec<&'a MissionSummary> {
     let mut missions = missions
         .iter()
-        .map(|summary| &summary.mission)
-        .filter(|mission| mission.crew_id.as_deref() == Some(crew_id))
+        .filter(|summary| summary.mission.crew_id.as_deref() == Some(crew_id))
         .collect::<Vec<_>>();
-    missions.sort_by(|a, b| b.started_at.cmp(&a.started_at).then(b.id.cmp(&a.id)));
+    missions.sort_by(|a, b| {
+        b.mission
+            .started_at
+            .cmp(&a.mission.started_at)
+            .then(b.mission.id.cmp(&a.mission.id))
+    });
     missions
+}
+
+/// A `running` mission whose sessions have all stopped is paused, not live.
+pub(super) fn mission_live(summary: &MissionSummary) -> bool {
+    summary.mission.status == MissionStatus::Running && summary.any_session_live
 }
 
 /// Missions the card shows before its footer expands it.
 pub(super) const MISSIONS_SHOWN: usize = 4;
 
 /// `14 run · none live`.
-pub(super) fn missions_header(missions: &[&Mission]) -> String {
+pub(super) fn missions_header(missions: &[&MissionSummary]) -> String {
     let live = missions
         .iter()
-        .filter(|mission| mission.status == MissionStatus::Running)
+        .filter(|summary| mission_live(summary))
         .count();
     if live == 0 {
         crate::i18n::tf(
@@ -597,7 +609,7 @@ pub(super) fn runtime_counts(members: &[CrewMemberPreview]) -> Vec<(String, usiz
 /// The list's Last mission cell and whether it is live: the running count,
 /// the latest start, or a dash for a crew that never ran.
 pub(super) fn last_mission_label<Tz: chrono::TimeZone>(
-    missions: &[&Mission],
+    missions: &[&MissionSummary],
     now: &chrono::DateTime<Tz>,
 ) -> (String, bool)
 where
@@ -605,7 +617,7 @@ where
 {
     let running = missions
         .iter()
-        .filter(|mission| mission.status == MissionStatus::Running)
+        .filter(|summary| mission_live(summary))
         .count();
     if running > 0 {
         let label = if running == 1 {
@@ -620,7 +632,7 @@ where
     }
     let label = missions
         .iter()
-        .map(|mission| mission.started_at)
+        .map(|summary| summary.mission.started_at)
         .max()
         .map(|started| {
             crate::surfaces::profile_page::short_timestamp(

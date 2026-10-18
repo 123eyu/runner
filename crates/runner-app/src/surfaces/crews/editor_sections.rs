@@ -1,5 +1,6 @@
 use super::logic::crew_missions;
 use super::logic::mission_duration;
+use super::logic::mission_live;
 use super::logic::missions_footer;
 use super::logic::missions_header;
 use super::logic::short_date;
@@ -11,7 +12,8 @@ use gpui::{
     div, px, rems, svg, AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, SharedString,
 };
 use runner_app::ui::focus_ring;
-use runner_core::protocol::model::{Crew, Mission, MissionStatus};
+use runner_core::protocol::mission::MissionSummary;
+use runner_core::protocol::model::{Crew, MissionStatus};
 
 use crate::surfaces::profile_page::{
     caption, card, card_column, card_meta, clamped_markdown, markdown_editor_body,
@@ -265,12 +267,14 @@ fn conventions_card(header_right: AnyElement) -> Div {
 }
 
 fn mission_row(
-    mission: &Mission,
+    summary: &MissionSummary,
     now: runner_core::protocol::model::Timestamp,
     local_now: &chrono::DateTime<chrono::Local>,
     interactive: bool,
     root: Entity<NativeRoot>,
 ) -> AnyElement {
+    let mission = &summary.mission;
+    let live = mission_live(summary);
     let id = mission.id.clone();
     let key_id = id.clone();
     let key_root = root.clone();
@@ -293,17 +297,17 @@ fn mission_row(
             .flex()
             .items_center()
             .justify_center()
-            .child(
-                div()
-                    .size(rems(7. / 16.))
-                    .rounded_full()
-                    .bg(theme::accent()),
-            )
+            .child(div().size(rems(7. / 16.)).rounded_full().bg(if live {
+                theme::accent()
+            } else {
+                theme::faint()
+            }))
             .into_any_element(),
     };
     let tag = match mission.status {
         MissionStatus::Aborted => Some(("aborted", theme::danger())),
-        MissionStatus::Running => Some(("live", theme::accent())),
+        MissionStatus::Running if live => Some(("live", theme::accent())),
+        MissionStatus::Running => Some(("paused", theme::muted())),
         MissionStatus::Completed => None,
     };
     div()
