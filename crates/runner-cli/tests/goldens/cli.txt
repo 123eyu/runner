@@ -1216,6 +1216,207 @@ Options:
   -h, --help  Print help
 
 # context: not running
+$ runner --help
+exit 0
+Operate Runner missions, crews, roles, projects, and chats.
+
+Usage: runner [OPTIONS] <COMMAND>
+
+Commands:
+  daemon   Inspect or stop the local daemon
+  status   Check whether Runner is running
+  project  Manage projects
+  role     Manage reusable agent roles
+  crew     Manage crews and their slots
+  mission  Manage crew missions
+  chat     Start direct chats
+  session  Inspect and manage sessions
+  msg      Post to or read a mission log
+  signal   Emit a typed signal
+  ask      Ask the person with --human
+  call     Call any registered socket tool
+  help     Print the command reference
+
+Options:
+      --json     Print the tool result as exact JSON
+  -q             Print only result IDs
+  -h, --help     Print help
+  -V, --version  Print version
+
+# context: not running
+$ runner daemon --help
+exit 0
+Inspect or stop the local daemon
+
+Usage: runner daemon [OPTIONS] <COMMAND>
+
+Commands:
+  status  
+  stop    
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner project --help
+exit 0
+Manage projects
+
+Usage: runner project [OPTIONS] <COMMAND>
+
+Commands:
+  list    List projects
+  show    Show one project by ID or exact name
+  create  Create a project
+  rename  Rename a project
+  delete  Delete a project and archive its members
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner role --help
+exit 0
+Manage reusable agent roles
+
+Usage: runner role [OPTIONS] <COMMAND>
+
+Commands:
+  list    List reusable roles
+  show    Show a role by handle
+  create  Create a role
+  update  Update a role
+  delete  Delete a role
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner crew --help
+exit 0
+Manage crews and their slots
+
+Usage: runner crew [OPTIONS] <COMMAND>
+
+Commands:
+  list    List crews
+  show    Show one crew and its slots
+  create  Create a crew
+  update  Update a crew
+  delete  Delete a crew
+  add     Add a role to a crew
+  set     Update one crew slot by handle
+  remove  Remove a slot from a crew
+  lead    Make a slot the crew lead
+  order   Reorder every crew slot by handle
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner mission --help
+exit 0
+Manage crew missions
+
+Usage: runner mission [OPTIONS] <COMMAND>
+
+Commands:
+  list         List active missions
+  show         Show an operational mission snapshot
+  start        Start a mission
+  add-role     Add a configured worker role to a running mission (person only)
+  remove-role  Remove a worker from a running mission (person only)
+  stop         Stop a running mission
+  resume       Resume every stopped session in a mission
+  archive      Archive a mission
+  unarchive    Restore an archived mission to active lists
+  rename       Rename a mission
+  pin          Pin a mission
+  unpin        Unpin a mission
+  move         Move a mission into a project or unfile it
+  feed         Print a window from the mission event feed
+  answer       Answer a pending person question
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner chat --help
+exit 0
+Start direct chats
+
+Usage: runner chat [OPTIONS] <COMMAND>
+
+Commands:
+  start  Start a role-backed or runtime-only direct chat
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner session --help
+exit 0
+Inspect and manage sessions
+
+Usage: runner session [OPTIONS] <COMMAND>
+
+Commands:
+  list     List recent direct-chat sessions
+  show     Show one session with its live agent status
+  stop     Stop a session and leave it resumable
+  archive  Stop and archive a direct chat
+  resume   Resume a stopped session
+  restart  Restart a mission session with a fresh conversation
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner msg --help
+exit 0
+Post to or read a mission log
+
+Usage: runner msg [OPTIONS] <COMMAND>
+
+Commands:
+  post  Post a mission message
+  read  Read new inbox messages; --all shows crew history since joining
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
+$ runner help --help
+exit 0
+Print the command reference
+
+Usage: runner help [OPTIONS] [TOPIC]
+
+Arguments:
+  [TOPIC]  
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
+
+# context: not running
 $ runner status --help
 exit 0
 Check whether Runner is running
@@ -1948,4 +2149,40 @@ Options:
   -q                       Print only result IDs
       --as <FROM>          Attribute the signal to this roster handle
   -h, --help               Print help
+
+# context: not running
+$ runner ask --help
+exit 0
+Ask the person with --human
+
+Usage: runner ask [OPTIONS] [QUESTION]
+
+Arguments:
+  [QUESTION]  Question for the mission lead
+
+Options:
+      --context <CONTEXT>  Legacy context flag; direct lead questions use msg post --to
+      --json               Print the tool result as exact JSON
+      --human <HUMAN>      Ask the person at the app
+  -q                       Print only result IDs
+      --choices <CHOICES>  Comma-separated choices for --human
+      --mission <MISSION>  Mission ID or unique prefix; required outside a mission
+      --as <FROM>          Attribute the question to this roster handle
+  -h, --help               Print help
+
+# context: not running
+$ runner call --help
+exit 0
+Call any registered socket tool
+
+Usage: runner call [OPTIONS] <TOOL> [ARGUMENTS]
+
+Arguments:
+  <TOOL>       
+  [ARGUMENTS]  
+
+Options:
+      --json  Print the tool result as exact JSON
+  -q          Print only result IDs
+  -h, --help  Print help
 

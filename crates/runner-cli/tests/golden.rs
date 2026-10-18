@@ -670,11 +670,20 @@ fn help_cases() -> Vec<Case> {
         vec!["help", "mission"],
         vec!["mission", "add-role", "--help"],
         vec!["mission", "remove-role", "--help"],
+        vec!["--help"],
+        vec!["daemon", "--help"],
+        vec!["project", "--help"],
+        vec!["role", "--help"],
+        vec!["crew", "--help"],
+        vec!["mission", "--help"],
+        vec!["chat", "--help"],
+        vec!["session", "--help"],
+        vec!["msg", "--help"],
+        vec!["help", "--help"],
     ];
     for args in cases()
         .into_iter()
         .filter(|args| !matches!(args.get(1), Some(&"add-role" | &"remove-role")))
-        .take(50)
     {
         let count = if matches!(args.first(), Some(&"status" | &"signal" | &"ask" | &"call")) {
             1
@@ -815,6 +824,60 @@ fn built_cli_goldens_not_running() {
 #[test]
 fn built_cli_goldens_help() {
     check_cases(help_cases());
+}
+
+fn visible_help_cases(fixture: &Fixture, args: Vec<String>) -> Vec<Vec<String>> {
+    let output = fixture.command(false).args(&args).output().unwrap();
+    assert!(output.status.success(), "help failed for {args:?}");
+    let text = std::str::from_utf8(&output.stdout).unwrap();
+    let command = regex::Regex::new(r"^  ([a-z][a-z0-9-]*)(?:\s|$)").unwrap();
+    let mut cases = vec![args.clone()];
+    for line in text
+        .lines()
+        .skip_while(|line| *line != "Commands:")
+        .skip(1)
+        .take_while(|line| line.is_empty() || line.starts_with(' '))
+    {
+        if let Some(captures) = command.captures(line) {
+            let mut child = args[..args.len() - 1].to_vec();
+            child.extend([captures[1].to_owned(), "--help".to_owned()]);
+            cases.extend(visible_help_cases(fixture, child));
+        }
+    }
+    cases
+}
+
+fn assert_help_coverage(visible: &[Vec<String>], cases: &[Case]) {
+    for args in visible {
+        assert!(
+            cases.iter().any(|case| case.args == *args),
+            "missing help golden: runner {}",
+            args.join(" ")
+        );
+    }
+}
+
+#[test]
+fn help_goldens_cover_every_visible_command() {
+    let fixture = Fixture::new();
+    let visible = visible_help_cases(&fixture, vec!["--help".to_owned()]);
+    assert!(visible.contains(&vec!["ask".to_owned(), "--help".to_owned()]));
+    assert!(visible.contains(&vec![
+        "mission".to_owned(),
+        "start".to_owned(),
+        "--help".to_owned()
+    ]));
+    assert_help_coverage(&visible, &help_cases());
+}
+
+#[test]
+fn help_coverage_rejects_missing_commands() {
+    for args in [vec!["ask", "--help"], vec!["mission", "start", "--help"]] {
+        let visible = vec![args.iter().map(|arg| (*arg).to_owned()).collect()];
+        let mut cases = help_cases();
+        cases.retain(|case| case.args != args);
+        assert!(std::panic::catch_unwind(|| assert_help_coverage(&visible, &cases)).is_err());
+    }
 }
 
 #[test]
