@@ -1,6 +1,6 @@
 ---
 name: nightly
-description: Cut or check Runner nightlies — one workflow for macOS and Windows, one public prerelease, shared stamp, and separate stable feeds
+description: Cut or check Runner nightlies — one workflow for macOS and Windows, one public prerelease per channel (nightly from main, remote-nightly from the nightly-remote umbrella), shared stamp, and separate stable feeds
 ---
 
 # Nightly
@@ -11,13 +11,13 @@ An explicit request to `run` authorizes that workflow dispatch. Reading or editi
 
 ## Usage
 
-`/nightly [run [both|macos|windows] | check [both|macos|windows]]` — no action means `run`; omitted platform means `both`.
+`/nightly [run [both|macos|windows] [remote] | check [both|macos|windows] [remote]]` — no action means `run`; omitted platform means `both`; `remote` selects the remote nightly (see [Remote nightly](#remote-nightly)).
 
 ## `run [platform]`
 
 1. **Preflight — stop on any failure and report it.**
    - `git fetch origin`; require branch `main`, a clean tree (`git status --short` empty), and `git rev-parse main origin/main` equal. Capture the full `origin/main` SHA. Do not push local commits without instruction.
-   - Check for **any** queued or running nightly, including other platforms: `gh run list --workflow nightly.yml --limit 30 --json databaseId,status,displayTitle,headSha`. Stop if a run is not completed; all platforms share concurrency group `nightly`, so a dispatch cancels the entire older run.
+   - Check for **any** queued or running nightly of the same channel, including other platforms: `gh run list --workflow nightly.yml --limit 30 --json databaseId,status,displayTitle,headSha`. Stop if such a run is not completed; all platforms share their channel's concurrency group, so a dispatch cancels the entire older run of that channel. A run of the other channel does not block.
    - CI for the SHA: `gh run list --commit <sha> --workflow ci.yaml --limit 1 --json status,conclusion`. Missing or completed without `success` → stop. Queued/in-progress is fine: the single publish job waits for CI and verifies its successful conclusion. Both macOS and Windows CI must pass even for a single-platform cut.
    - If the Runner MCP is reachable, report running missions from `mission_list_summary`. A successful cut can produce a nightly update offer and a Windows background download. Installation/restart remains a separate user action and interrupts live PTYs.
 2. **Dispatch:** `gh workflow run nightly.yml --ref main` for both, or append `-f platform=macos` / `-f platform=windows`. Find the new run with `gh run list --workflow nightly.yml --branch main --limit 5 --json databaseId,status,headSha,displayTitle,createdAt`; require the selected `Nightly (<platform>)` title, creation after dispatch, and `headSha` equal to preflight. If the source changed during dispatch, report the mismatch and do not claim the intended cut succeeded.
@@ -35,6 +35,14 @@ Read `gh release view nightly --json isPrerelease,isDraft,assets` once; require 
 - **macOS / `nightly`:** require `Runner-Nightly-<sha>.<stamp>-arm64.dmg` and `appcast.xml`. Check anonymous DMG access with `curl --silent --show-error --fail --head --location <asset-url>`; download and parse the appcast. Its single signed enclosure must point to that DMG at `https://github.com/yicheng47/runner/releases/download/nightly/`, with the expected stamp, seven-character commit as its short version, and `arm64` hardware requirement. Sparkle supplies the app name in its native alert; Runner’s own update display is `Nightly (<sha>)`. The release page is `https://github.com/yicheng47/runner/releases/tag/nightly`.
 - **Windows / `nightly`:** require `Runner-Setup-nightly.<sha>.<stamp>-x64.exe` and its exact `.sig`; anonymous access must succeed for both at `https://github.com/yicheng47/runner/releases/download/nightly/`. Installers/signatures prune together. Portable ZIPs are retired. The release page is `https://github.com/yicheng47/runner/releases/tag/nightly`.
 - **Stable isolation:** verify `gh api repos/yicheng47/runner/releases/latest --jq .tag_name` still identifies the current production release (0.8.2 when #502 was implemented), not a nightly. Do not report a real installed update or production Sparkle check as tested merely because release metadata is correct.
+
+## Remote nightly
+
+While web remote control ([#836](https://github.com/yicheng47/runner/issues/836)) is built on the `nightly-remote` umbrella, `remote` cuts or checks the separate `remote-nightly` release from that branch, so `nightly` keeps tracking `main`. Everything above applies with these substitutions:
+
+- **Source:** `git fetch origin` and capture `git rev-parse origin/nightly-remote`; no local checkout of the umbrella is needed. CI runs on umbrella pushes, so the same CI gate applies to that SHA.
+- **Dispatch:** `gh workflow run nightly.yml --ref nightly-remote -f channel=remote-nightly`, plus `-f platform=…` for one platform. Find the run with `--branch nightly-remote` and the title `Remote Nightly (<platform>)`. The workflow refuses `remote-nightly` from any other branch, and `nightly` from any branch but `main`.
+- **Check:** release and tag `remote-nightly`; macOS `Runner-Remote-Nightly-<sha>.<stamp>-arm64.dmg` and `appcast.xml`, Windows `Runner-Setup-remote-nightly.<sha>.<stamp>-x64.exe` and its `.sig`, all under `https://github.com/yicheng47/runner/releases/download/remote-nightly/`. The notes end with `script/remote-nightly-release-notes.md`, the apps display `Remote Nightly (<sha>)`, and `git log remote-nightly..origin/nightly-remote --oneline` describes what a new cut would pick up.
 
 ## Notes
 

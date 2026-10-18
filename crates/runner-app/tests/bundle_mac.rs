@@ -83,6 +83,33 @@ fn nightly_plist_uses_the_production_identity_with_the_nightly_feed() {
 }
 
 #[test]
+fn remote_nightly_plist_reads_its_own_feed() {
+    let output = run(&[
+        "--channel",
+        "remote-nightly",
+        "--stamp",
+        "20260821.1432",
+        "--sha",
+        "abc1234",
+        "--print-plist",
+    ]);
+    assert!(output.status.success());
+    let plist = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        plist_value(&plist, "CFBundleIdentifier"),
+        "com.wycstudios.runner"
+    );
+    assert_eq!(plist_value(&plist, "CFBundleName"), "Runner");
+    assert_eq!(
+        plist_value(&plist, "SUFeedURL"),
+        "https://github.com/yicheng47/runner/releases/download/remote-nightly/appcast.xml"
+    );
+    assert_eq!(plist_value(&plist, "CFBundleShortVersionString"), "abc1234");
+    assert_eq!(plist_value(&plist, "CFBundleVersion"), "20260821.1432");
+    assert_update_preferences(&plist);
+}
+
+#[test]
 fn production_plist_keeps_the_marketing_version_separate_from_the_stamp() {
     let version = bundle_version();
     let output = run(&[
