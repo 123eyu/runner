@@ -65,6 +65,10 @@ fn release_urls(channel: Option<&str>) -> (&'static str, &'static str) {
             "https://api.github.com/repos/yicheng47/runner/releases/latest",
             "https://github.com/yicheng47/runner/releases/latest",
         ),
+        Some("remote-nightly") => (
+            "https://api.github.com/repos/yicheng47/runner/releases/tags/remote-nightly",
+            "https://github.com/yicheng47/runner/releases/tag/remote-nightly",
+        ),
         _ => (
             "https://api.github.com/repos/yicheng47/runner/releases/tags/nightly",
             "https://github.com/yicheng47/runner/releases/tag/nightly",
@@ -802,6 +806,13 @@ mod tests {
             )
         );
         assert_eq!(release_urls(None), release_urls(Some("nightly")));
+        assert_eq!(
+            release_urls(Some("remote-nightly")),
+            (
+                "https://api.github.com/repos/yicheng47/runner/releases/tags/remote-nightly",
+                "https://github.com/yicheng47/runner/releases/tag/remote-nightly",
+            )
+        );
         assert_eq!(
             release_urls(Some("production")),
             (

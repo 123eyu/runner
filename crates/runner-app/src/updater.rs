@@ -16,19 +16,31 @@ pub struct UpdateInfo {
 
 impl UpdateInfo {
     pub fn new(version: impl Into<String>) -> Self {
-        let version = version.into();
-        let nightly_sha = version
-            .strip_prefix("nightly.")
-            .and_then(|nightly| nightly.split_once('.'))
-            .map(|(sha, _)| sha)
+        Self::on_channel(version.into(), option_env!("RUNNER_RELEASE_CHANNEL"))
+    }
+
+    fn on_channel(version: String, channel: Option<&str>) -> Self {
+        let commit = |prefix: &str| {
+            version
+                .strip_prefix(prefix)
+                .and_then(|rest| rest.split_once('.'))
+                .map(|(sha, _)| sha)
+        };
+        // Sparkle reports only the commit, so it takes the label of the feed this build reads.
+        let feed_label = match channel {
+            Some("remote-nightly") => "Remote Nightly",
+            _ => "Nightly",
+        };
+        let label = commit("nightly.")
+            .map(|sha| format!("Nightly ({sha})"))
+            .or_else(|| commit("remote-nightly.").map(|sha| format!("Remote Nightly ({sha})")))
             .or_else(|| {
                 (version.len() == 7 && version.bytes().all(|byte| byte.is_ascii_hexdigit()))
-                    .then_some(version.as_str())
+                    .then(|| format!("{feed_label} ({version})"))
             });
-        let version = nightly_sha
-            .map(|sha| format!("Nightly ({sha})"))
-            .unwrap_or(version);
-        Self { version }
+        Self {
+            version: label.unwrap_or(version),
+        }
     }
 
     pub fn version(&self) -> &str {
@@ -515,6 +527,14 @@ mod tests {
             "Nightly (abc1234)"
         );
         assert_eq!(UpdateInfo::new("abc1234").version(), "Nightly (abc1234)");
+        assert_eq!(
+            UpdateInfo::new("remote-nightly.abc1234.20261018.0100").version(),
+            "Remote Nightly (abc1234)"
+        );
+        assert_eq!(
+            UpdateInfo::on_channel("abc1234".into(), Some("remote-nightly")).version(),
+            "Remote Nightly (abc1234)"
+        );
         for version in [
             "0.8.2.20260907.0100",
             "0.8.3-nightly.20260907.0100",
