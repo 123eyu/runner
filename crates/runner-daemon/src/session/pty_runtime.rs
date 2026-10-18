@@ -209,6 +209,12 @@ impl SessionRuntime for PtyRuntime {
             cmd.env(k, v);
         }
         cmd.env("PATH", &composed_path);
+        // Shells keep a symlinked cwd's own path only when PWD names it;
+        // otherwise they print the resolved path.
+        #[cfg(unix)]
+        if let Some(cwd) = &spec.cwd {
+            cmd.env("PWD", cwd);
+        }
         // COLUMNS/LINES so Node-based TUIs pick up the initial grid
         // before SIGWINCH lands.
         cmd.env("COLUMNS", cols.to_string());
@@ -2897,6 +2903,38 @@ mod tests {
             "expected idle then busy transition, got {statuses:?}"
         );
         let _ = rt.stop(&sess);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn spawn_keeps_symlinked_cwd_in_pwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let mut launch = spec(
+            "test-logical-pwd",
+            "/bin/sh",
+            &["-c", "printf 'PWD=%s\\n' \"$PWD\""],
+        );
+        launch.cwd = Some(link.clone());
+        let rt = PtyRuntime::new();
+        let (_sess, stream) = rt.spawn(launch).unwrap();
+        let mut output = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            match stream.recv_status_timeout(Duration::from_millis(100)) {
+                Ok(super::super::runtime::TestOutput::Stream(bytes)) => output.extend(bytes),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                _ => {}
+            }
+        }
+        let output = String::from_utf8_lossy(&output);
+        assert!(
+            output.contains(&format!("PWD={}\r\n", link.display())),
+            "{output}"
+        );
     }
 
     #[test]
