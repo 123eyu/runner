@@ -39,7 +39,8 @@ mod working_dir;
 
 pub use form::{slot_handle_error, BrowseField, Field, FieldError, Label};
 pub use text_field::{FieldValidation, TextFieldKind};
-pub(crate) use working_dir::{compact_path_candidates, pick_compact_path};
+pub use working_dir::compact_path_candidates;
+pub(crate) use working_dir::pick_compact_path;
 pub use working_dir::{
     effective_working_dir, working_dir_placeholder, working_dir_text_field, WorkingDirField,
 };

@@ -32,7 +32,7 @@ pub(super) fn project_header_icon(collapsed: bool) -> ChatIcon {
 }
 
 impl Sidebar {
-    fn live_title(&self, session_id: &str, cx: &App) -> Option<String> {
+    pub(super) fn live_title(&self, session_id: &str, cx: &App) -> Option<String> {
         self.shell
             .upgrade()?
             .read(cx)
@@ -43,7 +43,7 @@ impl Sidebar {
     /// A hover style cannot do this: gpui-pre resolves group hover differently
     /// in prepaint and paint, and a child hidden in one and shown in the other
     /// panics.
-    fn set_row_hovered(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
+    pub(super) fn set_row_hovered(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
         if hovered {
             self.hovered_row = Some(id.to_owned());
         } else if self.hovered_row.as_deref() == Some(id) {

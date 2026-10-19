@@ -1,6 +1,7 @@
 //! Native sidebar: durable node tree, project containers, tab rows, and attention.
 
 mod activation;
+mod active;
 mod archive;
 mod drag;
 mod elements;

@@ -1444,3 +1444,1105 @@ fn empty_tab_rename_source_changes_language_while_named_tabs_stay_literal() {
         assert_eq!(source.resolve(), "Empty tab");
     });
 }
+
+fn active_row_names(rows: &[super::active::ActiveSidebarRow], nodes: &[NodeRow]) -> Vec<String> {
+    rows.iter()
+        .map(|row| {
+            let id = row.shortcut_row(nodes).node_id;
+            nodes
+                .iter()
+                .find(|node| node.id == id)
+                .and_then(|node| node.name.clone())
+                .filter(|name| !name.is_empty())
+                .unwrap_or(id)
+        })
+        .collect()
+}
+
+#[test]
+fn active_projection_orders_tabs_and_rolls_up_missions_without_drawers() {
+    use super::active::ActiveGroup;
+    use runner_core::protocol::status::{
+        Activity, AgentStatus, HumanInteraction, Lifecycle, ObservationSource, WaitReason,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (pool, store) = seeded_store(&mut cx, temp.path());
+    let conn = pool.get().unwrap();
+    let mut split = two_pane_layout("working-old", "terminal");
+    split.add_drawer_shell("drawer".into());
+    let split_node =
+        runner_daemon::repo::node::create_tab(&conn, None, "Mixed", 0, &split.serialize().unwrap())
+            .unwrap();
+    for (index, id) in [
+        "error",
+        "wait",
+        "working-new",
+        "unread",
+        "idle",
+        "unavailable",
+        "member",
+        "working-tie",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let layout = PaneLayout::single(Some(id), &[(*id).into()]);
+        runner_daemon::repo::node::create_tab(
+            &conn,
+            None,
+            id,
+            index as i64 + 1,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap();
+    }
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_nodes(cx).unwrap();
+        store.settings.sidebar_active_only = true;
+        let working = AgentStatus {
+            lifecycle: Lifecycle::Running,
+            observation: runner_core::protocol::status::AgentObservation {
+                activity: Activity::Working,
+                source: ObservationSource::Hook,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        store.sessions = [
+            "working-old",
+            "terminal",
+            "drawer",
+            "error",
+            "wait",
+            "working-new",
+            "unread",
+            "idle",
+            "unavailable",
+            "member",
+            "working-tie",
+        ]
+        .into_iter()
+        .map(|id| {
+            direct_session(
+                id,
+                if matches!(id, "terminal" | "drawer") {
+                    "shell"
+                } else {
+                    "codex"
+                },
+                SessionStatus::Running,
+            )
+        })
+        .collect();
+        store.session_statuses = store
+            .sessions
+            .iter()
+            .map(|session| (session.session_id.clone(), working.clone()))
+            .collect();
+        store.session_statuses.get_mut("error").unwrap().error_since = Some(1);
+        store
+            .session_statuses
+            .get_mut("wait")
+            .unwrap()
+            .observation
+            .interactions
+            .push(HumanInteraction {
+                id: "ask".into(),
+                reason: WaitReason::Approval,
+                owners: vec![],
+                since: 2,
+            });
+        let unread = store.session_statuses.get_mut("unread").unwrap();
+        unread.lifecycle = Lifecycle::Stopped;
+        unread.unread_since = Some(4);
+        store
+            .session_statuses
+            .get_mut("idle")
+            .unwrap()
+            .observation
+            .activity = Activity::Ready;
+        store
+            .session_statuses
+            .get_mut("unavailable")
+            .unwrap()
+            .observation
+            .activity = Activity::Unavailable;
+        store
+            .session_activity
+            .insert("terminal".into(), SessionActivityState::Busy);
+        store
+            .session_activity
+            .insert("drawer".into(), SessionActivityState::Busy);
+        store.session_activity_at.insert("working-new".into(), 30);
+        store.session_activity_at.insert("working-tie".into(), 30);
+        store.session_activity_at.insert("working-old".into(), 10);
+        store.missions[0].session_statuses = vec![("member".into(), working)];
+    });
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    let mut tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        let nodes = &store.read(cx).nodes;
+        let shortcuts = rows
+            .iter()
+            .map(|row| row.shortcut_row(nodes))
+            .collect::<Vec<_>>();
+        let tab_id = |name: &str| {
+            nodes
+                .iter()
+                .find(|node| node.name.as_deref() == Some(name))
+                .unwrap()
+                .id
+                .clone()
+        };
+        let mut tied = ["working-new", "working-tie"];
+        tied.sort_by_key(|name| tab_id(name));
+        let mission = nodes
+            .iter()
+            .find(|node| node.node_type == NodeType::Mission)
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(
+            active_row_names(&rows, nodes),
+            [
+                "error",
+                "wait",
+                tied[0],
+                tied[1],
+                "Mixed",
+                "unread",
+                "unavailable",
+                "idle",
+                mission.as_str(),
+            ]
+        );
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.group() == ActiveGroup::Chats)
+                .count(),
+            8
+        );
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.group() == ActiveGroup::Missions)
+                .count(),
+            1
+        );
+        assert!(rows.iter().all(|row| row.group() != ActiveGroup::Terminals));
+        assert_eq!(
+            shortcuts[4].target,
+            SidebarActivationTarget::Tab {
+                tab_id: split_node.id.clone(),
+                session_id: "working-old".into()
+            }
+        );
+        sidebar.refresh_shortcut_rows(&tabs, cx);
+        assert_eq!(
+            sidebar
+                .numbered_shortcut_rows
+                .iter()
+                .map(|row| (&row.node_id, &row.target))
+                .collect::<Vec<_>>(),
+            shortcuts
+                .iter()
+                .take(9)
+                .map(|row| (&row.node_id, &row.target))
+                .collect::<Vec<_>>()
+        );
+        tabs.activate(&split_node.id);
+        tabs.active_mut().unwrap().focus_session("terminal");
+    });
+    store.update(&mut cx, |store, _| {
+        for status in store.session_statuses.values_mut() {
+            status.observation.activity = Activity::Idle;
+            status.observation.interactions.clear();
+            status.error_since = None;
+            status.unread_since = None;
+        }
+        for session in &mut store.sessions {
+            if session.session_id != "terminal" {
+                session.status = SessionStatus::Stopped;
+            }
+        }
+        for status in store.session_statuses.values_mut() {
+            status.lifecycle = Lifecycle::Stopped;
+        }
+        store.session_activity.clear();
+        store.missions[0].session_statuses.clear();
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let nodes = &store.read(cx).nodes;
+        let retained = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(active_row_names(&retained, nodes), ["Mixed"]);
+        assert_eq!(
+            retained[0].shortcut_row(nodes).target,
+            SidebarActivationTarget::Tab {
+                tab_id: split_node.id.clone(),
+                session_id: "terminal".into()
+            }
+        );
+        tabs.active_mut().unwrap().focus_session("working-old");
+        let switched = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(active_row_names(&switched, nodes), ["Mixed"]);
+        assert_eq!(
+            switched[0].shortcut_row(nodes).target,
+            SidebarActivationTarget::Tab {
+                tab_id: split_node.id.clone(),
+                session_id: "working-old".into()
+            }
+        );
+        assert_eq!(
+            store
+                .read(cx)
+                .nodes
+                .iter()
+                .find(|node| node.id == split_node.id)
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("Mixed")
+        );
+    });
+}
+
+#[test]
+fn active_includes_live_idle_chats_and_missions_and_removes_stopped_selection() {
+    use super::active::ActiveGroup;
+    use runner_core::protocol::model::MissionStatus;
+    use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (pool, store) = seeded_store(&mut cx, temp.path());
+    let conn = pool.get().unwrap();
+    conn.execute_batch(
+        "INSERT INTO missions(id, title, status, started_at) VALUES
+         ('stale', 'No live members', 'running', '2026-10-19T00:00:00Z');",
+    )
+    .unwrap();
+    runner_daemon::repo::node::ensure_mission_node(&conn, "stale", None).unwrap();
+    let mut chat_tab = None;
+    for (index, id) in ["idle", "unknown", "stopped", "unread", "member"]
+        .iter()
+        .enumerate()
+    {
+        let layout = PaneLayout::single(Some(id), &[(*id).into()]);
+        let node = runner_daemon::repo::node::create_tab(
+            &conn,
+            None,
+            id,
+            index as i64,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap();
+        if *id == "idle" {
+            chat_tab = Some(node);
+        }
+    }
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_nodes(cx).unwrap();
+        store.missions = store.client.mission_list_summary_impl(None).unwrap();
+        store.settings.sidebar_active_only = true;
+        store.sessions = ["idle", "unknown", "stopped", "unread", "member"]
+            .into_iter()
+            .map(|id| {
+                direct_session(
+                    id,
+                    "codex",
+                    if matches!(id, "stopped" | "unread") {
+                        SessionStatus::Stopped
+                    } else {
+                        SessionStatus::Running
+                    },
+                )
+            })
+            .collect();
+        let idle = AgentStatus {
+            lifecycle: Lifecycle::Running,
+            observation: runner_core::protocol::status::AgentObservation {
+                activity: Activity::Ready,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        store.session_statuses.insert("idle".into(), idle.clone());
+        store.session_statuses.insert("member".into(), idle.clone());
+        store.session_statuses.insert(
+            "unread".into(),
+            AgentStatus {
+                lifecycle: Lifecycle::Stopped,
+                unread_since: Some(1),
+                ..Default::default()
+            },
+        );
+        let mission = store
+            .missions
+            .iter_mut()
+            .find(|summary| summary.mission.id == "mission")
+            .unwrap();
+        mission.mission.status = MissionStatus::Running;
+        mission.any_session_live = true;
+        mission.session_statuses = vec![("member".into(), idle)];
+    });
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    let mut tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
+    tabs.activate(&chat_tab.unwrap().id);
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.group() == ActiveGroup::Chats)
+                .count(),
+            3
+        );
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.group() == ActiveGroup::Missions)
+                .count(),
+            1
+        );
+        let shortcuts = rows
+            .iter()
+            .map(|row| row.shortcut_row(&store.read(cx).nodes))
+            .collect::<Vec<_>>();
+        let names = active_row_names(&rows, &store.read(cx).nodes);
+        for name in ["idle", "unknown", "unread"] {
+            assert!(names.iter().any(|row| row == name));
+        }
+        for name in ["stopped", "member"] {
+            assert!(!names.iter().any(|row| row == name));
+        }
+        sidebar.refresh_shortcut_rows(&tabs, cx);
+        assert_eq!(
+            sidebar
+                .numbered_shortcut_rows
+                .iter()
+                .map(|row| &row.node_id)
+                .collect::<Vec<_>>(),
+            shortcuts.iter().map(|row| &row.node_id).collect::<Vec<_>>()
+        );
+    });
+    store.update(&mut cx, |store, _| {
+        store
+            .sessions
+            .iter_mut()
+            .find(|session| session.session_id == "idle")
+            .unwrap()
+            .status = SessionStatus::Stopped;
+        let mission = store
+            .missions
+            .iter_mut()
+            .find(|summary| summary.mission.id == "mission")
+            .unwrap();
+        mission.any_session_live = false;
+        mission.mission.status = MissionStatus::Completed;
+        mission.session_statuses[0].1.lifecycle = Lifecycle::Stopped;
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.group() == ActiveGroup::Chats));
+        assert!(!active_row_names(&rows, &store.read(cx).nodes).contains(&"idle".into()));
+        let ids = rows
+            .iter()
+            .map(|row| row.shortcut_row(&store.read(cx).nodes).node_id)
+            .collect::<Vec<_>>();
+        sidebar.refresh_shortcut_rows(&tabs, cx);
+        assert_eq!(
+            sidebar
+                .numbered_shortcut_rows
+                .iter()
+                .map(|row| &row.node_id)
+                .collect::<Vec<_>>(),
+            ids.iter().collect::<Vec<_>>()
+        );
+    });
+}
+
+#[test]
+fn active_location_shows_project_relative_worktree_and_compact_home() {
+    use super::active::active_location;
+    let project = runner_core::protocol::project::ProjectRow {
+        id: "runner".into(),
+        name: "Runner".into(),
+        cwd: "/home/j/repos/runner".into(),
+        position: 0,
+        created_at: String::new(),
+    };
+    assert_eq!(
+        active_location(Some(&project), Some(&project.cwd), None),
+        "Runner"
+    );
+    assert_eq!(
+        active_location(
+            Some(&project),
+            Some("/home/j/repos/runner/.worktrees/feat-887"),
+            None
+        ),
+        "Runner › feat-887"
+    );
+    assert_eq!(
+        active_location(
+            Some(&project),
+            Some("/home/j/repos/runner/crates/app"),
+            None
+        ),
+        "Runner › crates/app"
+    );
+    assert_eq!(
+        active_location(None, Some("/home/j/repos/runner"), Some("/home/j")),
+        "~/repos/runner"
+    );
+    assert_eq!(
+        active_location(Some(&project), Some("/tmp/work"), None),
+        "Runner › /tmp/work"
+    );
+}
+
+#[test]
+fn active_shortcut_and_row_click_focus_the_split_pane_needing_attention() {
+    use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let conn = core.db.get().unwrap();
+    conn.execute_batch("INSERT INTO sessions(id, status, agent_runtime, agent_command) VALUES ('first', 'stopped', 'codex', 'codex'), ('second', 'stopped', 'claude-code', 'claude');").unwrap();
+    runner_daemon::repo::session_attention::record_completion(&conn, "second", false, 1).unwrap();
+    let mut layout = two_pane_layout("first", "second");
+    layout.focus_session("first");
+    let tab = runner_daemon::repo::node::create_tab(
+        &conn,
+        None,
+        "Split",
+        1,
+        &layout.serialize().unwrap(),
+    )
+    .unwrap();
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_sessions(cx);
+        store.refresh_nodes(cx).unwrap();
+        store.settings.sidebar_active_only = true;
+        for (id, unread_since) in [("first", None), ("second", Some(1))] {
+            store.session_statuses.insert(
+                id.into(),
+                AgentStatus {
+                    lifecycle: Lifecycle::Stopped,
+                    observation: runner_core::protocol::status::AgentObservation {
+                        activity: Activity::Idle,
+                        ..Default::default()
+                    },
+                    unread_since,
+                    ..Default::default()
+                },
+            );
+        }
+    });
+    let host = cx.add_window(|window, cx| {
+        let mut root = NativeRoot::new(
+            "active-pane-routing".into(),
+            temp.path().join("logs"),
+            None,
+            None,
+            store.clone(),
+            window,
+            cx,
+        );
+        root.closing = true;
+        root.route = AppRoute::Roles;
+        root.root_focus.focus(window, cx);
+        root
+    });
+    cx.update(|cx| keymap::install_bindings(cx, &keymap::KeymapOverrides::new(), false));
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.simulate_resize(size(px(1200.), px(900.)));
+    visual.run_until_parked();
+    visual.simulate_keystrokes(if cfg!(windows) { "ctrl-1" } else { "cmd-1" });
+    visual.run_until_parked();
+    host.read_with(&visual, |root, _| {
+        assert_eq!(root.route, AppRoute::Chat);
+        assert_eq!(root.tabs.active_tab_id(), Some(tab.id.as_str()));
+        assert_eq!(
+            root.tabs.active().unwrap().focused_session_id(),
+            Some("second")
+        );
+    })
+    .unwrap();
+    host.update(&mut visual, |root, _, _| {
+        root.route = AppRoute::Roles;
+        root.tabs.active_mut().unwrap().focus_session("first");
+    })
+    .unwrap();
+    visual.run_until_parked();
+    let row = visual
+        .debug_bounds(Box::leak(
+            format!("SIDEBAR_ROW active-{}", tab.id).into_boxed_str(),
+        ))
+        .unwrap();
+    visual.simulate_click(row.center(), gpui::Modifiers::default());
+    visual.run_until_parked();
+    host.read_with(&visual, |root, _| {
+        assert_eq!(root.route, AppRoute::Chat);
+        assert_eq!(root.tabs.active_tab_id(), Some(tab.id.as_str()));
+        assert_eq!(
+            root.tabs.active().unwrap().focused_session_id(),
+            Some("second")
+        );
+    })
+    .unwrap();
+}
+
+struct ActiveListRenderTest {
+    sidebar: Entity<Sidebar>,
+}
+
+impl Render for ActiveListRenderTest {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(self.sidebar.update(cx, |sidebar, cx| {
+                let tabs = TabSet::from_rows(&sidebar.app_store.read(cx).nodes);
+                sidebar.show_shortcut_pills = true;
+                sidebar.refresh_shortcut_rows(&tabs, cx);
+                sidebar.render_active_groups(sidebar.resolved_active_rows_for_tabs(&tabs, cx), cx)
+            }))
+            .child(
+                div()
+                    .id("outside-active-rename")
+                    .h(px(40.))
+                    .w_full()
+                    .on_click(|_, window, cx| window.blur(cx))
+                    .debug_selector(|| "OUTSIDE_ACTIVE_RENAME".into()),
+            )
+            .children(self.sidebar.read(cx).context_menu.clone())
+    }
+}
+
+#[test]
+fn active_rename_edits_only_the_title_and_preserves_enter_escape_and_blur() {
+    use runner_core::protocol::status::{AgentStatus, Lifecycle};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    for action in ["enter", "escape", "blur"] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (pool, store) = seeded_store(&mut cx, temp.path());
+        let conn = pool.get().unwrap();
+        conn.execute_batch(
+            "INSERT INTO sessions(id, title, cwd, status, agent_runtime, agent_command)
+             VALUES ('chat', 'Original chat', '/tmp/active-rename', 'stopped', 'codex', 'codex');",
+        )
+        .unwrap();
+        let layout = PaneLayout::single(Some("chat"), &["chat".into()]);
+        let tab =
+            runner_daemon::repo::node::create_tab(&conn, None, "", 0, &layout.serialize().unwrap())
+                .unwrap();
+        let selector = |kind: &str| -> &'static str {
+            Box::leak(format!("{kind} {}", tab.id).into_boxed_str())
+        };
+        let (title_selector, location_selector, row_selector) = (
+            selector("ACTIVE_TITLE"),
+            selector("ACTIVE_LOCATION"),
+            Box::leak(format!("SIDEBAR_ROW active-{}", tab.id).into_boxed_str()),
+        );
+        drop(conn);
+        store.update(&mut cx, |store, cx| {
+            store.refresh_sessions(cx);
+            store.refresh_nodes(cx).unwrap();
+            store.settings.sidebar_active_only = true;
+            store.session_statuses.insert(
+                "chat".into(),
+                AgentStatus {
+                    lifecycle: Lifecycle::Stopped,
+                    unread_since: Some(1),
+                    ..Default::default()
+                },
+            );
+        });
+        let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store, None, cx));
+        let host = cx.add_window(|_, _| ActiveListRenderTest {
+            sidebar: sidebar.clone(),
+        });
+        let mut visual = VisualTestContext::from_window(host.into(), &cx);
+        visual.simulate_resize(size(px(300.), px(400.)));
+        visual.update(|window, _| window.activate_window());
+        visual.run_until_parked();
+        assert!(visual.debug_bounds(location_selector).is_some());
+        host.update(&mut visual, |_, window, cx| {
+            sidebar.update(cx, |sidebar, cx| {
+                sidebar.begin_sidebar_rename(
+                    SidebarRenameTarget::Tab {
+                        node_id: tab.id,
+                        original: "Original chat".into(),
+                        session_id: Some("chat".into()),
+                    },
+                    "Original chat".into(),
+                    "Chat name".into(),
+                    window,
+                    cx,
+                );
+            });
+            cx.notify();
+        })
+        .unwrap();
+        visual.run_until_parked();
+        let title = visual.debug_bounds(title_selector).unwrap();
+        let location = visual.debug_bounds(location_selector).unwrap();
+        let row = visual.debug_bounds(row_selector).unwrap();
+        assert!(title.size.height > px(0.));
+        assert!(location.size.height > px(0.));
+        assert!(title.bottom() <= location.top());
+        assert!(row.contains(&location.origin));
+        assert!(location.bottom() <= row.bottom());
+        sidebar.update(&mut visual, |sidebar, cx| {
+            sidebar
+                .rename
+                .as_ref()
+                .unwrap()
+                .input
+                .update(cx, |field, cx| {
+                    field.set_text("Renamed chat", cx);
+                });
+        });
+        visual.run_until_parked();
+        if action == "blur" {
+            let outside = visual.debug_bounds("OUTSIDE_ACTIVE_RENAME").unwrap();
+            visual.simulate_click(outside.center(), gpui::Modifiers::default());
+        } else {
+            visual.simulate_keystrokes(action);
+        }
+        visual.run_until_parked();
+        sidebar.read_with(&visual, |sidebar, _| assert!(sidebar.rename.is_none()));
+        let title: String = pool
+            .get()
+            .unwrap()
+            .query_row("SELECT title FROM sessions WHERE id = 'chat'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            title,
+            if action == "escape" {
+                "Original chat"
+            } else {
+                "Renamed chat"
+            }
+        );
+    }
+}
+
+#[test]
+fn active_split_rename_stays_on_its_tab_row_after_reordering() {
+    use runner_core::protocol::status::{AgentStatus, Lifecycle};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (pool, store) = seeded_store(&mut cx, temp.path());
+    let conn = pool.get().unwrap();
+    conn.execute_batch(
+        "INSERT INTO sessions(id, title, cwd, status, agent_runtime, agent_command) VALUES
+         ('chat', 'Original chat', '/tmp/split-chat', 'stopped', 'codex', 'codex'),
+         ('terminal', 'Original terminal', '/tmp/split-terminal', 'stopped', 'shell', '/bin/sh'),
+         ('other-chat', 'Other chat', '/tmp/other-chat', 'stopped', 'codex', 'codex');",
+    )
+    .unwrap();
+    for id in ["chat", "terminal", "other-chat"] {
+        runner_daemon::repo::session_attention::record_completion(&conn, id, false, 1).unwrap();
+    }
+    let layout = two_pane_layout("chat", "terminal");
+    let tab = runner_daemon::repo::node::create_tab(
+        &conn,
+        None,
+        "Original split",
+        0,
+        &layout.serialize().unwrap(),
+    )
+    .unwrap();
+    let other = PaneLayout::single(Some("other-chat"), &["other-chat".into()]);
+    let other_tab =
+        runner_daemon::repo::node::create_tab(&conn, None, "", 1, &other.serialize().unwrap())
+            .unwrap();
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_sessions(cx);
+        store.refresh_nodes(cx).unwrap();
+        store.settings.sidebar_active_only = true;
+        for (id, since) in [("chat", 1), ("terminal", 1), ("other-chat", 2)] {
+            store.session_statuses.insert(
+                id.into(),
+                AgentStatus {
+                    lifecycle: Lifecycle::Stopped,
+                    unread_since: Some(since),
+                    ..Default::default()
+                },
+            );
+        }
+    });
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    let host = cx.add_window(|_, cx| {
+        cx.observe(&sidebar, |_, _, cx| cx.notify()).detach();
+        ActiveListRenderTest {
+            sidebar: sidebar.clone(),
+        }
+    });
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.simulate_resize(size(px(400.), px(900.)));
+    visual.update(|window, _| window.activate_window());
+    visual.run_until_parked();
+    let split_row: &str = Box::leak(format!("SIDEBAR_ROW active-{}", tab.id).into_boxed_str());
+    let other_row: &str =
+        Box::leak(format!("SIDEBAR_ROW active-{}", other_tab.id).into_boxed_str());
+    let split = visual.debug_bounds(split_row).unwrap();
+    let other = visual.debug_bounds(other_row).unwrap();
+    assert!(split.top() > other.top());
+    visual.simulate_mouse_down(
+        split.center(),
+        MouseButton::Right,
+        gpui::Modifiers::default(),
+    );
+    visual.simulate_mouse_up(
+        split.center(),
+        MouseButton::Right,
+        gpui::Modifiers::default(),
+    );
+    visual.run_until_parked();
+    sidebar.read_with(&visual, |sidebar, _| {
+        assert!(
+            sidebar.context_menu.is_some(),
+            "split context menu did not open"
+        )
+    });
+    visual.simulate_keystrokes("home down enter");
+    visual.run_until_parked();
+    let split_rename: &str = Box::leak(format!("ACTIVE_RENAME {}", tab.id).into_boxed_str());
+    let other_rename: &str = Box::leak(format!("ACTIVE_RENAME {}", other_tab.id).into_boxed_str());
+    assert!(visual.debug_bounds(split_rename).is_some());
+    assert!(visual.debug_bounds(other_rename).is_none());
+    let input = sidebar.read_with(&visual, |sidebar, _| {
+        let rename = sidebar.rename.as_ref().unwrap();
+        assert!(matches!(&rename.target, SidebarRenameTarget::Tab { node_id, session_id: None, .. } if *node_id == tab.id));
+        rename.input.clone()
+    });
+    store.update(&mut visual, |store, _| {
+        store.session_statuses.get_mut("chat").unwrap().error_since = Some(3);
+    });
+    host.update(&mut visual, |_, _, cx| cx.notify()).unwrap();
+    visual.run_until_parked();
+    let split = visual.debug_bounds(split_row).unwrap();
+    let other = visual.debug_bounds(other_row).unwrap();
+    assert!(split.top() < other.top());
+    let editor = visual.debug_bounds(split_rename).unwrap();
+    let location = visual
+        .debug_bounds(Box::leak(
+            format!("ACTIVE_LOCATION {}", tab.id).into_boxed_str(),
+        ))
+        .unwrap();
+    assert!(editor.bottom() <= location.top());
+    assert!(location.size.height > px(0.));
+    assert!(visual.debug_bounds(other_rename).is_none());
+    input.update(&mut visual, |field, cx| field.set_text("Renamed split", cx));
+    visual.update(|window, cx| assert!(input.read(cx).focus_handle().is_focused(window)));
+    visual.simulate_keystrokes("enter");
+    visual.run_until_parked();
+    sidebar.read_with(&visual, |sidebar, _| assert!(sidebar.rename.is_none()));
+    let conn = pool.get().unwrap();
+    let name: String = conn
+        .query_row("SELECT name FROM nodes WHERE id = ?1", [&tab.id], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(name, "Renamed split");
+    let title: String = conn
+        .query_row(
+            "SELECT title FROM sessions WHERE id = 'terminal'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(title, "Original terminal");
+}
+
+#[test]
+fn active_render_handles_256_eligible_rows_and_numbers_only_the_first_nine() {
+    use runner_core::protocol::status::{AgentStatus, Lifecycle};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let conn = core.db.get().unwrap();
+    for index in 0..256 {
+        let id = format!("chat-{index:03}");
+        let layout = PaneLayout::single(Some(&id), std::slice::from_ref(&id));
+        runner_daemon::repo::node::create_tab(
+            &conn,
+            None,
+            &id,
+            index,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap();
+    }
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_nodes(cx).unwrap();
+        store.settings.sidebar_active_only = true;
+        store.sessions = (0..256)
+            .map(|index| {
+                direct_session(&format!("chat-{index:03}"), "codex", SessionStatus::Stopped)
+            })
+            .collect();
+        store.session_statuses = store
+            .sessions
+            .iter()
+            .map(|session| {
+                (
+                    session.session_id.clone(),
+                    AgentStatus {
+                        lifecycle: Lifecycle::Stopped,
+                        unread_since: Some(1),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+    });
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    let host = cx.add_window(|_, _| ActiveListRenderTest {
+        sidebar: sidebar.clone(),
+    });
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.simulate_resize(size(px(400.), px(900.)));
+    visual.run_until_parked();
+    for selector in [
+        "SIDEBAR_SHORTCUT_1",
+        "SIDEBAR_SHORTCUT_2",
+        "SIDEBAR_SHORTCUT_3",
+        "SIDEBAR_SHORTCUT_4",
+        "SIDEBAR_SHORTCUT_5",
+        "SIDEBAR_SHORTCUT_6",
+        "SIDEBAR_SHORTCUT_7",
+        "SIDEBAR_SHORTCUT_8",
+        "SIDEBAR_SHORTCUT_9",
+    ] {
+        assert!(visual.debug_bounds(selector).is_some());
+    }
+    assert!(visual.debug_bounds("SIDEBAR_SHORTCUT_10").is_none());
+    sidebar.read_with(&visual, |sidebar, cx| {
+        let tabs = TabSet::from_rows(&store.read(cx).nodes);
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(rows.len(), 256);
+        assert_eq!(sidebar.numbered_shortcut_rows.len(), 9);
+        assert_eq!(
+            sidebar.numbered_shortcut_rows.last().unwrap().node_id,
+            rows[8].shortcut_row(&store.read(cx).nodes).node_id
+        );
+    });
+}
+
+#[test]
+fn active_lists_unselected_idle_shells_until_they_exit() {
+    use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (pool, store) = seeded_store(&mut cx, temp.path());
+    let conn = pool.get().unwrap();
+    let [chat_node, terminal_node] = [("chat", 0), ("terminal", 1)].map(|(id, position)| {
+        let layout = PaneLayout::single(Some(id), &[id.into()]);
+        runner_daemon::repo::node::create_tab(
+            &conn,
+            None,
+            id,
+            position,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap()
+    });
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_nodes(cx).unwrap();
+        store.settings.sidebar_active_only = true;
+        store.sessions = vec![
+            direct_session("chat", "codex", SessionStatus::Stopped),
+            direct_session("terminal", "shell", SessionStatus::Running),
+        ];
+        store.session_statuses.insert(
+            "chat".into(),
+            AgentStatus {
+                lifecycle: Lifecycle::Stopped,
+                unread_since: Some(1),
+                ..Default::default()
+            },
+        );
+        store.session_statuses.insert(
+            "terminal".into(),
+            AgentStatus {
+                lifecycle: Lifecycle::Running,
+                observation: runner_core::protocol::status::AgentObservation {
+                    activity: Activity::Idle,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+    });
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    let mut tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
+    tabs.activate(&chat_node.id);
+    sidebar.update(&mut cx, |sidebar, cx| {
+        sidebar.refresh_shortcut_rows(&tabs, cx);
+        assert_eq!(
+            sidebar
+                .numbered_shortcut_rows
+                .iter()
+                .map(|row| row.node_id.as_str())
+                .collect::<Vec<_>>(),
+            [chat_node.id.as_str(), terminal_node.id.as_str()]
+        );
+    });
+    store.update(&mut cx, |store, _| {
+        store
+            .sessions
+            .iter_mut()
+            .find(|session| session.session_id == "terminal")
+            .unwrap()
+            .status = SessionStatus::Stopped;
+        let terminal = store.session_statuses.get_mut("terminal").unwrap();
+        terminal.lifecycle = Lifecycle::Stopped;
+        terminal.exit_code = Some(1);
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].group(), super::active::ActiveGroup::Chats);
+        sidebar.refresh_shortcut_rows(&tabs, cx);
+        assert_eq!(sidebar.numbered_shortcut_rows.len(), 1);
+        assert_eq!(sidebar.numbered_shortcut_rows[0].node_id, chat_node.id);
+    });
+    store.update(&mut cx, |store, _| {
+        store
+            .sessions
+            .iter_mut()
+            .find(|session| session.session_id == "terminal")
+            .unwrap()
+            .status = SessionStatus::Crashed;
+        let terminal = store.session_statuses.get_mut("terminal").unwrap();
+        terminal.lifecycle = Lifecycle::Error;
+        terminal.error_since = Some(2);
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.group() == super::active::ActiveGroup::Terminals)
+                .count(),
+            1
+        );
+    });
+    store.update(&mut cx, |store, _| {
+        store
+            .session_statuses
+            .get_mut("terminal")
+            .unwrap()
+            .error_since = None;
+        store.session_statuses.get_mut("chat").unwrap().unread_since = None;
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        assert!(sidebar.resolved_active_rows_for_tabs(&tabs, cx).is_empty());
+    });
+}
+
+#[test]
+fn active_mixed_split_is_one_chat_row_targeting_the_working_chat() {
+    use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
+    for (first, second, expected_label) in [
+        ("chat", "terminal", "Chat topic"),
+        ("terminal", "chat", "Shell command"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (pool, store) = seeded_store(&mut cx, temp.path());
+        let conn = pool.get().unwrap();
+        let layout = two_pane_layout(first, second);
+        let node =
+            runner_daemon::repo::node::create_tab(&conn, None, "", 0, &layout.serialize().unwrap())
+                .unwrap();
+        drop(conn);
+        store.update(&mut cx, |store, cx| {
+            store.refresh_nodes(cx).unwrap();
+            store.sessions = vec![
+                direct_session(
+                    second,
+                    if second == "chat" { "codex" } else { "shell" },
+                    SessionStatus::Running,
+                ),
+                direct_session(
+                    first,
+                    if first == "chat" { "codex" } else { "shell" },
+                    SessionStatus::Running,
+                ),
+            ];
+            store.session_statuses.insert(
+                "chat".into(),
+                AgentStatus {
+                    lifecycle: Lifecycle::Running,
+                    observation: runner_core::protocol::status::AgentObservation {
+                        activity: Activity::Working,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            store
+                .session_activity
+                .insert("terminal".into(), SessionActivityState::Busy);
+        });
+        let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+        let mut tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
+        tabs.activate(&node.id);
+        for focused in ["chat", "terminal"] {
+            tabs.active_mut().unwrap().focus_session(focused);
+            sidebar.update(&mut cx, |sidebar, cx| {
+                let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].group(), super::active::ActiveGroup::Chats);
+                for row in &rows {
+                    let (label, icon) = row.title_and_icon(|id| {
+                        Some(
+                            if id == "chat" {
+                                "Chat topic"
+                            } else {
+                                "Shell command"
+                            }
+                            .into(),
+                        )
+                    });
+                    assert_eq!(label, expected_label);
+                    assert_eq!(icon.asset_path(), "columns-2.svg");
+                    assert_eq!(
+                        row.shortcut_row(&store.read(cx).nodes).target,
+                        SidebarActivationTarget::Tab {
+                            tab_id: node.id.clone(),
+                            session_id: "chat".into()
+                        }
+                    );
+                }
+            });
+        }
+        tabs.active_mut().unwrap().name = Some("My mixed split".into());
+        sidebar.update(&mut cx, |sidebar, cx| {
+            for row in sidebar.resolved_active_rows_for_tabs(&tabs, cx) {
+                assert_eq!(
+                    row.title_and_icon(|_| Some("Later title".into())).0,
+                    "My mixed split"
+                );
+            }
+        });
+    }
+}

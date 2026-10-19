@@ -302,6 +302,7 @@ pub struct AppSettings {
     pub terminal_cursor_style: TerminalCursorStyle,
     pub sidebar_width: f32,
     pub sidebar_collapsed: bool,
+    pub sidebar_active_only: bool,
     pub sidebar_projects_open: bool,
     pub sidebar_chats_open: bool,
     pub sidebar_collapsed_projects: BTreeSet<String>,
@@ -348,6 +349,7 @@ impl Default for AppSettings {
             terminal_cursor_style: TerminalCursorStyle::Block,
             sidebar_width: SIDEBAR_DEFAULT,
             sidebar_collapsed: false,
+            sidebar_active_only: false,
             sidebar_projects_open: true,
             sidebar_chats_open: true,
             sidebar_collapsed_projects: BTreeSet::new(),
@@ -604,6 +606,7 @@ mod tests {
         let path = temp.path().join("ui-settings.json");
         let settings = AppSettings {
             sidebar_width: 376.,
+            sidebar_active_only: true,
             sidebar_collapsed: true,
             ..AppSettings::default()
         };
@@ -612,6 +615,7 @@ mod tests {
         let loaded = AppSettings::load(&path).unwrap();
         assert_eq!(loaded.sidebar_width, 376.);
         assert!(loaded.sidebar_collapsed);
+        assert!(loaded.sidebar_active_only);
     }
 
     #[test]
@@ -672,6 +676,7 @@ mod tests {
         assert_eq!(loaded.terminal_font_size, TERMINAL_FONT_SIZE_MAX);
         assert_eq!(loaded.sidebar_width, SIDEBAR_DEFAULT);
         assert!(!loaded.sidebar_collapsed);
+        assert!(!loaded.sidebar_active_only);
         assert!(loaded.sidebar_projects_open);
         assert!(loaded.sidebar_chats_open);
 

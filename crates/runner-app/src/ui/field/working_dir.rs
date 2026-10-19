@@ -25,7 +25,7 @@ pub(super) fn home_dir() -> Option<String> {
 /// A path's displays, longest first: the path with home shown as `~`, then
 /// with more and more middle folders folded into `…`, down to the root or
 /// `~` and the last folder alone.
-pub(crate) fn compact_path_candidates(path: &str, home: Option<&str>) -> Vec<String> {
+pub fn compact_path_candidates(path: &str, home: Option<&str>) -> Vec<String> {
     let separator = if path.contains('\\') && !path.contains('/') {
         '\\'
     } else {

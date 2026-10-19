@@ -20,6 +20,7 @@ pub const JETBRAINS_MONO_FONTS: [&[u8]; 4] = [
     include_bytes!("../../../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf"),
 ];
+const LIST_FILTER: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10M10 19h4"/></svg>"#;
 const BELL: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>"#;
 const HAND: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V7a2 2 0 0 0-4 0v1"/><path d="M14 10V5a2 2 0 0 0-4 0v5"/><path d="M10 9.5V7a2 2 0 0 0-4 0v9a6 6 0 0 0 6 6h2a6 6 0 0 0 6-6v-5a2 2 0 0 0-4 0"/><path d="M6 12a2 2 0 0 0-4 0v2a8 8 0 0 0 8 8"/></svg>"#;
 const MESSAGE_CIRCLE: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>"#;
@@ -181,6 +182,7 @@ const ASSETS: &[(&str, &[u8])] = &[
     ("rotate-cw.svg", ROTATE_CW),
     ("copy.svg", COPY),
     ("search.svg", SEARCH),
+    ("list-filter.svg", LIST_FILTER),
     ("search-x.svg", SEARCH_X),
     ("info.svg", INFO),
     ("circle-check.svg", CIRCLE_CHECK),

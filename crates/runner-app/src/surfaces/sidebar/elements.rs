@@ -41,7 +41,7 @@ pub(super) fn workspace_new_chat_row(
         .gap_2()
         .rounded_sm()
         .border_1()
-        .border_color(gpui::transparent_black())
+        .border_color(theme::chrome_selected_border())
         .cursor_pointer()
         .hover(|row| {
             row.border_color(theme::chrome_selected_border())
@@ -385,6 +385,9 @@ pub(super) fn pin_indicator() -> AnyElement {
 
 pub(super) fn tab_shortcut_pill(index: u8, selected: bool) -> AnyElement {
     div()
+        .when(cfg!(test), |pill| {
+            pill.debug_selector(move || format!("SIDEBAR_SHORTCUT_{index}"))
+        })
         .size(rems(1.))
         .flex_none()
         .flex()

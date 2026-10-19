@@ -72,17 +72,29 @@ impl Sidebar {
     }
 
     pub(crate) fn refresh_shortcut_rows(&mut self, tabs: &TabSet, cx: &App) {
-        let rows = self
-            .resolved_sidebar_rows_for_tabs(tabs, cx)
-            .iter()
-            .map(|row| {
-                (
-                    row.node().clone(),
-                    row.shortcut_row(&self.app_store.read(cx).nodes),
-                )
-            })
-            .collect::<Vec<_>>();
-        let numbered_shortcut_rows = numbered_sidebar_rows(self.shortcut_row_walk(&rows, cx));
+        let walk = if self.settings(cx).sidebar_active_only {
+            self.resolved_active_rows_for_tabs(tabs, cx)
+                .iter()
+                .map(|row| {
+                    crate::surfaces::sidebar_logic::VisibleSidebarRow::Activatable(
+                        row.shortcut_row(&self.app_store.read(cx).nodes),
+                    )
+                })
+                .collect()
+        } else {
+            let rows = self
+                .resolved_sidebar_rows_for_tabs(tabs, cx)
+                .iter()
+                .map(|row| {
+                    (
+                        row.node().clone(),
+                        row.shortcut_row(&self.app_store.read(cx).nodes),
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.shortcut_row_walk(&rows, cx)
+        };
+        let numbered_shortcut_rows = numbered_sidebar_rows(walk);
         self.tab_index_by_node = numbered_shortcut_rows
             .iter()
             .map(|row| (row.node_id.clone(), row.index))

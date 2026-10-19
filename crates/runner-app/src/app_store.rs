@@ -231,6 +231,7 @@ impl From<&AppSettings> for ShellSettingsSnapshot {
         settings.terminal_font_size.hash(&mut hasher);
         std::mem::discriminant(&settings.terminal_cursor_style).hash(&mut hasher);
         settings.sidebar_width.to_bits().hash(&mut hasher);
+        settings.sidebar_active_only.hash(&mut hasher);
         settings.sidebar_projects_open.hash(&mut hasher);
         settings.sidebar_chats_open.hash(&mut hasher);
         settings.sidebar_collapsed_projects.hash(&mut hasher);
@@ -270,6 +271,7 @@ pub(crate) struct AppStore {
     pub(crate) missions: Vec<MissionSummary>,
     pub(crate) session_statuses: BTreeMap<String, runner_core::protocol::status::AgentStatus>,
     pub(crate) session_activity: BTreeMap<String, SessionActivityState>,
+    pub(crate) session_activity_at: BTreeMap<String, i64>,
     #[cfg(any(windows, test))]
     mission_agent_ids: std::collections::BTreeSet<String>,
     pub(crate) live_session_count: usize,
@@ -495,6 +497,7 @@ impl AppStore {
             missions: Vec::new(),
             session_statuses: BTreeMap::new(),
             session_activity: BTreeMap::new(),
+            session_activity_at: BTreeMap::new(),
             #[cfg(any(windows, test))]
             mission_agent_ids: Default::default(),
             live_session_count: 0,
@@ -625,6 +628,7 @@ impl AppStore {
 
     pub(crate) fn remove_session_activity(&mut self, session_id: &str, cx: &mut Context<Self>) {
         self.session_activity.remove(session_id);
+        self.session_activity_at.remove(session_id);
         self.session_statuses.remove(session_id);
         self.revisions.activity = self.revisions.activity.wrapping_add(1);
         cx.notify();
@@ -831,9 +835,31 @@ impl AppStore {
             }
             Err(_) => self.live_session_count = 0,
         }
-        self.session_activity = self.client.session_activity_snapshot().unwrap_or_default();
+        let activity = self.client.session_activity_snapshot().unwrap_or_default();
+        let now = chrono::Utc::now().timestamp_millis();
+        for (id, current) in &activity {
+            if self
+                .session_activity
+                .get(id)
+                .is_some_and(|previous| previous != current)
+            {
+                self.session_activity_at.insert(id.clone(), now);
+            }
+        }
+        self.session_activity = activity;
         match self.client.session_status_snapshot() {
             Ok(statuses) => {
+                for (id, current) in &statuses {
+                    if self.session_statuses.get(id).is_some_and(|previous| {
+                        previous.lifecycle != current.lifecycle
+                            || previous.observation != current.observation
+                    }) {
+                        self.session_activity_at.insert(id.clone(), now);
+                    }
+                }
+                self.session_activity_at.retain(|id, _| {
+                    statuses.contains_key(id) || self.session_activity.contains_key(id)
+                });
                 for summary in &mut self.missions {
                     for (id, status) in &mut summary.session_statuses {
                         if let Some(current) = statuses.get(id) {
@@ -1286,6 +1312,12 @@ mod tests {
             ShellSettingsSnapshot::from(&after)
         );
 
+        after.sidebar_active_only = true;
+        assert_ne!(
+            ShellSettingsSnapshot::from(&before),
+            ShellSettingsSnapshot::from(&after)
+        );
+        after.sidebar_active_only = false;
         after.sidebar_width += 1.;
         assert_ne!(
             ShellSettingsSnapshot::from(&before),

@@ -388,9 +388,13 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let text_size = if self.app_store.read(cx).settings.sidebar_active_only {
+            theme::text_ui()
+        } else {
+            theme::text_body()
+        };
         let input = cx.new(|input_cx| {
-            TextField::new(input_cx.focus_handle(), value, placeholder, false)
-                .text_size(theme::text_body())
+            TextField::new(input_cx.focus_handle(), value, placeholder, false).text_size(text_size)
         });
         input.update(cx, |field, input_cx| {
             field.set_bare(true, input_cx);
@@ -477,7 +481,7 @@ fn status_attention(priority: u8) -> AttentionState {
     }
 }
 
-fn mark_archiving_status(status: &mut runner_core::protocol::status::AgentStatus) {
+pub(super) fn mark_archiving_status(status: &mut runner_core::protocol::status::AgentStatus) {
     use runner_core::protocol::status::{Activity, Lifecycle, ObservationSource};
     if runner_app::ui::agent_status::StatusRollup::priority(status) < 3 {
         status.lifecycle = Lifecycle::Running;

@@ -7,7 +7,7 @@ Arrange separate sessions into split tabs, organize them in the sidebar, and use
 | Surface | What it holds |
 | --- | --- |
 | Window | A real operating-system window |
-| Tab | A group of panes, represented by one entry in the chat sidebar |
+| Tab | A group of panes, represented by one entry in the Projects sidebar |
 | Pane | One slot holding a single chat or shell session |
 
 **⌘N** / **Ctrl+N** fills the focused empty pane or starts a chat in a new tab. **⌘T** / **Ctrl+Shift+T** does the same for a shell. A new tab does not start a crew; use a [mission](../concepts/missions.md) when agents need a shared feed.
@@ -16,7 +16,7 @@ Arrange separate sessions into split tabs, organize them in the sidebar, and use
 
 Use **⌘D** / **Ctrl+D** to split right and **⇧⌘D** / **Ctrl+Shift+D** to split down. Choose **New chat** in an empty pane or select a chat from the sidebar. Drag pane headers to reorder the layout; the layout picker offers common arrangements. Splitting is bounded by the available window size.
 
-Use **⌘[** / **Ctrl+[** and **⌘]** / **Ctrl+]** to move focus between panes. **⌘1–9** / **Ctrl+1–9** selects the corresponding visible sidebar tab or mission. **⇧⌘[** / **Ctrl+Shift+[** and **⇧⌘]** / **Ctrl+Shift+]** move through recently viewed pages.
+Use **⌘[** / **Ctrl+[** and **⌘]** / **Ctrl+]** to move focus between panes. **⌘1–9** / **Ctrl+1–9** selects the corresponding visible sidebar row: a tab or mission in either view. **⇧⌘[** / **Ctrl+Shift+[** and **⇧⌘]** / **Ctrl+Shift+]** move through recently viewed pages.
 
 Drag files from Finder or File Explorer onto a chat pane, a drawer terminal or a mission slot to insert their paths at the prompt, quoted as when you paste files. The terminal highlights while the files are over it and takes focus when you drop them; nothing runs until you press Return.
 
@@ -25,6 +25,12 @@ For shell splits, Runner follows the shell's reported working directory. It inst
 ## Organize the sidebar
 
 Use the sidebar context menus to rename and organize tabs, group them into folders, and pin work you return to often. [Projects](../concepts/projects.md) group work by directory; folders organize sidebar entries. Status markers show activity, attention and stopped sessions. Use them to find the terminal to inspect, rather than treating an idle marker as a completed review.
+
+Use the list-filter button beside Search to switch between **Projects** (the default) and **Active**. Runner remembers your choice. Active lists **Chats → Missions → Terminals**, hides empty groups, and shows each group's visible count. Active includes running chats, terminals and missions with live members, including idle agents and shells. Rows sort by Error, Needs you, Working, then Unread, followed by other running rows, with recent activity first within each status. The second line shows the project and relative folder, or the working directory for work outside a project. Renaming edits only the title, keeping this location visible.
+
+Active has one row per tab, like Projects. A tab with any agent pane appears under Chats; a tab of only terminals appears under Terminals. Split tabs use the split icon and tab name, derived from the first chat or terminal pane unless you name the tab. Selecting a row opens its tab on the pane that needs attention, or on the tab's last focused pane when none does. Mission members roll up into one mission row. A stopped chat or mission stays only for unread output or an error; selection alone does not keep it visible. A finished unread response stays until viewed, and an error stays until cleared. Every running terminal is listed, including idle shells; an exited terminal stays only for unread output or an error. Terminal activity uses Runner's existing output-based Busy estimate; drawer terminals are excluded. Active keeps context menus; drag and reorder remain in Projects.
+
+The footer shows live weekly Codex and Claude usage when those agents are installed and enabled. Select it to open Usage, including other supported providers. When only other usage providers are available, a **Usage** label keeps the popover accessible. The separate gear opens Settings. An available Runner update appears beside the Runner name.
 
 **⌘K** / **Ctrl+K** opens the command palette to find chats, missions, roles, crews and commands. **⌘S** / **Ctrl+S** toggles the sidebar.
 
