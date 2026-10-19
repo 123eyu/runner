@@ -45,6 +45,6 @@ The **Runner skill for agents** switch in the same settings section installs a s
 
 ## Updates
 
-Runner updates in place and preserves settings, chats and missions. macOS uses Sparkle; Windows offers updates through **Settings → Updates** and the update icon beside Settings. An update restarts running agents so they can resume their saved conversations with the new version.
+Runner updates in place and preserves settings, chats and missions. macOS uses Sparkle; Windows offers updates through **Settings → Updates** and the update icon beside the Runner name in the sidebar. An update restarts running agents so they can resume their saved conversations with the new version.
 
 Next: [start your first chat](first-chat.md).

@@ -2,6 +2,8 @@
 
 A project gives a working directory a name and groups its chats and missions in the sidebar. It saves you from choosing the same folder for every launch.
 
+The sidebar defaults to Projects. The list-filter button beside Search switches to Active, which gathers running chats and terminals, missions with live members, and work needing attention across projects; switching views preserves your project organization.
+
 Create a project from the sidebar and choose its directory. New chats and missions started in that project use its directory. You can still supply a different working directory when starting work.
 
 The CLI can create the same association:

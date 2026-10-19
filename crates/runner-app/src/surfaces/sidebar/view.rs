@@ -56,295 +56,314 @@ impl Sidebar {
             .upgrade()
             .map(|shell| shell.read(cx).route.clone())
             .unwrap_or_default();
-        let rows = self.resolved_sidebar_rows(cx);
-        let mut pinned = rows
-            .iter()
-            .filter(|row| row.node().pinned_position.is_some())
-            .cloned()
-            .collect::<Vec<_>>();
-        pinned.sort_by_key(|row| row.node().pinned_position);
-        let has_pinned = !pinned.is_empty();
-        let root_rows = self.scope_rows(&rows, None);
-        let project_nodes = self
-            .app_store
-            .read(cx)
-            .nodes
-            .iter()
-            .filter(|node| {
-                node.parent_id.is_none()
-                    && node.pinned_position.is_none()
-                    && node.node_type == NodeType::Project
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let tab_index_by_node = self.tab_index_by_node.clone();
-        let rollups = attention_rollups(
-            rows.iter()
-                .filter(|row| row.node().pinned_position.is_none())
-                .map(|row| (row.node().parent_id.clone(), row.attention())),
+        let active_only = self.settings(cx).sidebar_active_only;
+        let mut scroll = sidebar_scroll_container("sidebar-node-scroll", &self.scroll).when(
+            !active_only,
+            |scroll| {
+                scroll.on_drop(cx.listener(|this, drag: &SidebarNodeDrag, _, cx| {
+                    this.commit_sidebar_drop(&drag.node_id, cx);
+                }))
+            },
         );
-
-        let mut scroll = sidebar_scroll_container("sidebar-node-scroll", &self.scroll).on_drop(
-            cx.listener(|this, drag: &SidebarNodeDrag, _, cx| {
-                this.commit_sidebar_drop(&drag.node_id, cx);
-            }),
-        );
-        if !pinned.is_empty() {
-            let visible = pinned
+        if !active_only {
+            let rows = self.resolved_sidebar_rows(cx);
+            let mut pinned = rows
                 .iter()
-                .map(|row| row.node().id.clone())
+                .filter(|row| row.node().pinned_position.is_some())
+                .cloned()
                 .collect::<Vec<_>>();
+            pinned.sort_by_key(|row| row.node().pinned_position);
+            let has_pinned = !pinned.is_empty();
+            let root_rows = self.scope_rows(&rows, None);
+            let project_nodes = self
+                .app_store
+                .read(cx)
+                .nodes
+                .iter()
+                .filter(|node| {
+                    node.parent_id.is_none()
+                        && node.pinned_position.is_none()
+                        && node.node_type == NodeType::Project
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let tab_index_by_node = self.tab_index_by_node.clone();
+            let rollups = attention_rollups(
+                rows.iter()
+                    .filter(|row| row.node().pinned_position.is_none())
+                    .map(|row| (row.node().parent_id.clone(), row.attention())),
+            );
+            if !pinned.is_empty() {
+                let visible = pinned
+                    .iter()
+                    .map(|row| row.node().id.clone())
+                    .collect::<Vec<_>>();
+                scroll = scroll.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(section_title(crate::i18n::text("heading.pinned")))
+                        .child(
+                            div()
+                                .px_3()
+                                .pt_1()
+                                .flex()
+                                .flex_col()
+                                .gap(rems(2. / 16.))
+                                .children(pinned.into_iter().map(|row| {
+                                    let project_id =
+                                        node_project_id(&self.app_store.read(cx).nodes, row.node());
+                                    let shortcut_index =
+                                        tab_index_by_node.get(&row.node().id).copied();
+                                    self.render_sidebar_row(
+                                        row,
+                                        project_id,
+                                        shortcut_index,
+                                        DropKind::Pinned,
+                                        None,
+                                        visible.clone(),
+                                        cx,
+                                    )
+                                }))
+                                .children(self.dragged_id.is_some().then(|| {
+                                    self.render_end_drop_divider(
+                                        DropKind::Pinned,
+                                        None,
+                                        visible,
+                                        cx,
+                                    )
+                                })),
+                        ),
+                );
+            }
+
+            let projects_open = self.settings(cx).sidebar_projects_open;
+            let project_header_root = cx.entity();
+            let project_add_root = project_header_root.clone();
             scroll = scroll.child(
                 div()
+                    .mt(if has_pinned {
+                        rems(20. / 16.)
+                    } else {
+                        rems(0.)
+                    })
                     .flex()
                     .flex_col()
-                    .child(section_title(crate::i18n::text("heading.pinned")))
-                    .child(
+                    .child(self.render_section_header(
+                        crate::i18n::text("heading.projects"),
+                        projects_open,
+                        (!projects_open).then(|| {
+                            self.render_status_attention(
+                                rows.iter().filter(|row| row.node().parent_id.is_some()),
+                                "project-section-attention".into(),
+                                cx,
+                            )
+                        }),
+                        crate::i18n::text("ui.add_project"),
+                        move |this, cx| {
+                            let open = !this.settings(cx).sidebar_projects_open;
+                            this.update_app_settings(cx, true, |settings| {
+                                settings.sidebar_projects_open = open;
+                                true
+                            });
+                            cx.notify();
+                        },
+                        move |window, cx| {
+                            project_add_root
+                                .update(cx, |this, cx| this.open_project_modal(window, cx));
+                        },
+                        cx,
+                    ))
+                    .children(projects_open.then(|| {
+                        let visible_projects = project_nodes
+                            .iter()
+                            .map(|node| node.id.clone())
+                            .collect::<Vec<_>>();
+                        let has_projects = !project_nodes.is_empty();
                         div()
                             .px_3()
                             .pt_1()
                             .flex()
                             .flex_col()
                             .gap(rems(2. / 16.))
-                            .children(pinned.into_iter().map(|row| {
-                                let project_id =
-                                    node_project_id(&self.app_store.read(cx).nodes, row.node());
-                                let shortcut_index = tab_index_by_node.get(&row.node().id).copied();
-                                self.render_sidebar_row(
-                                    row,
-                                    project_id,
-                                    shortcut_index,
-                                    DropKind::Pinned,
+                            .children(if project_nodes.is_empty() {
+                                vec![empty_sidebar_label(crate::i18n::text("ui.no_projects_yet"))]
+                            } else {
+                                project_nodes
+                                    .into_iter()
+                                    .filter_map(|node| {
+                                        let project = self
+                                            .app_store
+                                            .read(cx)
+                                            .projects
+                                            .iter()
+                                            .find(|project| {
+                                                node.ref_id.as_deref() == Some(project.id.as_str())
+                                            })?
+                                            .clone();
+                                        let nested = self.scope_rows(&rows, Some(&node.id));
+                                        let attention = rollups
+                                            .get(&Some(node.id.clone()))
+                                            .copied()
+                                            .unwrap_or_default();
+                                        Some(self.render_project(
+                                            node,
+                                            project,
+                                            nested,
+                                            attention,
+                                            visible_projects.clone(),
+                                            &tab_index_by_node,
+                                            cx,
+                                        ))
+                                    })
+                                    .collect()
+                            })
+                            .children((has_projects && self.dragged_id.is_some()).then(|| {
+                                self.render_end_drop_divider(
+                                    DropKind::Project,
                                     None,
-                                    visible.clone(),
+                                    visible_projects,
                                     cx,
                                 )
                             }))
-                            .children(self.dragged_id.is_some().then(|| {
-                                self.render_end_drop_divider(DropKind::Pinned, None, visible, cx)
-                            })),
-                    ),
+                    })),
             );
-        }
 
-        let projects_open = self.settings(cx).sidebar_projects_open;
-        let project_header_root = cx.entity();
-        let project_add_root = project_header_root.clone();
-        scroll = scroll.child(
-            div()
-                .mt(if has_pinned {
-                    rems(20. / 16.)
-                } else {
-                    rems(0.)
-                })
-                .flex()
-                .flex_col()
-                .child(self.render_section_header(
-                    crate::i18n::text("heading.projects"),
-                    projects_open,
-                    (!projects_open).then(|| {
-                        self.render_status_attention(
-                            rows.iter().filter(|row| row.node().parent_id.is_some()),
-                            "project-section-attention".into(),
-                            cx,
-                        )
-                    }),
-                    crate::i18n::text("ui.add_project"),
-                    move |this, cx| {
-                        let open = !this.settings(cx).sidebar_projects_open;
-                        this.update_app_settings(cx, true, |settings| {
-                            settings.sidebar_projects_open = open;
-                            true
-                        });
-                        cx.notify();
-                    },
-                    move |window, cx| {
-                        project_add_root.update(cx, |this, cx| this.open_project_modal(window, cx));
-                    },
-                    cx,
-                ))
-                .children(projects_open.then(|| {
-                    let visible_projects = project_nodes
-                        .iter()
-                        .map(|node| node.id.clone())
-                        .collect::<Vec<_>>();
-                    let has_projects = !project_nodes.is_empty();
-                    div()
-                        .px_3()
-                        .pt_1()
-                        .flex()
-                        .flex_col()
-                        .gap(rems(2. / 16.))
-                        .children(if project_nodes.is_empty() {
-                            vec![empty_sidebar_label(crate::i18n::text("ui.no_projects_yet"))]
-                        } else {
-                            project_nodes
-                                .into_iter()
-                                .filter_map(|node| {
-                                    let project = self
-                                        .app_store
-                                        .read(cx)
-                                        .projects
-                                        .iter()
-                                        .find(|project| {
-                                            node.ref_id.as_deref() == Some(project.id.as_str())
-                                        })?
-                                        .clone();
-                                    let nested = self.scope_rows(&rows, Some(&node.id));
-                                    let attention = rollups
-                                        .get(&Some(node.id.clone()))
-                                        .copied()
-                                        .unwrap_or_default();
-                                    Some(self.render_project(
-                                        node,
-                                        project,
-                                        nested,
-                                        attention,
-                                        visible_projects.clone(),
-                                        &tab_index_by_node,
-                                        cx,
-                                    ))
-                                })
-                                .collect()
-                        })
-                        .children((has_projects && self.dragged_id.is_some()).then(|| {
-                            self.render_end_drop_divider(
-                                DropKind::Project,
-                                None,
-                                visible_projects,
-                                cx,
+            let chats_open = self.settings(cx).sidebar_chats_open;
+            let create_menu = self.create_menu.clone();
+            scroll = scroll.child(
+                div()
+                    .mt_5()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .px_5()
+                            .pb(rems(6. / 16.))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("toggle-chats-section")
+                                    .group("sidebar-chats-section")
+                                    .min_w(px(0.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(rems(6. / 16.))
+                                    .cursor_pointer()
+                                    .text_color(theme::faint())
+                                    .hover(|header| header.text_color(theme::muted()))
+                                    .child(
+                                        div()
+                                            .min_w(px(0.))
+                                            .text_size(theme::text_ui())
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(crate::i18n::text("heading.recents")),
+                                    )
+                                    .child(
+                                        svg()
+                                            .flex_none()
+                                            .path(if chats_open {
+                                                "chevron-down.svg"
+                                            } else {
+                                                "chevron-right.svg"
+                                            })
+                                            .size(rems(10. / 16.))
+                                            .text_color(theme::faint())
+                                            .group_hover("sidebar-chats-section", |icon| {
+                                                icon.text_color(theme::muted())
+                                            }),
+                                    )
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let open = !this.settings(cx).sidebar_chats_open;
+                                        this.update_app_settings(cx, true, |settings| {
+                                            settings.sidebar_chats_open = open;
+                                            true
+                                        });
+                                        cx.notify();
+                                    })),
                             )
-                        }))
-                })),
-        );
-
-        let chats_open = self.settings(cx).sidebar_chats_open;
-        let create_menu = self.create_menu.clone();
-        scroll = scroll.child(
-            div()
-                .mt_5()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .px_5()
-                        .pb(rems(6. / 16.))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .child(
-                            div()
-                                .id("toggle-chats-section")
-                                .group("sidebar-chats-section")
-                                .min_w(px(0.))
-                                .flex()
-                                .items_center()
-                                .gap(rems(6. / 16.))
-                                .cursor_pointer()
-                                .text_color(theme::faint())
-                                .hover(|header| header.text_color(theme::muted()))
-                                .child(
-                                    div()
-                                        .min_w(px(0.))
-                                        .text_size(theme::text_ui())
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(crate::i18n::text("heading.recents")),
-                                )
-                                .child(
-                                    svg()
-                                        .flex_none()
-                                        .path(if chats_open {
-                                            "chevron-down.svg"
-                                        } else {
-                                            "chevron-right.svg"
-                                        })
-                                        .size(rems(10. / 16.))
-                                        .text_color(theme::faint())
-                                        .group_hover("sidebar-chats-section", |icon| {
-                                            icon.text_color(theme::muted())
-                                        }),
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    let open = !this.settings(cx).sidebar_chats_open;
-                                    this.update_app_settings(cx, true, |settings| {
-                                        settings.sidebar_chats_open = open;
-                                        true
-                                    });
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(rems(6. / 16.))
-                                .children((!chats_open).then(|| {
-                                    self.render_status_attention(
-                                        &root_rows,
-                                        "recent-section-attention".into(),
-                                        cx,
-                                    )
-                                }))
-                                .child(create_menu),
-                        ),
-                )
-                .children(chats_open.then(|| {
-                    let visible = root_rows
-                        .iter()
-                        .map(|row| row.node().id.clone())
-                        .collect::<Vec<_>>();
-                    let has_rows = !root_rows.is_empty();
-                    div()
-                        .id("root-chat-scope")
-                        .flex_1()
-                        .px_3()
-                        .pt_1()
-                        .flex()
-                        .flex_col()
-                        .gap(rems(2. / 16.))
-                        .children(if root_rows.is_empty() {
-                            vec![empty_sidebar_label(crate::i18n::text("ui.no_chats_yet"))]
-                        } else {
-                            root_rows
-                                .into_iter()
-                                .map(|row| {
-                                    let shortcut_index =
-                                        tab_index_by_node.get(&row.node().id).copied();
-                                    self.render_sidebar_row(
-                                        row,
-                                        None,
-                                        shortcut_index,
-                                        DropKind::Leaf,
-                                        None,
-                                        visible.clone(),
-                                        cx,
-                                    )
-                                })
-                                .collect()
-                        })
-                        .children((has_rows && self.dragged_id.is_some()).then(|| {
-                            self.render_end_drop_divider(DropKind::Leaf, None, visible, cx)
-                        }))
-                        .on_mouse_down(
-                            MouseButton::Right,
-                            cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.open_sidebar_context_menu(
-                                    event.position,
-                                    vec![(
-                                        UiMenuItem::new(crate::i18n::message("ui.new_chat"))
-                                            .icon("message-square-plus.svg"),
-                                        SidebarMenuAction::NewChat(ProjectScope::Root),
-                                    )],
-                                    window,
-                                    cx,
-                                );
-                            }),
-                        )
-                })),
-        );
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(rems(6. / 16.))
+                                    .children((!chats_open).then(|| {
+                                        self.render_status_attention(
+                                            &root_rows,
+                                            "recent-section-attention".into(),
+                                            cx,
+                                        )
+                                    }))
+                                    .child(create_menu),
+                            ),
+                    )
+                    .children(chats_open.then(|| {
+                        let visible = root_rows
+                            .iter()
+                            .map(|row| row.node().id.clone())
+                            .collect::<Vec<_>>();
+                        let has_rows = !root_rows.is_empty();
+                        div()
+                            .id("root-chat-scope")
+                            .flex_1()
+                            .px_3()
+                            .pt_1()
+                            .flex()
+                            .flex_col()
+                            .gap(rems(2. / 16.))
+                            .children(if root_rows.is_empty() {
+                                vec![empty_sidebar_label(crate::i18n::text("ui.no_chats_yet"))]
+                            } else {
+                                root_rows
+                                    .into_iter()
+                                    .map(|row| {
+                                        let shortcut_index =
+                                            tab_index_by_node.get(&row.node().id).copied();
+                                        self.render_sidebar_row(
+                                            row,
+                                            None,
+                                            shortcut_index,
+                                            DropKind::Leaf,
+                                            None,
+                                            visible.clone(),
+                                            cx,
+                                        )
+                                    })
+                                    .collect()
+                            })
+                            .children((has_rows && self.dragged_id.is_some()).then(|| {
+                                self.render_end_drop_divider(DropKind::Leaf, None, visible, cx)
+                            }))
+                            .on_mouse_down(
+                                MouseButton::Right,
+                                cx.listener(
+                                    move |this, event: &gpui::MouseDownEvent, window, cx| {
+                                        cx.stop_propagation();
+                                        this.open_sidebar_context_menu(
+                                            event.position,
+                                            vec![(
+                                                UiMenuItem::new(crate::i18n::message(
+                                                    "ui.new_chat",
+                                                ))
+                                                .icon("message-square-plus.svg"),
+                                                SidebarMenuAction::NewChat(ProjectScope::Root),
+                                            )],
+                                            window,
+                                            cx,
+                                        );
+                                    },
+                                ),
+                            )
+                    })),
+            );
+        } else {
+            let active_rows = self.resolved_active_rows(cx);
+            scroll = scroll.child(self.render_active_groups(active_rows, cx));
+        }
         let workspace_rows = WORKSPACE_ENTRIES.map(|entry| {
             let active = entry.selected(&route);
             match entry {

@@ -6,6 +6,7 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
+- [887 — Active sidebar and sidebar refresh](./887-active-sidebar.md) — the approved cross-project activity view, session rows, visible-list shortcuts and sidebar footer ([#887](https://github.com/yicheng47/runner/issues/887)).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, message-carrying delivery, catch-up and unread-only reads; draft refreshed against reliable delivery on 2026-10-17 ([#826](https://github.com/yicheng47/runner/issues/826)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
