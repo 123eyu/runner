@@ -96,6 +96,11 @@ fn summary(mission: Mission) -> MissionSummary {
     }
 }
 
+fn live(mut summary: MissionSummary) -> MissionSummary {
+    summary.any_session_live = true;
+    summary
+}
+
 #[test]
 fn slot_handle_validation_matches_the_shipped_contract() {
     for valid in ["", "a", "0", "coder-2", "coder_2", &"a".repeat(32)] {
@@ -330,9 +335,21 @@ fn the_last_mission_cell_reads_running_latest_or_a_dash() {
     let now = Utc.with_ymd_and_hms(2026, 9, 26, 12, 0, 0).unwrap();
     let early = Utc.with_ymd_and_hms(2026, 9, 18, 16, 2, 0).unwrap();
     let late = Utc.with_ymd_and_hms(2026, 9, 23, 9, 40, 0).unwrap();
-    let done = mission("a", "crew", MissionStatus::Completed, early, Some(30));
-    let latest = mission("b", "crew", MissionStatus::Aborted, late, Some(9));
-    let running = mission("c", "crew", MissionStatus::Running, early, None);
+    let done = summary(mission(
+        "a",
+        "crew",
+        MissionStatus::Completed,
+        early,
+        Some(30),
+    ));
+    let latest = summary(mission("b", "crew", MissionStatus::Aborted, late, Some(9)));
+    let running = live(summary(mission(
+        "c",
+        "crew",
+        MissionStatus::Running,
+        early,
+        None,
+    )));
 
     assert_eq!(last_mission_label(&[], &now), ("—".into(), false));
     assert_eq!(
@@ -343,10 +360,27 @@ fn the_last_mission_cell_reads_running_latest_or_a_dash() {
         last_mission_label(&[&done, &latest, &running], &now),
         ("1 mission running".into(), true)
     );
-    let second = mission("d", "crew", MissionStatus::Running, late, None);
+    let second = live(summary(mission(
+        "d",
+        "crew",
+        MissionStatus::Running,
+        late,
+        None,
+    )));
     assert_eq!(
         last_mission_label(&[&running, &second], &now).0,
         "2 missions running"
+    );
+
+    let paused = summary(mission("e", "crew", MissionStatus::Running, late, None));
+    assert_eq!(
+        last_mission_label(&[&done, &paused], &now),
+        ("Sep 23, 09:40".into(), false),
+        "a running mission with no live session is paused, not running"
+    );
+    assert_eq!(
+        last_mission_label(&[&running, &paused], &now),
+        ("1 mission running".into(), true)
     );
 }
 
@@ -384,11 +418,18 @@ fn the_missions_card_counts_this_crews_missions_newest_first() {
             day(9),
             Some(18),
         )),
-        summary(mission(
+        live(summary(mission(
             "other",
             "elsewhere",
             MissionStatus::Running,
             day(5),
+            None,
+        ))),
+        summary(mission(
+            "paused",
+            "elsewhere",
+            MissionStatus::Running,
+            day(4),
             None,
         )),
         summary(mission(
@@ -402,20 +443,20 @@ fn the_missions_card_counts_this_crews_missions_newest_first() {
     let crew = crew_missions(&missions, "crew");
     assert_eq!(
         crew.iter()
-            .map(|mission| mission.id.as_str())
+            .map(|summary| summary.mission.id.as_str())
             .collect::<Vec<_>>(),
         ["new", "mid", "old"]
     );
     assert_eq!(missions_header(&crew), "3 run · none live");
     assert_eq!(
         missions_header(&crew_missions(&missions, "elsewhere")),
-        "1 run · 1 live"
+        "2 run · 1 live"
     );
     assert!(crew_missions(&missions, "never-ran").is_empty());
 
-    assert_eq!(mission_duration(crew[0], day(20)), "18m");
-    assert_eq!(mission_duration(crew[1], day(20)), "2h 03m");
-    assert_eq!(mission_duration(crew[2], day(20)), "1h 12m");
+    assert_eq!(mission_duration(&crew[0].mission, day(20)), "18m");
+    assert_eq!(mission_duration(&crew[1].mission, day(20)), "2h 03m");
+    assert_eq!(mission_duration(&crew[2].mission, day(20)), "1h 12m");
     assert_eq!(short_date(&day(9), &day(20)), "Sep 9");
     let last_year = Utc.with_ymd_and_hms(2025, 12, 30, 9, 0, 0).unwrap();
     assert_eq!(short_date(&last_year, &day(20)), "Dec 30, 2025");
