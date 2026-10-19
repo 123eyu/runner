@@ -1,7 +1,7 @@
 # 634 — File preview and code review
 
 > Tracking issue: [#634](https://github.com/yicheng47/runner/issues/634). Scheduling and priority live on the issue and in the [roadmap](../roadmap.md). Platforms: macOS and Windows.
-> Status: draft spec. Filed 2026-09-17, closed as not planned on 2026-09-22 under the "not an agent development environment" non-goal, and reopened by Jason on 2026-10-08 for 0.15: reading an agent's changes is still the most common reason to leave Runner, so the read-only viewer is back in and code review moved from Later into scope as phase 4. On 2026-10-09 Jason moved it to 0.14 as the release's key feature. Design first, in `design/specs/793-634-glass-and-files.pen`, which it shares with liquid glass ([793](./archive/793-liquid-glass.md)) so the panel is designed in the new chrome, for sign-off before any code.
+> Status: draft spec. Filed 2026-09-17, closed as not planned on 2026-09-22 under the "not an agent development environment" non-goal, and reopened by Jason on 2026-10-08 for 0.15: reading an agent's changes is still the most common reason to leave Runner, so the read-only viewer is back in and code review moved from Later into scope as phase 4. On 2026-10-09 Jason moved it to 0.14 as the release's key feature. Design first, in `runner/desktop/specs/793-634-glass-and-files.pen` in `yeelinks_design`, which it shares with liquid glass ([793](./archive/793-liquid-glass.md)) so the panel is designed in the new chrome, for sign-off before any code.
 > Related: [#458](https://github.com/yicheng47/runner/issues/458) (⌘-click file links, `file_links.rs`), [704](https://github.com/yicheng47/runner/issues/704) (session send, the delivery for a review sent to a direct chat; closed unbuilt on 2026-10-11), [826](./archive/826-targeted-messaging.md) (directed messages that wake only their recipient), [403](./archive/403-mission-worktree-isolation.md) (worktree isolation, still dropped).
 
 ## Motivation
@@ -70,4 +70,4 @@ Editing files; stage, unstage or discard; commit, push or PR creation; create, r
 - A review with comments on two files arrives at the chosen slot, or at the direct chat, as one message carrying paths, line ranges, quoted lines and comments.
 - macOS and Windows.
 
-Design: `design/specs/793-634-glass-and-files.pen`, shared with [793](./archive/793-liquid-glass.md), for sign-off before any code. Frames: `U2p3jT` (side panel tabs, Info), `F0DYX` (Files tab, changes and the tree) and `veCIr` (a file tab, the diff with the tree beside it).
+Design: `runner/desktop/specs/793-634-glass-and-files.pen` in `yeelinks_design`, shared with [793](./archive/793-liquid-glass.md), for sign-off before any code. Frames: `U2p3jT` (side panel tabs, Info), `F0DYX` (Files tab, changes and the tree) and `veCIr` (a file tab, the diff with the tree beside it).

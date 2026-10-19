@@ -7,7 +7,7 @@ Pull requests written by AI coding agents are welcome. This page is addressed to
 - **A visual change needs an issue first.** Anything that changes what the app looks like (layout, spacing, colour, icons, on-screen copy, a new control) starts as an issue that describes the change with a screenshot or mockup, and the pull request links it with `Closes #<n>`. Runner's UI follows designs settled before code, so the design is decided in the issue rather than in review. A visual pull request without a linked issue is not reviewed.
 - For other changes, link the issue when one exists.
 - One change per pull request. No unrelated refactors, formatting sweeps or dependency bumps riding along.
-- Do not edit the `.pen` files under `design/`; the maintainer keeps them in step with the code.
+- Runner's design files are kept by the maintainer in a separate, private design repo; a pull request does not change them.
 
 ## Which parts of AGENTS.md apply
 

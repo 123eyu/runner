@@ -3,7 +3,7 @@
 > Tracking issue: [#836](https://github.com/yicheng47/runner/issues/836). Scheduling and priority live on the issue and in the [roadmap](../roadmap.md). Platforms: macOS and Windows first; Linux wherever `runnerd` runs ([#823](https://github.com/yicheng47/runner/issues/823)).
 > Status: draft spec for Phase 1, connecting a host to an account. The encrypted channel, the companion protocol and terminals (Phases 2 and 3) get their sections when their development starts.
 > Scope: Runner's side only, what runs on the person's computer. The web panel and the service are developed separately; this spec describes them only as far as Runner talks to them.
-> Design: `design/specs/836-web-remote-control.pen`, the Settings → Remote access pane and its states, drawn and reviewed in Pencil before the app UI is built.
+> Design: `runner/desktop/specs/836-web-remote-control.pen` in `yeelinks_design`, the Settings → Remote access pane and its states, drawn and reviewed in Pencil before the app UI is built.
 > Related: [#912](https://github.com/yicheng47/runner/issues/912) (iOS on the same foundation), [#808](https://github.com/yicheng47/runner/issues/808) (SSH hosts), [#838](https://github.com/yicheng47/runner/issues/838) (multi-client resize).
 
 ## Motivation

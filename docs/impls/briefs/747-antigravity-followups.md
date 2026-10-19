@@ -9,7 +9,7 @@ Implement [#747](https://github.com/yicheng47/runner/issues/747), following the 
 - `crates/runner-backend/src/session/agy_capture.rs`, `agy_status.rs`, and `session/manager/tests/antigravity.rs`; the existing guarded session rekey operation and Codex rekey tests.
 - `runtime_status/models.rs` and its provider modules, `ops/runtime.rs`, and `router/runtime.rs` under `runner-backend/src`.
 - `crates/runner-core`'s `RUNNER_SKILL_ROOTS`, `crates/runner-backend/src/agent_skill.rs`, `crates/runner-app/src/app_store/skill_defaults.rs`, and Settings' Runner skill flow.
-- `docs/features/706-agent-usage.md`, `crates/runner-backend/src/usage.rs`, and the existing usage popover. Reuse its approved provider sections and states; the design reference is `design/specs/706-agent-usage.pen`, frames `z08zW`, `aFl82`, and `V9E2Mb`. No new surface or layout is needed. Design files belong to the root checkout and are outside this worktree.
+- `docs/features/706-agent-usage.md`, `crates/runner-backend/src/usage.rs`, and the existing usage popover. Reuse its approved provider sections and states; the design reference is `runner/desktop/specs/706-agent-usage.pen` in `yeelinks_design`, frames `z08zW`, `aFl82`, and `V9E2Mb`. No new surface or layout is needed. Design files live in that repo, outside this worktree.
 - `crates/runner-terminal/src/fixtures.rs` and `tests/fixture_replay.rs`, plus the Copilot fixture as the closest precedent.
 
 ## Deliverables

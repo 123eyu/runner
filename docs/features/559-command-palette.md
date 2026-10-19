@@ -60,7 +60,7 @@ Case-insensitive. Every whitespace-separated query word must appear as a substri
 
 ## Design
 
-`design/runner.pen`: one frame, the palette overlay in command mode over the 2-pane chat, showing the `>` prefix in the input, a Recent group, the Global and Chat split groups with headers, shortcut pills on the right, and one shortcut-less row. Pencil-first per the post-cutover rule; code does not start until Jason has signed the frame off.
+`runner/desktop/runner.pen` in `yeelinks_design`: one frame, the palette overlay in command mode over the 2-pane chat, showing the `>` prefix in the input, a Recent group, the Global and Chat split groups with headers, shortcut pills on the right, and one shortcut-less row. Pencil-first per the post-cutover rule; code does not start until Jason has signed the frame off.
 
 ## Implementation Phases
 
