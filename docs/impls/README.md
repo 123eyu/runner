@@ -6,14 +6,14 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 ## Active
 
-- [`907-reliable-delivery.md`](./907-reliable-delivery.md) — reliable mission message delivery ([#907](https://github.com/yicheng47/runner/issues/907)): mission messaging formalized as a small durable queue: the session manager owns readiness, one dispatcher per mission pushes idempotent notifications, every delivery attempt is confirmed, the router's cursor is a log offset, and the person's answers become messages; merged in [#921](https://github.com/yicheng47/runner/pull/921) after 0.16.4 and swept with the release that ships it. #826's direct delivery and #748's return path build on it.
-- [`826-targeted-messaging.md`](./826-targeted-messaging.md) — targeted crew messaging ([#826](https://github.com/yicheng47/runner/issues/826)): several recipients through one shared address resolver, notifications only to recipients with #907's `[inbox]` line unchanged, and unread-only reads with a digest of others' traffic; plan.
+No plan is in flight.
 
 ## Archive
 
 - [`733-gpui-pre.md`](./archive/733-gpui-pre.md) — move GPUI from the yanked `gpui-ce` 0.3.3 to `gpui-pre =0.3.7` ([#767](https://github.com/yicheng47/runner/pull/767), shipped in 0.12.6 on 2026-10-01).
 - [`878-session-launch-definition.md`](./archive/878-session-launch-definition.md) — record each session's launch inputs at spawn so Resume and fork ignore later role edits ([#881](https://github.com/yicheng47/runner/pull/881), shipped in 0.16.0 on 2026-10-13).
 - [`701-desktop-notifications.md`](./archive/701-desktop-notifications.md) — system notifications when an agent needs you, and the Settings → Notifications pane ([#891](https://github.com/yicheng47/runner/pull/891), shipped in 0.16.1 on 2026-10-14).
+- [`907-reliable-delivery.md`](./archive/907-reliable-delivery.md) — reliable mission message delivery ([#907](https://github.com/yicheng47/runner/issues/907)): the failure analysis behind the durable queue, a session manager that owns readiness, one dispatcher per mission, confirmed attempts, a byte-offset router cursor and the person's answers as messages ([#921](https://github.com/yicheng47/runner/pull/921), shipped in 0.16.5 on 2026-10-18). The delivery model itself is arch [§8.5](../arch/arch.md#85-delivery-model). #826's targeted messaging shipped on it in the same release; its plan only mirrored the [retained spec](../features/archive/826-targeted-messaging.md) and is in [git history](https://github.com/yicheng47/runner/blob/5e153e10771235eef40d17d558963286d76426ed/docs/impls/826-targeted-messaging.md).
 
 Retained plans are in [`archive/`](./archive/). Keep migration and compatibility decisions, failure analysis, runtime probes and program logs. Old Tauri UI instructions and shipped briefs that only repeat a retained spec are pruned; git history holds their original text. Historical links to pruned plans use a fixed revision. Multi-mission programs keep a folder with a condensed README:
 

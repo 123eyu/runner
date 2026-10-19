@@ -6,19 +6,16 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [887 — Active sidebar and sidebar refresh](./887-active-sidebar.md) — the approved cross-project activity view, session rows, visible-list shortcuts and sidebar footer ([#887](https://github.com/yicheng47/runner/issues/887)).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).
-- [826 — Targeted crew messaging](./826-targeted-messaging.md) — recipient targeting, message-carrying delivery, catch-up and unread-only reads; draft refreshed against reliable delivery on 2026-10-17 ([#826](https://github.com/yicheng47/runner/issues/826)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
 - [559 — Command palette](./559-command-palette.md) — command mode over the existing keymap and quick-switcher overlay ([#559](https://github.com/yicheng47/runner/issues/559)).
-- [898 — Drop files onto a terminal to insert their paths](./898-terminal-file-drop.md) — files dragged from Finder or Explorer onto a chat pane, mission slot or drawer terminal insert their quoted paths exactly as a file paste does, focus that terminal and highlight it while over it ([#898](https://github.com/yicheng47/runner/issues/898)).
 - [836 — Web remote control](./836-web-remote-control.md) — Phase 1 connects a host to an account: device-code enrollment from Settings → Remote access or `runner remote login`, who may connect a host, secrets in the OS secret store, the outbound relay connection and its states; the encrypted channel, companion protocol and terminals follow ([#836](https://github.com/yicheng47/runner/issues/836)); draft.
 
 Future work, including [iOS follow-through](https://github.com/yicheng47/runner/issues/912), [shell/agent separation](https://github.com/yicheng47/runner/issues/795) and [pi MCP management](https://github.com/yicheng47/runner/issues/764), stays in its issue until development starts. Milestones and priorities are listed in the [roadmap](../roadmap.md), not duplicated in this index.
 
 ## Recently shipped
 
-Reconciled on 2026-10-17 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
+Reconciled on 2026-10-19 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
 
 | Spec | Shipped in |
 | --- | --- |
@@ -47,6 +44,9 @@ Reconciled on 2026-10-17 against closed issues and published releases. These spe
 | [849 — Start mission dialog redesign](./archive/849-start-mission-modal.md) | 0.16.2, 2026-10-15 ([#906](https://github.com/yicheng47/runner/pull/906)), with No crew for [562](./archive/562-mission-spawn.md)'s Phase 3; native Windows unverified |
 | [562 — Missions as containers](./archive/562-mission-spawn.md) | 0.15.2 to 0.16.2; [#562](https://github.com/yicheng47/runner/issues/562) closed 2026-10-16. The roster in 0.15.2 ([#868](https://github.com/yicheng47/runner/pull/868)), independent sessions in 0.15.3 ([#874](https://github.com/yicheng47/runner/pull/874)), adding and removing roles in 0.16.0 ([#889](https://github.com/yicheng47/runner/pull/889)) and the empty start in 0.16.2 ([#906](https://github.com/yicheng47/runner/pull/906)). The lead's own verbs and outside seats continue in [#916](https://github.com/yicheng47/runner/issues/916), the starting-chat return path in [#748](https://github.com/yicheng47/runner/issues/748) |
 | [565 — English and Simplified Chinese UI](./archive/565-i18n.md) | 0.16.4, 2026-10-17 ([#926](https://github.com/yicheng47/runner/pull/926)); System, English and 简体中文 in Settings → General, switching live across windows. The final candidate's native retest was waived; native Windows and an alternate OS language unverified |
+| [826 — Targeted crew messaging](./archive/826-targeted-messaging.md) | 0.16.5, 2026-10-18 ([#939](https://github.com/yicheng47/runner/pull/939)), on [#907](https://github.com/yicheng47/runner/issues/907)'s reliable delivery ([#921](https://github.com/yicheng47/runner/pull/921), plan in [`impls/archive/`](../impls/archive/907-reliable-delivery.md)); several recipients, leading-mention addressing and unread-only reads with a digest. A pre-existing empty-prompt draft hold continues as [#940](https://github.com/yicheng47/runner/issues/940); native Windows unverified |
+| [898 — Drop files onto a terminal](./archive/898-terminal-file-drop.md) | 0.16.5, 2026-10-18 ([#903](https://github.com/yicheng47/runner/pull/903)); native Windows unverified |
+| [887 — Active sidebar and sidebar refresh](./archive/887-active-sidebar.md) | 0.16.6, 2026-10-19 ([#958](https://github.com/yicheng47/runner/pull/958)); one row per tab with attention-pane activation, and the Codex and Claude usage footer. Jason confirmed it natively on macOS; Windows unverified |
 
 ## Selected decision records
 

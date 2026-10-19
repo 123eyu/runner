@@ -2,7 +2,7 @@
 
 > Tracking issue: [#898](https://github.com/yicheng47/runner/issues/898)
 > Priority: P2. Milestone: 0.16. Platforms: macOS and Windows.
-> Guide: [Chats, tabs and windows](../guide/guides/chats-and-windows.md).
+> Guide: [Chats, tabs and windows](../../guide/guides/chats-and-windows.md).
 
 ## Motivation
 
