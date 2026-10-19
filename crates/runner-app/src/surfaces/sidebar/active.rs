@@ -22,6 +22,16 @@ pub(super) struct ActiveSidebarRow {
     last_activity: i64,
 }
 
+impl ActiveGroup {
+    pub(super) fn key(self) -> &'static str {
+        match self {
+            Self::Chats => "chats",
+            Self::Missions => "missions",
+            Self::Terminals => "terminals",
+        }
+    }
+}
+
 impl ActiveSidebarRow {
     pub(super) fn group(&self) -> ActiveGroup {
         self.group
@@ -318,6 +328,11 @@ impl Sidebar {
             if members.is_empty() {
                 continue;
             }
+            let key = group.key();
+            let collapsed = self
+                .settings(cx)
+                .sidebar_collapsed_active_groups
+                .contains(key);
             list = list.child(
                 div()
                     .flex_none()
@@ -325,19 +340,50 @@ impl Sidebar {
                     .flex_col()
                     .mb_5()
                     .child(
-                        div()
-                            .px_5()
-                            .pb(rems(6. / 16.))
-                            .flex()
-                            .items_center()
-                            .gap(rems(6. / 16.))
-                            .text_size(theme::text_caption())
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(theme::faint())
-                            .child(crate::i18n::text(label))
-                            .child(members.len().to_string()),
+                        div().px_5().pb(rems(6. / 16.)).flex().items_center().child(
+                            div()
+                                .id(SharedString::from(format!("toggle-active-{key}")))
+                                .debug_selector(move || format!("ACTIVE_GROUP_TOGGLE {key}"))
+                                .group("sidebar-active-group-toggle")
+                                .min_w(px(0.))
+                                .flex()
+                                .items_center()
+                                .gap(rems(6. / 16.))
+                                .cursor_pointer()
+                                .text_size(theme::text_caption())
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(theme::faint())
+                                .hover(|header| header.text_color(theme::muted()))
+                                .child(crate::i18n::text(label))
+                                .child(members.len().to_string())
+                                .child(
+                                    gpui::svg()
+                                        .flex_none()
+                                        .path(if collapsed {
+                                            "chevron-right.svg"
+                                        } else {
+                                            "chevron-down.svg"
+                                        })
+                                        .size(rems(10. / 16.))
+                                        .text_color(theme::faint())
+                                        .group_hover("sidebar-active-group-toggle", |icon| {
+                                            icon.text_color(theme::muted())
+                                        }),
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.update_app_settings(cx, true, |settings| {
+                                        if !settings.sidebar_collapsed_active_groups.remove(key) {
+                                            settings
+                                                .sidebar_collapsed_active_groups
+                                                .insert(key.to_owned());
+                                        }
+                                        true
+                                    });
+                                    cx.notify();
+                                })),
+                        ),
                     )
-                    .child(
+                    .children((!collapsed).then(|| {
                         div()
                             .px_3()
                             .pt(rems(2. / 16.))
@@ -347,12 +393,12 @@ impl Sidebar {
                             .children(members.into_iter().map(|(index, row)| {
                                 self.render_active_row(
                                     row,
-                                    (index < 9).then(|| index as u8 + 1),
+                                    self.tab_index_by_node.get(&row.source.node().id).copied(),
                                     rename_index == Some(index),
                                     cx,
                                 )
-                            })),
-                    ),
+                            }))
+                    })),
             );
         }
         list.into_any_element()

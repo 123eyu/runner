@@ -2347,6 +2347,105 @@ fn active_render_handles_256_eligible_rows_and_numbers_only_the_first_nine() {
 }
 
 #[test]
+fn active_group_collapse_hides_rows_and_skips_their_shortcuts() {
+    use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let conn = core.db.get().unwrap();
+    let [chat_node, terminal_node] = [("chat", 0), ("terminal", 1)].map(|(id, position)| {
+        let layout = PaneLayout::single(Some(id), &[id.into()]);
+        runner_daemon::repo::node::create_tab(
+            &conn,
+            None,
+            id,
+            position,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap()
+    });
+    drop(conn);
+    store.update(&mut cx, |store, cx| {
+        store.refresh_nodes(cx).unwrap();
+        store.settings.sidebar_active_only = true;
+        store.sessions = vec![
+            direct_session("chat", "codex", SessionStatus::Stopped),
+            direct_session("terminal", "shell", SessionStatus::Running),
+        ];
+        store.session_statuses.insert(
+            "chat".into(),
+            AgentStatus {
+                lifecycle: Lifecycle::Stopped,
+                unread_since: Some(1),
+                ..Default::default()
+            },
+        );
+        store.session_statuses.insert(
+            "terminal".into(),
+            AgentStatus {
+                lifecycle: Lifecycle::Running,
+                observation: runner_core::protocol::status::AgentObservation {
+                    activity: Activity::Idle,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+    });
+    let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+    let host = cx.add_window(|_, _| ActiveListRenderTest {
+        sidebar: sidebar.clone(),
+    });
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.simulate_resize(size(px(400.), px(900.)));
+    visual.run_until_parked();
+    let chat_title: &'static str =
+        Box::leak(format!("ACTIVE_TITLE {}", chat_node.id).into_boxed_str());
+    let numbered = |visual: &mut VisualTestContext| {
+        sidebar.read_with(visual, |sidebar, _| {
+            sidebar
+                .numbered_shortcut_rows
+                .iter()
+                .map(|row| row.node_id.clone())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert!(visual.debug_bounds(chat_title).is_some());
+    assert_eq!(
+        numbered(&mut visual),
+        [chat_node.id.clone(), terminal_node.id.clone()]
+    );
+
+    let toggle = visual.debug_bounds("ACTIVE_GROUP_TOGGLE chats").unwrap();
+    visual.simulate_click(toggle.center(), gpui::Modifiers::default());
+    visual.run_until_parked();
+    assert!(visual.debug_bounds(chat_title).is_none());
+    assert!(visual.debug_bounds("SIDEBAR_SHORTCUT_1").is_some());
+    assert!(visual.debug_bounds("SIDEBAR_SHORTCUT_2").is_none());
+    assert_eq!(
+        numbered(&mut visual),
+        std::slice::from_ref(&terminal_node.id)
+    );
+    store.read_with(&visual, |store, _| {
+        assert!(store
+            .settings
+            .sidebar_collapsed_active_groups
+            .contains("chats"));
+    });
+
+    let toggle = visual.debug_bounds("ACTIVE_GROUP_TOGGLE chats").unwrap();
+    visual.simulate_click(toggle.center(), gpui::Modifiers::default());
+    visual.run_until_parked();
+    assert!(visual.debug_bounds(chat_title).is_some());
+    assert_eq!(
+        numbered(&mut visual),
+        [chat_node.id.clone(), terminal_node.id.clone()]
+    );
+}
+
+#[test]
 fn active_lists_unselected_idle_shells_until_they_exit() {
     use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle};
     let temp = tempfile::tempdir().unwrap();

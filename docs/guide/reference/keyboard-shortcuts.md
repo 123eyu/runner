@@ -22,7 +22,7 @@ On macOS, `⌘` is Command, `⇧` is Shift, `⌥` is Option and `⌃` is Control
 | Next recently viewed page | ⇧⌘] | Ctrl+Shift+] |
 | Select visible sidebar row 1–9 | ⌘1–9 | Ctrl+1–9 |
 
-In Projects, number shortcuts follow the visible tabs and missions. In Active, they follow tabs and missions from top to bottom across Chats, Missions and Terminals; a split tab opens on the pane that needs attention. Hold the primary modifier to reveal row numbers when the selection binding is enabled.
+In Projects, number shortcuts follow the visible tabs and missions. In Active, they follow tabs and missions from top to bottom across Chats, Missions and Terminals, skipping collapsed groups; a split tab opens on the pane that needs attention. Hold the primary modifier to reveal row numbers when the selection binding is enabled.
 
 ## Panes and sessions
 

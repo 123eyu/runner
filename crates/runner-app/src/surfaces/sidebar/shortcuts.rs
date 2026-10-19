@@ -73,8 +73,10 @@ impl Sidebar {
 
     pub(crate) fn refresh_shortcut_rows(&mut self, tabs: &TabSet, cx: &App) {
         let walk = if self.settings(cx).sidebar_active_only {
+            let collapsed = &self.settings(cx).sidebar_collapsed_active_groups;
             self.resolved_active_rows_for_tabs(tabs, cx)
                 .iter()
+                .filter(|row| !collapsed.contains(row.group().key()))
                 .map(|row| {
                     crate::surfaces::sidebar_logic::VisibleSidebarRow::Activatable(
                         row.shortcut_row(&self.app_store.read(cx).nodes),
