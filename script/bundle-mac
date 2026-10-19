@@ -310,16 +310,17 @@ for variable in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
     fi
 done
 
-# The ticket lookup right after notarization sometimes loses its connection
-# to Apple (stapler error 68); the ticket is already issued, so retry.
-staple() {
+# Stapling and validation both look the ticket up from Apple, and that lookup
+# sometimes loses its connection (stapler error 68); the ticket is already
+# issued, so retry.
+stapler() {
     local attempt
     for attempt in 1 2 3 4 5; do
-        if xcrun stapler staple "$1"; then
+        if xcrun stapler "$@"; then
             return 0
         fi
         if (( attempt < 5 )); then
-            echo "stapler staple failed (attempt $attempt of 5), retrying in 20s" >&2
+            echo "stapler $1 failed (attempt $attempt of 5), retrying in 20s" >&2
             sleep 20
         fi
     done
@@ -329,8 +330,8 @@ staple() {
 APP_ZIP="$ROOT_DIR/target/release/$APP_NAME-$SHORT_VERSION-arm64.zip"
 ditto -c -k --keepParent "$APP_BUNDLE" "$APP_ZIP"
 xcrun notarytool submit "$APP_ZIP" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-staple "$APP_BUNDLE"
-xcrun stapler validate "$APP_BUNDLE"
+stapler staple "$APP_BUNDLE"
+stapler validate "$APP_BUNDLE"
 
 DMG_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/runner-dmg.XXXXXX")"
 trap 'rm -rf "$ICON_WORK_DIR" "$SPARKLE_WORK_DIR" "$DMG_WORK_DIR"' EXIT
@@ -340,6 +341,6 @@ hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_WORK_DIR" -ov -format UDZO 
 codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$DMG_PATH"
 codesign --verify --verbose=2 "$DMG_PATH"
 xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-staple "$DMG_PATH"
-xcrun stapler validate "$DMG_PATH"
+stapler staple "$DMG_PATH"
+stapler validate "$DMG_PATH"
 printf 'Bundled, signed, notarized, and stapled arm64 %s %s at %s\n' "$APP_NAME" "$SHORT_VERSION" "$DMG_PATH"
