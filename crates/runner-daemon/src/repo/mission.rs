@@ -171,7 +171,7 @@ pub fn complete_and_archive_if_running(
 }
 
 /// Visibility-only archive for missions already out of `running` (#376):
-/// restored rows (completed + unarchived, impl 0026) and aborted spawns.
+/// legacy restored rows (completed + unarchived, impl 0026) and aborted spawns.
 /// Stamps `archived_at` and leaves the lifecycle columns alone — their
 /// terminal stop already happened. The `archived_at IS NULL` guard makes
 /// racing archives mutually exclusive; the status guard keeps running
@@ -199,15 +199,11 @@ pub fn abort(conn: &Connection, id: &str, stopped_at: Timestamp) -> rusqlite::Re
     )
 }
 
-/// Unarchive: clear the archive marker and nothing else — status and
-/// `stopped_at` stay, so an unarchived mission reappears exactly as the
-/// `completed AND archived_at IS NULL` rows the migration backfill
-/// created. The `IS NOT NULL` guard makes a repeat call a 0-row no-op.
 pub fn unarchive(conn: &Connection, id: &str) -> rusqlite::Result<usize> {
     conn.execute(
         "UPDATE missions
-            SET archived_at = NULL
-          WHERE id = ?1 AND archived_at IS NOT NULL",
+            SET status = 'running', stopped_at = NULL, archived_at = NULL
+          WHERE id = ?1 AND (archived_at IS NOT NULL OR status != 'running')",
         rusqlite::params![id],
     )
 }
@@ -431,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn unarchive_clears_only_the_archive_marker() {
+    fn unarchive_reopens_the_mission_and_preserves_its_pin() {
         let pool = db::open_in_memory().unwrap();
         let conn = pool.get().unwrap();
         seed_crew(&conn, "c1");
@@ -441,8 +437,8 @@ mod tests {
         assert_eq!(unarchive(&conn, "m-full").unwrap(), 1);
         let m = get(&conn, "m-full").unwrap().unwrap();
         assert_eq!(m.archived_at, None);
-        assert_eq!(m.status, MissionStatus::Completed, "status is preserved");
-        assert_eq!(m.stopped_at, row.stopped_at, "stopped_at is preserved");
+        assert_eq!(m.status, MissionStatus::Running);
+        assert_eq!(m.stopped_at, None);
         assert_eq!(m.pinned_at, row.pinned_at, "pin survives unarchive");
 
         // Idempotent: an already-active row is a 0-row no-op, not an error.

@@ -1,5 +1,105 @@
 use super::*;
 
+#[tokio::test]
+async fn restored_mission_remounts_without_spawning_then_resumes_and_rearchives() {
+    use crate::ops::mission;
+
+    let (pool, app_data, id) = slot_respawn_fixture("codex", false);
+    let before = crate::repo::session::get_row(&pool.get().unwrap(), &id)
+        .unwrap()
+        .unwrap();
+    let mission_id = before.mission_id.as_ref().unwrap();
+    let fake = fake_runtime();
+    let mgr = mgr_with_fake(None, fake.clone());
+    let mut core = crate::test_support::test_core_in(app_data.path().to_path_buf());
+    core.db = pool.clone();
+    core.sessions = mgr.clone();
+    mission::mission_attach(&core, mission_id).await.unwrap();
+    mission::mission_archive_impl(&core, mission_id.clone())
+        .await
+        .unwrap();
+    assert!(core.routers.get(mission_id).is_none());
+    assert!(core.buses.get(mission_id).is_none());
+    let mut events = core.events.subscribe();
+
+    let reopened = mission::mission_unarchive(&core, mission_id.clone())
+        .await
+        .unwrap();
+    assert_eq!(reopened.status, MissionStatus::Running);
+    assert!(reopened.archived_at.is_none());
+    assert!(reopened.stopped_at.is_none());
+    assert!(core.routers.get(mission_id).is_some());
+    assert!(core.buses.get(mission_id).is_some());
+    assert_eq!(fake.spawn_count(), 0);
+    let row = crate::repo::session::get_row(&pool.get().unwrap(), &id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, crate::model::SessionStatus::Stopped);
+    assert_eq!(row.agent_session_key, before.agent_session_key);
+    assert!(crate::repo::node::find_by_ref(
+        &pool.get().unwrap(),
+        crate::repo::node::NodeType::Mission,
+        mission_id
+    )
+    .unwrap()
+    .is_some());
+    assert!(
+        std::iter::from_fn(|| events.try_recv().ok()).any(|event| event.name == "mission/changed")
+    );
+
+    mission::mission_unarchive_impl(&core, mission_id.clone())
+        .await
+        .unwrap();
+    let log = mission::read_events(app_data.path(), &pool.get().unwrap(), mission_id).unwrap();
+    assert_eq!(
+        log.iter()
+            .filter(|event| event
+                .signal_type
+                .as_ref()
+                .is_some_and(|kind| kind.as_str() == "mission_reopened"))
+            .count(),
+        1
+    );
+    assert_eq!(fake.spawn_count(), 0);
+
+    let output = mission::mission_resume(&core, mission_id).unwrap();
+    assert_eq!(
+        output.resumed_session_ids.as_slice(),
+        std::slice::from_ref(&id)
+    );
+    assert_eq!(fake.spawn_count(), 1);
+    let spec = fake.last_spawn_spec().unwrap();
+    assert_eq!(
+        &spec.args[..2],
+        &["resume", before.agent_session_key.as_deref().unwrap()]
+    );
+    mission::mission_unarchive_impl(&core, mission_id.clone())
+        .await
+        .unwrap();
+    assert_eq!(fake.spawn_count(), 1);
+    assert!(mgr.live_session_ids().contains(&id));
+
+    let archived = mission::mission_archive_impl(&core, mission_id.clone())
+        .await
+        .unwrap();
+    assert_eq!(archived.status, MissionStatus::Completed);
+    assert!(archived.archived_at.is_some());
+    assert!(!mgr.live_session_ids().contains(&id));
+    assert!(core.routers.get(mission_id).is_none());
+    assert!(core.buses.get(mission_id).is_none());
+    let log = mission::read_events(app_data.path(), &pool.get().unwrap(), mission_id).unwrap();
+    let lifecycle: Vec<_> = log
+        .iter()
+        .filter_map(|event| event.signal_type.as_ref())
+        .map(|kind| kind.as_str())
+        .filter(|kind| matches!(*kind, "mission_stopped" | "mission_reopened"))
+        .collect();
+    assert_eq!(
+        lifecycle,
+        ["mission_stopped", "mission_reopened", "mission_stopped"]
+    );
+}
+
 #[test]
 fn worker_restart_reuses_row_replaces_claude_key_and_delivers_first_turn_once() {
     let (pool, app_data, id) = slot_respawn_fixture("claude-code", false);

@@ -141,6 +141,7 @@
 "format.minute_ago.one" = "{count} minute ago"
 "format.minute_ago.other" = "{count} minutes ago"
 "format.mission_started" = "MISSION STARTED · {time}"
+"format.mission_reopened" = "MISSION REOPENED · {time}"
 "format.mission_stopped" = "MISSION STOPPED · {time}"
 "format.missions" = "{mission_count} missions"
 "format.missions_running" = "{running} missions running"

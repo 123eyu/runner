@@ -26,7 +26,7 @@ Mission launches use the runtime's broad-access mode, generally **Bypass**; pi u
 
 - **Stop a slot** to halt just that agent. **Resume** continues its saved conversation; **Restart** starts that mission slot with a fresh conversation.
 - **Stop the mission** to halt its members. **Resume** resumes stopped sessions.
-- **Archive** stops active members and removes the mission from active lists. Its feed remains available under **Settings → Archived**. Restore it before resuming work.
+- **Archive** stops active members and removes the mission from active lists. Its feed remains available under **Settings → Archived**. **Restore** reopens it with all members stopped. Use **Resume** to continue their saved conversations. The feed records each reopen.
 
 While a mission is paused, its unread-response green dot is hidden in the sidebar and collapsed groups. Unread responses remain saved, and the dot returns after resuming if any remain unread. Viewing a role's session still marks that session's response as read while paused. Error and approval indicators keep their usual behavior.
 

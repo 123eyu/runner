@@ -1243,6 +1243,7 @@ fn mission_refresh_filters_appended_signals() {
     for signal in [
         "mission_start",
         "mission_stopped",
+        "mission_reopened",
         "ask_human",
         "human_question",
         "human_response",

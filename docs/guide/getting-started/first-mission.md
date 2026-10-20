@@ -38,7 +38,7 @@ The seeded conventions ask the coder and reviewer to repeat their review until n
 
 Use the mission's **Stop** control when you are finished. **Resume** brings stopped members back to their conversations. You can also stop or resume one slot through its own controls without stopping the others.
 
-Archive the mission when you want it out of the active sidebar. Archived missions are available in **Settings → Archived**, and restoring one is separate from resuming it. The CLI equivalents are:
+Archive the mission when you want it out of the active sidebar. Archived missions are available in **Settings → Archived**, and restoring one reopens it with its members stopped. Use **Resume** afterward to continue their conversations. The CLI equivalents are:
 
 ```sh
 runner mission list

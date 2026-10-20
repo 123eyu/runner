@@ -81,15 +81,25 @@ fn pi_conversation_exists_at(
     session_dir: Option<&OsStr>,
     agent_dir: Option<&OsStr>,
 ) -> bool {
-    let Some(directory) = pi_session_directory(home, cwd, session_dir, agent_dir) else {
-        return true;
-    };
     let suffix = format!("_{key}.jsonl");
-    std::fs::read_dir(directory).ok().is_some_and(|entries| {
-        entries.filter_map(Result::ok).any(|entry| {
-            entry.path().is_file() && entry.file_name().to_string_lossy().ends_with(&suffix)
+    let exists = |cwd: &str| {
+        let Some(directory) = pi_session_directory(home, cwd, session_dir, agent_dir) else {
+            return true;
+        };
+        std::fs::read_dir(directory).ok().is_some_and(|entries| {
+            entries.filter_map(Result::ok).any(|entry| {
+                entry.path().is_file() && entry.file_name().to_string_lossy().ends_with(&suffix)
+            })
         })
-    })
+    };
+    // pi files the conversation under its resolved working directory, so a
+    // cwd reached through a symlink is stored under the target's slug.
+    exists(cwd)
+        || std::fs::canonicalize(cwd).ok().is_some_and(|canonical| {
+            #[cfg(windows)]
+            let canonical = ordinary_windows_path(&canonical);
+            exists(&canonical.to_string_lossy())
+        })
 }
 
 fn pi_session_directory(

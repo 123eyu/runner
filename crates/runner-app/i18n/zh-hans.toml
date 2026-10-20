@@ -141,6 +141,7 @@
 "format.minute_ago.one" = "{count} 分钟前"
 "format.minute_ago.other" = "{count} 分钟前"
 "format.mission_started" = "任务已启动 · {time}"
+"format.mission_reopened" = "任务已重新开启 · {time}"
 "format.mission_stopped" = "任务已停止 · {time}"
 "format.missions" = "{mission_count} 个任务"
 "format.missions_running" = "{running} 个任务运行中"
