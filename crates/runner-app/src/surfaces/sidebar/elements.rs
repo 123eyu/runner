@@ -41,7 +41,7 @@ pub(super) fn workspace_new_chat_row(
         .gap_2()
         .rounded_sm()
         .border_1()
-        .border_color(theme::chrome_selected_border())
+        .border_color(gpui::transparent_black())
         .cursor_pointer()
         .hover(|row| {
             row.border_color(theme::chrome_selected_border())
