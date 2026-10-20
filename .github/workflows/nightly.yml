@@ -95,12 +95,13 @@ jobs:
       - name: Hash build settings
         id: cache-key
         shell: bash
-        run: echo "hash=$(grep -v '^version = ' Cargo.toml | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+        run: echo "hash=$({ grep -v '^version = ' Cargo.toml; cat rust-toolchain.toml; } | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ steps.cache-key.outputs.hash }}
+          add-rust-environment-hash-key: false
           cache-on-failure: true
 
       - name: Install Metal toolchain
@@ -213,12 +214,13 @@ jobs:
       - name: Hash build settings
         id: cache-key
         shell: bash
-        run: echo "hash=$(grep -v '^version = ' Cargo.toml | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+        run: echo "hash=$({ grep -v '^version = ' Cargo.toml; cat rust-toolchain.toml; } | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ steps.cache-key.outputs.hash }}
+          add-rust-environment-hash-key: false
           cache-on-failure: true
 
       - name: Connect to Certum SimplySign
