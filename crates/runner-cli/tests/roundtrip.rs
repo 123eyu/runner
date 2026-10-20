@@ -425,6 +425,88 @@ fn i2_5c_msg_read_with_from_filter_does_not_emit_inbox_read() {
 }
 
 #[test]
+fn filtered_reads_report_unread_on_stderr_until_inbox_is_consumed() {
+    let f = Fixture::new("C", "M");
+    let log = EventLog::open(&f.mission_dir).unwrap();
+    use runner_core::model::EventDraft;
+    log.append(EventDraft::message(
+        Some("C"),
+        "M",
+        "lead",
+        Some("impl".into()),
+        "first",
+    ))
+    .unwrap();
+    log.append(EventDraft::message(
+        Some("C"),
+        "M",
+        "reviewer",
+        Some("other".into()),
+        "other inbox",
+    ))
+    .unwrap();
+    log.append(EventDraft::message(
+        Some("C"),
+        "M",
+        "impl",
+        None,
+        "own broadcast",
+    ))
+    .unwrap();
+    let last = log
+        .append(EventDraft::message(
+            Some("C"),
+            "M",
+            "reviewer",
+            None,
+            "second",
+        ))
+        .unwrap();
+    let initial_count = f.line_count();
+    let filters = [
+        vec!["--from", "lead"],
+        vec!["--since", last.id.as_str()],
+        vec!["--from", "nobody"],
+        vec!["--since", last.id.as_str(), "--from", "lead"],
+    ];
+    for all in [false, true] {
+        for filter in &filters {
+            let mut args = vec!["msg", "read"];
+            if all {
+                args.push("--all");
+            }
+            args.extend(filter.iter().copied());
+            let out = f.cmd("impl", &args).output().unwrap();
+            assert!(out.status.success());
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(stderr.contains("filtered reads do not mark messages read"));
+            assert!(stderr.contains("unread inbox messages: 2"));
+            assert!(stderr.contains("`runner msg read` without --since or --from"));
+            assert!(!stdout.contains("unread inbox messages:"));
+            if filter.contains(&"--since") || filter.contains(&"nobody") {
+                assert!(stdout.is_empty());
+            }
+            assert_eq!(f.line_count(), initial_count);
+        }
+    }
+
+    let consumed = f.cmd("impl", &["msg", "read"]).output().unwrap();
+    assert!(consumed.status.success());
+    assert!(consumed.stderr.is_empty());
+    let events = f.read_log();
+    assert_eq!(events.last().unwrap().payload["up_to"], last.id);
+    let history = f
+        .cmd("impl", &["msg", "read", "--all", "--from", "lead"])
+        .output()
+        .unwrap();
+    assert!(history.status.success());
+    assert!(String::from_utf8_lossy(&history.stdout).contains("first"));
+    assert!(history.stderr.is_empty());
+    assert_eq!(f.line_count(), initial_count + 1);
+}
+
+#[test]
 fn i2_5b_msg_read_with_empty_inbox_does_not_emit_inbox_read() {
     let f = Fixture::new("C", "M");
     f.write_roster(&[("lead", true), ("impl", false)]);

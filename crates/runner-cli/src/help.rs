@@ -96,13 +96,16 @@ MESSAGING INSIDE A MISSION
   Run runner msg read when an [inbox] notification arrives: only new inbox messages print,
   followed by a short digest of others' directed traffic. Use runner msg read --all for all
   crew messages since joining after a resume or when earlier messages are no longer in context.
-  --all acknowledges only your inbox. --since and --from never mark messages read, even with --all.
+  Default reads already track unread messages: do not add --since or --from to consume your inbox.
+  --all acknowledges only your inbox. --since and --from are inspection filters and never mark
+  messages read, even with --all. If unread messages remain, filtered reads report the count and
+  an unfiltered-read hint on stderr, including when no messages match.
   Address one or several members:
     runner msg post --to coder --to reviewer "please check"
     runner msg post "@coder @reviewer please check"
   Explicit --to wins; mid-text mentions do not address. Unknown handles and @human are refused.
-  Reply to the sender. Broadcast only when everyone must act. Do not send acknowledgements
-  or standby messages.
+  Reply to the sender. Broadcast only when everyone must act. Do not post receipt-only replies
+  or standby messages; consuming your inbox with runner msg read is still required.
 
 START AND WATCH (REQUIRED)
   After every successful runner mission start, arm runner mission feed <id> --follow --json
@@ -156,10 +159,14 @@ mod tests {
         for rule in [
             "only new inbox messages",
             "msg read --all",
-            "--since and --from never mark messages read",
+            "Default reads already track unread messages",
+            "--since and --from are inspection filters and never mark",
+            "messages read, even with --all",
+            "unfiltered-read hint on stderr",
             "--to coder --to reviewer",
             "mid-text mentions do not address",
-            "Do not send acknowledgements",
+            "Do not post receipt-only replies",
+            "consuming your inbox with runner msg read is still required",
         ] {
             assert!(AGENT_GUIDE.contains(rule), "missing {rule}");
         }

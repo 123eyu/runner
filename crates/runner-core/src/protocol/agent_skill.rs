@@ -80,7 +80,7 @@ mission=$({command} mission start --title "Small task" -q)
 
 Use `mission show` to see the team; direct messages can address any member when there is no lead.
 
-Messaging inside a mission: run `{command} msg read` when an `[inbox]` notification arrives; it shows only new messages and a short digest. Use `{command} msg read --all` for crew history since joining after a resume or when earlier messages are no longer in context. `--since` and `--from` never mark messages read. Address one or several members with repeated `--to` or leading `@handle` mentions; explicit recipients win and mid-text mentions do not address. Reply to the sender, broadcast only when everyone must act, and do not send acknowledgements or standby messages.
+Messaging inside a mission: run `{command} msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox. Use `{command} msg read --all` for crew history since joining after a resume or when earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `{command} msg read`. Address one or several members with repeated `--to` or leading `@handle` mentions; explicit recipients win and mid-text mentions do not address. Reply to the sender, broadcast only when everyone must act, and do not post receipt-only replies or standby messages; consuming your inbox with `{command} msg read` is still required.
 
 Rules:
 
@@ -107,14 +107,16 @@ mod tests {
         for debug in [false, true] {
             let text = render(debug, Path::new("/tmp/runner"));
             for rule in [
-                "only new messages",
+                "shows and marks new inbox messages read",
+                "already tracks unread messages",
                 "msg read --all",
                 "--since",
                 "--from",
                 "never mark messages read",
                 "repeated `--to`",
                 "mid-text mentions do not address",
-                "do not send acknowledgements or standby messages",
+                "run unfiltered",
+                "do not post receipt-only replies or standby messages",
             ] {
                 assert!(text.contains(rule), "missing {rule}");
             }
