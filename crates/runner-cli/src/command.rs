@@ -478,7 +478,7 @@ enum MsgCommand {
         /// Return messages after this event ID without marking them read.
         #[arg(long)]
         since: Option<String>,
-        /// Filter by sender handle.
+        /// Filter by sender handle without marking messages read.
         #[arg(long)]
         from: Option<String>,
         /// Mission reference; only the caller's mission is supported.

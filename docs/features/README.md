@@ -6,6 +6,7 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
+- [965 — Filtered message read feedback](./965-inbox-read-feedback.md) — actionable unread-inbox feedback for filtered CLI reads and clearer agent guidance ([#965](https://github.com/yicheng47/runner/issues/965)).
 - [947 — Mission feed scrollbar](./947-mission-feed-scrollbar.md) — the shared app scrollbar on the virtual mission feed ([#947](https://github.com/yicheng47/runner/issues/947)).
 
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).

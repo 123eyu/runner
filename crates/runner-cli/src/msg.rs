@@ -78,6 +78,12 @@ pub fn read(env: &env::MissionEnv, all: bool, since: Option<&str>, from: Option<
         let cursor = runner_cli::client::mission_read_cursor(&env.mission_id, &env.handle);
         let batch = capture(&log, &env.handle, cursor, all, since, from)?;
         batch.print_and_ack(&log, env, &mut io::stdout().lock())?;
+        if batch.filtered_unread > 0 {
+            eprintln!(
+                "runner msg read: filtered reads do not mark messages read; unread inbox messages: {}. Run `runner msg read` without --since or --from to consume your inbox.",
+                batch.filtered_unread
+            );
+        }
         Ok(())
     })();
     match result {
@@ -93,6 +99,7 @@ struct ReadBatch {
     messages: Vec<Event>,
     digest: Vec<Event>,
     ack: Option<String>,
+    filtered_unread: usize,
 }
 
 fn capture(
@@ -183,6 +190,14 @@ fn select(
             }
         }
     }
+    let filtered_unread = if since.is_some() || from.is_some() {
+        inbox_ids
+            .iter()
+            .filter(|id| cursor.ack_id.as_deref().is_none_or(|ack| **id > ack))
+            .count()
+    } else {
+        0
+    };
     let messages: Vec<_> = entries
         .iter()
         .filter(|entry| {
@@ -243,6 +258,7 @@ fn select(
         messages,
         digest,
         ack,
+        filtered_unread,
     }
 }
 
@@ -391,6 +407,14 @@ mod tests {
                     if since.is_some() || from.is_some() || all {
                         assert!(batch.digest.is_empty());
                     }
+                    assert_eq!(
+                        batch.filtered_unread,
+                        if since.is_some() || from.is_some() {
+                            2
+                        } else {
+                            0
+                        }
+                    );
                 }
             }
         }
@@ -418,6 +442,7 @@ mod tests {
         let filtered_history = capture(&log, "coder", None, false, Some(&a.id), None).unwrap();
         assert_eq!(ids(&filtered_history), vec![b.id.as_str()]);
         assert!(filtered_history.ack.is_none());
+        assert_eq!(filtered_history.filtered_unread, 0);
         assert!(capture(&log, "coder", None, false, None, Some("qa"))
             .unwrap()
             .messages
@@ -545,9 +570,17 @@ mod tests {
                 vec![c.id.as_str()]
             );
             assert_eq!(
-                ids(&capture(&log, "coder", cursor, true, None, None).unwrap()),
+                ids(&capture(&log, "coder", cursor.clone(), true, None, None).unwrap()),
                 vec![a.id.as_str(), b.id.as_str(), c.id.as_str()]
             );
+            for all in [false, true] {
+                for since in [None, Some(c.id.as_str())] {
+                    let filtered =
+                        capture(&log, "coder", cursor.clone(), all, since, Some("nobody")).unwrap();
+                    assert!(filtered.messages.is_empty());
+                    assert_eq!(filtered.filtered_unread, 1);
+                }
+            }
         }
     }
 
