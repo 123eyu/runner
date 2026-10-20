@@ -291,20 +291,9 @@ fn sidebar_usage_element(
         .h(px(32. * zoom))
         .flex()
         .items_center()
-        .gap(px(10. * zoom))
-        .px(px(8. * zoom))
+        .justify_between()
+        .px(px(10. * zoom))
         .rounded(px(6. * zoom))
-        .when(visible.is_empty(), |usage| {
-            usage.child(
-                div()
-                    .when(cfg!(test), |label| {
-                        label.debug_selector(|| "SIDEBAR_USAGE_LABEL".into())
-                    })
-                    .text_size(px(11. * zoom))
-                    .text_color(theme::muted())
-                    .child(crate::i18n::text("ui.usage")),
-            )
-        })
         .children(entries)
 }
 
@@ -1211,13 +1200,8 @@ impl NativeRoot {
             app_update_hint_version(updater.read(cx).available()).map(str::to_owned);
         let brand = self.render_sidebar_brand(update_version, cx);
         let enabled = self.settings(cx).model_runtimes();
-        let available_usage_runtimes = visible_usage_runtimes(&self.usage_installed, &enabled);
-        let visible_usage_runtimes = available_usage_runtimes
-            .iter()
-            .copied()
-            .filter(|runtime| matches!(runtime, Runtime::Codex | Runtime::ClaudeCode))
-            .collect::<Vec<_>>();
-        let show_usage = !available_usage_runtimes.is_empty() && !self.sidebar_collapsed;
+        let visible_usage_runtimes = visible_usage_runtimes(&self.usage_installed, &enabled);
+        let show_usage = !visible_usage_runtimes.is_empty() && !self.sidebar_collapsed;
         let anchor_owner = cx.entity();
         let usage = show_usage.then(|| {
             let snapshot = self.app_store.read(cx).usage.clone();
@@ -1237,7 +1221,7 @@ impl NativeRoot {
                 }));
             div()
                 .relative()
-                .w(px((visible_usage_runtimes.len().max(1) as f32 * 52. + 20.)
+                .w(px((visible_usage_runtimes.len() as f32 * 52. + 20.)
                     .min(self.settings(cx).sidebar_width - 56.)
                     * zoom))
                 .flex_none()
@@ -1257,8 +1241,6 @@ impl NativeRoot {
             .when(cfg!(test), |footer| {
                 footer.debug_selector(|| "SIDEBAR_FOOTER".into())
             })
-            .border_t_1()
-            .border_color(theme::chrome_selected_border())
             .px_3()
             .child(
                 div()
@@ -2840,7 +2822,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_footer_fits_codex_claude_weekly_values_and_settings_in_one_row() {
+    fn sidebar_footer_fits_three_weekly_values_and_settings_in_one_row() {
         use crate::theme_snapshot::ThemeGuard;
         use gpui::{size, TestAppContext, VisualTestContext};
 
@@ -2909,23 +2891,21 @@ mod tests {
                     let entries = [
                         "SIDEBAR_USAGE_ENTRY_codex",
                         "SIDEBAR_USAGE_ENTRY_claude-code",
+                        "SIDEBAR_USAGE_ENTRY_antigravity",
                     ]
                     .map(|id| visual.debug_bounds(id).unwrap());
-                    assert!((entries[0].left() - usage.left() - px(8. * zoom)).abs() <= px(1.));
-                    assert!(visual
-                        .debug_bounds("SIDEBAR_USAGE_ENTRY_antigravity")
-                        .is_none());
+                    assert_eq!(entries[0].left() - usage.left(), px(10. * zoom));
                     for pair in entries.windows(2) {
                         assert!(
-                            (pair[1].left() - pair[0].right() - px(10. * zoom)).abs() <= px(1.),
+                            pair[0].right() <= pair[1].left(),
                             "{width} {zoom}: {pair:?}"
                         );
                     }
                     let last = visual
-                        .debug_bounds("SIDEBAR_USAGE_VALUE_claude-code")
+                        .debug_bounds("SIDEBAR_USAGE_VALUE_antigravity")
                         .unwrap();
                     assert!(
-                        last.right() <= usage.right() - px(8. * zoom),
+                        last.right() <= usage.right() - px(10. * zoom),
                         "{width} {zoom}: {usage:?} {last:?}"
                     );
                     visual.simulate_mouse_move(usage.center(), None, gpui::Modifiers::default());
@@ -3002,66 +2982,6 @@ mod tests {
         visual.run_until_parked();
         assert!(visual.debug_bounds("SIDEBAR_USAGE").is_none());
         assert!(visual.debug_bounds("SIDEBAR_SETTINGS").is_some());
-    }
-
-    #[test]
-    fn antigravity_only_usage_stays_accessible_without_a_compact_provider_value() {
-        use crate::theme_snapshot::ThemeGuard;
-        use gpui::{size, Modifiers, TestAppContext, VisualTestContext};
-
-        let _theme = ThemeGuard::new();
-        for disable_others in [false, true] {
-            let temp = tempfile::tempdir().unwrap();
-            let mut cx = TestAppContext::single();
-            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
-            store.update(&mut cx, |store, _| {
-                store.usage = full_weekly_usage_snapshot();
-                if disable_others {
-                    store
-                        .settings
-                        .disabled_agents
-                        .extend(["codex".into(), "claude-code".into()]);
-                }
-            });
-            let host = cx.add_window(|window, cx| {
-                let mut root = NativeRoot::new(
-                    "antigravity-only-usage".into(),
-                    temp.path().join("logs"),
-                    None,
-                    None,
-                    store.clone(),
-                    window,
-                    cx,
-                );
-                root.usage_installed = if disable_others {
-                    vec![Runtime::Codex, Runtime::ClaudeCode, Runtime::Antigravity]
-                } else {
-                    vec![Runtime::Antigravity]
-                };
-                root
-            });
-            let mut visual = VisualTestContext::from_window(host.into(), &cx);
-            visual.simulate_resize(size(px(1200.), px(900.)));
-            visual.run_until_parked();
-            let usage = visual.debug_bounds("SIDEBAR_USAGE").unwrap();
-            let label = visual.debug_bounds("SIDEBAR_USAGE_LABEL").unwrap();
-            assert!(label.left() >= usage.left() && label.right() <= usage.right());
-            for selector in [
-                "SIDEBAR_USAGE_ENTRY_codex",
-                "SIDEBAR_USAGE_ENTRY_claude-code",
-                "SIDEBAR_USAGE_ENTRY_antigravity",
-            ] {
-                assert!(visual.debug_bounds(selector).is_none());
-            }
-            visual.simulate_click(usage.center(), Modifiers::default());
-            visual.run_until_parked();
-            assert!(host.read_with(&visual, |root, _| root.usage_open).unwrap());
-            assert!(visual.debug_bounds("USAGE_POPOVER_PANEL").is_some());
-            assert!(visual.debug_bounds("USAGE_SECTION_antigravity").is_some());
-            visual.simulate_click(usage.center(), Modifiers::default());
-            visual.run_until_parked();
-            assert!(visual.debug_bounds("USAGE_POPOVER_PANEL").is_none());
-        }
     }
 
     struct SidebarHeaderProbe {
