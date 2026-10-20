@@ -295,7 +295,7 @@ pub fn stop(conn: &mut Connection, app_data_dir: &Path, id: &str) -> Result<Miss
     // `mission_archive` calls can't both append the `mission_stopped`
     // terminal event — the slower UPDATE hits 0 rows and falls
     // through. A mission already out of `running` (restored from the
-    // Archived pane, or an aborted spawn) archives on the visibility
+    // Archived pane in an older version, or an aborted spawn) archives on the visibility
     // axis alone: `archived_at` stamps, the lifecycle columns stay,
     // and no second `mission_stopped` is appended — its terminal stop
     // already happened.
@@ -1010,14 +1010,14 @@ fn mission_resume_with(
             Err(error) => {
                 let message = error.to_string();
                 if !is_concurrent_resume_error(&message) {
-                    first_error.get_or_insert((candidate.session.id, message));
+                    first_error.get_or_insert((candidate.handle, candidate.session.id, message));
                 }
             }
         }
     }
-    if let Some((session_id, error)) = first_error {
+    if let Some((handle, session_id, error)) = first_error {
         return Err(Error::msg(format!(
-            "mission {id} resume failed for session {session_id}: {error}; resumed session ids: [{}]",
+            "mission {id} resume failed for @{handle} (session {session_id}): {error}; resumed session ids: [{}]",
             resumed_session_ids.join(", ")
         )));
     }
@@ -1106,19 +1106,28 @@ fn close_mission_drawer_shells(state: &AppCore, mission_id: &str) -> Result<()> 
     Ok(())
 }
 
-/// Clear a mission's archive marker so it reappears in active lists.
-/// Nothing else changes: the row keeps `status = 'completed'` and its
-/// `stopped_at` — the same state the migration backfill created and
-/// every surface already renders (impl 0026). Idempotent: unarchiving
-/// an active mission is a no-op Ok; unknown ids error via the trailing
-/// `get`.
 pub async fn mission_unarchive_impl(state: &AppCore, id: String) -> Result<Mission> {
-    let conn = state.db.get()?;
-    repo::mission::unarchive(&conn, &id)?;
-    let mission = get(&conn, &id)?;
-    // Restore the sidebar node as a new one, first in its scope (original
-    // position not remembered, matching chat restore).
-    repo::node::ensure_mission_node(&conn, &id, mission.project_id.as_deref())?;
+    let mission = {
+        let mut conn = state.db.get()?;
+        let tx = conn.transaction()?;
+        let reopened = repo::mission::unarchive(&tx, &id)? == 1;
+        let mission = get(&tx, &id)?;
+        repo::node::ensure_mission_node(&tx, &id, mission.project_id.as_deref())?;
+        if reopened {
+            let mission_dir =
+                event_log::mission_dir(&state.app_data_dir, mission.crew_id.as_deref(), &id);
+            EventLog::open(&mission_dir)?.append(EventDraft::signal(
+                mission.crew_id.as_deref(),
+                &id,
+                "system",
+                SignalType::new("mission_reopened"),
+                serde_json::json!({}),
+            ))?;
+        }
+        tx.commit()?;
+        mission
+    };
+    ensure_mission_router_mounted(state, &id).await?;
     Ok(mission)
 }
 
@@ -1977,6 +1986,7 @@ mod tests {
         .unwrap_err();
         let message = error.to_string();
         assert!(message.contains("resume-fails"), "{message}");
+        assert!(message.contains("@broken"), "{message}");
         assert!(
             message.contains("resumed session ids: [resume-ok]"),
             "{message}"
@@ -2681,14 +2691,62 @@ mod tests {
         assert!(format!("{err}").contains("already archived"));
     }
 
-    // #376: a restored mission (completed + unarchived, the state
-    // Settings → Archived → Restore creates) must archive again. The
-    // visibility-only path stamps archived_at, leaves the lifecycle
-    // columns alone, drops the sidebar node, and appends no second
-    // mission_stopped — the terminal event from the first archive is
-    // the only one in the log.
+    #[tokio::test]
+    async fn restore_log_failure_keeps_mission_archived_without_a_sidebar_node() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_core_in(temp.path().to_path_buf());
+        let (crew_id, id) = {
+            let mut conn = state.db.get().unwrap();
+            start_message_test_mission(&mut conn, temp.path())
+        };
+        let archived = mission_archive_impl(&state, id.clone()).await.unwrap();
+        let log =
+            EventLog::open(&event_log::mission_dir(temp.path(), Some(&crew_id), &id)).unwrap();
+        std::fs::rename(log.path(), log.path().with_extension("saved")).unwrap();
+        std::fs::create_dir(log.path()).unwrap();
+
+        assert!(mission_unarchive_impl(&state, id.clone()).await.is_err());
+        let conn = state.db.get().unwrap();
+        let after = get(&conn, &id).unwrap();
+        assert_eq!(after.status, MissionStatus::Completed);
+        assert_eq!(after.archived_at, archived.archived_at);
+        assert_eq!(after.stopped_at, archived.stopped_at);
+        assert!(
+            repo::node::find_by_ref(&conn, repo::node::NodeType::Mission, &id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(state.routers.get(&id).is_none());
+        assert!(state.buses.get(&id).is_none());
+    }
+
+    #[tokio::test]
+    async fn restore_repairs_legacy_completed_unarchived_missions() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_core_in(temp.path().to_path_buf());
+        let id = {
+            let mut conn = state.db.get().unwrap();
+            start_message_test_mission(&mut conn, temp.path()).1
+        };
+        mission_archive_impl(&state, id.clone()).await.unwrap();
+        state
+            .db
+            .get()
+            .unwrap()
+            .execute(
+                "UPDATE missions SET archived_at = NULL WHERE id = ?1",
+                [&id],
+            )
+            .unwrap();
+        let reopened = mission_unarchive_impl(&state, id.clone()).await.unwrap();
+        assert_eq!(reopened.status, MissionStatus::Running);
+        assert!(state.routers.get(&id).is_some());
+        assert!(state.buses.get(&id).is_some());
+        mission_archive_impl(&state, id).await.unwrap();
+    }
+
     #[test]
-    fn restored_mission_archives_again_without_second_terminal_event() {
+    fn legacy_completed_unarchived_mission_archives_without_second_terminal_event() {
         let pool = pool();
         let mut conn = pool.get().unwrap();
         let crew_id = seed_crew(&conn, "A");
@@ -2714,9 +2772,11 @@ mod tests {
             .stopped_at
             .expect("first archive stamps stopped_at");
 
-        // Restore (mission_unarchive_impl): clear the marker, re-create
-        // the sidebar node.
-        assert_eq!(repo::mission::unarchive(&conn, &id).unwrap(), 1);
+        conn.execute(
+            "UPDATE missions SET archived_at = NULL WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
         repo::node::ensure_mission_node(&conn, &id, None).unwrap();
 
         let rearchived = stop(&mut conn, tmp.path(), &id).unwrap();

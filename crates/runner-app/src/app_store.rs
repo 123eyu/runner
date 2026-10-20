@@ -61,6 +61,7 @@ impl StoreRefreshKind {
                             signal,
                             "mission_start"
                                 | "mission_stopped"
+                                | "mission_reopened"
                                 | "role_joined"
                                 | "role_removed"
                                 | "ask_human"

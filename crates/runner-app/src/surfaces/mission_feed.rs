@@ -175,9 +175,10 @@ pub(crate) fn append_feed_block(blocks: &mut Vec<FeedBlock>, event: &Event) -> O
         return Some(blocks.len() - 1);
     }
     match event.signal_type.as_ref().map(SignalType::as_str) {
-        Some("mission_start" | "mission_stopped" | "role_joined" | "role_removed") => {
-            blocks.push(FeedBlock::Divider(event.clone()))
-        }
+        Some(
+            "mission_start" | "mission_stopped" | "mission_reopened" | "role_joined"
+            | "role_removed",
+        ) => blocks.push(FeedBlock::Divider(event.clone())),
         Some("human_question") => blocks.push(FeedBlock::AskCard(event.clone())),
         _ => blocks.push(FeedBlock::Signal(event.clone())),
     }
@@ -296,35 +297,31 @@ mod tests {
     }
 
     #[test]
-    fn mission_stopped_is_a_divider() {
-        let mut stopped = event(
-            "stopped",
-            2,
-            "system",
-            EventKind::Signal,
-            Some("mission_stopped"),
-        );
-        stopped.payload = serde_json::json!({});
-        let blocks = group_feed_blocks(&[
-            event(
-                "start",
-                0,
-                "system",
-                EventKind::Signal,
-                Some("mission_start"),
-            ),
-            event("message", 1, "coder", EventKind::Message, None),
-            stopped,
-        ]);
-        assert_eq!(blocks.len(), 3);
-        assert!(matches!(blocks[0], FeedBlock::Divider(_)));
-        assert!(matches!(blocks[1], FeedBlock::MessageGroup { .. }));
-        assert!(matches!(
-            &blocks[2],
-            FeedBlock::Divider(event) if event.id == "stopped"
-                && event.signal_type.as_ref().map(SignalType::as_str) == Some("mission_stopped")
-                && event.payload == serde_json::json!({})
-        ));
+    fn mission_stop_and_reopen_are_dividers() {
+        for kind in ["mission_stopped", "mission_reopened"] {
+            let mut lifecycle = event("lifecycle", 2, "system", EventKind::Signal, Some(kind));
+            lifecycle.payload = serde_json::json!({});
+            let blocks = group_feed_blocks(&[
+                event(
+                    "start",
+                    0,
+                    "system",
+                    EventKind::Signal,
+                    Some("mission_start"),
+                ),
+                event("message", 1, "coder", EventKind::Message, None),
+                lifecycle,
+            ]);
+            assert_eq!(blocks.len(), 3);
+            assert!(matches!(blocks[0], FeedBlock::Divider(_)));
+            assert!(matches!(blocks[1], FeedBlock::MessageGroup { .. }));
+            assert!(matches!(
+                &blocks[2],
+                FeedBlock::Divider(event) if event.id == "lifecycle"
+                    && event.signal_type.as_ref().map(SignalType::as_str) == Some(kind)
+                    && event.payload == serde_json::json!({})
+            ));
+        }
     }
 
     #[test]

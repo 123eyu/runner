@@ -162,6 +162,9 @@ fn mission_divider_label(event: &Event) -> String {
                 ],
             )
         }
+        "mission_reopened" => {
+            crate::i18n::tf("format.mission_reopened", &[("time", time.to_string())])
+        }
         "mission_stopped" => {
             crate::i18n::tf("format.mission_stopped", &[("time", (time).to_string())])
         }

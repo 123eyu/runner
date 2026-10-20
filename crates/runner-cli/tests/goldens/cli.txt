@@ -458,12 +458,12 @@ exit 0
 $ runner mission resume mission-fixture
 exit 1
 [stderr]
-mission mission-fixture resume failed for session session-mission: session_resume: mission is not running; resumed session ids: []
+mission mission-fixture resume failed for @coder (session session-mission): session_resume: mission is not running; resumed session ids: []
 
 $ runner mission resume mission-fixture --json
 exit 1
 [stderr]
-mission mission-fixture resume failed for session session-mission: session_resume: mission is not running; resumed session ids: []
+mission mission-fixture resume failed for @coder (session session-mission): session_resume: mission is not running; resumed session ids: []
 
 $ runner mission archive mission-fixture
 exit 0
@@ -483,7 +483,7 @@ $ runner mission unarchive 01K5ZCJNP00000000000000010
 exit 0
 ID       01K5ZCJNP00000000000000010
 TITLE    Archived mission
-STATUS   completed
+STATUS   running
 CREW     Peer
 PROJECT  -
 CWD      -
@@ -491,7 +491,7 @@ STARTED  2026-09-18T10:20:30Z
 
 $ runner mission unarchive 01K5ZCJNP00000000000000010 --json
 exit 0
-{"id":"01K5ZCJNP00000000000000010","crew_id":"crew-fixture","project_id":null,"title":"Archived mission","status":"completed","goal_override":null,"cwd":null,"started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","pinned_at":null,"archived_at":null}
+{"id":"01K5ZCJNP00000000000000010","crew_id":"crew-fixture","project_id":null,"title":"Archived mission","status":"running","goal_override":null,"cwd":null,"started_at":"2026-09-18T10:20:30Z","stopped_at":null,"pinned_at":null,"archived_at":null}
 
 $ runner mission rename mission-fixture Renamed
 exit 0

@@ -150,6 +150,32 @@ fn pi_conversation_probe_uses_agent_dir_and_the_encoded_project_slug() {
     ));
 }
 
+#[cfg(unix)]
+#[test]
+fn pi_conversation_probe_finds_a_symlinked_cwd_under_its_resolved_slug() {
+    let home = tempfile::tempdir().unwrap();
+    let real = home.path().join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    let link = home.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let key = uuid::Uuid::new_v4().to_string();
+    let resolved = std::fs::canonicalize(&real).unwrap();
+    let sessions = home
+        .path()
+        .join(".pi/agent/sessions")
+        .join(pi_project_slug(&resolved.to_string_lossy()));
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(sessions.join(format!("resolved_{key}.jsonl")), "").unwrap();
+
+    assert!(pi_conversation_exists_at(
+        Some(home.path()),
+        &link.to_string_lossy(),
+        &key,
+        None,
+        None,
+    ));
+}
+
 #[test]
 fn pi_conversation_probe_session_dir_wins_and_holds_files_flat() {
     let home = tempfile::tempdir().unwrap();
