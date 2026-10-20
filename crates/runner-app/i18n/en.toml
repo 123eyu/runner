@@ -1080,3 +1080,8 @@
 "word.removed" = "removed"
 "word.system" = "system"
 "word.you" = "you"
+"ui.custom_path" = "custom path"
+"ui.executable" = "Executable"
+"ui.agent_executable_hint" = "Leave it on Auto to use the executable found on PATH. A path applies to new sessions that use the default command."
+"ui.agent_defaults_hint" = "Read from the agent’s own settings. Roles, crew slots and chats can override them."
+"ui.open_agent_settings_hint" = "Open an agent for its executable and defaults."

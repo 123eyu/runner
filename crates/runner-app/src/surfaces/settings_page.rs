@@ -813,6 +813,13 @@ fn settings_select(
 }
 
 impl NativeRoot {
+    pub(crate) fn reset_settings_scroll(&self, cx: &mut Context<Self>) {
+        self.settings_page
+            .content_scroll
+            .set_offset(gpui::point(px(0.), px(0.)));
+        cx.notify();
+    }
+
     pub(crate) fn focus_settings_page(&self, window: &mut Window, cx: &mut App) {
         self.settings_page.focus.focus(window, cx);
     }
@@ -921,7 +928,10 @@ impl NativeRoot {
                     }));
                 }
                 if let Some(agents) = self.settings_page.agents.clone() {
-                    agents.update(cx, |pane, pane_cx| pane.refresh(pane_cx));
+                    agents.update(cx, |pane, pane_cx| {
+                        pane.show_list(pane_cx);
+                        pane.refresh(pane_cx);
+                    });
                 }
                 let _ = self.core(cx).runtime_check_updates(false);
             }
@@ -1225,6 +1235,25 @@ impl NativeRoot {
             .debug_selector(|| "SETTINGS_CHROME".into())
             .key_context("Settings")
             .track_focus(&self.settings_page.focus)
+            .when(active == SettingsPane::Agents, |settings| {
+                settings.on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    if event.keystroke.key == "tab"
+                        && !this.settings_page.search.read(cx).is_composing()
+                        && !this
+                            .settings_page
+                            .agents
+                            .as_ref()
+                            .is_some_and(|pane| pane.read(cx).is_composing(cx))
+                    {
+                        cx.stop_propagation();
+                        if event.keystroke.modifiers.shift {
+                            window.focus_prev(cx);
+                        } else {
+                            window.focus_next(cx);
+                        }
+                    }
+                }))
+            })
             .inset_0()
             .flex()
             .overflow_hidden()
@@ -3077,6 +3106,95 @@ mod tests {
             .unwrap();
             assert!(visual.debug_bounds("USAGE_POPOVER_PANEL").is_none());
         }
+    }
+
+    #[test]
+    fn agent_page_keyboard_tabs_from_executable_to_browse_and_back() {
+        use gpui::{
+            point, size, KeyUpEvent, Keystroke, Modifiers, TestAppContext, VisualTestContext,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        let host = cx.add_window(|window, cx| {
+            NativeRoot::new(
+                "agent-settings-keyboard".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            )
+        });
+        let mut visual = VisualTestContext::from_window(host.into(), &cx);
+        visual.simulate_resize(size(px(1200.), px(900.)));
+        host.update(&mut visual, |root, window, cx| {
+            root.enter_settings_pane(SettingsPane::Agents, window, cx);
+        })
+        .unwrap();
+        visual.run_until_parked();
+        let row = visual.debug_bounds("AGENT_CARD_codex").unwrap();
+        visual.simulate_click(
+            point(row.left() + px(24.), row.center().y),
+            Modifiers::default(),
+        );
+        visual.run_until_parked();
+        let executable = visual.debug_bounds("AGENT_EXECUTABLE_codex").unwrap();
+        visual.simulate_click(
+            point(executable.left() + px(24.), executable.center().y),
+            Modifiers::default(),
+        );
+        visual.run_until_parked();
+        let editor = host
+            .update(&mut visual, |_, window, cx| window.focused(cx).unwrap())
+            .unwrap();
+        visual.simulate_keystrokes("tab");
+        visual.run_until_parked();
+        host.update(&mut visual, |_, window, _| {
+            assert!(!editor.is_focused(window))
+        })
+        .unwrap();
+        visual.simulate_keystrokes("space");
+        visual.run_until_parked();
+        assert!(cx.did_prompt_for_paths());
+        cx.simulate_path_prompt_response(|_| None);
+        visual.run_until_parked();
+        visual.simulate_keystrokes("shift-tab");
+        visual.run_until_parked();
+        host.update(&mut visual, |_, window, _| {
+            assert!(editor.is_focused(window))
+        })
+        .unwrap();
+        let back = visual.debug_bounds("AGENTS_BREADCRUMB").unwrap();
+        visual.simulate_click(back.center(), Modifiers::default());
+        visual.run_until_parked();
+        host.update(&mut visual, |root, window, cx| {
+            root.settings_page
+                .search
+                .read(cx)
+                .focus_handle()
+                .focus(window, cx);
+        })
+        .unwrap();
+        visual.simulate_keystrokes("shift-tab");
+        visual.run_until_parked();
+        if visual.debug_bounds("AGENT_TOGGLE_opencode").is_some() {
+            visual.simulate_keystrokes("space");
+            visual.simulate_event(KeyUpEvent {
+                keystroke: Keystroke::parse("space").unwrap(),
+            });
+            visual.run_until_parked();
+            store.read_with(&visual, |store, _| {
+                assert!(store.settings.disabled_agents.contains("opencode"))
+            });
+            assert!(visual.debug_bounds("AGENT_CARD_opencode").is_some());
+            visual.simulate_keystrokes("shift-tab");
+        }
+        visual.simulate_keystrokes("enter");
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("AGENT_PAGE_opencode").is_some());
     }
 
     #[test]

@@ -1080,3 +1080,8 @@
 "word.removed" = "移除"
 "word.system" = "系统"
 "word.you" = "你"
+"ui.custom_path" = "自定义路径"
+"ui.executable" = "可执行文件"
+"ui.agent_executable_hint" = "保留“自动”以使用 PATH 中找到的可执行文件。指定路径适用于使用默认命令的新会话。"
+"ui.agent_defaults_hint" = "读取自智能体自身的设置。角色、团队席位和对话可以覆盖这些默认值。"
+"ui.open_agent_settings_hint" = "打开智能体以查看其可执行文件和默认设置。"
