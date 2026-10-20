@@ -6,9 +6,6 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [965 — Filtered message read feedback](./965-inbox-read-feedback.md) — actionable unread-inbox feedback for filtered CLI reads and clearer agent guidance ([#965](https://github.com/yicheng47/runner/issues/965)).
-- [947 — Mission feed scrollbar](./947-mission-feed-scrollbar.md) — the shared app scrollbar on the virtual mission feed ([#947](https://github.com/yicheng47/runner/issues/947)).
-
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
 - [559 — Command palette](./559-command-palette.md) — command mode over the existing keymap and quick-switcher overlay ([#559](https://github.com/yicheng47/runner/issues/559)).
@@ -18,7 +15,7 @@ Future work, including [iOS follow-through](https://github.com/yicheng47/runner/
 
 ## Recently shipped
 
-Reconciled on 2026-10-19 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
+Reconciled on 2026-10-20 against closed issues and published releases. These specs are archived; their bodies preserve the original scope and dated design decisions.
 
 | Spec | Shipped in |
 | --- | --- |
@@ -50,6 +47,8 @@ Reconciled on 2026-10-19 against closed issues and published releases. These spe
 | [826 — Targeted crew messaging](./archive/826-targeted-messaging.md) | 0.16.5, 2026-10-18 ([#939](https://github.com/yicheng47/runner/pull/939)), on [#907](https://github.com/yicheng47/runner/issues/907)'s reliable delivery ([#921](https://github.com/yicheng47/runner/pull/921), plan in [`impls/archive/`](../impls/archive/907-reliable-delivery.md)); several recipients, leading-mention addressing and unread-only reads with a digest. A pre-existing empty-prompt draft hold continues as [#940](https://github.com/yicheng47/runner/issues/940); native Windows unverified |
 | [898 — Drop files onto a terminal](./archive/898-terminal-file-drop.md) | 0.16.5, 2026-10-18 ([#903](https://github.com/yicheng47/runner/pull/903)); native Windows unverified |
 | [887 — Active sidebar and sidebar refresh](./archive/887-active-sidebar.md) | 0.16.6, 2026-10-19 ([#958](https://github.com/yicheng47/runner/pull/958)); one row per tab with attention-pane activation, and the Codex and Claude usage footer. Jason confirmed it natively on macOS; Windows unverified |
+| [947 — Mission feed scrollbar](./archive/947-mission-feed-scrollbar.md) | 0.16.8, 2026-10-20 ([#964](https://github.com/yicheng47/runner/pull/964), with [#962](https://github.com/yicheng47/runner/issues/962)'s virtual feed, whose [validation record](../tests/archive/962-virtualize-mission-feed.md) keeps native QA incomplete). Jason accepted the native smoothness on macOS; Windows unverified |
+| [965 — Filtered message read feedback](./archive/965-inbox-read-feedback.md) | 0.16.8, 2026-10-20 ([#967](https://github.com/yicheng47/runner/pull/967)); a CLI and guidance change with no native UI |
 
 ## Selected decision records
 

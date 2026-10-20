@@ -11,11 +11,11 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 | Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 45 | 10 | 35 |
 | Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 25 | 5 | 20 |
 | Windows, tabs, panes, sidebar and its Active view, cwd and drawers | [workspace.md](workspace.md) | 34 | 6 | 28 |
-| Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 36 | 4 | 32 |
+| Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 39 | 4 | 35 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
 | Agents, settings, language, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 36 | 4 | 32 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| **Total** | | **211** | **37** | **174** |
+| **Total** | | **214** | **37** | **177** |
 
 `regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 
@@ -66,7 +66,7 @@ When a feature's test record is archived in a [release's docs sweep](../../../AG
 
 ## Not carried over
 
-All 55 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
+All 56 archive records were considered. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 
 | Archive record/check left out | Reason / current owner |
 | --- | --- |
@@ -98,5 +98,6 @@ All 55 archive records were considered. Their lasting current live checks are li
 | [#809 user guide](../archive/809-user-docs.md): Markdown parsing, link and GitHub-rendering checks, generator determinism and stale/missing-output failures, and the source audit | Documentation validation, not product behavior. CI's guide CLI check on both platforms owns reference freshness, and `SET-INSTALL-01` covers the installed command. The record's fresh-install walkthrough stays an unverified acceptance gap. |
 | [#565 localization](../archive/565-i18n.md): catalog key and placeholder parity, formatter and plural cases, locale mapping, cache-invalidation fixtures, the source and catalog-cleanup audits, and the Windows hook-reporter fixture fix | CI owns them in the [localization module](../../../crates/runner-app/src/i18n.rs), the settings, palette and menu tests and the CLI daemon-process tests. Native switching, persistence, search and layout are `SET-LANG-01` to `SET-LANG-04`; the waived final retest and the Windows and alternate-language gaps stay in the record. |
 | [#826 targeted messaging](../archive/826-targeted-messaging.md): per-member wake and turn counts, the coder's offline race diagnostic, the baseline comparison build and the run's evidence assertions | Run history and one-off attribution. CI owns the address grammar in [`addressing.rs`](../../../crates/runner-core/src/addressing.rs), the read contract in the [CLI](../../../crates/runner-cli/src/msg.rs) tests and legacy feed grouping in `runner-app`. Live routing and reads are `MIS-MSG-01`, `MIS-MSG-02`, `MIS-MSG-05` to `MIS-MSG-07` and `MIS-ADD-01`; the empty-prompt draft hold behind MIS-MSG-02's failure is [#940](https://github.com/yicheng47/runner/issues/940). |
+| [#962 mission feed](../archive/962-virtualize-mission-feed.md): projection-equivalence, duplicate and ordering checks, parse and build work counts, layout-parity probes, the synthetic timing tables, and the incomplete QA checkpoints with their seeding recipe | CI owns the feed and scrollbar tests in the [mission workspace tests](../../../crates/runner-app/src/surfaces/mission_workspace/tests.rs). Timings are one-off evidence, not acceptance thresholds. Native behavior is `MIS-FEED-03` and `MIS-FEED-04`. |
 | [#887 Active sidebar](../archive/887-active-sidebar.md): projection order, eligibility, shortcut-target and 256-row tests, footer layout and Antigravity-only usage tests, and the superseded one-row-per-session, selected-stopped retention and Busy-or-selected terminal rules | CI owns the [sidebar tests](../../../crates/runner-app/src/surfaces/sidebar/tests.rs) and the footer tests in [app shell](../../../crates/runner-app/src/surfaces/app_shell.rs). The final rules are `WS-ACTIVE-01` to `WS-ACTIVE-03` and `SET-USAGE-02`; Jason's confirmation was macOS only. |
 | [M6.1](../archive/m6-1-input-state-smoke.md), [M6.6](../archive/m6-6-resize-smoke.md): old backend byte-latch/ring purge, `gpui-nightly` versus Tauri-main and internal ioctl/DB-count assertions | Retired structure/CI detail. Native drafts/IME and immediate resize/reattach/geometry/memory behavior remain `TERM-*`, `WS-*` and `MIS-*`. |

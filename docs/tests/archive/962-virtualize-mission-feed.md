@@ -2,6 +2,8 @@
 
 This change replaces the mission feed's eager element tree with a virtual GPUI list, updates grouped blocks on ordinary tail appends, and caches parsed markdown per event. The scope is feed rendering, scroll anchoring, ask-card height changes and selection persistence. It does not change agent runtimes, the daemon or session lifecycle.
 
+**Outcome:** shipped in 0.16.8 with #947's scrollbar ([#964](https://github.com/yicheng47/runner/pull/964)). Both native QA checkpoints below are incomplete; Jason accepted the native smoothness on macOS after the final reviewed build, and native Windows was not checked. The lasting live checks are `MIS-FEED-03` and `MIS-FEED-04` in the [missions regression cases](../regression/missions.md).
+
 ## Selected checks
 
 - Compare the incremental projection with `group_feed_blocks` after each append, including grouping boundaries, hidden signals, relayed human signals and out-of-order delivery, because projection drift would hide or duplicate feed content.
@@ -81,7 +83,7 @@ Cleanup: owned sessions `01M5BRFGEPGN9DTZHFYT1M5NRK` and `01M5BRGNW6J6P1KHDYJ9JJ
 
 ## Added scope — #947 mission feed scrollbar
 
-Jason folded #947 into this PR on 2026-10-20. QA released `17dac27e` before edits; the checkpoint above remains incomplete evidence for that earlier candidate. The added feature reuses the shared app scrollbar and keeps its existing visuals and API. The spec is `docs/features/947-mission-feed-scrollbar.md` and the guide change is `docs/guide/concepts/missions.md`.
+Jason folded #947 into this PR on 2026-10-20. QA released `17dac27e` before edits; the checkpoint above remains incomplete evidence for that earlier candidate. The added feature reuses the shared app scrollbar and keeps its existing visuals and API. The spec is `docs/features/archive/947-mission-feed-scrollbar.md` and the guide change is `docs/guide/concepts/missions.md`.
 
 Selected checks connect the new behavior to the virtual list: fitting content must hide the scrollbar; a long history needs estimated height without building off-screen rows; track clicks and dragging must reach unmeasured history; gutter wheel events must move the list; drag metrics must stay frozen as row heights are discovered, and release outside the gutter must unfreeze them. The harness also checks the 10px gutter, unchanged content insets, resize recovery of height hints, preserved selection, scrolled-up append/pill behavior, returning to the bottom and mission reset. The previous #962 work-count and scroll tests remain in scope. Live QA adds scrollbar track/drag/gutter-wheel checks and independent-block coverage to the existing selected cases and retained same-author fixture.
 
