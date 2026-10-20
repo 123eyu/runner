@@ -13,12 +13,16 @@ mod terminal_pane;
 mod tests;
 mod view;
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::prelude::*;
 use gpui::{div, px, rems, App, Bounds, Entity, Pixels, SharedString, WeakEntity, Window};
-use runner_app::ui::{CopyValueButton, PopoverMenu, SessionControlKind, TextField};
+use runner_app::ui::{
+    CopyValueButton, PopoverMenu, Scrollbar, ScrollbarMetrics, SessionControlKind, TextField,
+};
 use runner_core::protocol::model::{
     Event, EventKind, Mission, MissionStatus, SessionStatus, SlotWithRole,
 };
@@ -27,11 +31,22 @@ use runner_core::protocol::session::SessionRow;
 use super::*;
 use crate::surfaces::mission_composer::ComposerState;
 use crate::surfaces::mission_feed::{message_text, FeedBlock};
-use crate::surfaces::mission_markdown::FeedSelection;
+use crate::surfaces::mission_markdown::{FeedMarkdown, FeedSelection};
 use crate::*;
 
 const WORKSPACE_TABS_HEIGHT: f32 = 38.;
 const MISSION_RAIL_TRANSITION_MS: u64 = 200;
+const FEED_ROW_HEIGHT_HINT: f32 = 100.;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FeedRow {
+    Block(usize),
+    Message {
+        group: usize,
+        event: usize,
+        part: usize,
+    },
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum MissionTab {
@@ -338,17 +353,29 @@ pub(crate) struct MissionWorkspace {
     mission: Option<Mission>,
     sessions: Vec<SessionRow>,
     events: Vec<Event>,
+    event_ids: HashSet<String>,
     session_statuses: BTreeMap<String, SessionActivityState>,
     session_observations: BTreeMap<String, runner_core::protocol::status::AgentStatus>,
     goal: Option<String>,
     feed_blocks: Vec<FeedBlock>,
+    feed_rows: Vec<FeedRow>,
+    feed_block_starts: Vec<usize>,
+    feed_markdown: RefCell<HashMap<String, Rc<FeedMarkdown>>>,
+    #[cfg(test)]
+    feed_block_builds: std::cell::Cell<usize>,
     feed_selection: Option<FeedSelection>,
     feed_selecting: bool,
     askers_by_question: HashMap<String, String>,
     resolved_asks: HashMap<String, String>,
     pending_ask_choices: HashMap<String, String>,
     submitting_asks: HashSet<String>,
-    feed_scroll: ScrollHandle,
+    feed_list: gpui::ListState,
+    feed_scrollbar: Entity<Scrollbar>,
+    feed_scrollbar_metrics: Rc<Cell<ScrollbarMetrics>>,
+    feed_measured_width: Option<Pixels>,
+    feed_needs_height_hints: Cell<bool>,
+    feed_vertical_padding: Pixels,
+    feed_empty_panel_min_height: std::cell::Cell<Pixels>,
     feed_was_near_bottom: bool,
     feed_has_new_messages: bool,
     roster: Vec<SlotWithRole>,

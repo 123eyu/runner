@@ -16,6 +16,8 @@ The feed records messages, questions, answers and lifecycle events in a persiste
 
 Answer a question through its feed card. For an ordinary follow-up, use the message composer. Type `@` at the start and pick a member to add a recipient chip; repeat to choose several. Click a chip to remove it, or press Backspace in an empty draft to remove the last chip. With no chips or leading mentions, the message broadcasts to the crew. Only its recipients receive inbox notifications. Mentions inside the text remain text. You can also [use the CLI](../guides/drive-runner-from-agents.md) to read the feed, send a message or answer a pending question.
 
+The scrollbar on the feed’s right edge shows your position in long histories. Drag its thumb, click its track, or scroll over it to move through the feed. New messages keep the feed at the bottom while you are near the end; while reading older messages, use **New messages** to return to the bottom.
+
 ## Permissions
 
 Mission launches use the runtime's broad-access mode, generally **Bypass**; pi uses a trusted workspace. A role's more restrictive direct-chat permission setting does not turn a mission into an approval-by-approval workflow. Write clear limits in the goal, and choose the working directory accordingly.

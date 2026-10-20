@@ -105,7 +105,7 @@ impl MissionWorkspace {
         self.active_tab = MissionTab::Feed;
         crate::notifications::view_changed(cx);
         if self.feed_was_near_bottom {
-            self.feed_scroll.scroll_to_bottom();
+            self.scroll_feed_to_bottom();
             self.feed_has_new_messages = false;
         }
         window.focus(&self.root_focus, cx);
@@ -145,6 +145,7 @@ impl MissionWorkspace {
                 true
             });
         }
+        self.feed_list.scrollbar_drag_ended();
         self.active_tab = MissionTab::Session(session_id.to_owned());
         crate::notifications::view_changed(cx);
         self.mark_active_session_viewed(window, cx);
