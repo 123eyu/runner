@@ -1497,6 +1497,22 @@ fn active_projection_orders_tabs_and_rolls_up_missions_without_drawers() {
         )
         .unwrap();
     }
+    for (name, created_at) in [
+        ("idle", "2026-10-01T00:00:00Z"),
+        ("Mixed", "2026-10-01T00:00:01+00:00"),
+        ("unread", "2026-10-01T00:00:01.5+00:00"),
+        ("error", "2026-10-01T00:00:02Z"),
+        ("working-new", "2026-10-01T00:00:03Z"),
+        ("working-tie", "2026-10-01T00:00:03Z"),
+        ("wait", "2026-10-01T00:00:04Z"),
+        ("unavailable", "2026-10-01T00:00:05Z"),
+    ] {
+        conn.execute(
+            "UPDATE nodes SET created_at = ?2 WHERE name = ?1",
+            [name, created_at],
+        )
+        .unwrap();
+    }
     drop(conn);
     store.update(&mut cx, |store, cx| {
         store.refresh_nodes(cx).unwrap();
@@ -1575,14 +1591,11 @@ fn active_projection_orders_tabs_and_rolls_up_missions_without_drawers() {
         store
             .session_activity
             .insert("drawer".into(), SessionActivityState::Busy);
-        store.session_activity_at.insert("working-new".into(), 30);
-        store.session_activity_at.insert("working-tie".into(), 30);
-        store.session_activity_at.insert("working-old".into(), 10);
         store.missions[0].session_statuses = vec![("member".into(), working)];
     });
     let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
     let mut tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
-    sidebar.update(&mut cx, |sidebar, cx| {
+    let order = sidebar.update(&mut cx, |sidebar, cx| {
         let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
         let nodes = &store.read(cx).nodes;
         let shortcuts = rows
@@ -1608,14 +1621,14 @@ fn active_projection_orders_tabs_and_rolls_up_missions_without_drawers() {
         assert_eq!(
             active_row_names(&rows, nodes),
             [
-                "error",
-                "wait",
-                tied[0],
-                tied[1],
+                "idle",
                 "Mixed",
                 "unread",
+                "error",
+                tied[0],
+                tied[1],
+                "wait",
                 "unavailable",
-                "idle",
                 mission.as_str(),
             ]
         );
@@ -1633,7 +1646,7 @@ fn active_projection_orders_tabs_and_rolls_up_missions_without_drawers() {
         );
         assert!(rows.iter().all(|row| row.group() != ActiveGroup::Terminals));
         assert_eq!(
-            shortcuts[4].target,
+            shortcuts[1].target,
             SidebarActivationTarget::Tab {
                 tab_id: split_node.id.clone(),
                 session_id: "working-old".into()
@@ -1654,6 +1667,54 @@ fn active_projection_orders_tabs_and_rolls_up_missions_without_drawers() {
         );
         tabs.activate(&split_node.id);
         tabs.active_mut().unwrap().focus_session("terminal");
+        shortcuts
+            .into_iter()
+            .map(|row| row.node_id)
+            .collect::<Vec<_>>()
+    });
+    store.update(&mut cx, |store, _| {
+        store.session_statuses.get_mut("error").unwrap().error_since = None;
+        store.session_statuses.get_mut("idle").unwrap().error_since = Some(5);
+        store
+            .session_statuses
+            .get_mut("wait")
+            .unwrap()
+            .observation
+            .interactions
+            .clear();
+        store
+            .session_statuses
+            .get_mut("unavailable")
+            .unwrap()
+            .unread_since = Some(6);
+        store
+            .sessions
+            .iter_mut()
+            .find(|session| session.session_id == "unread")
+            .unwrap()
+            .started_at = Some(chrono::Utc::now());
+        store
+            .session_activity
+            .insert("working-old".into(), SessionActivityState::Busy);
+    });
+    sidebar.update(&mut cx, |sidebar, cx| {
+        let rows = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+        let nodes = &store.read(cx).nodes;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.shortcut_row(nodes).node_id)
+                .collect::<Vec<_>>(),
+            order
+        );
+        sidebar.refresh_shortcut_rows(&tabs, cx);
+        assert_eq!(
+            sidebar
+                .numbered_shortcut_rows
+                .iter()
+                .map(|row| &row.node_id)
+                .collect::<Vec<_>>(),
+            order.iter().take(9).collect::<Vec<_>>()
+        );
     });
     store.update(&mut cx, |store, _| {
         for status in store.session_statuses.values_mut() {
@@ -2138,7 +2199,7 @@ fn active_rename_edits_only_the_title_and_preserves_enter_escape_and_blur() {
 }
 
 #[test]
-fn active_split_rename_stays_on_its_tab_row_after_reordering() {
+fn active_split_rename_stays_on_its_tab_row_across_status_changes() {
     use runner_core::protocol::status::{AgentStatus, Lifecycle};
     let _theme = crate::theme_snapshot::ThemeGuard::new();
     let temp = tempfile::tempdir().unwrap();
@@ -2168,6 +2229,16 @@ fn active_split_rename_stays_on_its_tab_row_after_reordering() {
     let other_tab =
         runner_daemon::repo::node::create_tab(&conn, None, "", 1, &other.serialize().unwrap())
             .unwrap();
+    for (id, created_at) in [
+        (&other_tab.id, "2026-10-01T00:00:00Z"),
+        (&tab.id, "2026-10-01T00:00:01Z"),
+    ] {
+        conn.execute(
+            "UPDATE nodes SET created_at = ?2 WHERE id = ?1",
+            [id.as_str(), created_at],
+        )
+        .unwrap();
+    }
     drop(conn);
     store.update(&mut cx, |store, cx| {
         store.refresh_sessions(cx);
@@ -2236,7 +2307,7 @@ fn active_split_rename_stays_on_its_tab_row_after_reordering() {
     visual.run_until_parked();
     let split = visual.debug_bounds(split_row).unwrap();
     let other = visual.debug_bounds(other_row).unwrap();
-    assert!(split.top() < other.top());
+    assert!(split.top() > other.top());
     let editor = visual.debug_bounds(split_rename).unwrap();
     let location = visual
         .debug_bounds(Box::leak(
