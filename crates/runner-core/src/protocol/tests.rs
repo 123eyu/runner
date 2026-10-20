@@ -149,6 +149,7 @@ record!(CrewMembership {
     added_at
 });
 record!(DirectSessionEntry {
+    claude_account,
     session_id,
     project_id,
     role_id,
@@ -559,6 +560,36 @@ record!(UpdateSlotInput {
     effort_override,
     codex_speed_override
 });
+record!(ClaudeAccount {
+    id,
+    name,
+    folder,
+    native
+});
+record!(ClaudeAuthStatus {
+    logged_in,
+    email,
+    organization,
+    plan,
+    signing_in,
+    sign_in_url,
+    error
+});
+record!(ClaudeAccounts {
+    accounts,
+    main_id,
+    active_id,
+    statuses
+});
+record!(ClaudeSessionAccount {
+    account_id,
+    folder,
+    native,
+    pinned,
+    origin_folder,
+    permission_mode
+});
+variant!(ClaudeAccountAction => Self::AddAndLogin { name: Sample::sample(), folder: Sample::sample() });
 record!(UsageSnapshot {
     runtimes,
     last_fetch_at,

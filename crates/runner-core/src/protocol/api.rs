@@ -132,6 +132,9 @@ macro_rules! daemon_api {
         window_snapshot() -> Vec<WindowEntry> [true] => |core: &crate::AppCore| { Ok(core.windows.snapshot()) };
         window_register(label: &str => String = { label.to_owned() }) -> () [false] => |core: &crate::AppCore, label: String| { core.windows.register(&label); core.broadcast_focus_map(); Ok(()) };
         usage_snapshot() -> UsageSnapshot [true] => |core: &crate::AppCore| { Ok(core.usage.snapshot()) };
+        claude_account_usage() -> BTreeMap<String, RuntimeUsage> [true] => |core: &crate::AppCore| { Ok(core.usage.claude_account_usage()) };
+        claude_accounts() -> ClaudeAccounts [true] => |core: &crate::AppCore| { crate::claude_accounts::snapshot(core) };
+        claude_account_action(action: ClaudeAccountAction => ClaudeAccountAction = { action }) -> ClaudeAccounts [false] => |core: &crate::AppCore, action: ClaudeAccountAction| { crate::claude_accounts::action(core, action) };
         usage_set_enabled(runtimes: Vec<Runtime> => Vec<Runtime> = { runtimes }) -> bool [false] => |core: &crate::AppCore, runtimes: Vec<Runtime>| { let changed = core.usage.set_enabled(runtimes); if changed { core.usage.request_refresh(core.clone(), RefreshReason::Button); } Ok(changed) };
         usage_refresh(reason: RefreshReason => RefreshReason = { reason }) -> () [false] => |core: &crate::AppCore, reason: RefreshReason| { core.usage.request_refresh(core.clone(), reason); Ok(()) };
         discovery_snapshot() -> DiscoverySnapshot [true] => |core: &crate::AppCore| { crate::daemon::discovery_snapshot(core) };

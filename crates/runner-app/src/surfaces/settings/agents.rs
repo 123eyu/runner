@@ -59,6 +59,7 @@ pub(crate) struct AgentsPane {
     shell: WeakEntity<NativeRoot>,
     app_store: Entity<AppStore>,
     selected_runtime: Option<Runtime>,
+    accounts: Entity<super::claude_accounts::AccountsSection>,
     status: Option<RuntimeStatusResponse>,
     catalog: Vec<RuntimeCatalogEntry>,
     error: Option<String>,
@@ -156,9 +157,12 @@ impl AgentsPane {
             cx.notify();
         }));
 
+        let accounts =
+            cx.new(|cx| super::claude_accounts::AccountsSection::new(app_store.clone(), cx));
         Self {
             shell,
             app_store,
+            accounts,
             selected_runtime: None,
             status: None,
             catalog: Vec::new(),
@@ -607,9 +611,11 @@ impl AgentsPane {
     }
 
     pub(crate) fn is_composing(&self, cx: &gpui::App) -> bool {
-        self.overrides
-            .values()
-            .any(|field| field.read(cx).is_composing())
+        self.accounts.read(cx).is_composing(cx)
+            || self
+                .overrides
+                .values()
+                .any(|field| field.read(cx).is_composing())
     }
 
     fn reset_scroll(&self, cx: &mut Context<Self>) {
@@ -627,7 +633,11 @@ impl AgentsPane {
         cx.notify();
     }
 
-    fn open_runtime(&mut self, runtime: Runtime, cx: &mut Context<Self>) {
+    pub(crate) fn open_runtime(&mut self, runtime: Runtime, cx: &mut Context<Self>) {
+        if runtime == Runtime::ClaudeCode {
+            self.accounts
+                .update(cx, |accounts, cx| accounts.refresh(cx));
+        }
         self.selected_runtime = Some(runtime);
         self.reset_scroll(cx);
         cx.notify();
@@ -681,6 +691,9 @@ impl AgentsPane {
             } else {
                 self.render_not_installed_page(runtime, cx)
             })
+            .children(
+                (installed && runtime.name == Runtime::ClaudeCode).then(|| self.accounts.clone()),
+            )
             .into_any_element()
     }
 
@@ -714,6 +727,20 @@ impl AgentsPane {
             }
             if runtime.override_path.is_some() {
                 parts.push(crate::i18n::text("ui.custom_path").to_owned());
+            }
+            if name == Runtime::ClaudeCode {
+                let accounts = &self.app_store.read(cx).claude_accounts;
+                if accounts.multiple() {
+                    if let Some(active) = accounts.active() {
+                        parts.push(crate::i18n::tf(
+                            "accounts.active_count",
+                            &[
+                                ("name", active.name.clone()),
+                                ("count", accounts.accounts.len().to_string()),
+                            ],
+                        ));
+                    }
+                }
             }
             if parts.is_empty() {
                 parts.push(presentation.badge.to_owned());

@@ -22,6 +22,10 @@ Stopped and crashed sessions have no running agent to receive input. Read the te
 
 A shell can restart in its directory, but has no agent conversation to resume. Shell terminals close rather than archive. Closing a window saves its layout and can leave its sessions running; closing a pane or chat tab is a separate action, so read any confirmation before accepting it.
 
+## Claude Code accounts
+
+When several [Claude Code accounts](../guides/claude-accounts.md) are configured, new sessions and resumes use the active account. Running sessions keep their current account. A paused chat identifies the previous and active accounts; resuming continues its original transcript, and a fork saves a new conversation under the active account. Explicit `CLAUDE_CONFIG_DIR` environment pins take precedence.
+
 ## Quit, relaunch and recover
 
 Runner's background service, `runnerd`, owns processes independently of the app window. **Settings → General → When Runner quits** offers **Ask**, **Keep running** and **Stop sessions**. Reopening after **Keep running** attaches to the live terminals.

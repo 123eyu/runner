@@ -233,6 +233,34 @@ pub fn popup_layer_sized(
     menu: AnyElement,
     on_dismiss: DismissHandler,
 ) -> AnyElement {
+    popup_layer_positioned(anchor, window, width, anchor.left(), menu, on_dismiss)
+}
+
+pub fn popup_layer_right_aligned(
+    anchor: Bounds<Pixels>,
+    window: &Window,
+    width: Pixels,
+    menu: AnyElement,
+    on_dismiss: DismissHandler,
+) -> AnyElement {
+    popup_layer_positioned(
+        anchor,
+        window,
+        PopupWidth::Fixed(width),
+        anchor.right() - width,
+        menu,
+        on_dismiss,
+    )
+}
+
+fn popup_layer_positioned(
+    anchor: Bounds<Pixels>,
+    window: &Window,
+    width: PopupWidth,
+    left: Pixels,
+    menu: AnyElement,
+    on_dismiss: DismissHandler,
+) -> AnyElement {
     let viewport = window.viewport_size();
     let zoom = app_zoom(window);
     let gap = px(4. * zoom);
@@ -281,7 +309,7 @@ pub fn popup_layer_sized(
                             .w(viewport.width)
                             .px(edge)
                             .flex()
-                            .child(div().w((anchor.left() - edge).max(px(0.))))
+                            .child(div().w((left - edge).max(px(0.))))
                             .child(
                                 div()
                                     .flex_none()

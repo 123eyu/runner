@@ -33,6 +33,10 @@ struct UsageState {
     last_attempt_at: Option<DateTime<Utc>>,
     refresh_started_at: Option<Instant>,
     keychain_denied: bool,
+    claude_accounts: std::collections::BTreeMap<String, RuntimeUsage>,
+    claude_denied: std::collections::HashSet<String>,
+    active_claude: Option<String>,
+    account_refresh_pending: bool,
 }
 
 pub struct UsageService {
@@ -93,6 +97,9 @@ impl UsageService {
             return;
         }
         self.set_polling_enabled(true);
+        if crate::claude_accounts::load(&core.db).is_ok_and(|state| state.accounts.len() > 1) {
+            crate::claude_accounts::refresh(&core);
+        }
         if !self.discovery_started.swap(true, Ordering::AcqRel) {
             crate::runtime_status::start_background_discovery(
                 core.events.clone(),
@@ -131,6 +138,20 @@ impl UsageService {
         self.state.lock().unwrap().snapshot.clone()
     }
 
+    pub fn claude_account_usage(&self) -> std::collections::BTreeMap<String, RuntimeUsage> {
+        self.state.lock().unwrap().claude_accounts.clone()
+    }
+
+    pub fn select_claude_account(&self, id: &str, multiple: bool) {
+        let mut state = self.state.lock().unwrap();
+        state.active_claude = Some(id.to_owned());
+        if !multiple && state.claude_denied.contains(id) {
+            state.keychain_denied = true;
+        }
+        let value = state.claude_accounts.get(id).cloned().unwrap_or_default();
+        state.snapshot.runtimes.insert(Runtime::ClaudeCode, value);
+    }
+
     pub fn set_enabled(&self, runtimes: Vec<Runtime>) -> bool {
         let mut enabled = self.enabled.write().unwrap();
         if *enabled == runtimes {
@@ -156,6 +177,16 @@ impl UsageService {
         true
     }
 
+    pub(crate) fn request_account_refresh(self: &Arc<Self>, core: AppCore) {
+        let mut state = self.state.lock().unwrap();
+        if state.snapshot.refreshing {
+            state.account_refresh_pending = true;
+            return;
+        }
+        drop(state);
+        self.request_refresh(core, RefreshReason::Button);
+    }
+
     pub fn request_refresh(self: &Arc<Self>, core: AppCore, reason: RefreshReason) {
         if !self.fetch || !self.begin_refresh(reason, Utc::now()) {
             return;
@@ -165,6 +196,11 @@ impl UsageService {
         thread::spawn(move || {
             service.fetch(&core);
             core.events.emit("usage/updated", &());
+            let pending =
+                std::mem::take(&mut service.state.lock().unwrap().account_refresh_pending);
+            if pending {
+                service.request_refresh(core, RefreshReason::Button);
+            }
         });
     }
 
@@ -189,6 +225,9 @@ impl UsageService {
                         .wait_timeout(state, Duration::from_secs(1))
                         .unwrap(),
                 );
+            }
+            if crate::claude_accounts::load(&core.db).is_ok_and(|state| state.accounts.len() > 1) {
+                crate::claude_accounts::refresh(&core);
             }
             service.request_refresh(core.clone(), RefreshReason::Launch);
             let mut state = service.state.lock().unwrap();
@@ -229,6 +268,13 @@ impl UsageService {
         let env = core.runtime_shell_env.read().unwrap().clone();
         let enabled = self.enabled();
         let mut results = Vec::new();
+        let accounts = crate::claude_accounts::load(&core.db)
+            .ok()
+            .filter(|state| state.accounts.len() > 1);
+        let mut account_results = Vec::new();
+        if accounts.is_some() {
+            crate::claude_accounts::refresh_for_usage(core);
+        }
         if let Ok(statuses) = statuses {
             for status in statuses.runtimes {
                 if !enabled.contains(&status.name)
@@ -242,6 +288,31 @@ impl UsageService {
                 let Some(command) = status.effective_command else {
                     continue;
                 };
+                if status.name == Runtime::ClaudeCode {
+                    if let Some(accounts) = &accounts {
+                        let statuses = crate::claude_accounts::snapshot(core).ok();
+                        for account in &accounts.accounts {
+                            if !statuses
+                                .as_ref()
+                                .and_then(|snapshot| snapshot.statuses.get(&account.id))
+                                .is_some_and(|status| status.logged_in)
+                            {
+                                continue;
+                            }
+                            let state = self.state.lock().unwrap();
+                            let denied = state.claude_denied.contains(&account.id)
+                                || (account.native && state.keychain_denied);
+                            drop(state);
+                            account_results.push((
+                                account.id.clone(),
+                                crate::runtimes::claude_code::usage::fetch_account(
+                                    &env, account, denied,
+                                ),
+                            ));
+                        }
+                        continue;
+                    }
+                }
                 if let Some(source) = crate::runtimes::adapter(status.name).usage() {
                     let denied = self.state.lock().unwrap().keychain_denied;
                     results.push((status.name, (source.fetch)(&command, &env, denied)));
@@ -266,6 +337,24 @@ impl UsageService {
             }
             let entry = state.snapshot.runtimes.entry(runtime).or_default();
             apply_result(&mut entry.value, &mut entry.error, result, now);
+        }
+        for (id, result) in account_results {
+            if result == Err(UnavailableReason::KeychainDenied) {
+                state.claude_denied.insert(id.clone());
+            }
+            let entry = state.claude_accounts.entry(id).or_default();
+            apply_result(&mut entry.value, &mut entry.error, result, now);
+        }
+        if accounts.is_some() {
+            let id = state
+                .active_claude
+                .as_ref()
+                .or_else(|| accounts.as_ref().map(|accounts| &accounts.active_id));
+            let entry = id
+                .and_then(|id| state.claude_accounts.get(id))
+                .cloned()
+                .unwrap_or_default();
+            state.snapshot.runtimes.insert(Runtime::ClaudeCode, entry);
         }
         state.snapshot.last_fetch_at = Some(now);
         state.snapshot.refreshing = false;
@@ -714,4 +803,93 @@ fn usage_catalog_golden() {
         },
         value,
     );
+}
+
+#[cfg(test)]
+mod account_cache_tests {
+    use super::*;
+
+    #[test]
+    fn renaming_the_single_account_preserves_its_existing_usage() {
+        let mut core = crate::test_support::test_core();
+        core.usage = Arc::new(UsageService::without_fetch());
+        let usage = RuntimeUsage {
+            value: Some(AgentUsage {
+                windows: vec![UsageWindow {
+                    name: "Week".into(),
+                    used_percent: 31.,
+                    resets_at: None,
+                }],
+                updated_at: Utc::now(),
+            }),
+            error: None,
+        };
+        core.usage
+            .state
+            .lock()
+            .unwrap()
+            .snapshot
+            .runtimes
+            .insert(Runtime::ClaudeCode, usage);
+        crate::claude_accounts::action(
+            &core,
+            runner_core::protocol::ClaudeAccountAction::Rename {
+                id: "native".into(),
+                name: "Home".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            core.usage
+                .snapshot()
+                .get(Runtime::ClaudeCode)
+                .unwrap()
+                .windows[0]
+                .used_percent,
+            31.
+        );
+    }
+
+    #[test]
+    fn selecting_an_account_uses_only_its_cached_usage_and_errors() {
+        let service = UsageService::without_fetch();
+        let usage = |percent| RuntimeUsage {
+            value: Some(AgentUsage {
+                windows: vec![UsageWindow {
+                    name: "Week".into(),
+                    used_percent: percent,
+                    resets_at: None,
+                }],
+                updated_at: Utc::now(),
+            }),
+            error: None,
+        };
+        {
+            let mut state = service.state.lock().unwrap();
+            state.claude_accounts.insert("native".into(), usage(82.));
+            state.claude_accounts.insert("work".into(), usage(24.));
+            state.claude_denied.insert("work".into());
+        }
+        service.select_claude_account("work", true);
+        assert_eq!(
+            service.snapshot().get(Runtime::ClaudeCode).unwrap().windows[0].used_percent,
+            24.
+        );
+        service.select_claude_account("native", true);
+        assert_eq!(
+            service.snapshot().get(Runtime::ClaudeCode).unwrap().windows[0].used_percent,
+            82.
+        );
+        assert!(!service
+            .state
+            .lock()
+            .unwrap()
+            .claude_denied
+            .contains("native"));
+        service.select_claude_account("unknown", true);
+        assert_eq!(service.snapshot().get(Runtime::ClaudeCode), None);
+        assert_eq!(service.claude_account_usage().len(), 2);
+        service.select_claude_account("work", false);
+        assert!(service.state.lock().unwrap().keychain_denied);
+    }
 }

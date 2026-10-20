@@ -1576,6 +1576,14 @@ impl NativeRoot {
         }
     }
 
+    pub(crate) fn open_claude_accounts(&self, cx: &mut Context<Self>) {
+        if let Some(agents) = &self.settings_page.agents {
+            agents.update(cx, |agents, cx| {
+                agents.open_runtime(runner_core::protocol::Runtime::ClaudeCode, cx)
+            });
+        }
+    }
+
     pub(crate) fn refresh_agents_pane(&self, cx: &mut Context<Self>) {
         if let Some(agents) = self.settings_page.agents.clone() {
             agents.update(cx, |pane, pane_cx| pane.refresh(pane_cx));
@@ -4106,6 +4114,7 @@ mod localization_tests {
                 store
                     .sessions
                     .push(runner_core::protocol::session::DirectSessionEntry {
+                        claude_account: None,
                         session_id: "owned-shell".into(),
                         project_id: None,
                         role_id: None,

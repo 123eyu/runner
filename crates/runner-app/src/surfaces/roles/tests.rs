@@ -391,6 +391,7 @@ fn create_test_role_with_args(
 
 fn chat_launch_definition(role: &Role) -> runner_daemon::model::LaunchDefinition {
     runner_daemon::model::LaunchDefinition {
+        claude_account: None,
         command: role.command.clone(),
         args: role.args.clone(),
         env: role
