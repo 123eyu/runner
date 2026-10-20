@@ -19,7 +19,6 @@ pub(super) struct ActiveSidebarRow {
     source: SidebarRow,
     group: ActiveGroup,
     rollup: StatusRollup,
-    last_activity: i64,
 }
 
 impl ActiveGroup {
@@ -96,30 +95,13 @@ fn active_session_status(
     status
 }
 
-fn status_activity_at(status: &AgentStatus) -> i64 {
-    status
-        .error_since
-        .into_iter()
-        .chain(status.failed_since)
-        .chain(status.unread_since)
-        .chain(
-            status
-                .observation
-                .interactions
-                .iter()
-                .map(|wait| wait.since),
-        )
-        .max()
-        .unwrap_or_default()
-}
-
 fn sort_active_rows(rows: &mut [ActiveSidebarRow]) {
-    rows.sort_by_key(|row| {
+    rows.sort_by_cached_key(|row| {
+        let node = row.source.node();
         (
             row.group(),
-            std::cmp::Reverse(row.rollup.priority_value()),
-            std::cmp::Reverse(row.last_activity),
-            row.source.node().id.clone(),
+            chrono::DateTime::parse_from_rfc3339(&node.created_at).ok(),
+            node.id.clone(),
         )
     });
 }
@@ -171,28 +153,9 @@ impl Sidebar {
             .iter()
             .flat_map(|summary| summary.session_statuses.iter().map(|(id, _)| id.as_str()))
             .collect::<HashSet<_>>();
-        let session_activity_at = |session: &DirectSessionEntry, status: &AgentStatus| {
-            status_activity_at(status)
-                .max(
-                    store
-                        .session_activity_at
-                        .get(&session.session_id)
-                        .copied()
-                        .unwrap_or_default(),
-                )
-                .max(
-                    session
-                        .started_at
-                        .into_iter()
-                        .chain(session.stopped_at)
-                        .map(|time| time.timestamp_millis())
-                        .max()
-                        .unwrap_or_default(),
-                )
-        };
         let mut rows = Vec::new();
         for source in self.resolved_sidebar_rows_for_tabs(tabs, cx) {
-            let (group, rollup, last_activity, live) = match &source {
+            let (group, rollup, live) = match &source {
                 SidebarRow::Tab { members, .. } => {
                     let members = members
                         .iter()
@@ -208,7 +171,6 @@ impl Sidebar {
                         Runtime::parse(&session.agent_runtime).is_some_and(Runtime::is_shell)
                     };
                     let terminals_only = members.iter().all(|session| is_shell(session));
-                    let mut last_activity = 0;
                     let entries = members
                         .iter()
                         .filter(|session| terminals_only || !is_shell(session))
@@ -221,8 +183,6 @@ impl Sidebar {
                             if self.archiving_sessions.contains(&session.session_id) {
                                 super::rows::mark_archiving_status(&mut status);
                             }
-                            last_activity =
-                                last_activity.max(session_activity_at(session, &status));
                             (session.session_id.clone(), status)
                         })
                         .collect();
@@ -233,7 +193,6 @@ impl Sidebar {
                             ActiveGroup::Chats
                         },
                         StatusRollup { entries },
-                        last_activity,
                         members
                             .iter()
                             .any(|session| session.status == SessionStatus::Running),
@@ -243,32 +202,9 @@ impl Sidebar {
                     if summary.mission.archived_at.is_some() {
                         continue;
                     }
-                    let rollup = self.mission_status_rollup(summary);
-                    let last_activity = rollup
-                        .entries
-                        .iter()
-                        .map(|(id, status)| {
-                            status_activity_at(status).max(
-                                store
-                                    .session_activity_at
-                                    .get(id)
-                                    .copied()
-                                    .unwrap_or_default(),
-                            )
-                        })
-                        .chain([summary.mission.started_at.timestamp_millis()])
-                        .chain(
-                            summary
-                                .mission
-                                .stopped_at
-                                .map(|time| time.timestamp_millis()),
-                        )
-                        .max()
-                        .unwrap_or_default();
                     (
                         ActiveGroup::Missions,
-                        rollup,
-                        last_activity,
+                        self.mission_status_rollup(summary),
                         summary.mission.status == MissionStatus::Running
                             && summary.any_session_live,
                     )
@@ -279,7 +215,6 @@ impl Sidebar {
                     source,
                     group,
                     rollup,
-                    last_activity,
                 });
             }
         }
