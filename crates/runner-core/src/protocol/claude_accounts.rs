@@ -25,6 +25,20 @@ pub struct ClaudeAccounts {
     pub main_id: String,
     pub active_id: String,
     pub statuses: std::collections::BTreeMap<String, ClaudeAuthStatus>,
+    #[serde(default)]
+    pub sharing: std::collections::BTreeMap<String, ClaudeAccountSharing>,
+    #[serde(default)]
+    pub pending_main_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ClaudeAccountSharing {
+    pub using_main: bool,
+    pub own_items: Vec<String>,
+    #[serde(default)]
+    pub shared_skills: usize,
+    #[serde(default)]
+    pub shared_plugins: usize,
 }
 
 impl ClaudeAccounts {
@@ -66,10 +80,14 @@ pub enum ClaudeAccountAction {
     Add {
         name: String,
         folder: Option<String>,
+        #[serde(default)]
+        use_main_settings: bool,
     },
     AddAndLogin {
         name: String,
         folder: Option<String>,
+        #[serde(default)]
+        use_main_settings: bool,
     },
     Rename {
         id: String,
@@ -90,6 +108,12 @@ pub enum ClaudeAccountAction {
     Cancel {
         id: String,
     },
+    Share {
+        id: String,
+    },
+    StopSharing {
+        id: String,
+    },
     Refresh,
 }
 
@@ -108,6 +132,14 @@ pub fn claude_account_folder_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sharing_counts_default_for_older_snapshots() {
+        let sharing: ClaudeAccountSharing =
+            serde_json::from_str(r#"{"using_main":true,"own_items":["skills"]}"#).unwrap();
+        assert_eq!(sharing.shared_skills, 0);
+        assert_eq!(sharing.shared_plugins, 0);
+    }
+
     #[test]
     fn explicit_native_folder_pin_does_not_match_native_identity() {
         let native = ClaudeAccount {

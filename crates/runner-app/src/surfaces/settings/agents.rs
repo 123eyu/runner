@@ -610,6 +610,10 @@ impl AgentsPane {
         })
     }
 
+    pub(crate) fn accounts_overlay(&self, cx: &gpui::App) -> gpui::AnyElement {
+        self.accounts.read(cx).confirm_overlay().into_any_element()
+    }
+
     pub(crate) fn is_composing(&self, cx: &gpui::App) -> bool {
         self.accounts.read(cx).is_composing(cx)
             || self

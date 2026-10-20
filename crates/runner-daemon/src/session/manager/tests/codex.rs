@@ -36,6 +36,7 @@ fn codex_speed_follows_role_args_for_direct_and_mission_spawns() {
                     None,
                     Some("first turn"),
                     None,
+                    None,
                 );
                 let tiers = spec
                     .args
@@ -95,6 +96,7 @@ fn codex_spawn_composes_hooks_without_changing_user_home_and_respects_overrides(
                 root.path(),
                 None,
                 Some("first turn"),
+                None,
                 None,
             );
             assert_eq!(spec.env["CODEX_HOME"], "user home");
@@ -782,6 +784,7 @@ fn codex_windows_batch_pending_prompt_is_recorded_before_argv_suppression() {
         root.path(),
         None,
         Some("automatic prompt"),
+        None,
         None,
     );
     assert_eq!(spec.pending_turn, Some(true));

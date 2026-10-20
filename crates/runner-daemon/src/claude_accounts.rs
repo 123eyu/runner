@@ -16,6 +16,8 @@ use runner_core::protocol::{
 };
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod sharing;
+
 const KEY: &str = "claude_accounts";
 const NATIVE_ID: &str = "native";
 
@@ -24,6 +26,10 @@ pub(crate) struct AccountsState {
     pub accounts: Vec<ClaudeAccount>,
     pub main_id: String,
     pub active_id: String,
+    #[serde(default)]
+    pub sharing: BTreeMap<String, sharing::SharedConfig>,
+    #[serde(default)]
+    pub main_change: Option<sharing::MainChange>,
 }
 
 pub struct AccountService {
@@ -142,6 +148,8 @@ fn initial(home: &Path) -> AccountsState {
         }],
         main_id: NATIVE_ID.into(),
         active_id: NATIVE_ID.into(),
+        sharing: Default::default(),
+        main_change: None,
     }
 }
 
@@ -164,6 +172,11 @@ fn load_at(conn: &rusqlite::Connection, home: &Path) -> Result<AccountsState> {
 pub fn snapshot(core: &AppCore) -> Result<ClaudeAccounts> {
     let state = load(&core.db)?;
     Ok(ClaudeAccounts {
+        sharing: sharing::summaries(&state),
+        pending_main_id: state
+            .main_change
+            .as_ref()
+            .map(|change| change.target_id.clone()),
         accounts: state.accounts,
         main_id: state.main_id,
         active_id: state.active_id,
@@ -190,10 +203,12 @@ fn mutate(
         ClaudeAccountAction::Add {
             name: value,
             folder,
+            ..
         }
         | ClaudeAccountAction::AddAndLogin {
             name: value,
             folder,
+            ..
         } => {
             let name = name(value)?;
             let folder = folder
@@ -301,6 +316,8 @@ pub fn action(core: &AppCore, action: ClaudeAccountAction) -> Result<ClaudeAccou
     let home = runner_core::app_paths::home_dir()
         .ok_or_else(|| Error::msg("home directory unavailable"))?;
     let mut state = load_at(&tx, &home)?;
+    sharing::validate_action(&state, &action)?;
+    let previous = state.clone();
     let previous_active = state.active_id.clone();
     let was_multiple = state.accounts.len() > 1;
     let created_id = mutate(
@@ -309,11 +326,16 @@ pub fn action(core: &AppCore, action: ClaudeAccountAction) -> Result<ClaudeAccou
         &core.claude_accounts.statuses.lock().unwrap(),
         &home,
     )?;
+    let sharing_result =
+        sharing::apply_action(&mut state, &previous, &action, created_id.as_deref());
+    if sharing_result.is_err() && matches!(action, ClaudeAccountAction::Remove { .. }) {
+        state.accounts = previous.accounts.clone();
+    }
     db::app_state_set(&tx, KEY, &serde_json::to_string(&state)?)?;
     tx.commit()?;
     drop(conn);
     let added = created_id.is_some();
-    if matches!(action, ClaudeAccountAction::AddAndLogin { .. }) {
+    if sharing_result.is_ok() && matches!(action, ClaudeAccountAction::AddAndLogin { .. }) {
         let id = created_id.as_ref().unwrap();
         let account = state
             .accounts
@@ -333,11 +355,30 @@ pub fn action(core: &AppCore, action: ClaudeAccountAction) -> Result<ClaudeAccou
         core.claude_accounts.statuses.lock().unwrap().remove(id);
     }
     core.events.emit("claude_accounts/changed", &());
+    if previous.main_id != state.main_id {
+        crate::runtime_status::models::request(
+            &core.db,
+            &core.runtime_shell_env,
+            &core.runtime_discovery,
+            &core.events,
+            &[Runtime::ClaudeCode],
+            true,
+        );
+        crate::runtime_status::versions::request_latest(
+            &core.db,
+            &core.runtime_shell_env,
+            &core.runtime_discovery,
+            &core.events,
+            true,
+        );
+        core.events.emit("runtime/changed", &());
+    }
     if added {
         refresh(core);
     } else {
         core.usage.request_account_refresh(core.clone());
     }
+    sharing_result?;
     snapshot(core)
 }
 
@@ -901,6 +942,7 @@ exec sleep 60
                 ClaudeAccountAction::AddAndLogin {
                     name: name.into(),
                     folder: Some(folder.to_string_lossy().into_owned()),
+                    use_main_settings: false,
                 },
             )
             .unwrap();
@@ -969,6 +1011,7 @@ fi
                 ClaudeAccountAction::AddAndLogin {
                     name: "Work".into(),
                     folder: Some(folder.to_string_lossy().into_owned()),
+                    use_main_settings: false,
                 },
             )
             .unwrap();
@@ -1004,6 +1047,7 @@ fi
                 ClaudeAccountAction::AddAndLogin {
                     name: "Work".into(),
                     folder: Some(folder.to_string_lossy().into_owned()),
+                    use_main_settings: false,
                 }
             } else {
                 let added = action(
@@ -1011,6 +1055,7 @@ fi
                     ClaudeAccountAction::Add {
                         name: "Work".into(),
                         folder: Some(folder.to_string_lossy().into_owned()),
+                        use_main_settings: false,
                     },
                 )
                 .unwrap();
@@ -1059,6 +1104,7 @@ fi
                 ClaudeAccountAction::Add {
                     name: "Work".into(),
                     folder: Some(folder.to_string_lossy().into_owned()),
+                    use_main_settings: false,
                 },
             )
             .unwrap();
@@ -1184,6 +1230,7 @@ fi
         let add = ClaudeAccountAction::Add {
             name: "  Work Team  ".into(),
             folder: None,
+            use_main_settings: false,
         };
         let _ = mutate(&mut state, &add, &statuses, home.path()).unwrap();
         let work = state.accounts[1].clone();
@@ -1292,7 +1339,8 @@ fi
             &mut state,
             &ClaudeAccountAction::Add {
                 name: "".into(),
-                folder: None
+                folder: None,
+                use_main_settings: false,
             },
             &statuses,
             home.path()
@@ -1302,7 +1350,8 @@ fi
             &mut state,
             &ClaudeAccountAction::Add {
                 name: "Other".into(),
-                folder: Some("relative".into())
+                folder: Some("relative".into()),
+                use_main_settings: false,
             },
             &statuses,
             home.path()

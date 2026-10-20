@@ -154,6 +154,30 @@ impl RuntimeAdapter for ClaudeCode {
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }
+    fn mcp_path(
+        &self,
+        home: &Path,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<std::path::PathBuf> {
+        Some(
+            env.get(crate::claude_accounts::sharing::MAIN_MCP)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| home.join(".claude.json")),
+        )
+    }
+    fn native_defaults_with_env(
+        &self,
+        home: &Path,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> crate::runtime_defaults::RuntimeDefaults {
+        match env.get(crate::claude_accounts::sharing::MAIN_FOLDER) {
+            Some(folder) => crate::runtime_defaults::json_defaults(
+                &Path::new(folder).join("settings.json"),
+                false,
+            ),
+            None => self.native_defaults(home),
+        }
+    }
     fn usage(&self) -> Option<&'static UsageSource> {
         Some(&USAGE)
     }

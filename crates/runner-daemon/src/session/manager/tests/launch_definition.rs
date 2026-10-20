@@ -325,6 +325,38 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
             .into_owned(),
         native: false,
     };
+    std::fs::create_dir_all(&native.folder).unwrap();
+    std::fs::create_dir_all(&work.folder).unwrap();
+    std::fs::write(
+        Path::new(&native.folder).join("settings.json"),
+        r#"{"env":{"SHARED_MAIN":"enabled"},"enabledPlugins":{"fixture@main":true}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        Path::new(&native.folder)
+            .parent()
+            .unwrap()
+            .join(".claude.json"),
+        r#"{"identity":"not-in-definition","mcpServers":{"fixture":{"command":"fixture-tool"}}}"#,
+    )
+    .unwrap();
+    let plugin = Path::new(&native.folder).join("plugins/cache/fixture plugin");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        Path::new(&native.folder).join("plugins/installed_plugins.json"),
+        serde_json::json!({"version":2,"plugins":{"fixture@main":[{"scope":"user","installPath":plugin}]}}).to_string(),
+    ).unwrap();
+    let check_shared = |spec: &SpawnSpec| {
+        assert_eq!(
+            spec.args.iter().filter(|arg| *arg == "--settings").count(),
+            1
+        );
+        assert!(spec.args.iter().any(|arg| arg.contains("SHARED_MAIN")));
+        assert!(spec.args.iter().any(|arg| arg == "--mcp-config"));
+        assert!(spec.args.windows(2).any(|pair| pair[0] == "--plugin-dir"
+            && std::fs::canonicalize(&pair[1]).unwrap()
+                == std::fs::canonicalize(&plugin).unwrap()));
+    };
     let save = |accounts: &[ClaudeAccount], active: &str| {
         crate::db::app_state_set(
             &pool.get().unwrap(),
@@ -332,7 +364,9 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
             &serde_json::to_string(&crate::claude_accounts::AccountsState {
                 accounts: accounts.to_vec(),
                 main_id: native.id.clone(),
+                main_change: None,
                 active_id: active.into(),
+                sharing: if accounts.len()>1 {serde_json::from_value(serde_json::json!({"work":{"main_folder":native.folder,"folder":work.folder,"links":[]}})).unwrap()} else {Default::default()},
             })
             .unwrap(),
         )
@@ -375,6 +409,7 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
         .unwrap();
     let spec = fake.last_spawn_spec().unwrap();
     assert_eq!(spec.env.get("CLAUDE_CONFIG_DIR"), Some(&work.folder));
+    check_shared(&spec);
     assert!(spec
         .args
         .windows(2)
@@ -409,6 +444,13 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
         .unwrap()
         .env
         .contains_key("CLAUDE_CONFIG_DIR"));
+    assert!(!resumed
+        .launch_definition
+        .as_ref()
+        .unwrap()
+        .args
+        .iter()
+        .any(|arg| arg == "--plugin-dir"));
     mgr.kill(&source.id).unwrap();
     let fork = mgr
         .spawn_fork(
@@ -428,8 +470,10 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
     assert_eq!(
         fork_row
             .launch_definition
+            .as_ref()
             .unwrap()
             .claude_account
+            .as_ref()
             .unwrap()
             .origin_folder,
         work.folder
@@ -440,6 +484,21 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
         .args
         .iter()
         .any(|arg| arg == "--fork-session"));
+    check_shared(&fake.last_spawn_spec().unwrap());
+    assert!(!fork_row
+        .launch_definition
+        .as_ref()
+        .unwrap()
+        .args
+        .join(" ")
+        .contains("SHARED_MAIN"));
+    assert!(!fork_row
+        .launch_definition
+        .as_ref()
+        .unwrap()
+        .args
+        .iter()
+        .any(|arg| arg == "--plugin-dir"));
     mgr.kill(&fork.id).unwrap();
     // Forgetting Work leaves existing histories usable on native Personal.
     save(std::slice::from_ref(&native), &native.id);
@@ -684,6 +743,7 @@ fn claude_legacy_shell_pin_keeps_its_origin_when_a_second_account_is_added() {
         runner_core::protocol::ClaudeAccountAction::Add {
             name: "Work".into(),
             folder: Some(temp.path().join("work").to_string_lossy().into_owned()),
+            use_main_settings: false,
         },
     )
     .unwrap();

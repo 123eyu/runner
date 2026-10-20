@@ -613,6 +613,7 @@ impl SessionManager {
         system_prompt_path: Option<&Path>,
         first_turn: Option<&str>,
         mission_bus_dir: Option<&Path>,
+        pool: Option<&DbPool>,
     ) -> bool {
         let adapter = crate::runtimes::for_key(&role.runtime);
         let env = crate::shell_path::LoginShellEnv {
@@ -626,7 +627,12 @@ impl SessionManager {
                 .models
                 .catalog(
                     runtime,
-                    &crate::runtime_status::models::source_with_env(runtime, &spec.command, &env),
+                    &crate::runtime_status::models::source_with_main(
+                        runtime,
+                        &spec.command,
+                        &env,
+                        pool,
+                    ),
                 )?
                 .default_model
                 .clone()
@@ -913,7 +919,14 @@ impl SessionManager {
             system_prompt_path.as_deref(),
             first_turn.as_deref(),
             Some(&mission_bus_dir),
+            Some(&pool),
         );
+        crate::claude_accounts::sharing::launch(
+            &pool,
+            launch_definition.claude_account.as_ref(),
+            &role,
+            &mut spec,
+        )?;
 
         // Insert the row first (status=running with no runtime_*
         // metadata yet) so a fast-failing runtime spawn doesn't leave
@@ -1632,7 +1645,14 @@ impl SessionManager {
             system_prompt_path.as_deref(),
             first_turn.as_deref(),
             None,
+            Some(&pool),
         );
+        crate::claude_accounts::sharing::launch(
+            &pool,
+            launch_definition.claude_account.as_ref(),
+            &role,
+            &mut spec,
+        )?;
 
         // Insert the row first so a fast-failing spawn doesn't leave
         // a half-row. Every chat carries its spawned engine on the row
@@ -2130,7 +2150,21 @@ impl SessionManager {
                     system_prompt_path.as_deref(),
                     None,
                     None,
+                    Some(&pool),
                 );
+                if let Err(error) = crate::claude_accounts::sharing::launch(
+                    &pool,
+                    fork_definition.claude_account.as_ref(),
+                    &role,
+                    &mut spec,
+                ) {
+                    let _ = delete_failed_fork(&pool, &session_id);
+                    events.updated(&SessionUpdatedEvent {
+                        session_id: session_id.clone(),
+                        mission_id: None,
+                    });
+                    return Err(error);
+                }
                 let direct_spawn_started_at = Instant::now();
                 let spawning = self.shutdown.read().unwrap();
                 if *spawning {
@@ -2886,7 +2920,9 @@ impl SessionManager {
             system_prompt_path.as_deref(),
             first_turn.as_deref(),
             mission_bus_dir.as_deref(),
+            Some(&pool),
         );
+        crate::claude_accounts::sharing::launch(&pool, claude_account.as_ref(), &role, &mut spec)?;
 
         let started_at_dt = Utc::now();
         let started_at = started_at_dt.to_rfc3339();

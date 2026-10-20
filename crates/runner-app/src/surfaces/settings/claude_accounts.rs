@@ -1,10 +1,12 @@
 use crate::{app_store::AppStore, theme};
 use gpui::{
-    div, prelude::*, rems, AnyElement, Context, Entity, FontWeight, PathPromptOptions, Render,
-    SharedString, Subscription, Window,
+    div, prelude::*, px, rems, svg, AnyElement, Context, Entity, FontWeight, KeyDownEvent,
+    PathPromptOptions, Render, SharedString, Subscription, WeakEntity, Window,
 };
 use runner_app::ui::menu::{MenuItem, PopoverMenu};
-use runner_app::ui::{Badge, BrowseField, Button, ButtonSize, ButtonVariant, TextField, Tone};
+use runner_app::ui::{
+    Badge, BrowseField, Button, ButtonSize, ButtonVariant, ConfirmDialog, TextField, Tone,
+};
 use runner_core::protocol::{ClaudeAccount, ClaudeAccountAction, ClaudeAccounts};
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -19,20 +21,29 @@ pub(crate) fn account_error(error: &str) -> String {
         }
         "sign in before using this account" => "accounts.error_sign_in",
         "Claude Code is not installed" => "accounts.error_install",
+        "main account change is incomplete; retry Make main in Settings" => {
+            "accounts.finish_main_change"
+        }
         _ => return error.to_owned(),
     };
     crate::i18n::text(key).to_owned()
 }
+
+type RevealFolder = Rc<dyn Fn(&std::path::Path, &mut gpui::App)>;
 
 pub(crate) struct AccountsSection {
     store: Entity<AppStore>,
     name: Entity<TextField>,
     folder: Entity<TextField>,
     adding: bool,
+    use_main_settings: bool,
+    share_confirmation: Option<String>,
+    overlay: Entity<AccountSharingOverlay>,
     renaming: Option<String>,
     saving: bool,
     error: Option<String>,
     menus: HashMap<String, Entity<PopoverMenu>>,
+    reveal_folder: RevealFolder,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -72,7 +83,12 @@ impl AccountsSection {
                 cx.notify();
             }),
         ];
+        let pane = cx.entity();
+        let overlay = cx.new(|overlay_cx| AccountSharingOverlay::new(pane, overlay_cx));
         Self {
+            use_main_settings: true,
+            share_confirmation: None,
+            overlay,
             store,
             name,
             folder,
@@ -81,6 +97,7 @@ impl AccountsSection {
             saving: false,
             error: None,
             menus: HashMap::new(),
+            reveal_folder: Rc::new(|path, cx| cx.reveal_path(path)),
             _subscriptions: subscriptions,
         }
     }
@@ -114,6 +131,7 @@ impl AccountsSection {
                             store.claude_accounts = accounts;
                             store.refresh(crate::app_store::StoreRefreshKind::Activity, cx);
                         });
+                        this.share_confirmation = None;
                         this.adding = false;
                         this.renaming = None;
                         this.error = None;
@@ -148,12 +166,35 @@ impl AccountsSection {
     }
 
     fn menu_items(account: &ClaudeAccount, accounts: &ClaudeAccounts) -> Vec<MenuItem> {
-        let protected =
-            account.native || account.id == accounts.main_id || account.id == accounts.active_id;
-        vec![
+        let changing_main = accounts.pending_main_id.is_some();
+        let protected = account.native
+            || account.id == accounts.main_id
+            || account.id == accounts.active_id
+            || changing_main;
+        let remove = MenuItem::new(crate::i18n::message("ui.remove"))
+            .icon("trash.svg")
+            .separator_before(true)
+            .destructive(true)
+            .disabled(protected);
+        let remove = if protected {
+            remove.tooltip(crate::i18n::message(if changing_main {
+                "accounts.finish_main_change"
+            } else {
+                "accounts.cannot_remove"
+            }))
+        } else {
+            remove
+        };
+        let mut items = vec![
             MenuItem::new(crate::i18n::message("accounts.make_main"))
                 .icon("star.svg")
-                .disabled(account.id == accounts.main_id),
+                .disabled(
+                    account.id == accounts.main_id
+                        || accounts
+                            .pending_main_id
+                            .as_ref()
+                            .is_some_and(|id| id != &account.id),
+                ),
             MenuItem::new(crate::i18n::message("ui.rename")).icon("pencil.svg"),
             MenuItem::new(crate::i18n::message(if cfg!(windows) {
                 "ui.reveal_in_explorer"
@@ -161,17 +202,24 @@ impl AccountsSection {
                 "ui.reveal_in_finder"
             }))
             .icon("folder.svg"),
-            MenuItem::new(crate::i18n::message("ui.remove"))
-                .icon("trash-2.svg")
-                .separator_before(true)
-                .destructive(true)
-                .disabled(protected)
-                .description(if protected {
-                    crate::i18n::message("accounts.cannot_remove")
-                } else {
-                    crate::i18n::message("accounts.keep_folder")
-                }),
-        ]
+            remove,
+        ];
+        if accounts.sharing.contains_key(&account.id) {
+            items.insert(
+                1,
+                MenuItem::new(crate::i18n::tf(
+                    "accounts.stop_sharing",
+                    &[("main", main_name(accounts))],
+                ))
+                .icon("link.svg")
+                .disabled(changing_main),
+            );
+        }
+        items
+    }
+
+    pub(crate) fn confirm_overlay(&self) -> Entity<AccountSharingOverlay> {
+        self.overlay.clone()
     }
 
     fn account_menu(
@@ -181,20 +229,28 @@ impl AccountsSection {
         cx: &mut Context<Self>,
     ) -> Entity<PopoverMenu> {
         let items = Self::menu_items(account, accounts);
-        if let Some(menu) = self.menus.get(&account.id) {
-            menu.update(cx, |menu, cx| menu.set_items(items, cx));
-            return menu.clone();
-        }
+        let linked = accounts.sharing.contains_key(&account.id);
         let owner = cx.weak_entity();
         let account = account.clone();
         let id = account.id.clone();
-        let menu = cx.new(|cx| {
-            PopoverMenu::new(
-                SharedString::from(format!("account-menu-{id}")),
-                cx.focus_handle(),
-                items,
-                Rc::new(move |index, window, cx| {
-                    let _ = owner.update(cx, |this, cx| match index {
+        let handler: runner_app::ui::menu::MenuHandler = Rc::new(
+            move |index: usize, window: &mut Window, cx: &mut gpui::App| {
+                let _ = owner.update(cx, |this, cx| {
+                    if linked && index == 1 {
+                        this.perform(
+                            ClaudeAccountAction::StopSharing {
+                                id: account.id.clone(),
+                            },
+                            cx,
+                        );
+                        return;
+                    }
+                    let index = if linked && index > 1 {
+                        index - 1
+                    } else {
+                        index
+                    };
+                    match index {
                         0 => this.perform(
                             ClaudeAccountAction::MakeMain {
                                 id: account.id.clone(),
@@ -217,7 +273,7 @@ impl AccountsSection {
                             this.name.read(cx).focus_handle().focus(window, cx);
                             cx.notify();
                         }
-                        2 => cx.reveal_path(&PathBuf::from(&account.folder)),
+                        2 => (this.reveal_folder)(&PathBuf::from(&account.folder), cx),
                         3 => this.perform(
                             ClaudeAccountAction::Remove {
                                 id: account.id.clone(),
@@ -225,10 +281,27 @@ impl AccountsSection {
                             cx,
                         ),
                         _ => {}
-                    });
-                }),
+                    }
+                });
+            },
+        );
+        if let Some(menu) = self.menus.get(&id) {
+            menu.update(cx, |menu, cx| {
+                menu.set_items_and_handler(items, handler, cx)
+            });
+            return menu.clone();
+        }
+        let menu = cx.new(|cx| {
+            PopoverMenu::new(
+                SharedString::from(format!("account-menu-{id}")),
+                cx.focus_handle(),
+                items,
+                handler,
                 cx,
             )
+            .min_width(px(280.))
+            .single_line_labels()
+            .align_right()
         });
         self.menus.insert(id, menu.clone());
         menu
@@ -256,6 +329,10 @@ impl AccountsSection {
             .flatten()
             .collect::<Vec<_>>()
             .join(" · ");
+        let sharing = accounts.sharing.get(&account.id);
+        let main = main_name(accounts);
+        let owner_share = cx.entity();
+        let share_id = id.clone();
         div()
             .debug_selector({
                 let id = id.clone();
@@ -311,7 +388,74 @@ impl AccountsSection {
                         div()
                             .text_size(theme::text_meta())
                             .text_color(theme::faint())
-                            .child(account.folder.clone()),
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .flex_wrap()
+                            .child(account.folder.clone())
+                            .children(
+                                (sharing.is_none() && account.id != accounts.main_id).then(|| {
+                                    div().child(crate::i18n::text("accounts.own_settings"))
+                                }),
+                            )
+                            .children(sharing.map(|sharing| {
+                                let mut label = if sharing.using_main {
+                                    crate::i18n::tf(
+                                        "accounts.using_settings",
+                                        &[("main", main.clone())],
+                                    )
+                                } else {
+                                    crate::i18n::text("accounts.sharing_pending").to_owned()
+                                };
+                                if sharing.using_main {
+                                    for (key, count) in [
+                                        ("accounts.shared_skills", sharing.shared_skills),
+                                        ("accounts.shared_plugins", sharing.shared_plugins),
+                                    ] {
+                                        if count > 0 {
+                                            label.push_str(" · ");
+                                            label.push_str(&crate::i18n::tn(key, count));
+                                        }
+                                    }
+                                }
+                                for item in &sharing.own_items {
+                                    label.push_str(" · ");
+                                    label.push_str(&match item.as_str() {
+                                        "skills" => {
+                                            crate::i18n::text("accounts.local_skills").to_owned()
+                                        }
+                                        "plugins" => {
+                                            crate::i18n::text("accounts.local_plugins").to_owned()
+                                        }
+                                        _ => crate::i18n::tf(
+                                            "accounts.own_item",
+                                            &[("item", item.clone())],
+                                        ),
+                                    });
+                                }
+                                div().child(label)
+                            }))
+                            .children((account.id != accounts.main_id && sharing.is_none()).then(
+                                || {
+                                    Button::new(
+                                        SharedString::from(format!("account-share-{share_id}")),
+                                        crate::i18n::tf("accounts.use_settings", &[("main", main)]),
+                                    )
+                                    .icon("link.svg")
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .disabled(self.saving || accounts.pending_main_id.is_some())
+                                    .on_press(
+                                        move |window, cx| {
+                                            owner_share.update(cx, |this, cx| {
+                                                this.share_confirmation = Some(share_id.clone());
+                                                this.name.read(cx).focus_handle().focus(window, cx);
+                                                cx.notify();
+                                            })
+                                        },
+                                    )
+                                },
+                            )),
                     ),
             )
             .child(
@@ -407,6 +551,9 @@ impl AccountsSection {
         let cancel = owner.clone();
         let browse = owner.clone();
         let rename = self.renaming.clone();
+        let checkbox_owner = cx.entity();
+        let use_main = self.use_main_settings;
+        let main = main_name(&self.store.read(cx).claude_accounts);
         div()
             .p_5()
             .bg(theme::raised())
@@ -446,6 +593,49 @@ impl AccountsSection {
                             )
                     })),
             )
+            .children(rename.is_none().then(|| {
+                div()
+                    .id("account-use-main-settings")
+                    .debug_selector(|| "CLAUDE_ACCOUNT_SHARE_CHECKBOX".into())
+                    .tab_index(0)
+                    .tab_stop(!self.saving)
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .child(
+                        div()
+                            .size(rems(1.))
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(theme::border_strong())
+                            .bg(if use_main {
+                                theme::accent()
+                            } else {
+                                theme::panel()
+                            })
+                            .children(use_main.then(|| {
+                                svg()
+                                    .path("check.svg")
+                                    .size(rems(14. / 16.))
+                                    .text_color(theme::panel())
+                            })),
+                    )
+                    .child(crate::i18n::tf("accounts.use_settings", &[("main", main)]))
+                    .on_click(move |_, _, cx| {
+                        checkbox_owner.update(cx, |this, cx| {
+                            if !this.saving {
+                                this.use_main_settings = !this.use_main_settings;
+                                cx.notify();
+                            }
+                        })
+                    })
+                    .on_key_down(|event: &KeyDownEvent, _, cx| {
+                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                            cx.stop_propagation();
+                        }
+                    })
+            }))
             .child(
                 div()
                     .flex()
@@ -487,6 +677,7 @@ impl AccountsSection {
                                         ClaudeAccountAction::AddAndLogin {
                                             name,
                                             folder: (!folder.is_empty()).then_some(folder),
+                                            use_main_settings: this.use_main_settings,
                                         }
                                     },
                                     cx,
@@ -505,6 +696,7 @@ impl Render for AccountsSection {
         self.menus
             .retain(|id, _| accounts.accounts.iter().any(|account| &account.id == id));
         let owner = cx.entity();
+        let retry_owner = owner.clone();
         let rows = accounts
             .accounts
             .iter()
@@ -512,6 +704,8 @@ impl Render for AccountsSection {
             .collect::<Vec<_>>();
         div()
             .debug_selector(|| "CLAUDE_ACCOUNTS".into())
+            .w_full()
+            .min_w_0()
             .flex()
             .flex_col()
             .gap_3()
@@ -531,10 +725,13 @@ impl Render for AccountsSection {
                         Button::new("claude-add-account", crate::i18n::text("accounts.add"))
                             .icon("plus.svg")
                             .size(ButtonSize::Sm)
-                            .disabled(self.adding || self.saving)
+                            .disabled(
+                                self.adding || self.saving || accounts.pending_main_id.is_some(),
+                            )
                             .on_press(move |window, cx| {
                                 owner.update(cx, |this, cx| {
                                     this.adding = true;
+                                    this.use_main_settings = true;
                                     this.renaming = None;
                                     this.name.update(cx, |field, cx| field.set_text("", cx));
                                     this.folder.update(cx, |field, cx| field.set_text("", cx));
@@ -549,6 +746,42 @@ impl Render for AccountsSection {
                     .text_color(theme::muted())
                     .child(crate::i18n::text("accounts.description")),
             )
+            .children(accounts.pending_main_id.as_ref().map(|id| {
+                let id = id.clone();
+                let target = accounts
+                    .accounts
+                    .iter()
+                    .find(|account| account.id == id)
+                    .map(|account| account.name.clone())
+                    .unwrap_or_default();
+                div()
+                    .debug_selector(|| "CLAUDE_MAIN_CHANGE_PENDING".into())
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_color(theme::warning())
+                            .child(crate::i18n::tf(
+                                "accounts.main_change_pending",
+                                &[("account", target)],
+                            )),
+                    )
+                    .child(
+                        Button::new("claude-retry-main-change", crate::i18n::text("ui.retry"))
+                            .size(ButtonSize::Sm)
+                            .disabled(self.saving)
+                            .on_press(move |_, cx| {
+                                retry_owner.update(cx, |this, cx| {
+                                    this.perform(
+                                        ClaudeAccountAction::MakeMain { id: id.clone() },
+                                        cx,
+                                    )
+                                })
+                            }),
+                    )
+            }))
             .child(
                 div()
                     .rounded_lg()
@@ -572,10 +805,77 @@ impl Render for AccountsSection {
     }
 }
 
+fn main_name(accounts: &ClaudeAccounts) -> String {
+    accounts
+        .accounts
+        .iter()
+        .find(|account| account.id == accounts.main_id)
+        .map(|account| account.name.clone())
+        .unwrap_or_default()
+}
+
+pub(crate) struct AccountSharingOverlay {
+    pane: WeakEntity<AccountsSection>,
+    _subscription: Subscription,
+}
+
+impl AccountSharingOverlay {
+    fn new(pane: Entity<AccountsSection>, cx: &mut Context<Self>) -> Self {
+        let subscription = cx.observe(&pane, |_, _, cx| cx.notify());
+        Self {
+            pane: pane.downgrade(),
+            _subscription: subscription,
+        }
+    }
+}
+
+impl Render for AccountSharingOverlay {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(pane) = self.pane.upgrade() else {
+            return div().into_any_element();
+        };
+        let state = pane.read(cx);
+        let Some(id) = state.share_confirmation.clone() else {
+            return div().into_any_element();
+        };
+        let accounts = &state.store.read(cx).claude_accounts;
+        let Some(account) = accounts.accounts.iter().find(|account| account.id == id) else {
+            return div().into_any_element();
+        };
+        let parameters = [
+            ("main", main_name(accounts)),
+            ("account", account.name.clone()),
+        ];
+        let cancel = pane.clone();
+        ConfirmDialog::new(
+            crate::i18n::tf("accounts.share_title", &parameters),
+            crate::i18n::tf("accounts.share_body", &parameters),
+            crate::i18n::tf("accounts.use_settings", &parameters),
+            crate::i18n::text("ui.saving"),
+            state.saving,
+            Rc::new(move |_, cx| {
+                pane.update(cx, |this, cx| {
+                    this.perform(ClaudeAccountAction::Share { id: id.clone() }, cx)
+                })
+            }),
+            Rc::new(move |_, cx| {
+                cancel.update(cx, |this, cx| {
+                    this.share_confirmation = None;
+                    cx.notify();
+                })
+            }),
+        )
+        .icon("link.svg")
+        .variant(ButtonVariant::Primary)
+        .focus_handle(state.name.read(cx).focus_handle())
+        .into_any_element()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{px, VisualTestContext};
+    use gpui::{px, Focusable, VisualTestContext};
 
     fn accounts() -> ClaudeAccounts {
         ClaudeAccounts {
@@ -601,6 +901,8 @@ mod tests {
             ],
             main_id: "native".into(),
             active_id: "work".into(),
+            sharing: Default::default(),
+            pending_main_id: None,
             statuses: Default::default(),
         }
     }
@@ -608,6 +910,11 @@ mod tests {
     #[test]
     fn account_menu_protects_main_active_and_native_rows() {
         let mut accounts = accounts();
+        for account in &accounts.accounts {
+            let items = AccountsSection::menu_items(account, &accounts);
+            assert!(items.iter().all(|item| item.description.is_none()));
+            assert_eq!(items[3].tooltip.is_some(), items[3].disabled);
+        }
         assert!(AccountsSection::menu_items(&accounts.accounts[0], &accounts)[3].disabled);
         assert!(AccountsSection::menu_items(&accounts.accounts[1], &accounts)[3].disabled);
         assert!(!AccountsSection::menu_items(&accounts.accounts[2], &accounts)[3].disabled);
@@ -685,7 +992,168 @@ mod tests {
             assert_eq!(pane.name.read(cx).text(), "Work Team");
             assert_eq!(pane.folder.read(cx).text(), "");
             assert!(!pane.saving);
+            assert!(pane.use_main_settings);
         })
         .unwrap();
+        let checkbox = visual
+            .debug_bounds("CLAUDE_ACCOUNT_SHARE_CHECKBOX")
+            .unwrap();
+        visual.simulate_click(checkbox.center(), gpui::Modifiers::default());
+        visual.run_until_parked();
+        pane.read_with(&visual, |pane, _| assert!(!pane.use_main_settings))
+            .unwrap();
+        pane.update(&mut visual, |pane, _, cx| {
+            pane.adding = false;
+            pane.store.update(cx, |store, cx| {
+                store.claude_accounts.pending_main_id = Some("other".into());
+                cx.notify();
+            });
+            cx.notify();
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("CLAUDE_MAIN_CHANGE_PENDING").is_some());
+        pane.read_with(&visual, |pane, cx| {
+            let accounts = &pane.store.read(cx).claude_accounts;
+            assert!(AccountsSection::menu_items(&accounts.accounts[1], accounts)[0].disabled);
+            assert!(!AccountsSection::menu_items(&accounts.accounts[2], accounts)[0].disabled);
+            assert!(
+                AccountsSection::menu_items(&accounts.accounts[2], accounts)
+                    .last()
+                    .unwrap()
+                    .disabled
+            );
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn sharing_menu_is_present_only_for_linked_accounts() {
+        let mut accounts = accounts();
+        let before = AccountsSection::menu_items(&accounts.accounts[1], &accounts);
+        accounts.sharing.insert(
+            "work".into(),
+            runner_core::protocol::ClaudeAccountSharing {
+                using_main: true,
+                own_items: vec!["settings.json".into()],
+                ..Default::default()
+            },
+        );
+        let after = AccountsSection::menu_items(&accounts.accounts[1], &accounts);
+        assert_eq!(after.len(), before.len() + 1);
+        assert_eq!(
+            after[1].label,
+            crate::i18n::tf("accounts.stop_sharing", &[("main", "Personal".into())])
+        );
+        assert!(after.last().unwrap().disabled);
+    }
+
+    struct AccountsMenuHost(Entity<AccountsSection>);
+    impl Render for AccountsMenuHost {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().w(px(1000.)).h(px(700.)).child(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn cached_menu_updates_actions_after_sharing_changes() {
+        let mut cx = gpui::TestAppContext::single();
+        let temp = tempfile::tempdir().unwrap();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        let client = store.read_with(&cx, |store, _| store.client.clone());
+        let snapshot = client
+            .claude_account_action(ClaudeAccountAction::Add {
+                name: "Menu fixture".into(),
+                folder: Some(temp.path().join("account").to_string_lossy().into_owned()),
+                use_main_settings: false,
+            })
+            .unwrap();
+        let id = snapshot.accounts.last().unwrap().id.clone();
+        let folder = PathBuf::from(&snapshot.accounts.last().unwrap().folder);
+        store.update(&mut cx, |store, _| store.claude_accounts = snapshot);
+        let revealed = Rc::new(std::cell::RefCell::new(Vec::<PathBuf>::new()));
+        let revealed_paths = revealed.clone();
+        let host = cx.add_window(|window, cx| {
+            window.resize(gpui::size(px(1000.), px(700.)));
+            AccountsMenuHost(cx.new(|cx| {
+                let mut pane = AccountsSection::new(store.clone(), cx);
+                pane.reveal_folder =
+                    Rc::new(move |path, _| revealed_paths.borrow_mut().push(path.to_path_buf()));
+                pane
+            }))
+        });
+        let pane = host.read_with(&cx, |host, _| host.0.clone()).unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(host.into(), &cx);
+        let menu = pane.read_with(&visual, |pane, _| pane.menus[&id].clone());
+        store.update(&mut visual, |store, cx| {
+            store.claude_accounts.sharing.insert(
+                id.clone(),
+                runner_core::protocol::ClaudeAccountSharing {
+                    using_main: true,
+                    own_items: vec![],
+                    ..Default::default()
+                },
+            );
+            cx.notify();
+        });
+        visual.run_until_parked();
+        assert_eq!(
+            menu.entity_id(),
+            pane.read_with(&visual, |pane, _| pane.menus[&id].entity_id())
+        );
+        let focus = menu.read_with(&visual, |menu, cx| menu.focus_handle(cx));
+        let open = |visual: &mut VisualTestContext| {
+            visual.update(|window, cx| focus.focus(window, cx));
+            visual.simulate_keystrokes("down");
+            visual.run_until_parked();
+        };
+        let select = |visual: &mut VisualTestContext, index| {
+            open(visual);
+            for _ in 0..index {
+                visual.simulate_keystrokes("down");
+            }
+            visual.simulate_keystrokes("enter");
+            visual.run_until_parked();
+        };
+        select(&mut visual, 3);
+        assert_eq!(*revealed.borrow(), vec![folder]);
+        pane.read_with(&visual, |pane, cx| {
+            assert!(pane
+                .store
+                .read(cx)
+                .claude_accounts
+                .accounts
+                .iter()
+                .any(|account| account.id == id));
+            assert!(!pane.saving);
+            assert!(pane.renaming.is_none());
+        });
+        select(&mut visual, 1);
+        pane.read_with(&visual, |pane, cx| {
+            assert!(pane.renaming.is_none());
+            assert!(!pane.saving);
+            assert!(!pane
+                .store
+                .read(cx)
+                .claude_accounts
+                .sharing
+                .contains_key(&id));
+            assert!(pane
+                .store
+                .read(cx)
+                .claude_accounts
+                .accounts
+                .iter()
+                .any(|account| account.id == id));
+        });
+        assert_eq!(
+            menu.entity_id(),
+            pane.read_with(&visual, |pane, _| pane.menus[&id].entity_id())
+        );
+        select(&mut visual, 1);
+        pane.read_with(&visual, |pane, _| {
+            assert_eq!(pane.renaming.as_deref(), Some(id.as_str()))
+        });
     }
 }

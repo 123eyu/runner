@@ -48,8 +48,12 @@ pub(crate) fn skill_catalog_with_env(
     if relatives.is_empty() {
         return None;
     }
-    let roots = crate::runtimes::adapter(runtime)
-        .skill_roots_with_env(home, codex_home, env)
+    let main_folder = (runtime == Runtime::ClaudeCode)
+        .then(|| env.get(crate::claude_accounts::sharing::MAIN_FOLDER))
+        .flatten();
+    let roots = main_folder
+        .map(|folder| vec![Path::new(folder).join("skills")])
+        .or_else(|| crate::runtimes::adapter(runtime).skill_roots_with_env(home, codex_home, env))
         .unwrap_or_else(|| {
             relatives
                 .iter()
@@ -64,7 +68,10 @@ pub(crate) fn skill_catalog_with_env(
                 })
                 .collect()
         });
-    let state = (support.load)(home, codex_home);
+    let state = match main_folder {
+        Some(folder) => crate::runtimes::claude_code::skills::load_folder(Path::new(folder)),
+        None => (support.load)(home, codex_home),
+    };
     let mut catalog = SkillCatalog {
         runtime,
         root_exists: roots.iter().any(|root| root.is_dir()),

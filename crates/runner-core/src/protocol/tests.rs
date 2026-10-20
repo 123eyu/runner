@@ -579,7 +579,9 @@ record!(ClaudeAccounts {
     accounts,
     main_id,
     active_id,
-    statuses
+    statuses,
+    sharing,
+    pending_main_id
 });
 record!(ClaudeSessionAccount {
     account_id,
@@ -589,7 +591,13 @@ record!(ClaudeSessionAccount {
     origin_folder,
     permission_mode
 });
-variant!(ClaudeAccountAction => Self::AddAndLogin { name: Sample::sample(), folder: Sample::sample() });
+record!(ClaudeAccountSharing {
+    using_main,
+    own_items,
+    shared_skills,
+    shared_plugins
+});
+variant!(ClaudeAccountAction => Self::AddAndLogin { name: Sample::sample(), folder: Sample::sample(), use_main_settings: Sample::sample() });
 record!(UsageSnapshot {
     runtimes,
     last_fetch_at,

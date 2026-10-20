@@ -343,6 +343,8 @@ pub struct PopoverMenu {
     state: MenuState,
     anchor_bounds: Option<Bounds<Pixels>>,
     min_width: Pixels,
+    single_line_labels: bool,
+    align_right: bool,
     trigger_size: IconButtonSize,
     trigger_icon: SharedString,
     trigger_tooltip: Option<crate::i18n::Text>,
@@ -370,6 +372,8 @@ impl PopoverMenu {
             state: MenuState::default(),
             anchor_bounds: None,
             min_width: px(160.),
+            single_line_labels: false,
+            align_right: false,
             trigger_size: IconButtonSize::Md,
             trigger_icon: "more-horizontal.svg".into(),
             trigger_tooltip: Some(crate::i18n::message("ui.more_actions")),
@@ -382,6 +386,16 @@ impl PopoverMenu {
 
     pub fn min_width(mut self, min_width: Pixels) -> Self {
         self.min_width = min_width;
+        self
+    }
+
+    pub fn single_line_labels(mut self) -> Self {
+        self.single_line_labels = true;
+        self
+    }
+
+    pub fn align_right(mut self) -> Self {
+        self.align_right = true;
         self
     }
 
@@ -403,6 +417,16 @@ impl PopoverMenu {
     pub fn without_trigger_tooltip(mut self) -> Self {
         self.trigger_tooltip = None;
         self
+    }
+
+    pub fn set_items_and_handler(
+        &mut self,
+        items: Vec<MenuItem>,
+        on_activate: MenuHandler,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_activate = on_activate;
+        self.set_items(items, cx);
     }
 
     pub fn set_items(&mut self, items: Vec<MenuItem>, cx: &mut Context<Self>) {
@@ -476,6 +500,7 @@ impl PopoverMenu {
             return None;
         }
         let menu_entity = cx.weak_entity();
+        let single_line_labels = self.single_line_labels;
         let rows = self
             .items
             .iter()
@@ -531,6 +556,9 @@ impl PopoverMenu {
                             .flex_none()
                             .path(icon)
                             .size(rems(14. / 16.))
+                            .when(cfg!(test), |icon| {
+                                icon.debug_selector(move || format!("POPOVER_ICON_{index}"))
+                            })
                             .text_color(foreground)
                     }))
                     .child(
@@ -541,6 +569,14 @@ impl PopoverMenu {
                             .flex_col()
                             .child(
                                 div()
+                                    .when(cfg!(test), |label| {
+                                        label.debug_selector(move || {
+                                            format!("POPOVER_LABEL_{index}")
+                                        })
+                                    })
+                                    .when(single_line_labels, |label| {
+                                        label.truncate().line_height(rems(18. / 16.))
+                                    })
                                     .text_size(theme::text_body())
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(foreground)
@@ -577,10 +613,12 @@ impl PopoverMenu {
                     .w_full()
                     .when(separator_before, |wrapper| {
                         wrapper.child(
-                            div()
-                                .mx_1()
-                                .py_1()
-                                .child(div().h(px(1.)).w_full().bg(theme::border())),
+                            div().mx_1().pt(rems(3. / 16.)).pb_1().child(
+                                div()
+                                    .h(px(1.))
+                                    .w_full()
+                                    .bg(theme::with_alpha(theme::text(), 0.12)),
+                            ),
                         )
                     })
                     .child(row)
@@ -620,6 +658,12 @@ impl PopoverMenu {
     }
 }
 
+impl gpui::Focusable for PopoverMenu {
+    fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl Render for PopoverMenu {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         for item in &mut self.items {
@@ -650,6 +694,9 @@ impl Render for PopoverMenu {
                 });
             })
             .id(self.id.clone())
+            .when(cfg!(test), |trigger| {
+                trigger.debug_selector(|| "POPOVER_TRIGGER".into())
+            })
             .relative()
             .size(rems(self.trigger_size.button_size() / 16.))
             .flex_none()
@@ -673,13 +720,24 @@ impl Render for PopoverMenu {
             let dismiss: DismissHandler = Rc::new(move |window, cx| {
                 dismiss_entity.update(cx, |menu, cx| menu.dismiss(window, cx));
             });
-            root = root.child(popup_layer(
-                anchor,
-                window,
-                anchor.size.width.max(self.min_width * zoom),
-                menu,
-                dismiss,
-            ));
+            let layer = if self.align_right {
+                popup_layer_right_aligned(
+                    anchor,
+                    window,
+                    anchor.size.width.max(self.min_width * zoom),
+                    menu,
+                    dismiss,
+                )
+            } else {
+                popup_layer(
+                    anchor,
+                    window,
+                    anchor.size.width.max(self.min_width * zoom),
+                    menu,
+                    dismiss,
+                )
+            };
+            root = root.child(layer);
         }
         root
     }
@@ -893,10 +951,12 @@ impl ContextMenu {
                     .w_full()
                     .when(separator_before, |wrapper| {
                         wrapper.child(
-                            div()
-                                .mx_1()
-                                .py_1()
-                                .child(div().h(px(1.)).w_full().bg(theme::border())),
+                            div().mx_1().pt(rems(3. / 16.)).pb_1().child(
+                                div()
+                                    .h(px(1.))
+                                    .w_full()
+                                    .bg(theme::with_alpha(theme::text(), 0.12)),
+                            ),
                         )
                     })
                     .child(row)
@@ -1192,6 +1252,110 @@ mod tests {
                 assert_eq!(activated.get(), Some(2));
                 assert!(!host.read_with(&visual, |menu, _| menu.state.open).unwrap());
                 visual.update(|window, _| assert!(previous.is_focused(window)));
+            }
+        }
+    }
+
+    struct SingleLineMenuHost(Entity<PopoverMenu>);
+
+    impl Render for SingleLineMenuHost {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .justify_end()
+                .items_start()
+                .p(px(24.))
+                .line_height(rems(30. / 16.))
+                .child(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn single_line_account_menu_keeps_columns_aligned_without_scrolling() {
+        for zoom in [1., 1.5] {
+            for stop_label in [
+                "Stop using Personal's settings",
+                "Stop using an account with a very long name's settings",
+            ] {
+                let mut cx = TestAppContext::single();
+                let host = cx.add_window(|window, cx| {
+                    window.resize(gpui::size(px(800.), px(600.)));
+                    window.set_rem_size(px(16. * zoom));
+                    let focus = cx.focus_handle();
+                    focus.focus(window, cx);
+                    SingleLineMenuHost(cx.new(|cx| {
+                        PopoverMenu::new(
+                            "account-menu",
+                            focus,
+                            vec![
+                                MenuItem::new("Make main").icon("star.svg"),
+                                MenuItem::new(stop_label).icon("link.svg"),
+                                MenuItem::new("Rename").icon("pencil.svg"),
+                                MenuItem::new("Reveal in Finder").icon("folder.svg"),
+                                MenuItem::new("Remove")
+                                    .icon("trash.svg")
+                                    .separator_before(true)
+                                    .destructive(true)
+                                    .disabled(true),
+                            ],
+                            Rc::new(|_, _, _| {}),
+                            cx,
+                        )
+                        .min_width(px(280.))
+                        .single_line_labels()
+                        .align_right()
+                    }))
+                });
+                let menu = host.read_with(&cx, |host, _| host.0.clone()).unwrap();
+                let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                visual.run_until_parked();
+                visual.simulate_keystrokes("down");
+                visual.run_until_parked();
+                let panel = visual.debug_bounds("POPOVER_MENU_PANEL").unwrap();
+                let trigger = visual.debug_bounds("POPOVER_TRIGGER").unwrap();
+                assert_eq!(panel.size.width, px(280. * zoom));
+                assert_eq!(panel.right(), trigger.right());
+                assert!(panel.size.height < px(200. * zoom));
+                let rows = [
+                    "POPOVER_ITEM_0",
+                    "POPOVER_ITEM_1",
+                    "POPOVER_ITEM_2",
+                    "POPOVER_ITEM_3",
+                    "POPOVER_ITEM_4",
+                ]
+                .map(|selector| visual.debug_bounds(selector).unwrap());
+                let labels = [
+                    "POPOVER_LABEL_0",
+                    "POPOVER_LABEL_1",
+                    "POPOVER_LABEL_2",
+                    "POPOVER_LABEL_3",
+                    "POPOVER_LABEL_4",
+                ]
+                .map(|selector| visual.debug_bounds(selector).unwrap());
+                let icons = [
+                    "POPOVER_ICON_0",
+                    "POPOVER_ICON_1",
+                    "POPOVER_ICON_2",
+                    "POPOVER_ICON_3",
+                    "POPOVER_ICON_4",
+                ]
+                .map(|selector| visual.debug_bounds(selector).unwrap());
+                for index in 0..rows.len() {
+                    assert_eq!(rows[index].size.height, px(30. * zoom));
+                    assert_eq!(labels[index].size.height, px(18. * zoom));
+                    assert_eq!(labels[index].left(), labels[0].left());
+                    assert_eq!(icons[index].left(), icons[0].left());
+                    assert!(
+                        (f32::from(labels[index].center().y - icons[index].center().y)).abs() < 1.
+                    );
+                }
+                for pair in rows[..4].windows(2) {
+                    assert_eq!(pair[1].top() - pair[0].bottom(), px(zoom));
+                }
+                assert!(
+                    menu.read_with(&visual, |menu, _| menu.menu_scroll.max_offset().y) < px(1.)
+                );
             }
         }
     }

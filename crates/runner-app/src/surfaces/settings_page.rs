@@ -1607,14 +1607,18 @@ impl NativeRoot {
         }
     }
 
-    pub(crate) fn settings_confirm_overlay(
-        &self,
-        cx: &App,
-    ) -> Option<Entity<settings::archived::ArchivedConfirmOverlay>> {
+    pub(crate) fn settings_confirm_overlay(&self, cx: &App) -> Option<AnyElement> {
+        if self.route == AppRoute::Settings && self.settings_page.pane == SettingsPane::Agents {
+            return self
+                .settings_page
+                .agents
+                .as_ref()
+                .map(|agents| agents.read(cx).accounts_overlay(cx));
+        }
         (self.route == AppRoute::Settings)
             .then_some(self.settings_page.archived.as_ref())
             .flatten()
-            .map(|archived| archived.read(cx).confirm_overlay())
+            .map(|archived| archived.read(cx).confirm_overlay().into_any_element())
     }
 
     fn render_shortcuts_settings(&self, cx: &mut Context<Self>) -> AnyElement {
