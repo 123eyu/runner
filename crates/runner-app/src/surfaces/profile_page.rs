@@ -342,7 +342,7 @@ pub(crate) fn clamped_markdown(
                 .text_color(theme::text())
                 .child(render_markdown(
                     id,
-                    shown,
+                    &crate::surfaces::mission_markdown::parse_blocks(shown),
                     view,
                     None,
                     theme::accent(),
@@ -445,7 +445,15 @@ pub(crate) fn markdown_editor_body(
                     .child(crate::i18n::text("ui.nothing_to_preview"))
                     .into_any_element()
             } else {
-                render_markdown(id, &draft, view, None, theme::accent(), None, cx)
+                render_markdown(
+                    id,
+                    &crate::surfaces::mission_markdown::parse_blocks(&draft),
+                    view,
+                    None,
+                    theme::accent(),
+                    None,
+                    cx,
+                )
             })
             .into_any_element()
     } else {

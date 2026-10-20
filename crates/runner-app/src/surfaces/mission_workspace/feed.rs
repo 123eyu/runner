@@ -3,11 +3,11 @@ use gpui::{
     div, px, rems, svg, AnyElement, ClipboardItem, CursorStyle, FontWeight, KeyDownEvent,
     MouseButton, SharedString, Window,
 };
-use runner_app::ui::{Button, ButtonVariant, RoleAvatar, Tooltip};
+use runner_app::ui::{app_scrollbar_gutter, Button, ButtonVariant, RoleAvatar, Tooltip};
 use runner_core::protocol::model::{Event, EventKind};
 
 use super::*;
-use crate::surfaces::mission_feed::{message_target, message_text, FeedBlock};
+use crate::surfaces::mission_feed::{message_target, FeedBlock};
 use crate::surfaces::mission_markdown::{
     FeedPosition, FeedSelection, FeedSelectionHandler, FeedSelectionPhase,
 };
@@ -204,24 +204,32 @@ impl MissionWorkspace {
     }
 
     pub(super) fn render_mission_feed(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        self.feed_vertical_padding = px(48. * self.settings(cx).app_zoom);
         self.feed_was_near_bottom = self.feed_is_near_bottom();
         if self.feed_was_near_bottom {
             self.feed_has_new_messages = false;
         }
-        let blocks = self.feed_blocks.clone();
-        let rows = if blocks.is_empty() {
-            vec![div()
-                .px_4()
-                .text_size(theme::text_ui())
-                .text_color(theme::faint())
-                .child(crate::i18n::text("ui.no_events_yet"))
-                .into_any_element()]
-        } else {
-            blocks
-                .into_iter()
-                .map(|block| self.render_mission_feed_block(block, cx))
-                .collect()
-        };
+        let count = self.feed_item_count();
+        let old_count = self.feed_list.item_count();
+        if count != old_count {
+            let start = count.min(old_count);
+            self.splice_feed_items(start..old_count, count - start);
+        }
+        let scroll_root = cx.weak_entity();
+        self.feed_list.set_scroll_handler(move |_, window, cx| {
+            let root = scroll_root.clone();
+            window.defer(cx, move |_, cx| {
+                let _ = root.update(cx, |this, cx| {
+                    this.feed_was_near_bottom = this.feed_is_near_bottom();
+                    if this.feed_was_near_bottom && this.feed_has_new_messages {
+                        this.feed_has_new_messages = false;
+                        cx.notify();
+                    }
+                });
+            });
+        });
+        let empty_root = cx.weak_entity();
+        let metrics_root = cx.weak_entity();
         let root = cx.entity();
         let pill_root = root.clone();
         let feed_up_root = root.clone();
@@ -240,23 +248,42 @@ impl MissionWorkspace {
                     .track_focus(&self.root_focus)
                     .min_h(px(0.))
                     .flex_1()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.feed_scroll)
+                    .overflow_hidden()
                     .px_6()
-                    .py_6()
                     .flex()
                     .flex_col()
-                    .gap(rems(18. / 16.))
-                    .children(rows)
-                    .children(
-                        (self.roster.is_empty()
-                            && !self.loading
-                            && mission_slot_actions_available(
-                                self.mission.as_ref().map(|mission| mission.status),
-                                self.archived(),
-                                self.secondary,
-                            ))
-                        .then(|| self.render_empty_mission(cx)),
+                    .child(
+                        gpui::list(self.feed_list.clone(), move |index, _, cx| {
+                            root.update(cx, |this, cx| {
+                                let entry = this.feed_rows.get(index).copied();
+                                let row = if let Some(entry) = entry {
+                                    this.render_mission_feed_row(entry, cx)
+                                } else if this.feed_rows.is_empty() && index == 0 {
+                                    div()
+                                        .px_4()
+                                        .text_size(theme::text_ui())
+                                        .text_color(theme::faint())
+                                        .child(crate::i18n::text("ui.no_events_yet"))
+                                        .into_any_element()
+                                } else {
+                                    this.render_empty_mission(cx)
+                                };
+                                div()
+                                    .w_full()
+                                    .flex()
+                                    .flex_col()
+                                    .when(index >= this.feed_rows.len().max(1), |row| {
+                                        row.min_h(this.feed_empty_panel_min_height.get())
+                                    })
+                                    .when(index > 0 && !matches!(entry, Some(FeedRow::Message { event, part, .. }) if event > 0 || part > 0), |row| row.pt(rems(18. / 16.)))
+                                    .child(row)
+                                    .into_any_element()
+                            })
+                        })
+                        .min_h(px(0.))
+                        .flex_1()
+                        .w_full()
+                        .py_6(),
                     )
                     .on_action(cx.listener(Self::copy_feed_selection))
                     .on_key_down(cx.listener(Self::on_feed_key_down))
@@ -271,6 +298,126 @@ impl MissionWorkspace {
                         });
                     }),
             )
+            .child(
+                gpui::canvas(
+                    |_, _, _| {},
+                    move |_, _, window, cx| {
+                        let root = metrics_root.clone();
+                        window.defer(cx, move |_, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                let width = this.feed_list.viewport_bounds().size.width;
+                                if this.feed_measured_width != Some(width) {
+                                    this.feed_measured_width = Some(width);
+                                    // GPUI discards height hints on width changes, including the first layout.
+                                    this.feed_list.clone().with_uniform_item_height(px(
+                                        FEED_ROW_HEIGHT_HINT * this.settings(cx).app_zoom,
+                                    ));
+                                    this.feed_needs_height_hints.set(false);
+                                    cx.notify();
+                                    return;
+                                }
+                                let metrics = this.measure_feed_scrollbar();
+                                let previous = this.feed_scrollbar_metrics.replace(metrics);
+                                if previous != metrics {
+                                    this.feed_scrollbar.update(cx, |_, cx| cx.notify());
+                                    if (previous.content - previous.viewport >= 1.)
+                                        != (metrics.content - metrics.viewport >= 1.)
+                                    {
+                                        cx.notify();
+                                    }
+                                }
+                            });
+                        });
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .children(
+                (self.feed_scrollbar_metrics.get().content
+                    - self.feed_scrollbar_metrics.get().viewport
+                    >= 1.)
+                    .then(|| {
+                        div()
+                            .id("mission-feed-scrollbar")
+                            .debug_selector(|| "MISSION_FEED_SCROLLBAR".into())
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .w(app_scrollbar_gutter())
+                            .capture_any_mouse_down(cx.listener(
+                                |this, event: &gpui::MouseDownEvent, _, cx| {
+                                    if event.button == MouseButton::Left {
+                                        this.feed_selecting = false;
+                                        this.prepare_feed_scrollbar(cx);
+                                        this.feed_list.scrollbar_drag_started();
+                                    }
+                                },
+                            ))
+                            .capture_any_mouse_up(cx.listener(
+                                |this, event: &gpui::MouseUpEvent, _, cx| {
+                                    if event.button == MouseButton::Left {
+                                        this.end_feed_scrollbar_drag(cx);
+                                    }
+                                },
+                            ))
+                            .on_mouse_up_out(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, cx| this.end_feed_scrollbar_drag(cx)),
+                            )
+                            .on_scroll_wheel(cx.listener(
+                                |this, event: &gpui::ScrollWheelEvent, _, cx| {
+                                    this.prepare_feed_scrollbar(cx);
+                                    let position =
+                                        -f32::from(
+                                            this.feed_list.scroll_px_offset_for_scrollbar().y,
+                                        ) - f32::from(event.delta.pixel_delta(px(20.)).y);
+                                    this.feed_list.set_offset_from_scrollbar(gpui::point(
+                                        px(0.),
+                                        px(-position.max(0.)),
+                                    ));
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                },
+                            ))
+                            .child(self.feed_scrollbar.clone())
+                    }),
+            )
+            .children((count > self.feed_rows.len().max(1)).then(|| {
+                gpui::canvas(
+                    |_, _, _| {},
+                    move |_, _, window, cx| {
+                        let root = empty_root.clone();
+                        let padding = window.rem_size() * 3.;
+                        window.defer(cx, move |_, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                if this.feed_item_count() <= this.feed_rows.len().max(1) {
+                                    return;
+                                }
+                                let panel = this.feed_item_count() - 1;
+                                if let Some(bounds) = this.feed_list.bounds_for_item(panel) {
+                                    let viewport = this.feed_list.viewport_bounds();
+                                    let prefix = bounds.top()
+                                        - viewport.top()
+                                        - this.feed_list.scroll_px_offset_for_scrollbar().y;
+                                    let height =
+                                        (viewport.size.height - padding - prefix).max(px(0.));
+                                    if (height - this.feed_empty_panel_min_height.get()).abs()
+                                        > px(0.5)
+                                    {
+                                        this.feed_empty_panel_min_height.set(height);
+                                        this.splice_feed_items(panel..panel + 1, 1);
+                                        cx.notify();
+                                    }
+                                }
+                            });
+                        });
+                    },
+                )
+                .absolute()
+                .inset_0()
+            }))
             .children(self.feed_has_new_messages.then(|| {
                 div()
                     .absolute()
@@ -282,6 +429,7 @@ impl MissionWorkspace {
                     .child(
                         div()
                             .id("mission-feed-new-messages")
+                            .debug_selector(|| "mission-feed-new-messages".into())
                             .px_3()
                             .py_1()
                             .rounded_full()
@@ -294,9 +442,7 @@ impl MissionWorkspace {
                             .hover(|pill| pill.opacity(0.9))
                             .on_click(move |_, _, cx| {
                                 pill_root.update(cx, |this, cx| {
-                                    this.feed_scroll.scroll_to_bottom();
-                                    this.feed_was_near_bottom = true;
-                                    this.feed_has_new_messages = false;
+                                    this.scroll_feed_to_bottom();
                                     cx.notify();
                                 });
                             })
@@ -304,6 +450,62 @@ impl MissionWorkspace {
                     )
             }));
         pane.into_any_element()
+    }
+
+    fn prepare_feed_scrollbar(&self, cx: &App) {
+        if self.feed_needs_height_hints.replace(false) {
+            // GPUI splices omit size hints; repair once per interaction, rather than per append.
+            self.feed_list
+                .clone()
+                .with_uniform_item_height(px(FEED_ROW_HEIGHT_HINT * self.settings(cx).app_zoom));
+            self.feed_scrollbar_metrics
+                .set(self.measure_feed_scrollbar());
+        }
+    }
+
+    pub(super) fn measure_feed_scrollbar(&self) -> ScrollbarMetrics {
+        let viewport = self.feed_list.viewport_bounds();
+        let position = -self.feed_list.scroll_px_offset_for_scrollbar().y;
+        let content = if !self.feed_list.is_scrollbar_dragging() {
+            self.feed_list
+                .bounds_for_item(self.feed_list.item_count().saturating_sub(1))
+                .map(|bounds| {
+                    bounds.bottom() - viewport.top() + position + self.feed_vertical_padding
+                })
+        } else {
+            None
+        }
+        .unwrap_or(
+            viewport.size.height
+                + self.feed_list.max_offset_for_scrollbar().y
+                + self.feed_vertical_padding,
+        );
+        ScrollbarMetrics {
+            viewport: f32::from(viewport.size.height),
+            content: f32::from(content),
+            position: f32::from(position)
+                .clamp(0., f32::from((content - viewport.size.height).max(px(0.)))),
+        }
+    }
+
+    fn end_feed_scrollbar_drag(&mut self, cx: &mut Context<Self>) {
+        if self.feed_list.is_scrollbar_dragging() {
+            self.feed_list.scrollbar_drag_ended();
+            cx.notify();
+        }
+    }
+
+    pub(super) fn feed_item_count(&self) -> usize {
+        self.feed_rows.len().max(1)
+            + usize::from(
+                self.roster.is_empty()
+                    && !self.loading
+                    && mission_slot_actions_available(
+                        self.mission.as_ref().map(|mission| mission.status),
+                        self.archived(),
+                        self.secondary,
+                    ),
+            )
     }
 
     fn render_empty_mission(&self, _cx: &mut Context<Self>) -> AnyElement {
@@ -420,6 +622,14 @@ impl MissionWorkspace {
         })
     }
 
+    pub(super) fn cached_feed_markdown(&self, event_id: &str, text: &str) -> Rc<FeedMarkdown> {
+        self.feed_markdown
+            .borrow_mut()
+            .entry(event_id.to_owned())
+            .or_insert_with(|| Rc::new(FeedMarkdown::new(text)))
+            .clone()
+    }
+
     fn render_feed_markdown(
         &self,
         event_id: &str,
@@ -431,9 +641,10 @@ impl MissionWorkspace {
             app_settings::terminal_palette(self.settings(cx), theme::active_variant()).selection,
             1.,
         );
+        let markdown = self.cached_feed_markdown(event_id, text);
         crate::surfaces::mission_markdown::render_markdown(
             event_id,
-            text,
+            &markdown.blocks,
             cx.entity_id(),
             self.feed_selection.as_ref(),
             selection_color,
@@ -468,6 +679,29 @@ impl MissionWorkspace {
         };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         cx.stop_propagation();
+    }
+
+    fn render_mission_feed_row(&self, row: FeedRow, cx: &mut Context<Self>) -> AnyElement {
+        #[cfg(test)]
+        self.feed_block_builds.set(self.feed_block_builds.get() + 1);
+        match row {
+            FeedRow::Block(group) => {
+                self.render_mission_feed_block(self.feed_blocks[group].clone(), cx)
+            }
+            FeedRow::Message { group, event, part } => {
+                let FeedBlock::MessageGroup { author, events } = &self.feed_blocks[group] else {
+                    unreachable!()
+                };
+                self.render_mission_message_row(
+                    author.clone(),
+                    &events[0],
+                    &events[event],
+                    part,
+                    event == 0 && part == 0,
+                    cx,
+                )
+            }
+        }
     }
 
     fn render_mission_feed_block(&self, block: FeedBlock, cx: &mut Context<Self>) -> AnyElement {
@@ -524,21 +758,23 @@ impl MissionWorkspace {
                         .bg(theme::border()),
                 )
                 .into_any_element(),
-            FeedBlock::MessageGroup { author, events } => self
-                .render_mission_message_group(author, events, cx)
-                .into_any_element(),
+            FeedBlock::MessageGroup { .. } => unreachable!(),
             FeedBlock::Signal(event) => self.render_mission_signal_row(event),
             FeedBlock::AskCard(event) => self.render_mission_ask_card(event, cx),
         }
     }
 
-    fn render_mission_message_group(
+    #[allow(clippy::too_many_arguments)]
+    fn render_mission_message_row(
         &self,
         author: String,
-        events: Vec<Event>,
+        first: &Event,
+        event: &Event,
+        part: usize,
+        header: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let first = &events[0];
+        let markdown = self.feed_markdown.borrow()[&event.id].clone();
         let human = author == "human";
         let system = author == "runner";
         let author = if system { "system".to_owned() } else { author };
@@ -553,20 +789,35 @@ impl MissionWorkspace {
             message_target(first, &self.askers_by_question)
         };
         div()
-            .id(SharedString::from(format!(
-                "mission-message-group-{}",
-                first.id
-            )))
+            .id(SharedString::from(if header {
+                format!("mission-message-group-{}", first.id)
+            } else {
+                format!("mission-message-part-{}-{part}", event.id)
+            }))
+            .when(header, |row| {
+                row.debug_selector({
+                    let id = first.id.clone();
+                    move || format!("MISSION_MESSAGE_GROUP {id}")
+                })
+            })
             .px_4()
             .flex()
             .items_start()
             .gap_3()
-            .child(RoleAvatar::new(author.clone(), 35.))
+            .child(if header {
+                RoleAvatar::new(author.clone(), 35.).into_any_element()
+            } else {
+                div().w(rems(35. / 16.)).flex_none().into_any_element()
+            })
             .child(
                 div()
                     .min_w(px(0.))
                     .flex_1()
-                    .child(
+                    .when(cfg!(test), |body| {
+                        let id = event.id.clone();
+                        body.debug_selector(move || format!("MISSION_MESSAGE_BODY {id} {part}"))
+                    })
+                    .children(header.then(|| {
                         div()
                             .min_w(px(0.))
                             .flex()
@@ -609,11 +860,12 @@ impl MissionWorkspace {
                                     .text_color(theme::muted())
                                     .child(format!("→ @{target}"))
                             }))
-                            .child(div().flex_none().child(format_event_time(first))),
-                    )
+                            .child(div().flex_none().child(format_event_time(first)))
+                    }))
                     .child(
                         div()
-                            .mt_1()
+                            .when(header, |body| body.mt_1())
+                            .when(!header && part == 0, |body| body.pt_1())
                             .flex()
                             .flex_col()
                             .gap_1()
@@ -623,9 +875,8 @@ impl MissionWorkspace {
                             } else {
                                 theme::text()
                             })
-                            .children(events.into_iter().filter_map(|event| {
-                                let text = message_text(&event);
-                                if text.is_empty() {
+                            .children({
+                                if markdown.blocks.is_empty() {
                                     goal.then(|| {
                                         div()
                                             .text_color(theme::faint())
@@ -633,9 +884,25 @@ impl MissionWorkspace {
                                             .into_any_element()
                                     })
                                 } else {
-                                    Some(self.render_feed_markdown(&event.id, &text, cx))
+                                    let selection_color = crate::terminal::element::to_hsla(
+                                        app_settings::terminal_palette(
+                                            self.settings(cx),
+                                            theme::active_variant(),
+                                        )
+                                        .selection,
+                                        1.,
+                                    );
+                                    Some(markdown.render_row(
+                                        part,
+                                        &event.id,
+                                        cx.entity_id(),
+                                        self.feed_selection.as_ref(),
+                                        selection_color,
+                                        &self.feed_selection_handler(cx),
+                                        cx,
+                                    ))
                                 }
-                            })),
+                            }),
                     ),
             )
             .into_any_element()
@@ -984,6 +1251,7 @@ impl MissionWorkspace {
         }
         self.pending_ask_choices
             .insert(question_id.clone(), choice.clone());
+        self.invalidate_feed_ask(&question_id);
         cx.notify();
         let core = self.core(cx).clone();
         let post_question = question_id.clone();
@@ -1003,6 +1271,7 @@ impl MissionWorkspace {
             let result = task.await;
             let _ = weak.update(cx, |this, cx| {
                 this.submitting_asks.remove(&question_id);
+                this.invalidate_feed_ask(&question_id);
                 if let Err(error) = result {
                     this.pending_ask_choices.remove(&question_id);
                     this.error = Some(action_failure(crate::i18n::message("action.answer"), error));

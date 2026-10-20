@@ -142,36 +142,46 @@ pub(crate) fn group_feed_blocks(events: &[Event]) -> Vec<FeedBlock> {
         .filter_map(|event| event.payload["source_event"].as_str())
         .collect();
     for event in events {
-        if is_hidden_system_signal(event)
-            || (event.kind == EventKind::Message && event.payload.get("question_id").is_some())
-            || (event.kind == EventKind::Signal
-                && event.signal_type.as_ref().map(SignalType::as_str) == Some("human_said")
-                && relayed.contains(event.id.as_str()))
+        if event.kind == EventKind::Signal
+            && event.signal_type.as_ref().map(SignalType::as_str) == Some("human_said")
+            && relayed.contains(event.id.as_str())
         {
             continue;
         }
-        if is_message_like(event) {
-            if let Some(FeedBlock::MessageGroup { author, events }) = blocks.last_mut() {
-                if can_join_group(author, events, event) {
-                    events.push(event.clone());
-                    continue;
-                }
-            }
-            blocks.push(FeedBlock::MessageGroup {
-                author: event.from.clone(),
-                events: vec![event.clone()],
-            });
-            continue;
-        }
-        match event.signal_type.as_ref().map(SignalType::as_str) {
-            Some("mission_start" | "mission_stopped" | "role_joined" | "role_removed") => {
-                blocks.push(FeedBlock::Divider(event.clone()))
-            }
-            Some("human_question") => blocks.push(FeedBlock::AskCard(event.clone())),
-            _ => blocks.push(FeedBlock::Signal(event.clone())),
-        }
+        append_feed_block(&mut blocks, event);
     }
     blocks
+}
+
+/// Returns the first changed block for a tail append without a relay to earlier content.
+pub(crate) fn append_feed_block(blocks: &mut Vec<FeedBlock>, event: &Event) -> Option<usize> {
+    if is_hidden_system_signal(event)
+        || (event.kind == EventKind::Message && event.payload.get("question_id").is_some())
+    {
+        return None;
+    }
+    let tail = blocks.len().saturating_sub(1);
+    if is_message_like(event) {
+        if let Some(FeedBlock::MessageGroup { author, events }) = blocks.last_mut() {
+            if can_join_group(author, events, event) {
+                events.push(event.clone());
+                return Some(tail);
+            }
+        }
+        blocks.push(FeedBlock::MessageGroup {
+            author: event.from.clone(),
+            events: vec![event.clone()],
+        });
+        return Some(blocks.len() - 1);
+    }
+    match event.signal_type.as_ref().map(SignalType::as_str) {
+        Some("mission_start" | "mission_stopped" | "role_joined" | "role_removed") => {
+            blocks.push(FeedBlock::Divider(event.clone()))
+        }
+        Some("human_question") => blocks.push(FeedBlock::AskCard(event.clone())),
+        _ => blocks.push(FeedBlock::Signal(event.clone())),
+    }
+    Some(blocks.len() - 1)
 }
 
 pub(crate) fn is_human_authored(event: &Event) -> bool {

@@ -12,7 +12,9 @@ use super::*;
 use crate::surfaces::mission_composer::{
     key_down as composer_key_down, update_draft as update_composer_draft, ComposerState,
 };
-use crate::surfaces::mission_feed::{group_feed_blocks, is_human_authored, project_asks};
+use crate::surfaces::mission_feed::{
+    append_feed_block, group_feed_blocks, is_human_authored, project_asks,
+};
 use crate::*;
 
 impl MissionWorkspace {
@@ -57,6 +59,22 @@ impl MissionWorkspace {
                 copy_cx.focus_handle(),
                 None,
                 crate::i18n::message("ui.copy_mission_id"),
+            )
+        });
+        let feed_scrollbar_metrics = Rc::new(Cell::new(ScrollbarMetrics::default()));
+        let read_metrics = feed_scrollbar_metrics.clone();
+        let scroll_root = workspace.downgrade();
+        let feed_scrollbar = cx.new(|_| {
+            Scrollbar::external(
+                runner_app::ui::ScrollbarKind::App,
+                Rc::new(move || read_metrics.get()),
+                Rc::new(move |position, cx| {
+                    let _ = scroll_root.update(cx, |this, cx| {
+                        this.feed_list
+                            .set_offset_from_scrollbar(gpui::point(px(0.), px(-position)));
+                        cx.notify();
+                    });
+                }),
             )
         });
         let composer_root = workspace;
@@ -184,17 +202,29 @@ impl MissionWorkspace {
             mission: None,
             sessions: Vec::new(),
             events: Vec::new(),
+            event_ids: HashSet::new(),
             session_statuses: BTreeMap::new(),
             session_observations: BTreeMap::new(),
             goal: None,
             feed_blocks: Vec::new(),
+            feed_rows: Vec::new(),
+            feed_block_starts: Vec::new(),
+            feed_markdown: RefCell::new(HashMap::new()),
+            #[cfg(test)]
+            feed_block_builds: std::cell::Cell::new(0),
             feed_selection: None,
             feed_selecting: false,
             askers_by_question: HashMap::new(),
             resolved_asks: HashMap::new(),
             pending_ask_choices: HashMap::new(),
             submitting_asks: HashSet::new(),
-            feed_scroll: ScrollHandle::new(),
+            feed_list: Self::new_feed_list(),
+            feed_scrollbar,
+            feed_scrollbar_metrics,
+            feed_measured_width: None,
+            feed_needs_height_hints: Cell::new(false),
+            feed_vertical_padding: px(48.),
+            feed_empty_panel_min_height: std::cell::Cell::new(px(0.)),
             feed_was_near_bottom: true,
             feed_has_new_messages: false,
             roster: Vec::new(),
@@ -257,16 +287,24 @@ impl MissionWorkspace {
         self.mission = None;
         self.sessions.clear();
         self.events.clear();
+        self.event_ids.clear();
         self.session_statuses.clear();
         self.goal = None;
         self.feed_blocks.clear();
+        self.feed_rows.clear();
+        self.feed_block_starts.clear();
+        self.feed_markdown.borrow_mut().clear();
         self.feed_selection = None;
         self.feed_selecting = false;
         self.askers_by_question.clear();
         self.resolved_asks.clear();
         self.pending_ask_choices.clear();
         self.submitting_asks.clear();
-        self.feed_scroll = ScrollHandle::new();
+        self.feed_list = Self::new_feed_list();
+        self.feed_scrollbar_metrics.set(ScrollbarMetrics::default());
+        self.feed_measured_width = None;
+        self.feed_needs_height_hints.set(false);
+        self.feed_empty_panel_min_height.set(px(0.));
         self.feed_was_near_bottom = true;
         self.feed_has_new_messages = false;
         self.roster.clear();
@@ -302,6 +340,7 @@ impl MissionWorkspace {
 
     pub(crate) fn release_window(&mut self, cx: &mut Context<Self>) {
         self.active = false;
+        self.feed_list.scrollbar_drag_ended();
         self.attached.clear();
         self.feed_selection = None;
         self.feed_selecting = false;
@@ -354,20 +393,126 @@ impl MissionWorkspace {
         self.transitions.get(session_id).map(|item| item.kind)
     }
 
+    pub(super) fn append_event(&mut self, event: Event) -> bool {
+        if !self.event_ids.insert(event.id.clone()) {
+            return false;
+        }
+        self.handle_feed_append(&event);
+        let at_tail = self.events.last().is_none_or(|tail| tail.id < event.id);
+        if !at_tail
+            || (event.kind == EventKind::Message && event.payload["source_event"].is_string())
+        {
+            let index = self
+                .events
+                .partition_point(|existing| existing.id < event.id);
+            self.events.insert(index, event);
+            self.rebuild_event_projection();
+        } else {
+            let old_len = self.feed_list.item_count();
+            let old_rows = self.feed_rows.len();
+            let old_blocks = self.feed_blocks.len();
+            if let Some(index) = append_feed_block(&mut self.feed_blocks, &event) {
+                self.feed_empty_panel_min_height.set(px(0.));
+                let first_event = if index < old_blocks {
+                    match &self.feed_blocks[index] {
+                        FeedBlock::MessageGroup { events, .. } => events.len() - 1,
+                        _ => unreachable!(),
+                    }
+                } else {
+                    self.feed_block_starts.push(old_rows);
+                    0
+                };
+                self.append_feed_rows(index, first_event);
+                self.splice_feed_items(old_rows..old_len, self.feed_item_count() - old_rows);
+            }
+            self.events.push(event);
+            self.rebuild_auxiliary_projections();
+        }
+        true
+    }
+
     pub(super) fn rebuild_event_projection(&mut self) {
+        let following = self.feed_list.is_following_tail();
+        let top = self.feed_list.logical_scroll_top();
+        let anchor = self
+            .feed_row_key(top.item_ix)
+            .map(|(id, part)| (id.to_owned(), part));
+        self.event_ids = self.events.iter().map(|event| event.id.clone()).collect();
+        self.feed_blocks = group_feed_blocks(&self.events);
+        self.feed_rows.clear();
+        self.feed_block_starts.clear();
+        for group in 0..self.feed_blocks.len() {
+            self.feed_block_starts.push(self.feed_rows.len());
+            self.append_feed_rows(group, 0);
+        }
+        self.feed_empty_panel_min_height.set(px(0.));
+        self.feed_list
+            .reset_with_uniform_height(self.feed_item_count(), px(FEED_ROW_HEIGHT_HINT));
+        self.feed_needs_height_hints.set(false);
+        if following {
+            self.scroll_feed_to_bottom();
+        } else {
+            let item_ix = anchor
+                .and_then(|(id, part)| {
+                    (0..self.feed_rows.len())
+                        .find(|index| self.feed_row_key(*index) == Some((id.as_str(), part)))
+                })
+                .unwrap_or(top.item_ix.min(self.feed_item_count().saturating_sub(1)));
+            self.feed_list
+                .scroll_to(gpui::ListOffset { item_ix, ..top });
+        }
+        self.feed_markdown
+            .borrow_mut()
+            .retain(|id, _| self.event_ids.contains(id));
+        self.rebuild_auxiliary_projections();
+    }
+
+    fn append_feed_rows(&mut self, group: usize, first_event: usize) {
+        match &self.feed_blocks[group] {
+            FeedBlock::MessageGroup { events, .. } => {
+                for (event, item) in events.iter().enumerate().skip(first_event) {
+                    let markdown = self.cached_feed_markdown(&item.id, &message_text(item));
+                    self.feed_rows
+                        .extend((0..markdown.row_count()).map(|part| FeedRow::Message {
+                            group,
+                            event,
+                            part,
+                        }));
+                }
+            }
+            _ => self.feed_rows.push(FeedRow::Block(group)),
+        }
+    }
+
+    fn feed_row_key(&self, index: usize) -> Option<(&str, usize)> {
+        match *self.feed_rows.get(index)? {
+            FeedRow::Block(group) => Some((self.feed_blocks[group].id(), 0)),
+            FeedRow::Message { group, event, part } => match &self.feed_blocks[group] {
+                FeedBlock::MessageGroup { events, .. } => Some((&events[event].id, part)),
+                _ => unreachable!(),
+            },
+        }
+    }
+
+    fn rebuild_auxiliary_projections(&mut self) {
         let (statuses, observations) = project_session_statuses(&self.events);
         self.session_statuses = statuses;
         self.session_observations = observations;
-        self.feed_blocks = group_feed_blocks(&self.events);
-        if self.feed_selection.as_ref().is_some_and(|selection| {
-            !self
-                .events
-                .iter()
-                .any(|event| event.id == selection.event_id)
-        }) {
+        if self
+            .feed_selection
+            .as_ref()
+            .is_some_and(|selection| !self.event_ids.contains(&selection.event_id))
+        {
             self.clear_feed_selection();
         }
         let asks = project_asks(&self.events);
+        for question_id in asks
+            .resolved_asks
+            .keys()
+            .filter(|id| self.resolved_asks.get(*id) != asks.resolved_asks.get(*id))
+        {
+            self.invalidate_feed_ask(question_id);
+        }
         self.askers_by_question = asks.askers_by_question;
         self.resolved_asks = asks.resolved_asks;
         self.pending_ask_choices
@@ -458,20 +603,69 @@ impl MissionWorkspace {
         mission_permission_mode_label(&self.events)
     }
 
+    fn new_feed_list() -> gpui::ListState {
+        let state = gpui::ListState::new(1, gpui::ListAlignment::Top, px(200.))
+            .with_uniform_item_height(px(FEED_ROW_HEIGHT_HINT));
+        state.set_follow_mode(gpui::FollowMode::Tail);
+        state
+    }
+
     pub(super) fn feed_is_near_bottom(&self) -> bool {
-        let maximum = f32::from(self.feed_scroll.max_offset().y).max(0.);
-        let position = (-f32::from(self.feed_scroll.offset().y)).clamp(0., maximum);
-        maximum - position < 80.
+        self.feed_list.is_following_tail()
+            || self
+                .feed_list
+                .bounds_for_item(self.feed_list.item_count().saturating_sub(1))
+                .is_some_and(|bounds| {
+                    bounds.bottom() + self.feed_vertical_padding
+                        - self.feed_list.viewport_bounds().bottom()
+                        < px(80.)
+                })
+    }
+
+    pub(super) fn scroll_feed_to_bottom(&mut self) {
+        self.feed_list.set_follow_mode(gpui::FollowMode::Tail);
+        self.feed_was_near_bottom = true;
+        self.feed_has_new_messages = false;
     }
 
     pub(super) fn handle_feed_append(&mut self, event: &Event) {
         self.feed_was_near_bottom = self.feed_is_near_bottom();
         if is_human_authored(event) || self.feed_was_near_bottom {
-            self.feed_scroll.scroll_to_bottom();
-            self.feed_was_near_bottom = true;
-            self.feed_has_new_messages = false;
+            self.scroll_feed_to_bottom();
         } else {
             self.feed_has_new_messages = true;
+        }
+    }
+
+    pub(super) fn splice_feed_items(&self, range: std::ops::Range<usize>, count: usize) {
+        if range.len() == count {
+            self.feed_list.remeasure_items(range);
+            return;
+        }
+        let following = self.feed_list.is_following_tail();
+        let top = self.feed_list.logical_scroll_top();
+        let replaces_top = range.contains(&top.item_ix);
+        self.feed_list.splice(range, count);
+        self.feed_needs_height_hints.set(true);
+        // Splice clears an offset inside the replaced row; appending to that row must keep the text still.
+        if !following && replaces_top {
+            self.feed_list.scroll_to(top);
+        }
+    }
+
+    pub(super) fn invalidate_feed_ask(&self, question_id: &str) {
+        if let Some(index) = self
+            .feed_blocks
+            .iter()
+            .position(|block| matches!(block, FeedBlock::AskCard(event) if event.id == question_id))
+        {
+            let row = self.feed_block_starts[index];
+            self.splice_feed_items(row..row + 1, 1);
+            if self.feed_item_count() > self.feed_rows.len().max(1) {
+                self.feed_empty_panel_min_height.set(px(0.));
+                let panel = self.feed_item_count() - 1;
+                self.splice_feed_items(panel..panel + 1, 1);
+            }
         }
     }
 
@@ -594,6 +788,14 @@ impl MissionWorkspace {
         let previous = self.store_revisions;
         let reactions = revisions.reactions_since(previous);
         self.store_revisions = revisions;
+        if revisions.settings != previous.settings || revisions.locale != previous.locale {
+            let count = self.feed_list.item_count();
+            self.feed_empty_panel_min_height.set(px(0.));
+            self.splice_feed_items(0..count, count);
+            self.feed_list
+                .clone()
+                .with_uniform_item_height(px(FEED_ROW_HEIGHT_HINT * self.settings(cx).app_zoom));
+        }
         if reactions.apply_terminal_settings {
             self.apply_terminal_settings(cx);
         }

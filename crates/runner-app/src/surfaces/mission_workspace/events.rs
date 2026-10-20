@@ -58,22 +58,14 @@ impl MissionWorkspace {
                 let Ok(appended) = serde_json::from_value::<Event>(value.clone()) else {
                     return;
                 };
-                if !self
-                    .events
-                    .iter()
-                    .any(|existing| existing.id == appended.id)
-                {
-                    if appended.from == "human"
-                        && appended.signal_type.as_ref().is_some_and(|kind| {
-                            matches!(kind.as_str(), "role_joined" | "role_removed")
-                        })
-                    {
+                let refresh_roster = appended.from == "human"
+                    && appended.signal_type.as_ref().is_some_and(|kind| {
+                        matches!(kind.as_str(), "role_joined" | "role_removed")
+                    });
+                if self.append_event(appended) {
+                    if refresh_roster {
                         self.refresh_open_mission(window, cx);
                     }
-                    self.handle_feed_append(&appended);
-                    self.events.push(appended);
-                    self.events.sort_by(|a, b| a.id.cmp(&b.id));
-                    self.rebuild_event_projection();
                     cx.notify();
                 }
             }

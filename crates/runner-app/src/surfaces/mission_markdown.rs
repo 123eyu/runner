@@ -5,14 +5,14 @@ use std::rc::Rc;
 use gpui::prelude::*;
 use gpui::{
     div, px, rems, AnyElement, App, CursorStyle, EntityId, FontWeight, Global, HighlightStyle,
-    Hsla, InteractiveText, MouseButton, SharedString, StrikethroughStyle, StyledText, TextLayout,
-    UnderlineStyle, Window,
+    Hsla, InteractiveText, MouseButton, ScrollHandle, SharedString, StrikethroughStyle, StyledText,
+    TextLayout, UnderlineStyle, Window,
 };
 
 use crate::theme;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum MarkdownBlock {
+pub(crate) enum MarkdownBlock {
     Paragraph(String),
     Heading(u8, String),
     ListItem {
@@ -26,6 +26,228 @@ enum MarkdownBlock {
         rows: Vec<Vec<String>>,
     },
     Rule,
+}
+
+pub(crate) struct FeedMarkdown {
+    pub(crate) blocks: Vec<MarkdownBlock>,
+    layout: Vec<(usize, f32)>,
+    pieces: Vec<FeedMarkdownPiece>,
+    tables: HashMap<usize, FeedTable>,
+}
+
+enum FeedMarkdownPiece {
+    Block(usize),
+    ParagraphLine {
+        block: usize,
+        line: usize,
+        bytes: Range<usize>,
+    },
+    TableRow {
+        block: usize,
+        row: usize,
+        selection_block: usize,
+    },
+}
+
+struct FeedTable {
+    scroll: ScrollHandle,
+    width: f32,
+}
+
+fn markdown_layout(blocks: &[MarkdownBlock]) -> impl Iterator<Item = (usize, f32)> + '_ {
+    let mut previous = None::<(MarkdownBlockKind, f32)>;
+    let mut selection_block = 0;
+    blocks.iter().map(move |block| {
+        let margins = block_margins(block);
+        let kind = block_kind(block);
+        let top = match previous {
+            Some((MarkdownBlockKind::ListItem, _)) if kind == MarkdownBlockKind::ListItem => 4.,
+            Some((MarkdownBlockKind::Paragraph, bottom))
+                if kind == MarkdownBlockKind::Paragraph =>
+            {
+                bottom + margins.0
+            }
+            Some((_, bottom)) => bottom.max(margins.0),
+            None => margins.0,
+        };
+        previous = Some((kind, margins.1));
+        let start = selection_block;
+        selection_block += selection_block_count(block);
+        (start, top)
+    })
+}
+
+impl FeedMarkdown {
+    const PIECES_PER_ROW: usize = 4;
+
+    pub(crate) fn new(text: &str) -> Self {
+        let blocks = parse_blocks(text);
+        let layout: Vec<_> = markdown_layout(&blocks).collect();
+        let mut pieces = Vec::new();
+        let mut tables = HashMap::new();
+        for (block, content) in blocks.iter().enumerate() {
+            match content {
+                MarkdownBlock::Paragraph(text) => {
+                    let mut offset = 0;
+                    for (line, text) in text.split_inclusive('\n').enumerate() {
+                        let start = offset;
+                        offset += text.len();
+                        pieces.push(FeedMarkdownPiece::ParagraphLine {
+                            block,
+                            line,
+                            bytes: start..start + text.trim_end_matches('\n').len(),
+                        });
+                    }
+                }
+                MarkdownBlock::Table { header, rows } => {
+                    let columns = rows
+                        .iter()
+                        .map(Vec::len)
+                        .chain([header.len()])
+                        .max()
+                        .unwrap_or(0);
+                    tables.insert(
+                        block,
+                        FeedTable {
+                            scroll: ScrollHandle::new(),
+                            width: (columns as f32 * 100.).max(420.),
+                        },
+                    );
+                    let mut selection_block = layout[block].0;
+                    for (row, cells) in std::iter::once(header).chain(rows.iter()).enumerate() {
+                        pieces.push(FeedMarkdownPiece::TableRow {
+                            block,
+                            row,
+                            selection_block,
+                        });
+                        selection_block += cells.len();
+                    }
+                }
+                _ => pieces.push(FeedMarkdownPiece::Block(block)),
+            }
+        }
+        Self {
+            blocks,
+            layout,
+            pieces,
+            tables,
+        }
+    }
+
+    pub(crate) fn row_count(&self) -> usize {
+        self.pieces.len().div_ceil(Self::PIECES_PER_ROW).max(1)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_row(
+        &self,
+        row: usize,
+        event_id: &str,
+        view: EntityId,
+        selection: Option<&FeedSelection>,
+        selection_color: Hsla,
+        selection_handler: &FeedSelectionHandler,
+        cx: &App,
+    ) -> AnyElement {
+        let start = row * Self::PIECES_PER_ROW;
+        let end = (start + Self::PIECES_PER_ROW).min(self.pieces.len());
+        div()
+            .min_w(px(0.))
+            .flex()
+            .flex_col()
+            .when(end == self.pieces.len(), |body| {
+                body.pb(px(self
+                    .blocks
+                    .last()
+                    .map(block_margins)
+                    .map_or(0., |m| m.1)))
+            })
+            .children(self.pieces[start..end].iter().map(|piece| {
+                let index = match piece {
+                    FeedMarkdownPiece::Block(block)
+                    | FeedMarkdownPiece::ParagraphLine { block, .. }
+                    | FeedMarkdownPiece::TableRow { block, .. } => *block,
+                };
+                let (selection_block, top_margin) = self.layout[index];
+                match piece {
+                    FeedMarkdownPiece::Block(_) => render_block(
+                        event_id,
+                        index,
+                        self.blocks[index].clone(),
+                        selection_block,
+                        top_margin,
+                        view,
+                        selection,
+                        selection_color,
+                        Some(selection_handler),
+                        cx,
+                    ),
+                    FeedMarkdownPiece::ParagraphLine { line, bytes, .. } => {
+                        #[cfg(test)]
+                        RENDER_COUNT.set(RENDER_COUNT.get() + 1);
+                        let MarkdownBlock::Paragraph(text) = &self.blocks[index] else {
+                            unreachable!()
+                        };
+                        div()
+                            .mt(px(if *line == 0 { top_margin } else { 0. }))
+                            .line_height(rems(20. / 16.))
+                            .child(render_inline_line(
+                                format!("{event_id}-{index}-paragraph-{line}"),
+                                event_id,
+                                selection_block + line,
+                                &text[bytes.clone()],
+                                None,
+                                view,
+                                selection,
+                                selection_color,
+                                Some(selection_handler),
+                                cx,
+                            ))
+                            .into_any_element()
+                    }
+                    FeedMarkdownPiece::TableRow {
+                        row,
+                        selection_block,
+                        ..
+                    } => {
+                        #[cfg(test)]
+                        RENDER_COUNT.set(RENDER_COUNT.get() + 1);
+                        let MarkdownBlock::Table { header, rows } = &self.blocks[index] else {
+                            unreachable!()
+                        };
+                        let table = &self.tables[&index];
+                        div()
+                            .id(SharedString::from(format!(
+                                "{event_id}-{index}-table-row-{row}"
+                            )))
+                            .mt(px(if *row == 0 { top_margin } else { 0. }))
+                            .overflow_x_scroll()
+                            .track_scroll(&table.scroll)
+                            .child(div().min_w(px(table.width)).flex().flex_col().child(
+                                render_table_row(
+                                    event_id,
+                                    index,
+                                    *row,
+                                    *selection_block,
+                                    if *row == 0 {
+                                        header.clone()
+                                    } else {
+                                        rows[row - 1].clone()
+                                    },
+                                    *row == 0,
+                                    view,
+                                    selection,
+                                    selection_color,
+                                    Some(selection_handler),
+                                    cx,
+                                ),
+                            ))
+                            .into_any_element()
+                    }
+                }
+            }))
+            .into_any_element()
+    }
 }
 
 pub(crate) type FeedPosition = (usize, usize);
@@ -106,7 +328,16 @@ impl MarkdownLinkHover {
     }
 }
 
-fn parse_blocks(text: &str) -> Vec<MarkdownBlock> {
+#[cfg(test)]
+thread_local! {
+    pub(crate) static PARSE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static RENDER_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static LINE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub(crate) fn parse_blocks(text: &str) -> Vec<MarkdownBlock> {
+    #[cfg(test)]
+    PARSE_COUNT.set(PARSE_COUNT.get() + 1);
     let mut blocks = Vec::new();
     let mut paragraph = Vec::new();
     let mut code = None::<Vec<&str>>;
@@ -320,40 +551,24 @@ pub(crate) fn selected_plain_text(source: &str, selection: &FeedSelection) -> Op
 
 pub(crate) fn render_markdown(
     id: &str,
-    text: &str,
+    blocks: &[MarkdownBlock],
     view: EntityId,
     selection: Option<&FeedSelection>,
     selection_color: Hsla,
     selection_handler: Option<&FeedSelectionHandler>,
     cx: &App,
 ) -> AnyElement {
-    let blocks = parse_blocks(text);
     let bottom_padding = blocks
         .last()
         .map(block_margins)
         .map_or(0., |margins| margins.1);
     let id = id.to_owned();
-    let mut previous = None::<(MarkdownBlockKind, f32)>;
-    let mut selection_block = 0;
     let rendered = blocks
-        .into_iter()
+        .iter()
+        .cloned()
         .enumerate()
-        .map(|(index, block)| {
-            let margins = block_margins(&block);
-            let kind = block_kind(&block);
-            let top_margin = match previous {
-                Some((MarkdownBlockKind::ListItem, _)) if kind == MarkdownBlockKind::ListItem => 4.,
-                Some((MarkdownBlockKind::Paragraph, bottom))
-                    if kind == MarkdownBlockKind::Paragraph =>
-                {
-                    bottom + margins.0
-                }
-                Some((_, bottom)) => bottom.max(margins.0),
-                None => margins.0,
-            };
-            previous = Some((kind, margins.1));
-            let block_start = selection_block;
-            selection_block += selection_block_count(&block);
+        .zip(markdown_layout(blocks))
+        .map(|((index, block), (block_start, top_margin))| {
             render_block(
                 &id,
                 index,
@@ -430,6 +645,8 @@ fn render_block(
     selection_handler: Option<&FeedSelectionHandler>,
     cx: &App,
 ) -> AnyElement {
+    #[cfg(test)]
+    RENDER_COUNT.set(RENDER_COUNT.get() + 1);
     let content = match block {
         MarkdownBlock::Paragraph(text) => div()
             .flex()
@@ -608,6 +825,10 @@ fn render_table_row(
 ) -> AnyElement {
     div()
         .flex()
+        .when(cfg!(test), |row| {
+            let id = id.to_owned();
+            row.debug_selector(move || format!("MISSION_TABLE_ROW {id} {block_index} {row_index}"))
+        })
         .children(cells.into_iter().enumerate().map(|(cell_index, cell)| {
             div()
                 .min_w(px(100.))
@@ -792,6 +1013,8 @@ fn render_prepared_line(
     selection_handler: Option<&FeedSelectionHandler>,
     wrap: bool,
 ) -> AnyElement {
+    #[cfg(test)]
+    LINE_COUNT.set(LINE_COUNT.get() + 1);
     let highlights = match selection.and_then(|selection| {
         selection_range_for_block(selection, event_id, selection_block, &text)
     }) {
@@ -1103,7 +1326,7 @@ mod tests {
                 .debug_selector(|| "MISSION_MARKDOWN_CONTAINER".into())
                 .child(render_markdown(
                     "wrap-test",
-                    "A narrow feed line with **styled text**, `inline code`, and [a link whose label also needs to wrap](https://example.com) before the final words.",
+                    &parse_blocks("A narrow feed line with **styled text**, `inline code`, and [a link whose label also needs to wrap](https://example.com) before the final words."),
                     cx.entity_id(),
                     None,
                     theme::raised(),
@@ -1121,7 +1344,7 @@ mod tests {
                     .debug_selector(|| "MISSION_MARKDOWN_SPACING".into())
                     .child(render_markdown(
                         "spacing-test",
-                        "First paragraph\n\nSecond paragraph\n\n# Heading",
+                        &parse_blocks("First paragraph\n\nSecond paragraph\n\n# Heading"),
                         cx.entity_id(),
                         None,
                         theme::raised(),
@@ -1136,7 +1359,7 @@ mod tests {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             div().w(px(280.)).child(render_markdown(
                 "drag-test",
-                "Select this sentence",
+                &parse_blocks("Select this sentence"),
                 cx.entity_id(),
                 None,
                 theme::raised(),

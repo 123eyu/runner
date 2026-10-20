@@ -12,24 +12,37 @@ use crate::*;
 
 struct MissionComposerInputTest {
     workspace: Entity<MissionWorkspace>,
+    show_feed: bool,
+    width: f32,
 }
 
 impl gpui::Render for MissionComposerInputTest {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        window.set_rem_size(px(16. * self.workspace.read(cx).settings(cx).app_zoom));
+        let feed = self.show_feed.then(|| {
+            self.workspace
+                .update(cx, |workspace, cx| workspace.render_mission_feed(cx))
+        });
         div()
-            .w(px(600.))
+            .w(px(self.width))
+            .h(px(700.))
+            .flex()
+            .flex_col()
+            .children(feed)
             .child(self.workspace.update(cx, |workspace, cx| {
                 workspace.render_mission_composer(window, cx)
             }))
     }
 }
 
-#[test]
-fn composer_tracks_keyboard_and_mouse_caret_moves_and_completes_without_resetting_input() {
-    use gpui::{EntityInputHandler, MouseButton, TestAppContext, VisualTestContext, WeakEntity};
+fn mission_workspace_test() -> (
+    tempfile::TempDir,
+    gpui::TestAppContext,
+    gpui::WindowHandle<MissionComposerInputTest>,
+    Entity<MissionWorkspace>,
+) {
     use runner_daemon::{db, session, shell_path};
     use std::sync::RwLock;
-
     let temp = tempfile::tempdir().unwrap();
     let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
     let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
@@ -44,7 +57,7 @@ fn composer_tracks_keyboard_and_mouse_caret_moves_and_completes_without_resettin
         env,
         discovery,
     );
-    let mut cx = TestAppContext::single();
+    let mut cx = gpui::TestAppContext::single();
     let store = cx.new(|cx| {
         AppStore::new(
             core,
@@ -61,7 +74,7 @@ fn composer_tracks_keyboard_and_mouse_caret_moves_and_completes_without_resettin
         let workspace = cx.new(|cx| {
             let mut workspace = MissionWorkspace::new(
                 "composer-test".into(),
-                WeakEntity::new_invalid(),
+                gpui::WeakEntity::new_invalid(),
                 store,
                 window,
                 cx,
@@ -104,11 +117,22 @@ fn composer_tracks_keyboard_and_mouse_caret_moves_and_completes_without_resettin
                 .focus(window, cx);
             workspace
         });
-        MissionComposerInputTest { workspace }
+        MissionComposerInputTest {
+            workspace,
+            show_feed: false,
+            width: 600.,
+        }
     });
     let workspace = host
         .read_with(&cx, |host, _| host.workspace.clone())
         .unwrap();
+    (temp, cx, host, workspace)
+}
+
+#[test]
+fn composer_tracks_keyboard_and_mouse_caret_moves_and_completes_without_resetting_input() {
+    use gpui::{EntityInputHandler, MouseButton, VisualTestContext};
+    let (_temp, cx, host, workspace) = mission_workspace_test();
     let input = workspace.read_with(&cx, |workspace, _| workspace.composer_input.clone());
     let mut visual = VisualTestContext::from_window(host.into(), &cx);
     visual.simulate_input("please check @rev");
@@ -1960,4 +1984,1137 @@ fn saved_action_failure_translates_its_wrapper_and_keeps_backend_details_literal
             "Couldn't resume the mission: literal {action} 中文"
         );
     });
+}
+
+fn long_feed_events() -> Vec<Event> {
+    (0..2000).map(|index| Event {
+        id: format!("{index:026}"),
+        ts: chrono::DateTime::from_timestamp(1_700_000_000 + index, 0).unwrap(),
+        crew_id: Some("crew".into()),
+        mission_id: "mission".into(),
+        kind: EventKind::Message,
+        from: if index % 2 == 0 { "coder" } else { "reviewer" }.into(),
+        to: Default::default(),
+        signal_type: None,
+        payload: serde_json::json!({"text": "A **message** with `inline code`.\n\n- First item\n- Second item\n\n```rust\nlet value = 42;\n```"}),
+    }).collect()
+}
+
+fn assert_feed_projection(workspace: &MissionWorkspace) {
+    assert_eq!(
+        format!("{:?}", workspace.feed_blocks),
+        format!(
+            "{:?}",
+            crate::surfaces::mission_feed::group_feed_blocks(&workspace.events)
+        ),
+    );
+    assert_eq!(
+        workspace.feed_list.item_count(),
+        workspace.feed_item_count()
+    );
+}
+
+#[test]
+fn feed_appends_match_full_projection_and_deduplicate_sorted_insertion() {
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    let mut events = long_feed_events();
+    events.truncate(20);
+    events[1].from = "coder".into();
+    events[2].from = "coder".into();
+    events[2].ts = events[1].ts + chrono::Duration::minutes(5);
+    events[3].from = "coder".into();
+    events[3].ts = events[2].ts + chrono::Duration::seconds(301);
+    events[4] = Event {
+        id: events[4].id.clone(),
+        ..signal("mission_start", serde_json::json!({}))
+    };
+    events[5] = Event {
+        id: events[5].id.clone(),
+        ..signal(
+            "human_question",
+            serde_json::json!({"prompt":"Continue?", "choices":["yes","no"]}),
+        )
+    };
+    events[6] = Event {
+        id: events[6].id.clone(),
+        ..signal("session_status", serde_json::json!({}))
+    };
+    events[7] = Event {
+        id: events[7].id.clone(),
+        from: "human".into(),
+        ..signal("human_said", serde_json::json!({"text":"hello"}))
+    };
+    events[8].payload["source_event"] = events[7].id.clone().into();
+    events[9] = Event {
+        id: events[9].id.clone(),
+        from: "human".into(),
+        ..signal(
+            "human_response",
+            serde_json::json!({"question_id":events[5].id, "choice":"yes"}),
+        )
+    };
+    events[10].payload["question_id"] = events[5].id.clone().into();
+    events[11] = Event {
+        id: events[11].id.clone(),
+        ..signal("inbox_read", serde_json::json!({}))
+    };
+    events[12] = Event {
+        id: events[12].id.clone(),
+        ..signal("ask_human", serde_json::json!({}))
+    };
+    events[13] = Event {
+        id: events[13].id.clone(),
+        ..signal("mission_goal", serde_json::json!({"text":"goal"}))
+    };
+    events[14].to = Some("qa".into()).into();
+    events[17].from = "coder".into();
+    events[17].to = Some("qa".into()).into();
+    events[15] = Event {
+        id: events[15].id.clone(),
+        ..signal("mission_stopped", serde_json::json!({}))
+    };
+    workspace.update(&mut cx, |this, _| {
+        for event in &events {
+            assert!(this.append_event(event.clone()));
+            assert_feed_projection(this);
+        }
+        let count = this.events.len();
+        assert!(!this.append_event(events[5].clone()));
+        assert_eq!(this.events.len(), count);
+        let mut earlier = events[0].clone();
+        earlier.id = "-earlier".into();
+        assert!(this.append_event(earlier));
+        assert_eq!(this.events.first().unwrap().id, "-earlier");
+        assert_feed_projection(this);
+        let mut middle = events[2].clone();
+        middle.id.push('a');
+        assert!(this.append_event(middle));
+        assert!(this.events.windows(2).all(|pair| pair[0].id < pair[1].id));
+        assert_feed_projection(this);
+    });
+    host.update(&mut cx, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn long_feed_builds_visible_blocks_caches_markdown_and_preserves_scroll_and_selection() {
+    use crate::surfaces::mission_markdown::PARSE_COUNT;
+    use gpui::{ListOffset, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.events = long_feed_events();
+        this.rebuild_event_projection();
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert_feed_projection(this);
+        assert!(this.feed_list.is_following_tail());
+        assert!(this.feed_list.bounds_for_item(1999).is_some());
+        assert!(this.feed_block_builds.get() > 0);
+        assert!(this.feed_block_builds.get() < 100);
+    });
+    PARSE_COUNT.set(0);
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_block_builds.set(0);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert_eq!(PARSE_COUNT.get(), 0);
+    visual.simulate_input("typing in a long feed");
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(this.feed_block_builds.get() < 100);
+        assert_eq!(this.composer.draft, "typing in a long feed");
+    });
+    assert_eq!(PARSE_COUNT.get(), 0);
+    workspace.update(&mut visual, |this, cx| {
+        let mut event = this.events.last().unwrap().clone();
+        event.id = "2000".into();
+        this.append_event(event);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert!(PARSE_COUNT.get() <= 1);
+    workspace.update(&mut visual, |this, cx| {
+        assert!(this.feed_list.is_following_tail());
+        this.feed_list.scroll_by(px(-40.));
+        assert!(this.feed_is_near_bottom());
+        let mut event = this.events.last().unwrap().clone();
+        event.id = "20001".into();
+        this.append_event(event);
+        assert!(this.feed_list.is_following_tail());
+        this.feed_list.scroll_to(ListOffset {
+            item_ix: 1900,
+            offset_in_item: px(30.),
+        });
+        this.feed_selection = Some(FeedSelection {
+            event_id: this.events[1900].id.clone(),
+            anchor: (0, 0),
+            head: (0, 3),
+        });
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let top = workspace.read_with(&visual, |this, _| this.feed_list.logical_scroll_top());
+    workspace.update(&mut visual, |this, cx| {
+        assert!(!this.feed_is_near_bottom());
+        let mut event = this.events.last().unwrap().clone();
+        event.id = "2001".into();
+        this.append_event(event);
+        assert!(this.feed_has_new_messages);
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+        assert_eq!(
+            this.feed_list.logical_scroll_top().offset_in_item,
+            top.offset_in_item
+        );
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(this.feed_has_new_messages);
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+        assert_eq!(
+            this.feed_list.logical_scroll_top().offset_in_item,
+            top.offset_in_item
+        );
+    });
+    assert!(visual.debug_bounds("mission-feed-new-messages").is_some());
+    let pill = visual.debug_bounds("mission-feed-new-messages").unwrap();
+    visual.simulate_click(pill.center(), gpui::Modifiers::default());
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        assert!(!this.feed_has_new_messages);
+        assert!(this.feed_selection.is_some());
+        this.feed_list.scroll_to(top);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        let mut event = this.events.last().unwrap().clone();
+        event.id = "20015".into();
+        this.append_event(event);
+        assert!(this.feed_has_new_messages);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_list.scroll_to(ListOffset {
+            item_ix: this.feed_blocks.len() - 1,
+            offset_in_item: px(0.),
+        });
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let viewport = workspace.read_with(&visual, |this, _| this.feed_list.viewport_bounds());
+    for _ in 0..8 {
+        visual.simulate_event(gpui::ScrollWheelEvent {
+            position: viewport.center(),
+            delta: gpui::ScrollDelta::Lines(point(0., -100000.)),
+            ..Default::default()
+        });
+        visual.run_until_parked();
+    }
+    workspace.update(&mut visual, |this, cx| {
+        assert!(!this.feed_has_new_messages);
+        assert!(this.feed_list.is_following_tail());
+        this.feed_list.scroll_to(top);
+        assert_eq!(
+            this.feed_selection.as_ref().unwrap().event_id,
+            this.events[1900].id
+        );
+        let mut event = this.events.last().unwrap().clone();
+        event.id = "2002".into();
+        event.from = "human".into();
+        this.append_event(event);
+        assert!(this.feed_list.is_following_tail());
+        assert!(!this.feed_has_new_messages);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    host.update(&mut visual, |_, window, cx| {
+        let focus = workspace.read(cx).root_focus.clone();
+        focus.focus(window, cx);
+    })
+    .unwrap();
+    visual.dispatch_action(Copy);
+    assert_eq!(
+        visual
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("A m")
+    );
+    workspace.update(&mut visual, |this, cx| {
+        let selected = this.feed_selection.as_ref().unwrap().event_id.clone();
+        this.events.retain(|event| event.id != selected);
+        this.rebuild_event_projection();
+        assert!(this.feed_selection.is_none());
+        assert!(!this.feed_markdown.borrow().is_empty());
+        this.prepare_mission("another-mission".into(), MissionRailView::Roles);
+        assert!(this.feed_markdown.borrow().is_empty());
+        assert!(this.event_ids.is_empty());
+        assert!(this.feed_selection.is_none());
+        assert!(this.feed_list.is_following_tail());
+        assert_eq!(this.feed_list.item_count(), 1);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn feed_remeasures_growing_groups_ask_cards_and_text_settings() {
+    use gpui::{ListOffset, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        let mut question = signal(
+            "human_question",
+            serde_json::json!({"prompt":"Continue?", "choices":["yes","no"]}),
+        );
+        question.id = "0000".into();
+        this.append_event(question);
+        let mut message = long_feed_events().remove(0);
+        message.id = "0001".into();
+        message.payload["text"] = "A tall group.\n\n".repeat(100).into();
+        this.append_event(message);
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_list.scroll_to(ListOffset::default());
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        assert!(this.feed_list.bounds_for_item(0).is_some());
+        assert!(this.feed_list.bounds_for_item(1).is_some());
+        this.feed_list.scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(25.),
+        });
+        let mut message = this.events.last().unwrap().clone();
+        message.id = "0002".into();
+        // Appending to a group leaves its existing presentation rows measured and anchored.
+        message.payload["text"] = "More text.\n\n".repeat(100).into();
+        this.feed_list.pause_following_tail();
+        let top = this.feed_list.logical_scroll_top();
+        this.append_event(message);
+        assert!(this.feed_list.bounds_for_item(1).is_some());
+        assert_eq!(
+            this.feed_list.logical_scroll_top().offset_in_item,
+            top.offset_in_item
+        );
+        this.feed_list.scroll_to(ListOffset::default());
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let ask_height = workspace.read_with(&visual, |this, _| {
+        this.feed_list.bounds_for_item(0).unwrap().size.height
+    });
+    workspace.update(&mut visual, |this, cx| {
+        let mut answer = signal(
+            "human_response",
+            serde_json::json!({"question_id":"0000", "choice":"yes"}),
+        );
+        answer.id = "0003".into();
+        this.append_event(answer);
+        this.feed_list.scroll_to(ListOffset::default());
+        assert!(this.feed_list.bounds_for_item(0).is_none());
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        assert!(this.feed_list.bounds_for_item(0).unwrap().size.height > ask_height);
+        this.pending_ask_choices.insert("0000".into(), "yes".into());
+        this.invalidate_feed_ask("0000");
+        assert!(this.feed_list.bounds_for_item(0).is_none());
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let before_zoom = workspace.read_with(&visual, |this, _| {
+        this.feed_list.bounds_for_item(0).unwrap().size.height
+    });
+    workspace.update(&mut visual, |this, cx| {
+        this.update_app_settings(cx, false, |settings| {
+            settings.app_zoom = 1.5;
+            true
+        });
+    });
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(this.feed_list.bounds_for_item(0).unwrap().size.height > before_zoom);
+    });
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn empty_feed_panel_fills_remaining_space_and_shrinks_for_new_content() {
+    use gpui::VisualTestContext;
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.roster.clear();
+        this.mission = Some(runner_core::protocol::model::Mission {
+            id: "mission".into(),
+            crew_id: Some("crew".into()),
+            title: "empty".into(),
+            project_id: None,
+            goal_override: None,
+            cwd: None,
+            pinned_at: None,
+            status: MissionStatus::Running,
+            started_at: Utc::now(),
+            stopped_at: None,
+            archived_at: None,
+        });
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    let before = visual.debug_bounds("MISSION_NO_ROLES").unwrap();
+    let viewport = workspace.read_with(&visual, |this, _| this.feed_list.viewport_bounds());
+    assert_eq!(before.bottom(), viewport.bottom() - px(24.));
+    assert!(before.size.height > px(220.));
+    workspace.update(&mut visual, |this, cx| {
+        this.append_event(long_feed_events().remove(0));
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let after = visual.debug_bounds("MISSION_NO_ROLES").unwrap();
+    assert!(after.size.height < before.size.height);
+    assert_eq!(after.bottom(), viewport.bottom() - px(24.));
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn feed_wheel_reaches_unmeasured_history_and_preserves_horizontal_padding() {
+    use gpui::VisualTestContext;
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.events = long_feed_events();
+        this.rebuild_event_projection();
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    let (initial_top, viewport) = workspace.read_with(&visual, |this, _| {
+        (
+            this.feed_list.logical_scroll_top().item_ix,
+            this.feed_list.viewport_bounds(),
+        )
+    });
+    assert_eq!(viewport.left(), px(24.));
+    assert_eq!(viewport.right(), px(576.));
+    let group = visual
+        .debug_bounds("MISSION_MESSAGE_GROUP 00000000000000000000001999")
+        .unwrap();
+    assert_eq!(group.left(), viewport.left());
+    assert_eq!(group.size.width, viewport.size.width);
+    for _ in 0..60 {
+        visual.simulate_event(gpui::ScrollWheelEvent {
+            position: viewport.center(),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(100.))),
+            ..Default::default()
+        });
+        visual.run_until_parked();
+    }
+    workspace.read_with(&visual, |this, _| {
+        let top = this.feed_list.logical_scroll_top().item_ix;
+        assert!(
+            top + 10 < initial_top,
+            "wheel scrolling stuck at {top} after starting at {initial_top}"
+        );
+        assert!(this
+            .feed_markdown
+            .borrow()
+            .contains_key(&this.events[top].id));
+    });
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn feed_near_bottom_boundary_includes_vertical_padding_and_zoom() {
+    use gpui::VisualTestContext;
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.events = long_feed_events();
+        this.rebuild_event_projection();
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    for (index, zoom) in [1., 1.5].into_iter().enumerate() {
+        workspace.update(&mut visual, |this, cx| {
+            this.update_app_settings(cx, false, |settings| {
+                settings.app_zoom = zoom;
+                true
+            });
+            this.scroll_feed_to_bottom();
+            cx.notify();
+        });
+        visual.run_until_parked();
+        workspace.update(&mut visual, |this, cx| {
+            this.feed_list.scroll_by(px(-100.));
+            assert!(
+                !this.feed_is_near_bottom(),
+                "100px from bottom at zoom {zoom}"
+            );
+            let top = this.feed_list.logical_scroll_top();
+            let mut event = this.events.last().unwrap().clone();
+            event.id = format!("{:026}", 2000 + index * 2);
+            this.append_event(event);
+            assert!(this.feed_has_new_messages);
+            assert!(!this.feed_list.is_following_tail());
+            assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+            assert_eq!(
+                this.feed_list.logical_scroll_top().offset_in_item,
+                top.offset_in_item
+            );
+            cx.notify();
+        });
+        visual.run_until_parked();
+        workspace.update(&mut visual, |this, cx| {
+            assert!(this.feed_has_new_messages);
+            this.scroll_feed_to_bottom();
+            cx.notify();
+        });
+        visual.run_until_parked();
+        workspace.update(&mut visual, |this, cx| {
+            this.feed_list.scroll_by(px(-40.));
+            assert!(
+                this.feed_is_near_bottom(),
+                "40px from bottom at zoom {zoom}"
+            );
+            let mut event = this.events.last().unwrap().clone();
+            event.id = format!("{:026}", 2001 + index * 2);
+            this.append_event(event);
+            assert!(!this.feed_has_new_messages);
+            assert!(this.feed_list.is_following_tail());
+            cx.notify();
+        });
+        visual.run_until_parked();
+    }
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn long_feed_same_author_group_builds_only_visible_messages() {
+    use crate::surfaces::mission_markdown::{PARSE_COUNT, RENDER_COUNT};
+    use gpui::{ListOffset, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.events = long_feed_events()
+            .into_iter()
+            .map(|mut event| {
+                event.from = "coder".into();
+                event
+            })
+            .collect();
+        this.rebuild_event_projection();
+        assert_eq!(this.feed_blocks.len(), 1);
+        assert_eq!(this.feed_rows.len(), 2000);
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    PARSE_COUNT.set(0);
+    RENDER_COUNT.set(0);
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_block_builds.set(0);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    visual.simulate_input("x");
+    visual.run_until_parked();
+    assert_eq!(PARSE_COUNT.get(), 0);
+    assert!(
+        RENDER_COUNT.get() < 100,
+        "built {} markdown blocks",
+        RENDER_COUNT.get()
+    );
+    workspace.update(&mut visual, |this, cx| {
+        assert!(this.feed_block_builds.get() < 100);
+        this.feed_list.scroll_to(ListOffset {
+            item_ix: 1000,
+            offset_in_item: px(15.),
+        });
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        let top = this.feed_list.logical_scroll_top();
+        let mut event = this.events.last().unwrap().clone();
+        event.id = format!("{:026}", 2000);
+        this.append_event(event);
+        assert_eq!(this.feed_blocks.len(), 1);
+        assert_eq!(this.feed_rows.len(), 2001);
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+        assert_eq!(
+            this.feed_list.logical_scroll_top().offset_in_item,
+            top.offset_in_item
+        );
+        assert!(this.feed_has_new_messages);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert_eq!(PARSE_COUNT.get(), 1);
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn long_feed_single_post_builds_visible_sections_and_keeps_selection_offsets() {
+    use crate::surfaces::mission_markdown::{PARSE_COUNT, RENDER_COUNT};
+    use gpui::{ListOffset, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        let mut event = long_feed_events().remove(0);
+        event.payload["text"] = (0..2000)
+            .map(|i| format!("Paragraph {i}.\n\n"))
+            .collect::<String>()
+            .into();
+        this.events = vec![event];
+        this.rebuild_event_projection();
+        assert_eq!(this.feed_blocks.len(), 1);
+        assert_eq!(this.feed_rows.len(), 500);
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    PARSE_COUNT.set(0);
+    RENDER_COUNT.set(0);
+    visual.simulate_input("x");
+    visual.run_until_parked();
+    assert_eq!(PARSE_COUNT.get(), 0);
+    assert!(
+        RENDER_COUNT.get() < 100,
+        "built {} markdown blocks",
+        RENDER_COUNT.get()
+    );
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_selection = Some(FeedSelection {
+            event_id: this.events[0].id.clone(),
+            anchor: (1996, 0),
+            head: (1997, 15),
+        });
+        this.feed_list.scroll_to(ListOffset::default());
+        cx.notify();
+    });
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_list.scroll_to(ListOffset {
+            item_ix: 499,
+            offset_in_item: px(0.),
+        });
+        cx.notify();
+    });
+    visual.run_until_parked();
+    host.update(&mut visual, |_, window, cx| {
+        let focus = workspace.read(cx).root_focus.clone();
+        focus.focus(window, cx);
+    })
+    .unwrap();
+    visual.dispatch_action(Copy);
+    assert_eq!(
+        visual
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("Paragraph 1996.\nParagraph 1997.")
+    );
+    workspace.update(&mut visual, |this, _| {
+        this.feed_list.pause_following_tail();
+        let top = this.feed_list.logical_scroll_top();
+        this.rebuild_event_projection();
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+        assert!(this.feed_selection.is_some());
+    });
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn feed_message_and_section_continuations_align_at_non_default_zoom() {
+    use gpui::{ListOffset, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, cx| {
+        this.update_app_settings(cx, false, |settings| {
+            settings.app_zoom = 1.5;
+            true
+        });
+        let mut events = long_feed_events();
+        events.truncate(2);
+        events[0].payload["text"] = "First message.".into();
+        events[1].from = events[0].from.clone();
+        events[1].payload["text"] = "Continuation paragraph.\n\n".repeat(20).into();
+        this.events = events;
+        this.rebuild_event_projection();
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        this.feed_list.scroll_to(ListOffset::default());
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let header = visual
+        .debug_bounds("MISSION_MESSAGE_BODY 00000000000000000000000000 0")
+        .unwrap();
+    for selector in [
+        "MISSION_MESSAGE_BODY 00000000000000000000000001 0",
+        "MISSION_MESSAGE_BODY 00000000000000000000000001 1",
+    ] {
+        let continuation = visual.debug_bounds(selector).unwrap();
+        assert_eq!(continuation.left(), header.left());
+        assert_eq!(continuation.size.width, header.size.width);
+    }
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn long_feed_multiline_paragraph_and_table_build_only_visible_lines_and_cells() {
+    use crate::surfaces::mission_markdown::{LINE_COUNT, PARSE_COUNT};
+    use gpui::{ListOffset, VisualTestContext};
+    for table in [false, true] {
+        let (_temp, mut cx, host, workspace) = mission_workspace_test();
+        workspace.update(&mut cx, |this, _| {
+            let mut event = long_feed_events().remove(0);
+            event.payload["text"] = if table {
+                format!(
+                    "| Left | Right |\n| --- | --- |\n{}",
+                    (0..2000)
+                        .map(|i| format!("| L{i} | R{i} |\n"))
+                        .collect::<String>()
+                )
+            } else {
+                (0..2000)
+                    .map(|i| format!("Line {i}.\n"))
+                    .collect::<String>()
+            }
+            .into();
+            this.events = vec![event];
+            this.rebuild_event_projection();
+            assert_eq!(this.feed_blocks.len(), 1);
+            assert!(this.feed_rows.len() >= 500);
+        });
+        host.update(&mut cx, |host, _, cx| {
+            host.show_feed = true;
+            cx.notify();
+        })
+        .unwrap();
+        let mut visual = VisualTestContext::from_window(host.into(), &cx);
+        visual.run_until_parked();
+        PARSE_COUNT.set(0);
+        LINE_COUNT.set(0);
+        visual.simulate_input("x");
+        visual.run_until_parked();
+        assert_eq!(PARSE_COUNT.get(), 0);
+        assert!(
+            LINE_COUNT.get() > 0 && LINE_COUNT.get() < 200,
+            "table={table}: built {} lines/cells",
+            LINE_COUNT.get()
+        );
+        workspace.update(&mut visual, |this, cx| {
+            this.feed_selection = Some(FeedSelection {
+                event_id: this.events[0].id.clone(),
+                anchor: if table { (4000, 0) } else { (1998, 0) },
+                head: if table { (4001, 5) } else { (1999, 10) },
+            });
+            this.feed_list.scroll_to(ListOffset::default());
+            cx.notify();
+        });
+        visual.run_until_parked();
+        workspace.update(&mut visual, |this, cx| {
+            this.scroll_feed_to_bottom();
+            cx.notify();
+        });
+        visual.run_until_parked();
+        host.update(&mut visual, |_, window, cx| {
+            let focus = workspace.read(cx).root_focus.clone();
+            focus.focus(window, cx);
+        })
+        .unwrap();
+        visual.dispatch_action(Copy);
+        assert_eq!(
+            visual
+                .read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some(if table {
+                "L1999\nR1999"
+            } else {
+                "Line 1998.\nLine 1999."
+            })
+        );
+        if table {
+            host.update(&mut visual, |host, _, cx| {
+                host.width = 300.;
+                cx.notify();
+            })
+            .unwrap();
+            visual.run_until_parked();
+            let last = visual
+                .debug_bounds("MISSION_TABLE_ROW 00000000000000000000000000 0 2000")
+                .unwrap();
+            visual.simulate_event(gpui::ScrollWheelEvent {
+                position: point(last.left() + px(20.), last.center().y),
+                delta: gpui::ScrollDelta::Pixels(point(px(-60.), px(0.))),
+                ..Default::default()
+            });
+            visual.run_until_parked();
+            let next = visual
+                .debug_bounds("MISSION_TABLE_ROW 00000000000000000000000000 0 2000")
+                .unwrap();
+            let previous = visual
+                .debug_bounds("MISSION_TABLE_ROW 00000000000000000000000000 0 1999")
+                .unwrap();
+            assert!(
+                next.left() < last.left(),
+                "table gutter wheel did not scroll horizontally"
+            );
+            assert_eq!(next.left(), previous.left());
+            workspace.update(&mut visual, |this, cx| {
+                this.feed_list.scroll_to(ListOffset::default());
+                cx.notify();
+            });
+            visual.run_until_parked();
+            workspace.update(&mut visual, |this, cx| {
+                this.scroll_feed_to_bottom();
+                cx.notify();
+            });
+            visual.run_until_parked();
+            let restored = visual
+                .debug_bounds("MISSION_TABLE_ROW 00000000000000000000000000 0 2000")
+                .unwrap();
+            assert_eq!(restored.left(), next.left());
+            host.update(&mut visual, |host, _, cx| {
+                host.width = 800.;
+                cx.notify();
+            })
+            .unwrap();
+            visual.run_until_parked();
+            let widened = visual
+                .debug_bounds("MISSION_TABLE_ROW 00000000000000000000000000 0 2000")
+                .unwrap();
+            assert_eq!(widened.left(), last.left());
+        }
+        let ask_row = workspace.update(&mut visual, |this, cx| {
+            let row = this.feed_rows.len();
+            let mut question = signal(
+                "human_question",
+                serde_json::json!({"prompt":"Continue?", "choices":["yes","no"]}),
+            );
+            question.id = "split-post-question".into();
+            this.append_event(question);
+            cx.notify();
+            row
+        });
+        visual.run_until_parked();
+        workspace.update(&mut visual, |this, cx| {
+            assert!(this.feed_list.bounds_for_item(ask_row).is_some());
+            this.pending_ask_choices
+                .insert("split-post-question".into(), "yes".into());
+            this.invalidate_feed_ask("split-post-question");
+            assert!(this.feed_list.bounds_for_item(ask_row).is_none());
+            cx.notify();
+        });
+        visual.run_until_parked();
+        host.update(&mut visual, |_, window, _| window.remove_window())
+            .unwrap();
+    }
+}
+
+#[test]
+fn feed_scrollbar_hides_for_fitting_content_and_resets_with_the_mission() {
+    use gpui::VisualTestContext;
+    let (_temp, cx, host, workspace) = mission_workspace_test();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    host.update(&mut visual, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("MISSION_FEED_SCROLLBAR").is_none());
+    workspace.update(&mut visual, |this, cx| {
+        this.append_event(long_feed_events().remove(0));
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("MISSION_FEED_SCROLLBAR").is_none());
+    workspace.update(&mut visual, |this, cx| {
+        this.events = long_feed_events();
+        this.rebuild_event_projection();
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let gutter = visual.debug_bounds("MISSION_FEED_SCROLLBAR").unwrap();
+    assert_eq!(gutter.size.width, px(10.));
+    assert_eq!(gutter.right(), px(600.));
+    workspace.update(&mut visual, |this, cx| {
+        this.prepare_mission("short-mission".into(), MissionRailView::Roles);
+        this.events = long_feed_events().into_iter().take(1).collect();
+        this.rebuild_event_projection();
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("MISSION_FEED_SCROLLBAR").is_none());
+    workspace.read_with(&visual, |this, _| {
+        let metrics = this.feed_scrollbar_metrics.get();
+        assert!(metrics.content < metrics.viewport);
+        assert_eq!(metrics.position, 0.);
+    });
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn feed_scrollbar_reaches_blocks_appended_while_reading_history() {
+    use gpui::{Modifiers, MouseButton, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.events = long_feed_events().into_iter().take(50).collect();
+        this.rebuild_event_projection();
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    let gutter = visual.debug_bounds("MISSION_FEED_SCROLLBAR").unwrap();
+    let track_top = point(gutter.center().x, gutter.top() + px(2.));
+    visual.simulate_click(track_top, Modifiers::default());
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, cx| {
+        let top = this.feed_list.logical_scroll_top();
+        assert_eq!(top.item_ix, 0);
+        let old_height = this.feed_list.max_offset_for_scrollbar().y;
+        let mut joined = this.events.last().unwrap().clone();
+        joined.id.push('a');
+        this.append_event(joined);
+        assert_eq!(this.feed_list.max_offset_for_scrollbar().y, old_height);
+        for event in long_feed_events().into_iter().skip(50).take(1000) {
+            this.append_event(event);
+        }
+        assert_eq!(this.feed_blocks.len(), 1050);
+        assert!(this.feed_needs_height_hints.get());
+        assert!(this.feed_has_new_messages);
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+        assert_eq!(
+            this.feed_list.logical_scroll_top().offset_in_item,
+            top.offset_in_item
+        );
+        this.feed_block_builds.set(0);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let late = point(gutter.center().x, gutter.top() + gutter.size.height * 0.9);
+    visual.simulate_click(late, Modifiers::default());
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(!this.feed_needs_height_hints.get());
+        assert!(this.feed_list.logical_scroll_top().item_ix > 800);
+        assert!(this.feed_scrollbar_metrics.get().content > 90_000.);
+        assert!(this.feed_block_builds.get() < 100);
+    });
+    visual.simulate_click(track_top, Modifiers::default());
+    visual.run_until_parked();
+    let grab = point(gutter.center().x, gutter.top() + px(10.));
+    visual.simulate_mouse_down(grab, MouseButton::Left, Modifiers::default());
+    visual.simulate_mouse_move(late, Some(MouseButton::Left), Modifiers::default());
+    visual.simulate_mouse_move(
+        late + point(px(0.), px(2.)),
+        Some(MouseButton::Left),
+        Modifiers::default(),
+    );
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(this.feed_list.is_scrollbar_dragging());
+        assert!(this.feed_list.logical_scroll_top().item_ix > 800);
+        assert!(this.feed_has_new_messages);
+    });
+    visual.simulate_mouse_up(late, MouseButton::Left, Modifiers::default());
+    visual.run_until_parked();
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
+}
+
+#[test]
+fn feed_scrollbar_track_drag_and_wheel_reach_unmeasured_history() {
+    use gpui::{Modifiers, MouseButton, VisualTestContext};
+    let (_temp, mut cx, host, workspace) = mission_workspace_test();
+    workspace.update(&mut cx, |this, _| {
+        this.events = long_feed_events();
+        this.rebuild_event_projection();
+    });
+    host.update(&mut cx, |host, _, cx| {
+        host.show_feed = true;
+        cx.notify();
+    })
+    .unwrap();
+    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+    visual.run_until_parked();
+    let gutter = visual.debug_bounds("MISSION_FEED_SCROLLBAR").unwrap();
+    workspace.read_with(&visual, |this, _| {
+        let metrics = this.feed_scrollbar_metrics.get();
+        assert!(metrics.content > 100_000.);
+        assert!((metrics.position - (metrics.content - metrics.viewport)).abs() < 1.);
+        assert!(this.feed_block_builds.get() < 100);
+    });
+    host.update(&mut visual, |host, _, cx| {
+        host.width = 800.;
+        cx.notify();
+    })
+    .unwrap();
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert_eq!(this.feed_list.viewport_bounds().size.width, px(752.));
+        assert!(this.feed_scrollbar_metrics.get().content > 100_000.);
+    });
+    host.update(&mut visual, |host, _, cx| {
+        host.width = 600.;
+        cx.notify();
+    })
+    .unwrap();
+    visual.run_until_parked();
+    visual.simulate_click(gutter.center(), Modifiers::default());
+    visual.run_until_parked();
+    let top = workspace.read_with(&visual, |this, _| {
+        let top = this.feed_list.logical_scroll_top();
+        assert!(
+            (800..1200).contains(&top.item_ix),
+            "track click reached {:?}",
+            top
+        );
+        assert!(!this.feed_list.is_following_tail());
+        assert!(!this.feed_list.is_scrollbar_dragging());
+        top
+    });
+    visual.simulate_event(gpui::ScrollWheelEvent {
+        position: gutter.center(),
+        delta: gpui::ScrollDelta::Pixels(point(px(0.), px(100.))),
+        ..Default::default()
+    });
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        let next = this.feed_list.logical_scroll_top();
+        assert!(
+            next.item_ix < top.item_ix
+                || (next.item_ix == top.item_ix && next.offset_in_item < top.offset_in_item)
+        );
+    });
+    let track_top = point(gutter.center().x, gutter.top() + px(2.));
+    visual.simulate_click(track_top, Modifiers::default());
+    visual.run_until_parked();
+    workspace.update(&mut visual, |this, _| {
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, 0);
+        this.feed_selection = Some(FeedSelection {
+            event_id: this.events[0].id.clone(),
+            anchor: (0, 0),
+            head: (0, 3),
+        });
+    });
+    let grab = point(gutter.center().x, gutter.top() + px(10.));
+    visual.simulate_mouse_down(grab, MouseButton::Left, Modifiers::default());
+    let content = workspace.read_with(&visual, |this, _| {
+        assert!(this.feed_list.is_scrollbar_dragging());
+        this.measure_feed_scrollbar().content
+    });
+    visual.simulate_mouse_move(
+        gutter.center(),
+        Some(MouseButton::Left),
+        Modifiers::default(),
+    );
+    visual.simulate_mouse_move(
+        gutter.center() + point(px(0.), px(10.)),
+        Some(MouseButton::Left),
+        Modifiers::default(),
+    );
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!((this.measure_feed_scrollbar().content - content).abs() < 1.);
+        assert!(this.feed_list.logical_scroll_top().item_ix > 100);
+        assert!(this.feed_block_builds.get() < 200);
+    });
+    let bottom = point(gutter.center().x, gutter.bottom() - px(10.));
+    visual.simulate_mouse_move(bottom, Some(MouseButton::Left), Modifiers::default());
+    visual.run_until_parked();
+    visual.simulate_mouse_up(
+        bottom - point(px(30.), px(0.)),
+        MouseButton::Left,
+        Modifiers::default(),
+    );
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(!this.feed_list.is_scrollbar_dragging());
+        assert!(this.feed_list.is_following_tail());
+        assert!(this.feed_selection.is_some());
+    });
+    visual.simulate_click(track_top, Modifiers::default());
+    visual.run_until_parked();
+    let top = workspace.read_with(&visual, |this, _| this.feed_list.logical_scroll_top());
+    workspace.update(&mut visual, |this, cx| {
+        let mut event = this.events.last().unwrap().clone();
+        event.id = format!("{:026}", 2000);
+        this.append_event(event);
+        assert!(this.feed_has_new_messages);
+        assert_eq!(this.feed_list.logical_scroll_top().item_ix, top.item_ix);
+        assert_eq!(
+            this.feed_list.logical_scroll_top().offset_in_item,
+            top.offset_in_item
+        );
+        cx.notify();
+    });
+    visual.run_until_parked();
+    visual.simulate_click(bottom + point(px(0.), px(8.)), Modifiers::default());
+    visual.run_until_parked();
+    workspace.read_with(&visual, |this, _| {
+        assert!(this.feed_list.is_following_tail());
+        assert!(!this.feed_has_new_messages);
+    });
+    host.update(&mut visual, |_, window, _| window.remove_window())
+        .unwrap();
 }

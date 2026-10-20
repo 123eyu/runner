@@ -129,7 +129,7 @@ impl MissionWorkspace {
                         this.sessions = loaded.sessions;
                         this.events = loaded.events;
                         this.rebuild_event_projection();
-                        this.feed_scroll.scroll_to_bottom();
+                        this.scroll_feed_to_bottom();
                         this.loading = false;
                         this.schedule_mission_grid_hint(window, cx);
                         this.error = None;

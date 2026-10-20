@@ -1135,7 +1135,7 @@ impl SkillDetail {
                     )
                     .child(mission_markdown::render_markdown(
                         "skill-preview-document",
-                        &doc.body,
+                        &mission_markdown::parse_blocks(&doc.body),
                         cx.entity_id(),
                         None,
                         theme::accent(),
