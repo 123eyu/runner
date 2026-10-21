@@ -17,7 +17,6 @@ mod chat_icon;
 mod file_links;
 mod keymap;
 mod list_controls;
-mod mac_chrome;
 // The controller's callers are the app entry point and its unix-only tests,
 // and a Windows test build compiles neither.
 #[cfg_attr(all(test, windows), allow(dead_code))]
@@ -1017,7 +1016,7 @@ impl NativeRoot {
             cx.notify();
         }));
         root._bounds_subscription = Some(cx.observe_window_bounds(window, |this, window, cx| {
-            mac_chrome::sync_traffic_lights(window, this.settings(cx).app_zoom);
+            platform_ui::sync_traffic_lights(window, this.settings(cx).app_zoom);
             this.schedule_window_state_checkpoint(window, cx);
             this.mission_workspace.update(cx, |workspace, cx| {
                 workspace.schedule_mission_grid_hint(window, cx)
@@ -1031,7 +1030,7 @@ impl NativeRoot {
                 }
                 this.sync_sidebar_window_activation(window, cx)
             }));
-        mac_chrome::sync_traffic_lights(window, root.settings(cx).app_zoom);
+        platform_ui::sync_traffic_lights(window, root.settings(cx).app_zoom);
         root.sync_theme(window, cx);
         match root.route.clone() {
             AppRoute::Mission(mission_id) => root.open_mission(mission_id, window, cx),

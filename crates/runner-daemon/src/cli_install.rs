@@ -19,12 +19,10 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 use runner_core::command_install::{self, PathStyle};
-pub use runner_core::command_install::{
-    runner_command_name, RunnerCommandState, RunnerCommandStatus,
-};
+use runner_core::command_install::{RunnerCommandState, RunnerCommandStatus};
 
 use runner_core::cli_install::AGENT_DEST_BIN_NAME;
-pub use runner_core::cli_install::{install_runner_cli, remove_stale_mcp_cli, MCP_DEST_BIN_NAME};
+use runner_core::protocol::command::{CommandActionOutcome, CommandInstallInputs, CommandPlatform};
 
 /// Drop a per-(mission,slot) `runner` shim into
 /// `$APPDATA/missions/<mission_id>/shims/<handle>/bin/runner` that
@@ -161,10 +159,6 @@ fn sh_escape(s: &str) -> String {
     s.replace('\'', "'\\''")
 }
 
-pub use runner_core::protocol::command::CommandPlatform;
-
-pub use runner_core::protocol::command::CommandInstallInputs;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegistryValueKind {
     String,
@@ -244,8 +238,6 @@ impl CommandEscalation for NoEscalation {
         Err(Error::msg("administrator escalation is unavailable"))
     }
 }
-
-pub use runner_core::protocol::command::CommandActionOutcome;
 
 pub fn command_status(
     inputs: &CommandInstallInputs,
@@ -415,10 +407,6 @@ pub fn uninstall_command(
         }
     }
 }
-
-pub use runner_core::protocol::command::force_escalated_command_install;
-
-pub use runner_core::protocol::command::force_escalated_setting;
 
 pub fn escalated_link_script(sidecar: &Path, link: &Path) -> String {
     let parent = link.parent().unwrap_or(Path::new("/usr/local/bin"));
@@ -748,6 +736,7 @@ mod windows_registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use runner_core::protocol::command::force_escalated_setting;
     use std::fs;
 
     #[derive(Default)]

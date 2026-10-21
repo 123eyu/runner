@@ -1,5 +1,9 @@
 use crate::cli_install::{self, *};
 use crate::error::Result;
+use runner_core::command_install::RunnerCommandStatus;
+use runner_core::protocol::command::{
+    force_escalated_command_install, CommandActionOutcome, CommandInstallInputs, CommandPlatform,
+};
 use std::path::PathBuf;
 fn with_command_registry<T>(
     integration: bool,
@@ -45,7 +49,7 @@ pub(super) fn status(
     inputs: &CommandInstallInputs,
     system: bool,
 ) -> Result<(RunnerCommandStatus, bool, PathBuf)> {
-    let force = cli_install::force_escalated_command_install();
+    let force = force_escalated_command_install();
     with_command_registry(system, |registry| {
         let status = cli_install::command_status(inputs, registry)?;
         let requires = inputs.platform == CommandPlatform::Unix
@@ -74,7 +78,7 @@ pub(super) fn action(
                     inputs,
                     registry,
                     escalation,
-                    cli_install::force_escalated_command_install(),
+                    force_escalated_command_install(),
                 )
             } else {
                 cli_install::uninstall_command(inputs, registry, escalation)

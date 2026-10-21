@@ -55,6 +55,8 @@ pub(crate) fn activate_update_hint(_updater: &Entity<Updater>, window: &mut Wind
     );
 }
 
+pub(crate) fn sync_traffic_lights(_: &Window, _: f32) {}
+
 pub(crate) fn finish_window_close(window: &mut Window) -> bool {
     // Let GPUI own HWND destruction instead of also running Windows' default WM_CLOSE handler.
     window.remove_window();

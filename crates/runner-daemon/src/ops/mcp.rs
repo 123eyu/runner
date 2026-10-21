@@ -1547,7 +1547,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let binary = PathBuf::from(r"C:\Users\Agent User\AppData\Roaming\com.wycstudios.runner")
             .join("bin")
-            .join(crate::cli_install::MCP_DEST_BIN_NAME);
+            .join(runner_core::cli_install::MCP_DEST_BIN_NAME);
         let binary = binary.to_str().unwrap();
 
         let claude = dir.path().join(".claude.json");
