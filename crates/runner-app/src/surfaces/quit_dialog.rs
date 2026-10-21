@@ -33,7 +33,9 @@ pub(crate) fn finish_quit(choice: QuitChoice, cx: &mut App) {
     if cx.try_global::<QuitState>().is_none() {
         cx.set_global(QuitState::default());
     }
-    cx.global_mut::<QuitState>().choice = choice;
+    let state = cx.global_mut::<QuitState>();
+    state.choice = choice;
+    state.committed = true;
     cx.quit();
 }
 
