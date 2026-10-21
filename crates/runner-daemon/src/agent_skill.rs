@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn both_skills_require_start_and_watch_with_the_matching_executable() {
+    fn both_skills_scope_start_and_watch_to_external_operators_with_the_matching_executable() {
         for debug in [false, true] {
             let skill = render(debug, Path::new("/Runner Dev/bin/runner"));
             let command = if debug {
@@ -192,6 +192,10 @@ mod tests {
             assert!(skill.contains(&format!("after every successful `{command} mission start`")));
             assert!(skill.contains(&format!("`{command} mission feed <id> --follow --json`")));
             for rule in [
+                "External operators starting a different mission must start and watch",
+                "That mission's updates are not automatically pushed into your chat",
+                "For that external watch",
+                "An external watch facility qualifies only if",
                 "exactly one watcher per mission",
                 "while idle",
                 "An unread background log or a completion-only notification is not a watch",

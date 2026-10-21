@@ -76,7 +76,27 @@ REFERENCES
   Missions and direct-chat sessions accept an id or unique id prefix.
   A mission or chat started inside a project's directory belongs to it; --project overrides.
 
-COMMON FLOW
+MESSAGING INSIDE YOUR MISSION
+  Inside a mission, Runner pushes inbox notifications to every participant: leads, workers
+  and members of a team with no lead. When waiting for a teammate and no independent work
+  remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages.
+  Iterate with teammates across turns. External monitoring instructions do not apply to
+  receiving messages in your own mission.
+  Run runner msg read when an [inbox] notification arrives: only new inbox messages print,
+  followed by a short digest of others' directed traffic. Use runner msg read --all for all
+  crew messages since joining after a resume or when earlier messages are no longer in context.
+  Default reads already track unread messages: do not add --since or --from to consume your inbox.
+  --all acknowledges only your inbox. --since and --from are inspection filters and never mark
+  messages read, even with --all. If unread messages remain, filtered reads report the count and
+  an unfiltered-read hint on stderr, including when no messages match.
+  Address one or several members:
+    runner msg post --to coder --to reviewer "please check"
+    runner msg post "@coder @reviewer please check"
+  Explicit --to wins; mid-text mentions do not address. Unknown handles and @human are refused.
+  Reply to the sender. Broadcast only when everyone must act. Do not post receipt-only replies
+  or standby messages; consuming your inbox with runner msg read is still required.
+
+EXTERNAL OPERATOR FLOW (A DIFFERENT MISSION)
   mission=$(runner mission start --title "Small task" -q)
   runner mission add-role "$mission" <role> --task-file - < task.md
   # Or start from a reusable crew:
@@ -92,22 +112,9 @@ COMMON FLOW
   runner mission stop "$mission"
   runner mission archive "$mission"
 
-MESSAGING INSIDE A MISSION
-  Run runner msg read when an [inbox] notification arrives: only new inbox messages print,
-  followed by a short digest of others' directed traffic. Use runner msg read --all for all
-  crew messages since joining after a resume or when earlier messages are no longer in context.
-  Default reads already track unread messages: do not add --since or --from to consume your inbox.
-  --all acknowledges only your inbox. --since and --from are inspection filters and never mark
-  messages read, even with --all. If unread messages remain, filtered reads report the count and
-  an unfiltered-read hint on stderr, including when no messages match.
-  Address one or several members:
-    runner msg post --to coder --to reviewer "please check"
-    runner msg post "@coder @reviewer please check"
-  Explicit --to wins; mid-text mentions do not address. Unknown handles and @human are refused.
-  Reply to the sender. Broadcast only when everyone must act. Do not post receipt-only replies
-  or standby messages; consuming your inbox with runner msg read is still required.
-
-START AND WATCH (REQUIRED)
+EXTERNAL OPERATORS: START AND WATCH (REQUIRED)
+  These watch rules apply when you launch a different mission as an external operator.
+  That mission's updates are not automatically pushed into your chat.
   After every successful runner mission start, arm runner mission feed <id> --follow --json
   for the exact returned ID in your host's supported background/watch facility before
   reporting delegation complete. Keep exactly one watcher per mission; reuse it on later
@@ -131,7 +138,7 @@ START AND WATCH (REQUIRED)
      automatic watching is unavailable. Follow with: runner mission feed <id> --follow --json"
   Do not claim monitoring is active without a verified delivery path.
 
-WATCH FACILITIES
+EXTERNAL WATCH FACILITIES
   A facility qualifies only if its own documentation says each output line and the exit
   reach you while idle. Claude Code's Monitor does: run the feed command with 2>&1 so stderr
   diagnostics notify you too, set timeout_ms to its maximum, and re-arm on expiry as above.
@@ -155,8 +162,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_guide_explains_targeted_messaging_and_non_acking_filters() {
+    fn agent_guide_explains_pushed_inbox_messaging_and_non_acking_filters() {
         for rule in [
+            "Inside a mission, Runner pushes inbox notifications to every participant: leads, workers",
+            "and members of a team with no lead",
+            "When waiting for a teammate and no independent work\n  remains, finish your turn",
+            "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
+            "Iterate with teammates across turns",
+            "External monitoring instructions do not apply to\n  receiving messages in your own mission",
             "only new inbox messages",
             "msg read --all",
             "Default reads already track unread messages",
@@ -170,6 +183,10 @@ mod tests {
         ] {
             assert!(AGENT_GUIDE.contains(rule), "missing {rule}");
         }
+        assert!(
+            AGENT_GUIDE.find("MESSAGING INSIDE YOUR MISSION").unwrap()
+                < AGENT_GUIDE.find("EXTERNAL OPERATOR FLOW").unwrap()
+        );
     }
 
     #[test]
@@ -200,8 +217,12 @@ mod tests {
     }
 
     #[test]
-    fn agent_guide_requires_a_delivering_watch_after_start() {
+    fn agent_guide_requires_a_delivering_watch_for_external_operators_after_start() {
         for rule in [
+            "EXTERNAL OPERATOR FLOW (A DIFFERENT MISSION)",
+            "These watch rules apply when you launch a different mission as an external operator",
+            "That mission's updates are not automatically pushed into your chat",
+            "EXTERNAL WATCH FACILITIES",
             "After every successful runner mission start",
             "runner mission feed <id> --follow --json",
             "exactly one watcher per mission",

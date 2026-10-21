@@ -71,7 +71,11 @@ Runner is the local cockpit for coordinating CLI coding agents. Crews are reusab
 
 {invocation}
 
-Start empty and add a role with its task:
+Inside a mission, Runner pushes inbox notifications to every participant, including leads, workers and members of a team with no lead. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
+
+Messaging inside a mission: run `{command} msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox. Use `{command} msg read --all` for crew history since joining after a resume or when earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `{command} msg read`. Address one or several members with repeated `--to` or leading `@handle` mentions; explicit recipients win and mid-text mentions do not address. Reply to the sender, broadcast only when everyone must act, and do not post receipt-only replies or standby messages; consuming your inbox with `{command} msg read` is still required.
+
+As an external operator, start a different mission empty and add a role with its task:
 
 ```sh
 mission=$({command} mission start --title "Small task" -q)
@@ -80,17 +84,15 @@ mission=$({command} mission start --title "Small task" -q)
 
 Use `mission show` to see the team; direct messages can address any member when there is no lead.
 
-Messaging inside a mission: run `{command} msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox. Use `{command} msg read --all` for crew history since joining after a resume or when earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `{command} msg read`. Address one or several members with repeated `--to` or leading `@handle` mentions; explicit recipients win and mid-text mentions do not address. Reply to the sender, broadcast only when everyone must act, and do not post receipt-only replies or standby messages; consuming your inbox with `{command} msg read` is still required.
-
 Rules:
 
 1. Prefer `--json` for structured output.
 2. Exit code 3 means Runner is not running; ask the user to open Runner. Exit code 5 means a sandbox kept the command from reaching Runner, so nothing is known about Runner yet: run the same command again outside the sandbox (in Codex, request escalated permissions for it) before telling the user anything.
 3. Use `--help` rather than guessing commands.
 4. Inside a mission, mission commands carry your own handle. Outside a mission you act for the user: your posts and answers appear as the person. Never pass `--as` to speak as a slot you were not given.
-5. Start means start and watch: after every successful `{command} mission start`, use the returned mission ID to arm `{command} mission feed <id> --follow --json` in your host's supported background/watch facility before reporting delegation complete. Keep exactly one watcher per mission, bound to that exact ID; reuse it on later turns. Its events, stderr diagnostics and exit must reach you during later work and while idle. An unread background log or a completion-only notification is not a watch. Plain `mission start` still returns and exits.
-6. Surface crew handoffs, human questions, completion, stop/crash and lost connections promptly; the daemon pushes new events and the follower flushes them immediately. Keep routine noise hidden (do not add `--all`). Clean up the watcher when the mission ends or all sessions exit; a resumed mission needs a new watch. A watch request timeout exits 1 and does not mean Runner is closed. On host expiry or unexpected exit, check `{command} mission show <id> --json`, report the gap, and if the mission is still active re-arm exactly one watch with `--since <next_offset> --oldest-first`, taking `next_offset` from the last event line you received; only when no event line arrived, use `--since 0 --oldest-first` and skip event IDs already seen.
-7. A watch facility qualifies only if it delivers each output line and the exit to you while idle. In Claude Code, use Monitor with `2>&1` appended to the feed command and `timeout_ms` at its maximum. A completion-only background command, a PTY you must poll, a task list or a log file does not qualify. Without one, say plainly: "Mission <id> started, but this host cannot notify me of later events; automatic watching is unavailable." Give `{command} mission feed <id> --follow --json` as the foreground follow-up command. Never claim an active watch without a delivery path; stop any undeliverable follower before ending your turn.
+5. External operators starting a different mission must start and watch: after every successful `{command} mission start`, use the returned mission ID to arm `{command} mission feed <id> --follow --json` in your host's supported background/watch facility before reporting delegation complete. That mission's updates are not automatically pushed into your chat. Keep exactly one watcher per mission, bound to that exact ID; reuse it on later turns. Its events, stderr diagnostics and exit must reach you during later work and while idle. An unread background log or a completion-only notification is not a watch. Plain `mission start` still returns and exits.
+6. For that external watch, surface crew handoffs, human questions, completion, stop/crash and lost connections promptly; the daemon pushes new events and the follower flushes them immediately. Keep routine noise hidden (do not add `--all`). Clean up the watcher when the mission ends or all sessions exit; a resumed mission needs a new watch. A watch request timeout exits 1 and does not mean Runner is closed. On host expiry or unexpected exit, check `{command} mission show <id> --json`, report the gap, and if the mission is still active re-arm exactly one watch with `--since <next_offset> --oldest-first`, taking `next_offset` from the last event line you received; only when no event line arrived, use `--since 0 --oldest-first` and skip event IDs already seen.
+7. An external watch facility qualifies only if it delivers each output line and the exit to you while idle. In Claude Code, use Monitor with `2>&1` appended to the feed command and `timeout_ms` at its maximum. A completion-only background command, a PTY you must poll, a task list or a log file does not qualify. Without one, say plainly: "Mission <id> started, but this host cannot notify me of later events; automatic watching is unavailable." Give `{command} mission feed <id> --follow --json` as the foreground follow-up command. Never claim an active watch without a delivery path; stop any undeliverable follower before ending your turn.
 "#
     )
 }
@@ -103,10 +105,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn both_skill_renders_include_targeted_messaging_and_history() {
+    fn both_skill_renders_include_pushed_inbox_messaging_and_history() {
         for debug in [false, true] {
             let text = render(debug, Path::new("/tmp/runner"));
             for rule in [
+                "Inside a mission, Runner pushes inbox notifications to every participant",
+                "including leads, workers and members of a team with no lead",
+                "When waiting for a teammate and no independent work remains, finish your turn",
+                "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
+                "Iterate with teammates across turns",
+                "External monitoring instructions do not apply to receiving messages in your own mission",
                 "shows and marks new inbox messages read",
                 "already tracks unread messages",
                 "msg read --all",
@@ -120,6 +128,10 @@ mod tests {
             ] {
                 assert!(text.contains(rule), "missing {rule}");
             }
+            assert!(
+                text.find("Inside a mission, Runner pushes").unwrap()
+                    < text.find("As an external operator, start").unwrap()
+            );
         }
     }
 }

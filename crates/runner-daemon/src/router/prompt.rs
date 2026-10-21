@@ -118,6 +118,7 @@ pub fn compose_direct_first_turn(system_prompt: Option<&str>) -> Option<String> 
 pub(crate) const WORKER_COORDINATION_PREAMBLE: &str = r#"You are a worker in a crew coordinated by the bundled `runner` CLI. The CLI is on your PATH and talks to the rest of the crew via a shared event bus. Use these verbs to participate; do not invent your own conventions.
 
 == Coordination ==
+- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
 - Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.
 - Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.
 - Address one or several members with `runner msg post --to coder --to reviewer "<text>"` or leading mentions: `runner msg post "@coder @reviewer <text>"`. Explicit `--to` wins; mid-text mentions do not address.
@@ -129,6 +130,7 @@ pub(crate) const WORKER_COORDINATION_PREAMBLE: &str = r#"You are a worker in a c
 pub(crate) const TEAM_COORDINATION_PREAMBLE: &str = r#"You are a member of a team coordinated by the bundled `runner` CLI. The CLI is on your PATH and talks to the rest of the team via a shared event bus. This mission has no lead. Use these verbs to participate; do not invent your own conventions.
 
 == Coordination ==
+- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
 - Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.
 - Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.
 - Address one or several members with `runner msg post --to coder --to reviewer "<text>"` or leading mentions: `runner msg post "@coder @reviewer <text>"`. Explicit `--to` wins; mid-text mentions do not address.
@@ -208,6 +210,7 @@ pub(crate) fn compose_launch_prompt_sections(
     after_mission.push_str(
         "- The operator watches the terminals and types directly into a runner's pane.\n",
     );
+    after_mission.push_str("- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.\n");
     after_mission.push_str("- Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.\n");
     after_mission.push_str("- Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.\n");
     after_mission.push_str("- Address one or several members with repeated `--to` (`runner msg post --to coder --to reviewer \"<text>\"`) or leading mentions (`runner msg post \"@coder @reviewer <text>\"`). Explicit recipients win; mid-text mentions do not address.\n");
@@ -317,13 +320,18 @@ mod tests {
     }
 
     #[test]
-    fn every_coordination_text_explains_targeted_messaging_and_history() {
+    fn every_coordination_text_explains_pushed_inbox_messaging_and_history() {
         for text in [
-            WORKER_COORDINATION_PREAMBLE.to_owned(),
-            TEAM_COORDINATION_PREAMBLE.to_owned(),
+            compose_worker_first_turn(Some("brief"), None, None),
+            compose_worker_first_turn(Some("brief"), None, Some("goal")),
             launch_fixture(),
         ] {
             for rule in [
+                "Inside a mission, Runner pushes inbox notifications",
+                "When waiting for a teammate and no independent work remains, finish your turn",
+                "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
+                "Iterate with teammates across turns",
+                "External monitoring instructions do not apply to receiving messages in your own mission",
                 "shows and marks new inbox messages read",
                 "already tracks unread messages",
                 "msg read --all",
@@ -426,6 +434,7 @@ Goal: Implement feature
 - You are the human's counterpart. Workers message you with questions.
 - Reply to a worker with `runner msg post --to <handle> "…"`; broadcasts omit `--to`.
 - The operator watches the terminals and types directly into a runner's pane.
+- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
 - Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.
 - Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.
 - Address one or several members with repeated `--to` (`runner msg post --to coder --to reviewer "<text>"`) or leading mentions (`runner msg post "@coder @reviewer <text>"`). Explicit recipients win; mid-text mentions do not address.
