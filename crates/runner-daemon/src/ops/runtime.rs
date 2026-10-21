@@ -278,10 +278,11 @@ pub fn runtime_catalog(state: &AppCore) -> Result<Vec<RuntimeCatalogEntry>> {
                 if let Some(catalog) = command.as_deref().and_then(|command| {
                     discovery.models.catalog(
                         runtime.name,
-                        &crate::runtime_status::models::source_with_env(
+                        &crate::runtime_status::models::source_with_main(
                             runtime.name,
                             command,
                             &shell_env,
+                            Some(&state.db),
                         ),
                     )
                 }) {

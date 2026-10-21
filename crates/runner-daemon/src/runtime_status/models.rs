@@ -199,7 +199,8 @@ pub(crate) fn request(
             .model_discovery()
             .is_some()
     }) {
-        let Some(source) = current_source(runtime, pool, shell_env, discovery) else {
+        let Some((source, env)) = current_source_and_env(runtime, pool, shell_env, discovery)
+        else {
             continue;
         };
         if !discovery
@@ -213,7 +214,6 @@ pub(crate) fn request(
         let discovery = Arc::clone(discovery);
         let events = events.clone();
         std::thread::spawn(move || {
-            let env = shell_env.read().map(|env| env.clone()).unwrap_or_default();
             let started = Instant::now();
             let query = crate::runtimes::adapter(runtime).model_discovery().unwrap();
             let method = query.method;
@@ -267,9 +267,51 @@ fn current_source(
     shell_env: &SharedShellEnv,
     discovery: &SharedDiscoveryState,
 ) -> Option<ModelSource> {
+    current_source_and_env(runtime, pool, shell_env, discovery).map(|(source, _)| source)
+}
+
+fn current_source_and_env(
+    runtime: Runtime,
+    pool: &DbPool,
+    shell_env: &SharedShellEnv,
+    discovery: &SharedDiscoveryState,
+) -> Option<(ModelSource, LoginShellEnv)> {
     let command = effective_runtime_command(runtime, pool, shell_env, discovery).ok()?;
-    (command.source != RuntimeCommandSource::Catalog)
-        .then(|| source_with_env(runtime, &command.command, &shell_env.read().unwrap()))
+    if command.source == RuntimeCommandSource::Catalog {
+        return None;
+    }
+    let mut env = shell_env.read().ok()?.clone();
+    let mut source = source_with_env(runtime, &command.command, &env);
+    if runtime == Runtime::ClaudeCode {
+        if let Some(main) = crate::claude_accounts::sharing::main_account(pool) {
+            source.config_home = Some(main.folder.clone().into());
+            env.vars.insert(
+                crate::claude_accounts::sharing::MAIN_NATIVE.into(),
+                main.native.to_string(),
+            );
+            if main.native {
+                env.vars.remove("CLAUDE_CONFIG_DIR");
+            } else {
+                env.vars.insert("CLAUDE_CONFIG_DIR".into(), main.folder);
+            }
+        }
+    }
+    Some((source, env))
+}
+
+pub(crate) fn source_with_main(
+    runtime: Runtime,
+    command: &str,
+    env: &LoginShellEnv,
+    pool: Option<&DbPool>,
+) -> ModelSource {
+    let mut source = source_with_env(runtime, command, env);
+    if runtime == Runtime::ClaudeCode {
+        if let Some(main) = pool.and_then(crate::claude_accounts::sharing::main_account) {
+            source.config_home = Some(main.folder.into());
+        }
+    }
+    source
 }
 
 #[cfg(test)]
@@ -365,6 +407,14 @@ pub(crate) fn run(query: Query<'_>) -> Result<Vec<u8>, Reason> {
 fn run_process(query: Query<'_>) -> std::io::Result<Vec<u8>> {
     let mut output = tempfile::tempfile()?;
     let mut command = Command::new(query.executable);
+    if query
+        .env
+        .vars
+        .get(crate::claude_accounts::sharing::MAIN_NATIVE)
+        .is_some_and(|value| value == "true")
+    {
+        command.env_remove("CLAUDE_CONFIG_DIR");
+    }
     command
         .args(query.args)
         .envs(&query.env.vars)

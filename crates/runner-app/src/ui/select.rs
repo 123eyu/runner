@@ -243,6 +243,7 @@ pub struct StyledSelect {
     width: Pixels,
     min_menu_width: Pixels,
     detailed: bool,
+    compact: bool,
     picker: bool,
     full_width: bool,
     runtime_style: bool,
@@ -278,6 +279,7 @@ impl StyledSelect {
             width: px(160.),
             min_menu_width: px(240.),
             detailed: false,
+            compact: false,
             picker: false,
             full_width: false,
             runtime_style: false,
@@ -324,6 +326,11 @@ impl StyledSelect {
 
     pub fn min_menu_width(mut self, width: Pixels) -> Self {
         self.min_menu_width = width;
+        self
+    }
+
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
         self
     }
 
@@ -502,6 +509,7 @@ impl StyledSelect {
             self.state.highlighted(),
             OptionMenuStyle {
                 detailed: self.detailed || self.picker,
+                compact: self.compact,
                 monospace: self.monospace,
                 runtime_style: self.runtime_style,
                 mono_description: self.picker,
@@ -542,11 +550,14 @@ impl Render for StyledSelect {
         let leading = selected.and_then(|option| option.leading.clone());
         let marked = selected.is_some_and(|option| option.marked);
         let picker = self.picker;
+        let compact = self.compact;
         let open = self.state.is_open();
         let entity = cx.entity();
         let click_entity = entity.clone();
         let click_focus = self.focus_handle.clone();
-        let height = if picker {
+        let height = if compact {
+            24.
+        } else if picker {
             60.
         } else if self.detailed {
             52.
@@ -557,7 +568,10 @@ impl Render for StyledSelect {
             .id(self.id.clone())
             .relative()
             .when(self.picker || self.full_width, |root| root.w_full())
-            .when(!(self.picker || self.full_width), |root| {
+            .when(compact, |root| {
+                root.flex_none().max_w(rems(f32::from(self.width) / 16.))
+            })
+            .when(!(self.picker || self.full_width || compact), |root| {
                 root.w(rems(f32::from(self.width) / 16.))
             })
             .on_key_down(cx.listener(Self::on_key_down))
@@ -568,18 +582,36 @@ impl Render for StyledSelect {
                     .track_focus(&self.focus_handle.clone().tab_stop(!self.disabled))
                     .tab_index(0)
                     .tab_stop(!self.disabled)
-                    .w_full()
+                    .when(!compact, |trigger| trigger.w_full())
                     .h(rems(height / 16.))
-                    .px(rems(if stacked { 12. / 16. } else { 10. / 16. }))
+                    .px(rems(if compact {
+                        6. / 16.
+                    } else if stacked {
+                        12. / 16.
+                    } else {
+                        10. / 16.
+                    }))
                     .flex()
                     .items_center()
-                    .gap(rems(if picker { 12. / 16. } else { 8. / 16. }))
+                    .gap(rems(if compact {
+                        4. / 16.
+                    } else if picker {
+                        12. / 16.
+                    } else {
+                        8. / 16.
+                    }))
                     .when(picker, |trigger| {
                         trigger
                             .rounded_tl(rems(7. / 16.))
                             .rounded_tr(rems(7. / 16.))
                     })
-                    .when(!picker, |trigger| {
+                    .when(compact, |trigger| {
+                        trigger
+                            .line_height(rems(18. / 16.))
+                            .rounded(rems(4. / 16.))
+                            .when(open, |trigger| trigger.bg(theme::raised()))
+                    })
+                    .when(!picker && !compact, |trigger| {
                         trigger
                             .rounded(rems(if self.detailed { 6. / 16. } else { 4. / 16. }))
                             .border_1()
@@ -599,7 +631,7 @@ impl Render for StyledSelect {
                         trigger
                             .cursor_pointer()
                             .hover(move |trigger| {
-                                if picker {
+                                if picker || compact {
                                     trigger.bg(theme::raised())
                                 } else {
                                     trigger.border_color(theme::faint())
@@ -615,7 +647,7 @@ impl Render for StyledSelect {
                             })
                     })
                     .focus_visible(move |style| {
-                        if picker {
+                        if picker || compact {
                             style.bg(theme::raised())
                         } else {
                             style.border_color(theme::faint())
@@ -640,7 +672,9 @@ impl Render for StyledSelect {
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(if picker {
+                                    .text_size(if compact {
+                                        theme::text_ui()
+                                    } else if picker {
                                         theme::text_lead()
                                     } else if self.detailed {
                                         theme::text_body()
@@ -652,7 +686,11 @@ impl Render for StyledSelect {
                                     } else {
                                         FontWeight::NORMAL
                                     })
-                                    .text_color(theme::text())
+                                    .text_color(if compact {
+                                        theme::muted()
+                                    } else {
+                                        theme::text()
+                                    })
                                     .when(self.monospace, |label| {
                                         label.font_family(theme::UI_MONOSPACE_FONT)
                                     })
@@ -688,7 +726,13 @@ impl Render for StyledSelect {
                             } else {
                                 "chevron-down.svg"
                             })
-                            .size(rems(if picker { 1. } else { 14. / 16. }))
+                            .size(rems(if compact {
+                                12. / 16.
+                            } else if picker {
+                                1.
+                            } else {
+                                14. / 16.
+                            }))
                             .flex_none()
                             .text_color(theme::faint()),
                     ),
@@ -719,9 +763,17 @@ impl Render for StyledSelect {
                     zoom,
                 )
             };
-            root = root.child(crate::ui::menu::popup_layer_sized(
-                anchor, window, width, menu, dismiss,
-            ));
+            root = root.child(if compact {
+                crate::ui::menu::popup_layer_right_aligned(
+                    anchor,
+                    window,
+                    self.min_menu_width * zoom,
+                    menu,
+                    dismiss,
+                )
+            } else {
+                crate::ui::menu::popup_layer_sized(anchor, window, width, menu, dismiss)
+            });
         }
         root
     }
@@ -732,6 +784,7 @@ impl Render for StyledSelect {
 pub(crate) struct OptionMenuStyle {
     /// Roomier rows with inset corners and no check, for rich pickers.
     pub detailed: bool,
+    pub compact: bool,
     pub monospace: bool,
     /// Every row reads at full contrast, as a runtime list does.
     pub runtime_style: bool,
@@ -756,7 +809,7 @@ pub(crate) fn option_menu(
     let rows = options.iter().cloned().enumerate().map(|(index, option)| {
         let active = option.value == value;
         let highlighted = highlighted == index;
-        let stacked = style.detailed || option.description.is_some();
+        let stacked = !style.compact && (style.detailed || option.description.is_some());
         let foreground = if option.disabled {
             theme::faint()
         } else if option.danger {
@@ -771,13 +824,22 @@ pub(crate) fn option_menu(
             .id(("select-option", index))
             .debug_selector(|| format!("STYLED_SELECT_OPTION_{index}"))
             .w_full()
-            .px(rems(if style.detailed { 10. / 16. } else { 12. / 16. }))
-            .py_2()
+            .px(rems(if style.compact {
+                8. / 16.
+            } else if style.detailed {
+                10. / 16.
+            } else {
+                12. / 16.
+            }))
+            .py(rems(if style.compact { 5. / 16. } else { 8. / 16. }))
             .flex()
             .items_center()
             .gap_2()
             .when(stacked && option.leading.is_none(), |row| row.items_start())
-            .when(style.detailed, |row| row.rounded(rems(4. / 16.)))
+            .when(style.detailed || style.compact, |row| {
+                row.rounded(rems(4. / 16.))
+            })
+            .when(style.compact, |row| row.line_height(rems(18. / 16.)))
             .opacity(if option.disabled { 0.5 } else { 1. })
             .when(active || highlighted, |row| {
                 row.bg(if option.danger {
@@ -798,6 +860,20 @@ pub(crate) fn option_menu(
                     }
                 })
             })
+            .when(style.compact, |row| {
+                row.child(div().size(rems(14. / 16.)).flex_none().children(if active {
+                    Some(
+                        svg()
+                            .debug_selector(|| "STYLED_SELECT_CHECK".into())
+                            .path("check.svg")
+                            .size_full()
+                            .text_color(theme::muted())
+                            .into_any_element(),
+                    )
+                } else {
+                    option.leading.as_ref().map(|leading| leading.draw(14.))
+                }))
+            })
             .children(option.swatch.map(|color| {
                 div()
                     .size(rems(12. / 16.))
@@ -810,6 +886,7 @@ pub(crate) fn option_menu(
                 option
                     .leading
                     .as_ref()
+                    .filter(|_| !style.compact)
                     .map(|leading| leading.draw(if style.detailed { 28. } else { 13. })),
             )
             .child(
@@ -817,12 +894,17 @@ pub(crate) fn option_menu(
                     .flex_1()
                     .min_w(px(0.))
                     .flex()
-                    .flex_col()
-                    .gap(rems(2. / 16.))
+                    .when(!style.compact, |text| text.flex_col())
+                    .when(style.compact, |text| text.items_center())
+                    .gap(rems(if style.compact { 12. / 16. } else { 2. / 16. }))
                     .child(
                         div()
+                            .debug_selector(|| format!("STYLED_SELECT_LABEL_{index}"))
+                            .when(style.compact, |label| label.flex_1().min_w(px(0.)))
                             .truncate()
-                            .text_size(if style.detailed {
+                            .text_size(if style.compact {
+                                theme::text_ui()
+                            } else if style.detailed {
                                 theme::text_body()
                             } else {
                                 theme::text_title()
@@ -836,6 +918,8 @@ pub(crate) fn option_menu(
                     )
                     .children(option.description.map(|description| {
                         div()
+                            .debug_selector(|| format!("STYLED_SELECT_DESCRIPTION_{index}"))
+                            .when(style.compact, |description| description.flex_none())
                             .text_size(theme::text_meta())
                             .when(style.mono_description, |line| {
                                 line.font_family(theme::UI_MONOSPACE_FONT)
@@ -848,7 +932,7 @@ pub(crate) fn option_menu(
                             .child(description)
                     })),
             )
-            .when(active && !style.detailed, |row| {
+            .when(active && !style.detailed && !style.compact, |row| {
                 row.child(
                     svg()
                         .debug_selector(|| "STYLED_SELECT_CHECK".into())
@@ -908,8 +992,8 @@ pub(crate) fn option_menu(
                 .overflow_y_scroll()
                 .scrollbar_width(px(0.))
                 .track_scroll(scroll)
-                .when(style.detailed, |menu| menu.p_1())
-                .when(!style.detailed, |menu| menu.py_1())
+                .when(style.detailed || style.compact, |menu| menu.p_1())
+                .when(!style.detailed && !style.compact, |menu| menu.py_1())
                 .when(scrolls, |menu| menu.pr(app_scrollbar_gutter()))
                 .children(rows),
         )
@@ -1060,6 +1144,85 @@ mod tests {
             keystroke: Keystroke::parse(key).unwrap(),
         });
         visual.run_until_parked();
+    }
+
+    struct CompactSelectHost {
+        select: Entity<StyledSelect>,
+        zoom: f32,
+    }
+
+    impl Render for CompactSelectHost {
+        fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            window.set_rem_size(px(16. * self.zoom));
+            div()
+                .size_full()
+                .flex()
+                .justify_end()
+                .items_start()
+                .p_4()
+                .child(self.select.clone())
+        }
+    }
+
+    #[test]
+    fn compact_account_menu_keeps_usage_inline_and_aligns_with_its_small_trigger() {
+        for zoom in [1., 1.5] {
+            let mut cx = TestAppContext::single();
+            let choices = Rc::new(std::cell::RefCell::new(Vec::new()));
+            let host = cx.add_window(|window, cx| {
+                window.resize(gpui::size(px(800.), px(600.)));
+                let focus = cx.focus_handle();
+                focus.focus(window, cx);
+                let select = cx.new(|cx| {
+                    let choices = choices.clone();
+                    StyledSelect::new(
+                        "account",
+                        focus,
+                        "work",
+                        vec![
+                            SelectOption::new("native", "Personal").description("86%"),
+                            SelectOption::new("work", "Work QA955").description("24%"),
+                            SelectOption::new("long", "A much longer account name for truncation")
+                                .description("42%"),
+                            SelectOption::new("manage", "Manage accounts…").separator_before(true),
+                        ],
+                        Rc::new(move |value, _, _| choices.borrow_mut().push(value)),
+                        cx,
+                    )
+                    .compact(true)
+                    .width(px(120.))
+                    .min_menu_width(px(208.))
+                });
+                CompactSelectHost { select, zoom }
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            visual.run_until_parked();
+            let trigger = visual.debug_bounds("STYLED_SELECT_TRIGGER").unwrap();
+            assert_eq!(trigger.size.height, px(24. * zoom));
+            assert!(
+                trigger.size.width >= px(60. * zoom) && trigger.size.width <= px(120. * zoom),
+                "{trigger:?}"
+            );
+            visual.simulate_click(trigger.center(), Modifiers::default());
+            visual.run_until_parked();
+            let menu = visual.debug_bounds("STYLED_SELECT_MENU").unwrap();
+            assert!(
+                (menu.right() - trigger.right()).abs() <= px(1.),
+                "{zoom}: {menu:?} {trigger:?}"
+            );
+            assert_eq!(menu.size.width, px(208. * zoom));
+            assert!(menu.size.height < px(130. * zoom), "{zoom}: {menu:?}");
+            let label = visual.debug_bounds("STYLED_SELECT_LABEL_1").unwrap();
+            let usage = visual.debug_bounds("STYLED_SELECT_DESCRIPTION_1").unwrap();
+            let check = visual.debug_bounds("STYLED_SELECT_CHECK").unwrap();
+            assert!((label.center().y - usage.center().y).abs() <= px(1.));
+            assert!(usage.left() > label.left() && usage.right() <= menu.right());
+            assert!(check.right() <= label.left());
+            press_key(&mut visual, "home");
+            press_key(&mut visual, "enter");
+            assert_eq!(&*choices.borrow(), &["native"]);
+            assert!(visual.debug_bounds("STYLED_SELECT_MENU").is_none());
+        }
     }
 
     #[test]

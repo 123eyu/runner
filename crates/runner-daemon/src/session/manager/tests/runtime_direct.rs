@@ -124,6 +124,7 @@ fn only_terminal_shells_get_the_osc7_integration() {
             None,
             None,
             None,
+            None,
         );
         spec
     };

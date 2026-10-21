@@ -21,7 +21,7 @@ use crate::router::prompt::{LaunchPromptInput, SessionPromptKind};
 use crate::router::runtime::{ForkPlan, PermissionMode, ResumePlan, FIRST_TURN_ARGV_MAX_BYTES};
 use crate::session::hook_feed::HookWatcher;
 use crate::session::runtime::SpawnSpec;
-#[cfg(all(test, windows))]
+#[cfg(windows)]
 pub(crate) use helpers::ordinary_windows_path;
 pub use helpers::Permissions;
 #[cfg(test)]

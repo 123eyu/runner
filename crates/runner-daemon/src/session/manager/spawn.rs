@@ -8,6 +8,17 @@ use runner_core::protocol::socket::FORK_MATERIALIZE_TIMEOUT;
 const FORK_MATERIALIZE_POLL: Duration = Duration::from_millis(25);
 const CODEX_FORK_ROLLOUT_TIMEOUT: Duration = Duration::from_secs(5);
 
+fn claude_permission_arg(args: &[String]) -> String {
+    args.windows(2)
+        .find(|pair| pair[0] == "--permission-mode")
+        .map(|pair| pair[1].clone())
+        .or_else(|| {
+            args.iter()
+                .find_map(|arg| arg.strip_prefix("--permission-mode=").map(str::to_owned))
+        })
+        .unwrap_or_else(|| "default".into())
+}
+
 const LOCALE_VARS: [&str; 3] = ["LANG", "LC_ALL", "LC_CTYPE"];
 
 /// A terminal pane or drawer shell: the runtime-only `shell` role that
@@ -602,6 +613,7 @@ impl SessionManager {
         system_prompt_path: Option<&Path>,
         first_turn: Option<&str>,
         mission_bus_dir: Option<&Path>,
+        pool: Option<&DbPool>,
     ) -> bool {
         let adapter = crate::runtimes::for_key(&role.runtime);
         let env = crate::shell_path::LoginShellEnv {
@@ -615,7 +627,12 @@ impl SessionManager {
                 .models
                 .catalog(
                     runtime,
-                    &crate::runtime_status::models::source_with_env(runtime, &spec.command, &env),
+                    &crate::runtime_status::models::source_with_main(
+                        runtime,
+                        &spec.command,
+                        &env,
+                        pool,
+                    ),
                 )?
                 .default_model
                 .clone()
@@ -805,11 +822,21 @@ impl SessionManager {
         {
             role.codex_speed = slot.codex_speed_override.or(role.codex_speed);
         }
-        let launch_definition = crate::session::launch_definition::from_effective(&role);
+        let mut launch_definition = crate::session::launch_definition::from_effective(&role);
         role.args = crate::runtimes::for_key(&role.runtime)
             .permissions()
             .apply_mission(&role.args, self.mission_permission_mode());
-        let role = self.resolve_role_executable(&role, &pool)?;
+        let mut role = self.resolve_role_executable(&role, &pool)?;
+        launch_definition.claude_account = crate::claude_accounts::launch_account(
+            &pool,
+            &mut role,
+            &self.shell_env.read().unwrap().vars,
+            None,
+            true,
+        )?;
+        if let Some(account) = &mut launch_definition.claude_account {
+            account.permission_mode = claude_permission_arg(&role.args);
+        }
 
         // Agent-native session resume: this is a *fresh* session row, so
         // there's no prior key to inherit. The runtime adapter still
@@ -892,7 +919,14 @@ impl SessionManager {
             system_prompt_path.as_deref(),
             first_turn.as_deref(),
             Some(&mission_bus_dir),
+            Some(&pool),
         );
+        crate::claude_accounts::sharing::launch(
+            &pool,
+            launch_definition.claude_account.as_ref(),
+            &role,
+            &mut spec,
+        )?;
 
         // Insert the row first (status=running with no runtime_*
         // metadata yet) so a fast-failing runtime spawn doesn't leave
@@ -1529,7 +1563,7 @@ impl SessionManager {
             .then_some(speed_override)
             .flatten();
         role.codex_speed = speed_override.or(role.codex_speed);
-        let launch_definition = crate::session::launch_definition::from_effective(&role);
+        let mut launch_definition = crate::session::launch_definition::from_effective(&role);
         let mut role = self.resolve_role_executable(&role, &pool)?;
         // Permission posture belongs to MissionPermissionMode (feature
         // 596): attended chats strip the row's permission flags and
@@ -1537,6 +1571,17 @@ impl SessionManager {
         role.args = crate::runtimes::for_key(&role.runtime)
             .permissions()
             .strip(&role.args);
+
+        launch_definition.claude_account = crate::claude_accounts::launch_account(
+            &pool,
+            &mut role,
+            &self.shell_env.read().unwrap().vars,
+            None,
+            true,
+        )?;
+        if let Some(account) = &mut launch_definition.claude_account {
+            account.permission_mode = claude_permission_arg(&role.args);
+        }
 
         // Agent-native session resume: `spawn_direct` always opens a *new*
         // chat. The runtime adapter self-assigns a fresh
@@ -1600,7 +1645,14 @@ impl SessionManager {
             system_prompt_path.as_deref(),
             first_turn.as_deref(),
             None,
+            Some(&pool),
         );
+        crate::claude_accounts::sharing::launch(
+            &pool,
+            launch_definition.claude_account.as_ref(),
+            &role,
+            &mut spec,
+        )?;
 
         // Insert the row first so a fast-failing spawn doesn't leave
         // a half-row. Every chat carries its spawned engine on the row
@@ -1942,7 +1994,18 @@ impl SessionManager {
                     role.display_name.clone()
                 }
             });
-        let plan = crate::runtimes::for_key(&role.runtime)
+        let source_pin =
+            crate::claude_accounts::config_pin(&role, &self.shell_env.read().unwrap().vars);
+        let mut fork_definition = definition.clone();
+        let previous_account = definition.claude_account.as_ref();
+        let mut account = crate::claude_accounts::launch_account(
+            &pool,
+            &mut role,
+            &self.shell_env.read().unwrap().vars,
+            previous_account,
+            true,
+        )?;
+        let mut plan = crate::runtimes::for_key(&role.runtime)
             .fork_plan(source_key, &source_label)
             .ok_or_else(|| {
                 Error::msg(format!(
@@ -1951,6 +2014,31 @@ impl SessionManager {
                 ))
             })?;
 
+        if let Some(account) = &mut account {
+            let native_origin = runner_core::app_paths::home_dir().unwrap().join(".claude");
+            let origin = previous_account
+                .map(|previous| previous.origin_folder.as_str())
+                .or(source_pin.as_deref())
+                .unwrap_or_else(|| native_origin.to_str().unwrap());
+            account.permission_mode = crate::claude_accounts::last_permission(
+                origin,
+                resolved_cwd.as_deref(),
+                source_key,
+                previous_account
+                    .map(|previous| previous.permission_mode.as_str())
+                    .unwrap_or("default"),
+            );
+            if let router::runtime::ForkPlan::Direct(plan) = &mut plan {
+                crate::claude_accounts::resume_args(
+                    &mut plan.args,
+                    account,
+                    origin,
+                    resolved_cwd.as_deref(),
+                    source_key,
+                );
+            }
+        }
+        fork_definition.claude_account = account;
         let mut direct_env = BTreeMap::new();
         if !Runtime::parse(&role.runtime).is_some_and(Runtime::is_shell) {
             direct_env.insert("RUNNER_HANDLE".into(), role.handle.clone());
@@ -1999,7 +2087,7 @@ impl SessionManager {
                 });
                 row.agent_runtime.clone_from(&source.agent_runtime);
                 row.agent_command.clone_from(&source.agent_command);
-                row.launch_definition.clone_from(&source.launch_definition);
+                row.launch_definition = Some(fork_definition.clone());
                 row.last_cols = initial_size.map(|(cols, _)| cols);
                 row.last_rows = initial_size.map(|(_, rows)| rows);
                 crate::repo::session::insert(&conn, &row)?;
@@ -2062,7 +2150,21 @@ impl SessionManager {
                     system_prompt_path.as_deref(),
                     None,
                     None,
+                    Some(&pool),
                 );
+                if let Err(error) = crate::claude_accounts::sharing::launch(
+                    &pool,
+                    fork_definition.claude_account.as_ref(),
+                    &role,
+                    &mut spec,
+                ) {
+                    let _ = delete_failed_fork(&pool, &session_id);
+                    events.updated(&SessionUpdatedEvent {
+                        session_id: session_id.clone(),
+                        mission_id: None,
+                    });
+                    return Err(error);
+                }
                 let direct_spawn_started_at = Instant::now();
                 let spawning = self.shutdown.read().unwrap();
                 if *spawning {
@@ -2510,7 +2612,7 @@ impl SessionManager {
             };
             crate::session::launch_definition::to_role(definition, runtime, identity)
         };
-        let new_definition =
+        let mut new_definition =
             fresh.then(|| crate::session::launch_definition::from_effective(&role));
         if mission_ctx.is_some() {
             role.args = crate::runtimes::for_key(&role.runtime)
@@ -2559,7 +2661,36 @@ impl SessionManager {
                 .collect();
             probe_env.extend(role.env.clone());
         }
+        let previous_account = snap
+            .launch_definition
+            .as_ref()
+            .and_then(|definition| definition.claude_account.as_ref());
+        let mut claude_account = crate::claude_accounts::launch_account(
+            &pool,
+            &mut role,
+            &self.shell_env.read().unwrap().vars,
+            previous_account,
+            fresh,
+        )?;
+        if let Some(account) = &mut claude_account {
+            if let Some(key) = snap.agent_session_key.as_deref() {
+                account.permission_mode = crate::claude_accounts::last_permission(
+                    &account.origin_folder,
+                    resolved_cwd_for_check.as_deref(),
+                    key,
+                    &account.permission_mode,
+                );
+            }
+        }
         let conversation_missing = snap.agent_session_key.as_deref().is_some_and(|key| {
+            if let Some(account) = &claude_account {
+                return crate::claude_accounts::transcript(
+                    &account.origin_folder,
+                    resolved_cwd_for_check.as_deref(),
+                    key,
+                )
+                .is_some_and(|path| !path.is_file());
+            }
             adapter.conversation_exists(
                 key,
                 &crate::runtimes::ProbeContext {
@@ -2581,6 +2712,29 @@ impl SessionManager {
         let mut plan = adapter.resume_plan(effective_prior_key);
         if conversation_missing {
             plan.resuming = false;
+        }
+        if let Some(account) = &mut claude_account {
+            if let Some(key) = effective_prior_key {
+                if account.origin_folder != account.folder {
+                    role.args = adapter.permissions().strip(&role.args);
+                }
+                crate::claude_accounts::resume_args(
+                    &mut plan.args,
+                    account,
+                    &account.origin_folder,
+                    resolved_cwd_for_check.as_deref(),
+                    key,
+                );
+            }
+            if !plan.resuming {
+                account.origin_folder = account.folder.clone();
+            }
+            let definition = new_definition.get_or_insert_with(|| {
+                snap.launch_definition
+                    .clone()
+                    .expect("recorded launch definition")
+            });
+            definition.claude_account = Some(account.clone());
         }
         if !allow_fresh_fallback
             && !plan.resuming
@@ -2766,7 +2920,9 @@ impl SessionManager {
             system_prompt_path.as_deref(),
             first_turn.as_deref(),
             mission_bus_dir.as_deref(),
+            Some(&pool),
         );
+        crate::claude_accounts::sharing::launch(&pool, claude_account.as_ref(), &role, &mut spec)?;
 
         let started_at_dt = Utc::now();
         let started_at = started_at_dt.to_rfc3339();

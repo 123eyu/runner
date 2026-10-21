@@ -1221,10 +1221,49 @@ fn translate_key(key: &str) -> RuntimeResult<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
+#[test]
+fn command_summary_hides_shared_configuration_values() {
+    let args = [
+        "--settings",
+        "secret settings",
+        "--mcp-config",
+        "secret mcp",
+        "--plugin-dir",
+        "private plugin path",
+        "--plugin-dir=another private path",
+        "--resume",
+        "session-id",
+    ]
+    .map(str::to_owned);
+    assert_eq!(
+        format_command_summary("claude", &args),
+        "claude --settings <configuration> --mcp-config <configuration> --plugin-dir <configuration> <configuration> --resume session-id"
+    );
+}
+
 fn format_command_summary(command: &str, args: &[String]) -> String {
     if args.is_empty() {
         command.to_string()
     } else {
+        let mut hidden = false;
+        let args: Vec<_> = args
+            .iter()
+            .map(|arg| {
+                if hidden {
+                    hidden = false;
+                    return "<configuration>";
+                }
+                hidden = matches!(arg.as_str(), "--settings" | "--mcp-config" | "--plugin-dir");
+                if arg.starts_with("--settings=")
+                    || arg.starts_with("--mcp-config=")
+                    || arg.starts_with("--plugin-dir=")
+                {
+                    "<configuration>"
+                } else {
+                    arg
+                }
+            })
+            .collect();
         format!("{} {}", command, args.join(" "))
     }
 }

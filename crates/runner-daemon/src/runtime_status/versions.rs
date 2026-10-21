@@ -394,12 +394,16 @@ fn request_latest_with(
         }
         let runtime = definition.name;
         request_probes(pool, shell_env, discovery, events, &[runtime], true);
+        let tag = if runtime == Runtime::ClaudeCode {
+            crate::claude_accounts::sharing::main_channel(pool).unwrap_or_else(|| dist_tag(runtime))
+        } else {
+            dist_tag(runtime)
+        };
         let shell_env = Arc::clone(shell_env);
         let discovery = Arc::clone(discovery);
         let events = events.clone();
         std::thread::spawn(move || {
             let env = shell_env.read().map(|env| env.clone()).unwrap_or_default();
-            let tag = dist_tag(runtime);
             check_latest(
                 &discovery,
                 &events,

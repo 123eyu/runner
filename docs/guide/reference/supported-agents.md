@@ -2,6 +2,12 @@
 
 Runner launches separately installed agent CLIs and keeps their native terminal interfaces. Enable agents, inspect detected executables, and choose executable overrides in **Settings → Agents**.
 
+## Agent settings
+
+**Settings → Agents** groups agents into Installed and Not installed lists. Every row opens that agent’s page; use the **Agents** breadcrumb to return. Installed rows show the version, executable, default badge, enable switch and an Update button when available. Tab and Shift-Tab move between rows and controls; Enter or Space opens a focused row.
+
+The agent’s page has its enable switch and **Set as default** action, detection and update status, **Executable** field with Browse and Reset, and read-only **Defaults** for model and effort. Leave Executable on Auto to use discovery. A chosen path applies to new sessions using the agent’s default command; roles with a custom command keep it. A missing agent’s page includes its install instructions and Browse.
+
 ## Install and sign in
 
 Use each provider's setup instructions, then run its CLI in a normal terminal to finish authentication before starting it in Runner.

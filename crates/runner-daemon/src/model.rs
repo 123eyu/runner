@@ -2,6 +2,7 @@ pub use runner_core::protocol::model::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchDefinition {
+    pub claude_account: Option<runner_core::protocol::ClaudeSessionAccount>,
     pub command: String,
     pub args: Vec<String>,
     pub env: std::collections::BTreeMap<String, String>,

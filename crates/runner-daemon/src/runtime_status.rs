@@ -50,6 +50,7 @@ pub fn status_list(
         .read()
         .map_err(|_| Error::msg("runtime discovery lock poisoned"))?
         .clone();
+    let config_env = crate::claude_accounts::sharing::config_env(pool, shell_env.vars.clone());
     let overrides = db::runtime_overrides(pool)?;
     let path = direct_chat_path(&shell_env);
     let home = runner_core::app_paths::home_dir();
@@ -63,7 +64,7 @@ pub fn status_list(
                 .as_deref()
                 .map(|home| {
                     crate::runtimes::adapter(runtime.name)
-                        .native_defaults_with_env(home, &shell_env.vars)
+                        .native_defaults_with_env(home, &config_env)
                 })
                 .unwrap_or_default();
             let detected_path =

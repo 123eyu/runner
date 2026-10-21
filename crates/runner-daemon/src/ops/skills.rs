@@ -26,6 +26,7 @@ pub fn skill_catalogs(core: &AppCore) -> Vec<SkillCatalog> {
         .read()
         .map(|env| env.vars.clone())
         .unwrap_or_default();
+    let env = crate::claude_accounts::sharing::config_env(&core.db, env);
     crate::runtimes::catalogs()
         .iter()
         .filter_map(|runtime| {
@@ -35,11 +36,29 @@ pub fn skill_catalogs(core: &AppCore) -> Vec<SkillCatalog> {
 }
 
 pub fn set_global_enabled(
-    _core: &AppCore,
+    core: &AppCore,
     runtime: Runtime,
     path: &Path,
     enabled: bool,
 ) -> Result<SkillCatalog> {
+    if runtime == Runtime::ClaudeCode {
+        if let Some(main) = crate::claude_accounts::sharing::main_account(&core.db) {
+            let env = std::collections::BTreeMap::from([(
+                crate::claude_accounts::sharing::MAIN_FOLDER.into(),
+                main.folder.clone(),
+            )]);
+            let catalog =
+                crate::skills::skill_catalog_with_env(runtime, &home_dir()?, None, &env).unwrap();
+            crate::runtimes::claude_code::skills::set_enabled_folder(
+                Path::new(&main.folder),
+                find_entry(&catalog, path)?,
+                enabled,
+            )?;
+            return Ok(
+                crate::skills::skill_catalog_with_env(runtime, &home_dir()?, None, &env).unwrap(),
+            );
+        }
+    }
     set_global_enabled_at(
         &home_dir()?,
         codex_home().as_deref(),
@@ -55,6 +74,7 @@ pub fn read_skill(core: &AppCore, runtime: Runtime, path: &Path) -> Result<Strin
         .read()
         .map(|env| env.vars.clone())
         .unwrap_or_default();
+    let env = crate::claude_accounts::sharing::config_env(&core.db, env);
     read_skill_at_with_env(&home_dir()?, codex_home().as_deref(), runtime, path, &env)
 }
 
@@ -64,6 +84,7 @@ pub fn save_skill(core: &AppCore, runtime: Runtime, path: &Path, text: &str) -> 
         .read()
         .map(|env| env.vars.clone())
         .unwrap_or_default();
+    let env = crate::claude_accounts::sharing::config_env(&core.db, env);
     save_skill_at_with_env(
         &home_dir()?,
         codex_home().as_deref(),

@@ -942,9 +942,20 @@ impl NativeRoot {
                     }))
                     .into_any_element()
             });
-        let title_actions = (!session_ids.is_empty() && !focused_secondary)
-            .then(|| self.chat_action_menu.clone().into_any_element())
+        let account = (!grouped)
+            .then(|| {
+                focused_entry
+                    .as_ref()
+                    .and_then(|entry| self.claude_account_details(entry, cx))
+            })
+            .flatten()
+            .map(|(name, _, _)| account_chip(name).into_any_element());
+        let title_actions = account
             .into_iter()
+            .chain(
+                (!session_ids.is_empty() && !focused_secondary)
+                    .then(|| self.chat_action_menu.clone().into_any_element()),
+            )
             .chain(control)
             .chain(fork_action)
             .chain(single_status);
@@ -1036,6 +1047,51 @@ impl NativeRoot {
             .into_any_element()
     }
 
+    fn claude_account_details(
+        &self,
+        detail: &DirectSessionEntry,
+        cx: &App,
+    ) -> Option<(String, Option<String>, String)> {
+        let store = self.app_store.read(cx);
+        if detail.agent_runtime != "claude-code" || !store.claude_accounts.multiple() {
+            return None;
+        }
+        let session = detail.claude_account.as_ref();
+        let account = store.claude_accounts.session_account(session);
+        let name = account
+            .map(|account| account.name.clone())
+            .or_else(|| session.map(|session| session.folder.clone()))?;
+        let email = account
+            .and_then(|account| store.claude_accounts.statuses.get(&account.id))
+            .and_then(|status| status.email.clone());
+        let folder = session
+            .map(|session| session.folder.clone())
+            .or_else(|| account.map(|account| account.folder.clone()))?;
+        Some((name, email, folder))
+    }
+
+    fn claude_paused_text(&self, detail: &DirectSessionEntry, cx: &App) -> Option<String> {
+        if detail
+            .claude_account
+            .as_ref()
+            .is_some_and(|account| account.pinned)
+        {
+            return None;
+        }
+        let (previous, _, folder) = self.claude_account_details(detail, cx)?;
+        let store = self.app_store.read(cx);
+        let active = store.claude_accounts.active()?;
+        let session = detail.claude_account.as_ref();
+        if folder == active.folder && session.is_none_or(|session| session.native == active.native)
+        {
+            return None;
+        }
+        Some(crate::i18n::tf(
+            "accounts.paused",
+            &[("previous", previous), ("active", active.name.clone())],
+        ))
+    }
+
     fn render_chat_side_panel(
         &self,
         detail: Option<&DirectSessionEntry>,
@@ -1124,7 +1180,15 @@ impl NativeRoot {
                 expanded: self.chat_panel_prompt_expanded,
                 view: cx.entity_id(),
             };
-            chat_panel_content(detail, role.as_ref(), width, session_key_copy, actions, cx)
+            chat_panel_content(
+                detail,
+                role.as_ref(),
+                width,
+                session_key_copy,
+                actions,
+                self.claude_account_details(detail, cx),
+                cx,
+            )
         } else {
             div()
                 .text_size(theme::text_ui())
@@ -2159,6 +2223,10 @@ impl NativeRoot {
                         entry.status == SessionStatus::Running,
                     ))
                     .child(name)
+                    .children(
+                        self.claude_account_details(entry, cx)
+                            .map(|(name, _, _)| account_chip(name)),
+                    )
                     .children(menu)
                     .children(status.map(|status| {
                         let width = self
@@ -2526,7 +2594,19 @@ impl NativeRoot {
                             Some(
                                 SessionOverlay::ended(
                                     format!("ended-{session_id}"),
-                                    ended_subtitle(status, resumable, exit_code),
+                                    self.claude_paused_text(entry, cx).map_or_else(
+                                        || ended_subtitle(status, resumable, exit_code),
+                                        |account| {
+                                            if !resumable || status == SessionStatus::Crashed {
+                                                format!(
+                                                    "{} {account}",
+                                                    ended_subtitle(status, resumable, exit_code)
+                                                )
+                                            } else {
+                                                account
+                                            }
+                                        },
+                                    ),
                                     move |window, cx| {
                                         resume_root.update(cx, |this, cx| {
                                             this.resume_chat(&resume_pane, &resume_id, window, cx)
@@ -3354,6 +3434,7 @@ fn chat_panel_content(
     width: f32,
     session_key_copy: Entity<CopyValueButton>,
     actions: ChatPanelActions,
+    account: Option<(String, Option<String>, String)>,
     cx: &App,
 ) -> AnyElement {
     let column = width - 2. * 20. - 2. * 14. - 2.;
@@ -3428,7 +3509,7 @@ fn chat_panel_content(
                         .border_color(theme::border_strong())
                         .bg(theme::panel())
                         .p(rems(14. / 16.))
-                        .child(chat_panel_setup(detail, role, column))
+                        .child(chat_panel_setup(detail, role, column, account.as_ref()))
                         .child(div().h(rems(1. / 16.)).w_full().bg(theme::border()))
                         .child(
                             div()
@@ -3439,6 +3520,9 @@ fn chat_panel_content(
                                     "cmd",
                                     side_panel_value(detail.agent_command.clone()),
                                 ))
+                                .children(account.map(|(_, _, folder)| {
+                                    side_panel_row("config", side_panel_value(folder))
+                                }))
                                 .children(
                                     cwd.map(|cwd| side_panel_row("cwd", side_panel_value(cwd))),
                                 )
@@ -3523,6 +3607,7 @@ fn chat_panel_setup(
     detail: &DirectSessionEntry,
     role: Option<&runner_core::protocol::model::Role>,
     column: f32,
+    account: Option<&(String, Option<String>, String)>,
 ) -> AnyElement {
     let identity_width = column - 40. - 12.;
     let half_column = (column - 16.) / 2.;
@@ -3578,24 +3663,70 @@ fn chat_panel_setup(
         .flex_col()
         .gap(rems(14. / 16.))
         .child(identity)
-        .children(role.map(|_| {
-            setup_row(
-                crate::i18n::text("heading.runtime"),
+        .children(if let Some((name, email, _)) = account {
+            Some(
                 div()
-                    .min_w(px(0.))
                     .flex()
-                    .items_center()
-                    .gap(rems(6. / 16.))
-                    .child(runtime_mark(&detail.agent_runtime, 12.))
-                    .child(setup_value(
-                        runtime_display_name(&detail.agent_runtime),
-                        column - 18.,
-                        false,
-                        false,
-                    ))
-                    .into_any_element(),
+                    .gap_4()
+                    .child(
+                        setup_row(
+                            crate::i18n::text("heading.runtime"),
+                            div()
+                                .min_w(px(0.))
+                                .flex()
+                                .items_center()
+                                .gap(rems(6. / 16.))
+                                .child(runtime_mark(&detail.agent_runtime, 12.))
+                                .child(setup_value(
+                                    runtime_display_name(&detail.agent_runtime),
+                                    half_column - 18.,
+                                    false,
+                                    false,
+                                ))
+                                .into_any_element(),
+                        )
+                        .flex_1(),
+                    )
+                    .child(
+                        setup_row(
+                            crate::i18n::text("accounts.account"),
+                            div()
+                                .debug_selector(|| "CHAT_ACCOUNT_DETAIL".into())
+                                .min_w(px(0.))
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(setup_value(name.clone(), half_column, false, false))
+                                .children(email.as_ref().map(|email| {
+                                    column_text(email.clone(), half_column)
+                                        .text_size(theme::text_meta())
+                                        .text_color(theme::faint())
+                                }))
+                                .into_any_element(),
+                        )
+                        .flex_1(),
+                    ),
             )
-        }))
+        } else {
+            role.map(|_| {
+                setup_row(
+                    crate::i18n::text("heading.runtime"),
+                    div()
+                        .min_w(px(0.))
+                        .flex()
+                        .items_center()
+                        .gap(rems(6. / 16.))
+                        .child(runtime_mark(&detail.agent_runtime, 12.))
+                        .child(setup_value(
+                            runtime_display_name(&detail.agent_runtime),
+                            column - 18.,
+                            false,
+                            false,
+                        ))
+                        .into_any_element(),
+                )
+            })
+        })
         .child(
             div()
                 .flex()
@@ -3616,6 +3747,20 @@ fn chat_panel_setup(
                 ),
         )
         .into_any_element()
+}
+
+fn account_chip(name: String) -> Div {
+    div()
+        .debug_selector(|| "CHAT_ACCOUNT_CHIP".into())
+        .flex_none()
+        .max_w(rems(160. / 16.))
+        .truncate()
+        .px_2()
+        .rounded_sm()
+        .bg(theme::raised())
+        .text_size(theme::text_meta())
+        .text_color(theme::muted())
+        .child(name)
 }
 
 fn side_panel_label(label: &'static str) -> AnyElement {
@@ -3717,6 +3862,7 @@ mod tests {
 
     fn direct_session(runtime: &str, native_fork: bool, forkable: bool) -> DirectSessionEntry {
         DirectSessionEntry {
+            claude_account: None,
             session_id: format!("{runtime}-session"),
             project_id: None,
             role_id: None,
@@ -3887,6 +4033,13 @@ mod tests {
                         expanded: false,
                         view: cx.entity_id(),
                     },
+                    self.detail.claude_account.as_ref().map(|account| {
+                        (
+                            "Work".into(),
+                            Some("fixture@example.test".into()),
+                            account.folder.clone(),
+                        )
+                    }),
                     cx,
                 ))
         }
@@ -3910,6 +4063,69 @@ mod tests {
         visual.simulate_resize(size(px(500.), px(800.)));
         visual.run_until_parked();
         (cx, visual)
+    }
+
+    #[test]
+    fn single_claude_tab_shows_its_account_in_the_top_header() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = gpui::TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        store.update(&mut cx,|store,cx| {
+            crate::app_store::seed_mixed_working_sessions(store);
+            {
+                let conn = store.test_core.db.get().unwrap();
+                conn.execute("UPDATE sessions SET status='stopped', agent_runtime='claude-code', agent_command='claude' WHERE id='direct-agent'",[]).unwrap();
+                let accounts = serde_json::json!({"accounts":[{"id":"native","name":"Personal","folder":"/tmp/native","native":true},{"id":"work","name":"Work","folder":"/tmp/work","native":false}],"main_id":"native","active_id":"work"});
+                conn.execute("INSERT INTO _app_state(key,value) VALUES('claude_accounts',?1)",[accounts.to_string()]).unwrap();
+            }
+            store.refresh(crate::app_store::StoreRefreshKind::All,cx);
+        });
+        let host = cx.add_window(|window, cx| {
+            let mut root = crate::NativeRoot::new(
+                "account-header".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            );
+            root.apply_tab_rows(cx);
+            assert!(root.tabs.activate_session("direct-agent"));
+            root.route = crate::AppRoute::Chat;
+            root.sync_active_chat_detail(cx);
+            root
+        });
+        let mut visual = gpui::VisualTestContext::from_window(host.into(), &cx);
+        visual.simulate_resize(size(px(1200.), px(900.)));
+        visual.run_until_parked();
+        let header = visual.debug_bounds("CHAT_TAB_HEADER_CONTENT").unwrap();
+        let chip = visual.debug_bounds("CHAT_ACCOUNT_CHIP").unwrap();
+        assert!(chip.top() >= header.top() && chip.bottom() <= header.bottom());
+    }
+
+    #[test]
+    fn account_is_beside_runtime_and_config_is_in_the_metadata_rows() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let mut detail = direct_session("claude-code", true, true);
+        detail.claude_account = Some(runner_core::protocol::ClaudeSessionAccount {
+            account_id: Some("work".into()),
+            folder: "/tmp/work".into(),
+            native: false,
+            pinned: false,
+            origin_folder: "/tmp/native".into(),
+            permission_mode: "default".into(),
+        });
+        for role in [None, Some(panel_role())] {
+            let (_cx, mut visual) = panel_harness(detail.clone(), role, 320.);
+            let runtime = visual.debug_bounds("SETUP_ROW RUNTIME").unwrap();
+            let account = visual.debug_bounds("SETUP_ROW Account").unwrap();
+            assert!((runtime.top() - account.top()).abs() <= px(1.));
+            assert!(account.left() > runtime.left());
+            let config = visual.debug_bounds("CHAT_PANEL_META /tmp/work").unwrap();
+            assert!(config.top() > account.bottom());
+        }
     }
 
     #[test]

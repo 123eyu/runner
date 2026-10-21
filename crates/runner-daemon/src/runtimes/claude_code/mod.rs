@@ -1,4 +1,5 @@
 pub(crate) mod models;
+pub(crate) mod onboarding;
 pub(crate) mod skills;
 pub(crate) mod usage;
 /// Minimum spacing between consecutive `claude-code` PTY launches.
@@ -111,7 +112,7 @@ pub(crate) fn claude_settings_args(
 /// platform, as of Claude Code 2.1.300: each UTF-16 unit outside
 /// `[A-Za-z0-9]` becomes `-` (so an emoji becomes `--`), and a name over
 /// 200 units keeps its first 200 followed by `-` and a base-36 hash of `cwd`.
-fn claude_code_project_dir(cwd: &str) -> String {
+pub(crate) fn claude_code_project_dir(cwd: &str) -> String {
     const MAX_LEN: usize = 200;
     let encoded: String = cwd
         .encode_utf16()
@@ -152,6 +153,30 @@ pub struct ClaudeCode;
 impl RuntimeAdapter for ClaudeCode {
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
+    }
+    fn mcp_path(
+        &self,
+        home: &Path,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<std::path::PathBuf> {
+        Some(
+            env.get(crate::claude_accounts::sharing::MAIN_MCP)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| home.join(".claude.json")),
+        )
+    }
+    fn native_defaults_with_env(
+        &self,
+        home: &Path,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> crate::runtime_defaults::RuntimeDefaults {
+        match env.get(crate::claude_accounts::sharing::MAIN_FOLDER) {
+            Some(folder) => crate::runtime_defaults::json_defaults(
+                &Path::new(folder).join("settings.json"),
+                false,
+            ),
+            None => self.native_defaults(home),
+        }
     }
     fn usage(&self) -> Option<&'static UsageSource> {
         Some(&USAGE)

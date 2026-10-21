@@ -48,7 +48,9 @@ impl StoreRefreshKind {
     pub(crate) fn for_event(event: &AppEvent) -> Option<Self> {
         match event.name.as_str() {
             "runtime/changed" => Some(Self::Runtimes),
-            "usage/updated" | "window_focus_map" | "session/status" => Some(Self::Activity),
+            "claude_accounts/changed" | "usage/updated" | "window_focus_map" | "session/status" => {
+                Some(Self::Activity)
+            }
             "chat/tab-attention-changed" | "chat/layout-changed" => Some(Self::Nodes),
             "event/appended"
                 if event
@@ -280,6 +282,8 @@ pub(crate) struct AppStore {
     settings_path: PathBuf,
     pub(crate) home_dir: Option<PathBuf>,
     pub(crate) usage: runner_core::protocol::UsageSnapshot,
+    pub(crate) claude_accounts: runner_core::protocol::ClaudeAccounts,
+    pub(crate) claude_account_usage: BTreeMap<String, runner_core::protocol::RuntimeUsage>,
     pub(crate) file_link_environment: (String, std::collections::HashMap<String, bool>),
     command_install_support: Option<CommandInstallSupport>,
     runner_command_status: Option<runner_core::command_install::RunnerCommandStatus>,
@@ -505,6 +509,8 @@ impl AppStore {
             settings_path,
             home_dir,
             usage: Default::default(),
+            claude_accounts: Default::default(),
+            claude_account_usage: Default::default(),
             file_link_environment: Default::default(),
             command_install_support,
             runner_command_status: None,
@@ -853,6 +859,12 @@ impl AppStore {
     fn refresh_render_snapshots(&mut self) {
         self.window_entries = self.client.window_snapshot().unwrap_or_default();
         self.usage = self.client.usage_snapshot().unwrap_or_default();
+        self.claude_accounts = self.client.claude_accounts().unwrap_or_default();
+        if self.claude_accounts.multiple() {
+            self.claude_account_usage = self.client.claude_account_usage().unwrap_or_default();
+        } else {
+            self.claude_account_usage.clear();
+        }
         self.file_link_environment = self.client.file_link_environment().unwrap_or_default();
     }
 

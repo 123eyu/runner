@@ -16,6 +16,7 @@ runner-terminal = { path = "../runner-terminal" }
 runner-core = { path = "../runner-core", features = ["schemars"] }
 log = "0.4"
 md-5 = "0.10"
+sha2 = "0.10"
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 base64 = "0.22"
@@ -54,6 +55,7 @@ reqwest = { package = "zed-reqwest", version = "0.12.15-zed", default-features =
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+junction = "2.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Ole", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

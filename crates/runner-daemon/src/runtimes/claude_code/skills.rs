@@ -6,7 +6,11 @@ use crate::skills::{GlobalState, SkillCatalog};
 use std::path::Path;
 
 pub(crate) fn load(home: &Path, _: Option<&Path>) -> SkillState {
-    let overrides = std::fs::read_to_string(home.join(".claude/settings.json"))
+    load_folder(&home.join(".claude"))
+}
+
+pub(crate) fn load_folder(folder: &Path) -> SkillState {
+    let overrides = std::fs::read_to_string(folder.join("settings.json"))
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|value| value.get("skillOverrides").cloned());
@@ -31,7 +35,16 @@ pub(crate) fn set_enabled(
 ) -> Result<SkillCatalog> {
     let runtime = Runtime::ClaudeCode;
     let entry = find_entry(&catalog_at(home, None, runtime)?, skill_path)?;
-    let path = home.join(".claude/settings.json");
+    set_enabled_folder(&home.join(".claude"), entry, enabled)?;
+    catalog_at(home, None, runtime)
+}
+
+pub(crate) fn set_enabled_folder(
+    folder: &Path,
+    entry: crate::skills::SkillEntry,
+    enabled: bool,
+) -> Result<()> {
+    let path = folder.join("settings.json");
     let mut settings: serde_json::Value = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text)
             .map_err(|error| Error::msg(format!("parse {}: {error}", path.display())))?,
@@ -55,7 +68,7 @@ pub(crate) fn set_enabled(
         overrides.insert(entry.name, serde_json::json!("off"));
     }
     let text = format!("{}\n", serde_json::to_string_pretty(&settings)?);
-    std::fs::create_dir_all(home.join(".claude"))?;
+    std::fs::create_dir_all(folder)?;
     std::fs::write(path, text)?;
-    catalog_at(home, None, runtime)
+    Ok(())
 }

@@ -83,17 +83,100 @@ impl RenderOnce for Toggle {
             }));
         if !disabled {
             if let Some(handler) = handler {
-                let click = Rc::clone(&handler);
                 toggle = toggle
-                    .on_click(move |_, window, cx| click(!on, window, cx))
-                    .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                    .on_click(move |_, window, cx| handler(!on, window, cx))
+                    .on_key_down(|event: &KeyDownEvent, _, cx| {
                         if matches!(event.keystroke.key.as_str(), "enter" | "space") {
                             cx.stop_propagation();
-                            handler(!on, window, cx);
                         }
                     });
             }
         }
         toggle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{
+        Context, KeyUpEvent, Keystroke, Modifiers, Render, TestAppContext, VisualTestContext,
+    };
+
+    struct ToggleHost {
+        on: bool,
+        changes: Vec<bool>,
+        row_activations: usize,
+    }
+
+    impl Render for ToggleHost {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let host = cx.entity();
+            div()
+                .id("toggle-row")
+                .tab_index(0)
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, _| {
+                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                        this.row_activations += 1;
+                    }
+                }))
+                .child(
+                    div()
+                        .debug_selector(|| "TEST_TOGGLE".into())
+                        .w(rems(32. / 16.))
+                        .child(Toggle::new("toggle", self.on).on_change(move |on, _, cx| {
+                            host.update(cx, |this, cx| {
+                                this.on = on;
+                                this.changes.push(on);
+                                cx.notify();
+                            });
+                        })),
+                )
+        }
+    }
+
+    #[test]
+    fn keyboard_press_and_release_toggle_once_without_activating_the_row() {
+        for initial in [false, true] {
+            for key in ["enter", "space"] {
+                let mut cx = TestAppContext::single();
+                let host = cx.add_window(|_, _| ToggleHost {
+                    on: initial,
+                    changes: Vec::new(),
+                    row_activations: 0,
+                });
+                cx.run_until_parked();
+                let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                host.update(&mut visual, |_, window, cx| {
+                    window.focus_next(cx);
+                    window.focus_next(cx);
+                })
+                .unwrap();
+                visual.run_until_parked();
+                for expected in [!initial, initial] {
+                    visual.simulate_keystrokes(key);
+                    visual.simulate_event(KeyUpEvent {
+                        keystroke: Keystroke::parse(key).unwrap(),
+                    });
+                    visual.run_until_parked();
+                    host.read_with(&visual, |host, _| {
+                        assert_eq!(host.on, expected, "{key} from {initial}");
+                        assert_eq!(host.row_activations, 0);
+                    })
+                    .unwrap();
+                }
+                host.read_with(&visual, |host, _| {
+                    assert_eq!(host.changes, [!initial, initial])
+                })
+                .unwrap();
+                let toggle = visual.debug_bounds("TEST_TOGGLE").unwrap();
+                visual.simulate_click(toggle.center(), Modifiers::default());
+                visual.run_until_parked();
+                host.read_with(&visual, |host, _| {
+                    assert_eq!(host.changes, [!initial, initial, !initial])
+                })
+                .unwrap();
+            }
+        }
     }
 }
