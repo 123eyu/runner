@@ -40,6 +40,8 @@ Press **⇧⌘N** / **Ctrl+Shift+N** to open another Runner window. If a chat or
 
 Close the window with **⇧⌘W** / **Alt+F4**. Its layout is saved, and sessions can keep running. On Windows, closing the last window follows **Settings → General → When Runner quits**. On macOS, quitting the application is separate from closing a window.
 
+On Windows, launching Runner while it is running, from the Start menu, a shortcut or the taskbar, brings the running app forward instead of starting a second copy: its main window reopens if you closed it and restores if it is minimized. A launch while Runner is quitting waits for it to exit and then starts; if Runner is still running after 10 seconds, the launch starts another copy anyway. The development build and the installed Runner are separate apps and can run side by side.
+
 **⌘W** / **Ctrl+Shift+W** acts on the focused drawer, pane or chat tab. It is different from closing the whole window. Use **Stop** when you specifically want to halt an agent, and **Archive** when you want a chat out of active lists.
 
 For alerts while the app is in the background, open **Settings → Notifications**. Chat events are enabled by default; mission events are opt-in. Clicking a notification opens its chat or mission.

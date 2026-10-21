@@ -91,6 +91,8 @@ pub struct QuitState {
     pub asking: bool,
     /// Sessions are stopping off the main thread; the app quits once they have.
     pub stopping: bool,
+    /// The app has been told to quit and can no longer cancel it.
+    pub committed: bool,
     owner: Option<gpui::WindowId>,
     generation: u64,
 }

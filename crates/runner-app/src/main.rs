@@ -23,6 +23,10 @@ mod list_controls;
 mod notifications;
 mod platform_ui;
 mod runtime_ui;
+// Its only caller is the app entry point, which a test build does not compile.
+#[cfg(windows)]
+#[cfg_attr(test, allow(dead_code))]
+mod single_instance;
 mod surfaces;
 mod terminal;
 mod window_state;
@@ -1420,6 +1424,13 @@ fn run() -> Result<()> {
         &runner_app::version::display_version(),
         &paths.app_data_dir,
     );
+    #[cfg(windows)]
+    let relaunches = match single_instance::claim(&runner_core::app_paths::app_identifier(cfg!(
+        debug_assertions
+    ))) {
+        single_instance::Instance::Primary(relaunches) => relaunches,
+        single_instance::Instance::Secondary => return Ok(()),
+    };
     let (core, connection) = runner_app::bootstrap::connect(&paths)?;
     print_startup_paths(&paths);
     let ui_settings_path = settings_path(&paths.app_data_dir);
@@ -1522,7 +1533,11 @@ fn run() -> Result<()> {
             stop_connection.shutdown()
         })));
         let quit_connection = connection.clone();
+        #[cfg(windows)]
+        let quit_relaunches = relaunches.clone();
         cx.on_app_quit(move |cx| {
+            #[cfg(windows)]
+            quit_relaunches.close();
             notifications::dismiss_all(cx);
             save_window_settings(cx);
             checkpoint_window_layout_on_quit(cx);
@@ -1702,6 +1717,21 @@ fn run() -> Result<()> {
             format_window_layout_details(&restored_windows),
         );
         cx.activate(true);
+        #[cfg(windows)]
+        cx.spawn(async move |cx| {
+            while let Some(handoff) = relaunches.next().await {
+                cx.update(|cx| {
+                    // Refused during a committed quit, so the launch starts once this one exits.
+                    if quit_committed(cx) {
+                        return;
+                    }
+                    handle_reopen(cx);
+                    focus_other_window("main", cx);
+                    handoff.accept();
+                });
+            }
+        })
+        .detach();
     });
 
     Ok(())
@@ -1778,6 +1808,14 @@ pub(crate) fn app_menus() -> Vec<Menu> {
             ],
         },
     ]
+}
+
+#[cfg(all(windows, not(test)))]
+fn quit_committed(cx: &App) -> bool {
+    runner_app::lifecycle::update_quit_pending()
+        || cx
+            .try_global::<runner_app::lifecycle::QuitState>()
+            .is_some_and(|quit| quit.committed || quit.stopping)
 }
 
 fn handle_reopen(cx: &mut App) {
