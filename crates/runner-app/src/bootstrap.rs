@@ -131,7 +131,7 @@ mod tests {
         let bridge = first
             .app_data_dir
             .join("bin")
-            .join(runner_daemon::cli_install::MCP_DEST_BIN_NAME);
+            .join(runner_core::cli_install::MCP_DEST_BIN_NAME);
         std::fs::create_dir_all(bridge.parent().unwrap()).unwrap();
         std::fs::write(&bridge, "stale bridge").unwrap();
         let _core = boot_core(&first, Vec::new()).unwrap();
@@ -142,7 +142,7 @@ mod tests {
         assert!(!second
             .app_data_dir
             .join("bin")
-            .join(runner_daemon::cli_install::MCP_DEST_BIN_NAME)
+            .join(runner_core::cli_install::MCP_DEST_BIN_NAME)
             .exists());
     }
 

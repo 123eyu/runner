@@ -1,6 +1,5 @@
 use crate::{
-    cli_install, db, event_bus, events, ops, repo, runtime_status, session, shell_path, windows,
-    AppCore,
+    db, event_bus, events, ops, repo, runtime_status, session, shell_path, windows, AppCore,
 };
 use anyhow::{Context as _, Result};
 pub use runner_core::daemon_process::NativePaths;
@@ -25,10 +24,10 @@ pub fn boot(
     // before any session spawns. Best-effort: a copy failure is reported and
     // the app keeps running (#480).
     if background {
-        if let Err(error) = cli_install::install_runner_cli(&paths.app_data_dir) {
+        if let Err(error) = runner_core::cli_install::install_runner_cli(&paths.app_data_dir) {
             eprintln!("Runner bundled agent CLI install failed: {error}");
         }
-        if let Err(error) = cli_install::remove_stale_mcp_cli(&paths.app_data_dir) {
+        if let Err(error) = runner_core::cli_install::remove_stale_mcp_cli(&paths.app_data_dir) {
             eprintln!("Runner stale MCP bridge cleanup failed: {error}");
         }
     }

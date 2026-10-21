@@ -431,7 +431,7 @@ mod tests {
             store.read_with(&cx, |store, _| store
                 .runner_command_status()
                 .map(|status| status.state.clone())),
-            Some(runner_daemon::cli_install::RunnerCommandState::Installed)
+            Some(runner_core::command_install::RunnerCommandState::Installed)
         );
         assert_eq!(
             std::fs::read_link(local_bin.join("runner-dev")).unwrap(),
