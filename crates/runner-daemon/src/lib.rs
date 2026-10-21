@@ -31,8 +31,6 @@ pub mod skills;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod usage;
-#[cfg(target_os = "macos")]
-pub mod wake;
 pub mod windows;
 
 use std::collections::HashMap;

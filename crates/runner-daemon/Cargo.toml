@@ -59,11 +59,8 @@ junction = "2.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Ole", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSWorkspace"] }
-# `block2` + `NSOperation` are what the wake observer's
-# `addObserverForName:object:queue:usingBlock:` binding is gated on.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSNotification", "NSOperation", "NSString", "NSURL", "block2"] }
-block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL"] }
 
 [dev-dependencies]
 alacritty_terminal = "0.26"

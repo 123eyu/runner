@@ -2137,7 +2137,7 @@ impl NativeRoot {
             true
         });
         window.set_rem_size(px(16. * zoom));
-        mac_chrome::sync_traffic_lights(window, zoom);
+        platform_ui::sync_traffic_lights(window, zoom);
         cx.notify();
     }
 
