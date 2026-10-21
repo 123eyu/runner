@@ -1,5 +1,7 @@
 # 955 — Claude Code accounts
 
+Shipped in [0.17.0](https://github.com/yicheng47/runner/releases/tag/v0.17.0) through [#970](https://github.com/yicheng47/runner/pull/970), 2026-10-21. Retained for the native-account identity, transcript-origin, configuration-ownership and Windows compatibility decisions. Scope and probe results below are historical; current instructions live in the [account guide](../../guide/guides/claude-accounts.md), with evidence in the [validation record](../../tests/archive/955-claude-accounts.md).
+
 Tracking issue: [#955](https://github.com/yicheng47/runner/issues/955).
 
 ## Motivation
