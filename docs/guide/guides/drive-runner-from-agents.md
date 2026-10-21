@@ -19,6 +19,8 @@ Roles use their unique handles. Crews and projects accept an ID or exact name. M
 
 ## Start and follow a crew
 
+The start-and-watch instructions in this section are for external operators launching a different mission. That mission's updates are not automatically pushed into an outside agent's chat. Participants receive inbox notifications for their own mission as described below.
+
 Write a UTF-8 `brief.md` containing the task, directory assumptions, validation and authorized Git actions. In a macOS shell, run:
 
 ```sh
@@ -38,7 +40,7 @@ Replace the crew name and directory with yours. `--goal-file -` reads standard i
 
 The follower displays new events until the mission ends or all its sessions exit. Pressing **Ctrl+C** ends your follower; it does not stop the mission. Leave it running in one terminal and use another for commands.
 
-An agent that starts a mission must arrange a watch whose output and exit notifications reach it during later work and while idle. One unread background log is not a watch. If the host cannot deliver those events, the agent should say so and give you the feed command to run. On an interrupted watch, check the mission and resume from the last JSON event's `next_offset` using `--since <offset> --oldest-first`. See the generated [agent guide](../reference/cli.md#agent-guide) for the full watch contract.
+An external agent that starts a different mission must arrange a watch whose output and exit notifications reach it during later work and while idle. One unread background log is not a watch. If the host cannot deliver those events, the agent should say so and give you the feed command to run. On an interrupted watch, check the mission and resume from the last JSON event's `next_offset` using `--since <offset> --oldest-first`. See the generated [agent guide](../reference/cli.md#agent-guide) for the full watch contract.
 
 ## Send a message and answer a question
 
@@ -54,6 +56,8 @@ runner mission archive <mission-id>
 
 Inside a mission, members can use `runner msg post --to reviewer "Ready for review"` and `runner msg read` without supplying a mission ID. Outside a mission, writes need `--mission`. An outside caller without `--as` speaks as the person; do not use `--as` to impersonate another member.
 
+Runner pushes inbox notifications to every mission participant, including leads, workers and members of a team with no lead. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission. Bounded diagnostic inspection, independent work and watching CI for an authorized PR remain valid.
+
 Address several members with `runner msg post --to coder --to reviewer "Please check the parser."`, or use leading mentions: `runner msg post "@coder @reviewer Please check the parser."`. Explicit `--to` recipients take precedence. A leading address token is `@handle`, optionally followed by one `:` or `,`, so `@coder, @reviewer: Please check.` addresses both members. Handles use lowercase letters, digits, `_` and `-`, starting with a letter or digit. Any other token ends the leading run: `@reviewer's audit` and a bare `@` stay text and do not address anyone. Mentions inside the message do not address it. Unknown handles and `@human` are refused; `mission show` lists valid members. Omit recipients to broadcast when everyone needs to act, and reply to the sender for ordinary follow-ups.
 
 When an `[inbox]` notification arrives, run `runner msg read`. It shows only new inbox messages, followed by up to ten short lines of other members' directed traffic. After a resume or whenever earlier messages are no longer in context, use `runner msg read --all` for all crew messages since joining, including sent messages and traffic between others. Unfiltered reads mark only printed inbox messages read. `--since <event-id>` and `--from <handle>` never mark messages read, even with `--all`, and omit the digest. Default reads already track unread messages; do not maintain a `--since` cursor or use `--from` as your inbox-consumption loop. When a filtered read leaves unread messages, stderr reports the unread count from that read and a hint to run unfiltered `runner msg read`, even if the filter returns no messages. Message output on stdout is unchanged. Reads also work while the daemon is unavailable. Do not post receipt-only replies such as “received” or standby messages; consuming the inbox with `runner msg read` is still required.
@@ -68,7 +72,7 @@ runner mission add-role <returned-mission-id> coder --task-file task.md
 runner mission add-role <returned-mission-id> reviewer --task "Review the coder's diff after its handoff."
 ```
 
-Arm the feed watch for the returned ID as above. These members join as workers with no lead. Adding and removing roles is controlled by the person, not by an in-mission agent. The full [CLI reference](../reference/cli.md) lists overrides and lifecycle commands.
+As an external operator, arm the feed watch for the returned ID as above. These members join as workers with no lead and receive their own inbox notifications. Adding and removing roles is controlled by the person, not by an in-mission agent. The full [CLI reference](../reference/cli.md) lists overrides and lifecycle commands.
 
 ## Exit codes
 
