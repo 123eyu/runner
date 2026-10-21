@@ -336,7 +336,7 @@ pub struct AppSettings {
     pub quit_behavior: runner_app::lifecycle::QuitBehavior,
     pub last_quit_choice: runner_app::lifecycle::QuitChoice,
     pub automatically_check_for_updates: bool,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub automatically_download_updates: bool,
     pub default_runtime: String,
     pub disabled_agents: BTreeSet<String>,
@@ -388,7 +388,7 @@ impl Default for AppSettings {
             quit_behavior: Default::default(),
             last_quit_choice: Default::default(),
             automatically_check_for_updates: true,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             automatically_download_updates: true,
             default_runtime: String::new(),
             disabled_agents: BTreeSet::new(),
@@ -1169,7 +1169,7 @@ mod tests {
         assert!(settings.runner_skill_enabled);
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn automatic_downloads_default_on_and_persist_independently_of_checks() {
         let mut settings: AppSettings =
