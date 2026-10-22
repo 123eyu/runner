@@ -648,6 +648,151 @@ fn resized_unsubmitted_input_waits_for_composer_output_after_a_successful_local_
 }
 
 #[test]
+fn rejected_native_probe_submits_hold_readiness_without_more_output() {
+    use crate::router::DeliveryReadiness;
+    use runner_terminal::input_state::InputEvent;
+    use runner_terminal::mappings::InputKind;
+
+    for reprobe in [false, true] {
+        let fixture = StartupFixture::new();
+        let _output = fixture.launch("codex", false, Instant::now());
+        fixture.event(Runtime::Codex, AgentEvent::StartupReady);
+        let pool = db::open_pool(&fixture._dir.path().join("terminal.db")).unwrap();
+        let events: Arc<dyn SessionEvents> = Arc::new(Capture::default());
+        let terminal = fixture
+            .manager
+            .create_terminal("session", 80, 10, &pool, &events)
+            .unwrap();
+        fixture
+            .manager
+            .session_state("session")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .terminal = Some(terminal.clone());
+        let emit = |bytes: &[u8]| {
+            fixture
+                .manager
+                .ingest_output_chunk("session", Some("mission"), bytes, events.as_ref());
+        };
+        emit("\x1b[2;1H› Ask Codex".as_bytes());
+        let submit = InputEvent::Key {
+            kind: InputKind::Submit,
+        };
+        if reprobe {
+            terminal.observe_input(&InputEvent::Paste { text: "old".into() });
+            emit("\x1b[2;1H\x1b[K› old".as_bytes());
+            terminal.observe_input(&submit);
+        }
+        terminal.observe_input(&InputEvent::Paste {
+            text: "line one\nline two".into(),
+        });
+        terminal.observe_input(&submit);
+        emit("\x1b[2;1H\x1b[K› line one\x1b[3;1H  line two\x1b[4;3H".as_bytes());
+        let (readiness, reservation) =
+            crate::session::clock::at(Instant::now() + Duration::from_secs(120), 0, || {
+                (
+                    fixture.manager.delivery_readiness("session"),
+                    fixture.manager.reserve_delivery("session").unwrap(),
+                )
+            });
+        fixture
+            .manager
+            .session_state("session")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .terminal = None;
+        let workers = terminal.take_workers();
+        drop(terminal);
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert_eq!(readiness, DeliveryReadiness::Drafting, "reprobe={reprobe}");
+        assert_eq!(
+            reservation,
+            DeliveryReservation::Drafting {
+                composer_visible: true
+            },
+            "reprobe={reprobe}"
+        );
+    }
+}
+
+#[test]
+fn codex_submitted_history_releases_readiness_but_a_later_collapsed_draft_holds() {
+    use crate::router::DeliveryReadiness;
+    use runner_terminal::fixtures::{decode_chunk, Fixture, FixtureEvent, FixtureInput};
+
+    let fixture = StartupFixture::new();
+    let _output = fixture.launch("codex", false, Instant::now());
+    fixture.event(Runtime::Codex, AgentEvent::StartupReady);
+    let pool = db::open_pool(&fixture._dir.path().join("terminal.db")).unwrap();
+    let events: Arc<dyn SessionEvents> = Arc::new(Capture::default());
+    let terminal = fixture
+        .manager
+        .create_terminal("session", 80, 12, &pool, &events)
+        .unwrap();
+    fixture
+        .manager
+        .session_state("session")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .terminal = Some(terminal.clone());
+    let replay = Fixture::load(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../runner-terminal/fixtures/input-codex-submit-history.ndjson"),
+    )
+    .unwrap();
+    for event in replay.events {
+        let ms = match event {
+            FixtureEvent::Data { ms, data } => {
+                fixture.manager.ingest_output_chunk(
+                    "session",
+                    Some("mission"),
+                    &decode_chunk(&data).unwrap(),
+                    events.as_ref(),
+                );
+                ms
+            }
+            FixtureEvent::Input {
+                input: FixtureInput::Event(input),
+                ..
+            } => {
+                terminal.observe_input(&input);
+                continue;
+            }
+            _ => panic!("unexpected event in the submitted history fixture"),
+        };
+        let readiness =
+            crate::session::clock::at(Instant::now() + Duration::from_secs(120), 0, || {
+                fixture.manager.delivery_readiness("session")
+            });
+        match ms {
+            30 | 7000 => assert!(
+                matches!(readiness, DeliveryReadiness::Ready { .. }),
+                "{ms}: {readiness:?}"
+            ),
+            2005 | 6000 | 6020 => assert_eq!(readiness, DeliveryReadiness::Drafting, "{ms}"),
+            _ => {}
+        }
+    }
+    fixture
+        .manager
+        .session_state("session")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .terminal = None;
+    let workers = terminal.take_workers();
+    drop(terminal);
+    for worker in workers {
+        worker.join().unwrap();
+    }
+}
+
+#[test]
 fn generated_submissions_accept_rotating_placeholders_and_deliver_later_backlogs() {
     for second_enter in [false, true] {
         let fixture = StartupFixture::new();

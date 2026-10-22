@@ -46,7 +46,13 @@ struct Probe {
     styles_before: Vec<Vec<CellStyle>>,
     started: Instant,
     weak_match: bool,
-    submitted: bool,
+    submitted: Option<SubmitOrigin>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SubmitOrigin {
+    Native,
+    Delivery,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -109,7 +115,9 @@ impl InputTracker {
             InputEvent::Paste { text } => self.observe_content(text, true, now, term),
             InputEvent::Key { kind } => match kind {
                 InputKind::Content { text } => self.observe_content(text, false, now, term),
-                InputKind::Submit if !self.composing => self.submit(now, term),
+                InputKind::Submit if !self.composing => {
+                    self.submit(now, term, SubmitOrigin::Native)
+                }
                 InputKind::Edit | InputKind::Cancel => {
                     if let TrackerState::Drafting(composer) = &mut self.state {
                         composer.submitted_form = None;
@@ -127,12 +135,7 @@ impl InputTracker {
     }
 
     pub fn track_delivery_submit<T>(&mut self, now: Instant, term: &Term<T>) {
-        match &mut self.state {
-            TrackerState::Probing(probe) | TrackerState::Reprobing { probe, .. } => {
-                probe.submitted = true;
-            }
-            _ => self.submit(now, term),
-        }
+        self.submit(now, term, SubmitOrigin::Delivery);
     }
 
     pub fn observe_output<T>(&mut self, now: Instant, term: &Term<T>) -> Option<InputObservation> {
@@ -161,10 +164,12 @@ impl InputTracker {
                                 visible: true,
                                 submitted_form: probe
                                     .submitted
+                                    .is_some()
                                     .then(|| rows_after[matched.row].clone()),
                                 placeholder_style,
                             };
-                            if probe.submitted {
+                            // Native Return can be rejected while leaving this first echo intact.
+                            if probe.submitted == Some(SubmitOrigin::Delivery) {
                                 TrackerState::Submitted(composer)
                             } else {
                                 TrackerState::Drafting(composer)
@@ -199,8 +204,11 @@ impl InputTracker {
                     composer.prefix = matched.prefix;
                     composer.last_form = rows_after[matched.row].clone();
                     composer.visible = true;
-                    composer.submitted_form = probe.submitted.then(|| composer.last_form.clone());
-                    if probe.submitted {
+                    composer.submitted_form = probe
+                        .submitted
+                        .is_some()
+                        .then(|| composer.last_form.clone());
+                    if probe.submitted == Some(SubmitOrigin::Delivery) {
                         TrackerState::Submitted(composer)
                     } else {
                         TrackerState::Drafting(composer)
@@ -214,6 +222,14 @@ impl InputTracker {
             TrackerState::Drafting(composer) => self.observe_composer(term, composer, false),
             TrackerState::Submitted(composer) => self.observe_composer(term, composer, true),
         };
+        // Submitted text can remain in history with the same prefix as the live composer.
+        if matches!(
+            &self.state,
+            TrackerState::Submitted(composer) | TrackerState::Drafting(composer)
+                if composer.submitted_form.is_some() && cursor_at_empty_composer(term, composer)
+        ) {
+            self.state = TrackerState::Idle;
+        }
         self.emit_if_changed(now)
     }
 
@@ -242,7 +258,7 @@ impl InputTracker {
                 probe.typed.push_str(&probe_text(text));
                 probe.weak_match |= pasted && weak_paste_match(text);
                 probe.started = now;
-                probe.submitted = false;
+                probe.submitted = None;
                 TrackerState::Probing(probe)
             }
             TrackerState::Reprobing {
@@ -252,7 +268,7 @@ impl InputTracker {
                 probe.typed.push_str(&probe_text(text));
                 probe.weak_match |= pasted && weak_paste_match(text);
                 probe.started = now;
-                probe.submitted = false;
+                probe.submitted = None;
                 TrackerState::Reprobing { probe, composer }
             }
             TrackerState::Drafting(mut composer) => {
@@ -266,9 +282,20 @@ impl InputTracker {
         };
     }
 
-    fn submit<T>(&mut self, _now: Instant, term: &Term<T>) {
+    fn submit<T>(&mut self, _now: Instant, term: &Term<T>, origin: SubmitOrigin) {
         let state = std::mem::replace(&mut self.state, TrackerState::Idle);
         match state {
+            TrackerState::Probing(mut probe) => {
+                probe.submitted = Some(origin);
+                self.state = TrackerState::Probing(probe);
+            }
+            TrackerState::Reprobing {
+                mut probe,
+                composer,
+            } => {
+                probe.submitted = Some(origin);
+                self.state = TrackerState::Reprobing { probe, composer };
+            }
             TrackerState::Drafting(mut composer) => {
                 if composer.row < term.screen_lines() {
                     let current = row_to_string(term, composer.row as i32);
@@ -467,7 +494,7 @@ fn new_probe<T>(text: &str, pasted: bool, now: Instant, term: &Term<T>) -> Probe
         styles_before: visible_row_styles(term),
         started: now,
         weak_match: pasted && weak_paste_match(text),
-        submitted: false,
+        submitted: None,
     }
 }
 
@@ -663,6 +690,17 @@ fn composer_is_empty<T>(term: &Term<T>, row: usize, current: &str, composer: &Co
             && composer.placeholder_style.is_some_and(|placeholder| {
                 row_content_style(term, row, &composer.prefix) == Some(placeholder)
             }))
+}
+
+fn cursor_at_empty_composer<T>(term: &Term<T>, composer: &Composer) -> bool {
+    let cursor = term.grid().cursor.point;
+    if cursor.line.0 < 0 || cursor.column.0 != composer.prefix.width() {
+        return false;
+    }
+    let row = cursor.line.0 as usize;
+    let current = row_to_string(term, cursor.line.0);
+    (current.starts_with(&composer.prefix) || current.trim_end() == composer.prefix.trim_end())
+        && composer_is_empty(term, row, &current, composer)
 }
 
 fn relocate_row<T>(term: &Term<T>, prefix: &str, old_row: usize) -> Option<usize> {
@@ -1384,7 +1422,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_while_probing_preserves_the_probe() {
+    fn submit_while_probing_holds_a_nonempty_first_echo() {
         let start = Instant::now();
         let mut term = new_term(30, 3);
         feed(&mut term, b"\x1b[2;1H$ ");

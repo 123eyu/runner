@@ -1,0 +1,11 @@
+{"v":1,"cols":80,"rows":12,"command":"codex","args":[],"note":"Synthetic #940 regression, not a native capture: Return before echo, coalesced submitted history/new empty composer, later collapsed draft/rejected submit, then scroll and clear."}
+{"ms":0,"data":"G1syShtbODsxSOKAuiAbWzkwbUFzayBDb2RleCB0byBkbyBhbnl0aGluZxtbMzltG1s4OzNI"}
+{"ms":1,"input":{"type":"paste","text":"Run the QA helper once. Then ACK QA940."}}
+{"ms":2,"input":{"type":"key","kind":{"kind":"submit"}}}
+{"ms":30,"data":"G1syShtbMzsxSOKAuiBSdW4gdGhlIFFBIGhlbHBlciBvbmNlLiBUaGVuIEFDSyBRQTk0MC4bWzU7MUhBQ0sgUUE5NDAbWzk7MUjigLogG1s5MG1Bc2sgQ29kZXggdG8gZG8gYW55dGhpbmcbWzM5bRtbOTszSA=="}
+{"ms":2000,"input":{"type":"paste","text":"line one\nline two\nline three\nline four\nline five"}}
+{"ms":2005,"data":"G1s5OzFIG1tL4oC6IFtQYXN0ZWQgdGV4dCAjMSArNCBsaW5lc10bWzk7MjhI"}
+{"ms":6000,"data":"G1s2OzFIc3RyZWFtaW5nIG91dHB1dBtbOTsyOEg="}
+{"ms":6010,"input":{"type":"key","kind":{"kind":"submit"}}}
+{"ms":6020,"data":"G1s5OzI4SA=="}
+{"ms":7000,"data":"G1szUxtbNjsxSBtbS+KAuiAbWzkwbUFzayBDb2RleCB0byBkbyBhbnl0aGluZxtbMzltG1s2OzNI"}
