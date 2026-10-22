@@ -37,6 +37,7 @@ struct Composer {
     visible: bool,
     submitted_form: Option<String>,
     placeholder_style: Option<CellStyle>,
+    frame_border: Option<char>,
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +168,10 @@ impl InputTracker {
                                     .is_some()
                                     .then(|| rows_after[matched.row].clone()),
                                 placeholder_style,
+                                frame_border: composer_frame_border(
+                                    &probe.rows_before,
+                                    matched.before_row,
+                                ),
                             };
                             // Native Return can be rejected while leaving this first echo intact.
                             if probe.submitted == Some(SubmitOrigin::Delivery) {
@@ -199,6 +204,11 @@ impl InputTracker {
                     }
                     if let Some(style) = probe_placeholder_style(&probe, &matched, term) {
                         composer.placeholder_style = Some(style);
+                    }
+                    if let Some(border) =
+                        composer_frame_border(&probe.rows_before, matched.before_row)
+                    {
+                        composer.frame_border = Some(border);
                     }
                     composer.row = matched.row;
                     composer.prefix = matched.prefix;
@@ -316,12 +326,23 @@ impl InputTracker {
         mut composer: Composer,
         submitted: bool,
     ) -> TrackerState {
+        // Submitted prompts can remain in history at the old row. A unique
+        // learned frame plus the input cursor distinguishes the current editor.
+        if term.grid().cursor.point.line != Line(composer.row as i32) {
+            if let Some(row) = composer
+                .frame_border
+                .and_then(|border| framed_composer_row(term, &composer.prefix, border))
+            {
+                composer.row = row;
+            }
+        }
         let mut current = if composer.row < term.screen_lines() {
             row_to_string(term, composer.row as i32)
         } else if let Some(row) = relocate_row(
             term,
             &composer.prefix,
             composer.row.min(term.screen_lines().saturating_sub(1)),
+            composer.frame_border,
         ) {
             composer.row = row;
             composer.visible = true;
@@ -338,7 +359,9 @@ impl InputTracker {
             return TrackerState::Idle;
         }
         if !current.starts_with(&composer.prefix) {
-            if let Some(row) = relocate_row(term, &composer.prefix, composer.row) {
+            if let Some(row) =
+                relocate_row(term, &composer.prefix, composer.row, composer.frame_border)
+            {
                 composer.row = row;
                 current = row_to_string(term, row as i32);
                 composer.visible = true;
@@ -703,7 +726,52 @@ fn cursor_at_empty_composer<T>(term: &Term<T>, composer: &Composer) -> bool {
         && composer_is_empty(term, row, &current, composer)
 }
 
-fn relocate_row<T>(term: &Term<T>, prefix: &str, old_row: usize) -> Option<usize> {
+fn composer_frame_border(rows: &[String], row: usize) -> Option<char> {
+    let border = rows.get(row.checked_sub(1)?)?;
+    let glyph = border.chars().next()?;
+    (matches!(glyph, '─' | '━' | '═')
+        && border.chars().count() >= 3
+        && border.chars().all(|character| character == glyph)
+        && rows.get(row + 1) == Some(border))
+    .then_some(glyph)
+}
+
+fn framed_composer_row<T>(term: &Term<T>, prefix: &str, border: char) -> Option<usize> {
+    let rows = visible_rows(term);
+    let mut candidates = rows.iter().enumerate().filter_map(|(row, text)| {
+        ((text.starts_with(prefix) || text.trim_end() == prefix.trim_end())
+            && composer_frame_border(&rows, row) == Some(border))
+        .then_some(row)
+    });
+    let row = candidates.next()?;
+    let cursor = term.grid().cursor.point;
+    (candidates.next().is_none()
+        && cursor.line == Line(row as i32)
+        && cursor.column.0 >= prefix.width())
+    .then_some(row)
+}
+
+fn cursor_prompt_row<T>(term: &Term<T>, prefix: &str) -> Option<usize> {
+    let cursor = term.grid().cursor.point;
+    let row = usize::try_from(cursor.line.0).ok()?;
+    let text = row_to_string(term, cursor.line.0);
+    ((text.starts_with(prefix) || text.trim_end() == prefix.trim_end())
+        && cursor.column.0 >= prefix.width())
+    .then_some(row)
+}
+
+fn relocate_row<T>(
+    term: &Term<T>,
+    prefix: &str,
+    old_row: usize,
+    frame_border: Option<char>,
+) -> Option<usize> {
+    if let Some(border) = frame_border {
+        // The frame can change shape after a resize or mode switch; the input
+        // cursor still marks the live editor where a history row cannot.
+        return framed_composer_row(term, prefix, border)
+            .or_else(|| cursor_prompt_row(term, prefix));
+    }
     (0..term.screen_lines())
         .filter(|row| row_to_string(term, *row as i32).starts_with(prefix))
         .min_by_key(|row| row.abs_diff(old_row))
@@ -1116,6 +1184,291 @@ mod tests {
             .reset_if_unchanged(guard, start + Duration::from_millis(3))
             .is_none());
         assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+    }
+
+    #[test]
+    fn antigravity_submitted_history_does_not_hold_the_empty_composer() {
+        use crate::fixtures::{decode_chunk, Fixture, FixtureEvent};
+
+        for injected in [false, true] {
+            let start = Instant::now();
+            let mut term = new_term(110, 36);
+            let border = "─".repeat(110);
+            feed(
+                &mut term,
+                format!("\x1b[?1049h\x1b[8;1H{border}\r\n> \r\n{border}").as_bytes(),
+            );
+            let mut tracker = InputTracker::new(start);
+            tracker.initial_observation(start);
+            let text = "Reply with exactly OK.";
+            if injected {
+                tracker.track_delivery_input(text, start, &term);
+            } else {
+                tracker.observe_input(
+                    &InputEvent::Key {
+                        kind: InputKind::Content { text: text.into() },
+                    },
+                    start,
+                    &term,
+                );
+            }
+            feed(&mut term, format!("\x1b[9;1H> {text}").as_bytes());
+            assert_eq!(
+                tracker
+                    .observe_output(start + Duration::from_millis(1), &term)
+                    .unwrap()
+                    .state,
+                InputState::Drafting
+            );
+            if injected {
+                tracker.track_delivery_submit(start + Duration::from_millis(2), &term);
+            } else {
+                tracker.observe_input(
+                    &InputEvent::Key {
+                        kind: InputKind::Submit,
+                    },
+                    start + Duration::from_millis(2),
+                    &term,
+                );
+            }
+
+            let fixture = Fixture::load(
+                &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("fixtures/agy-first-turn.ndjson"),
+            )
+            .unwrap();
+            for event in fixture.events {
+                if let FixtureEvent::Data { data, .. } = event {
+                    feed(&mut term, &decode_chunk(&data).unwrap());
+                }
+            }
+            assert_eq!(row_to_string(&term, 8), "> Reply with exactly OK.");
+            assert_eq!(row_to_string(&term, 13), ">");
+            tracker.observe_output(start + Duration::from_millis(3), &term);
+            assert_eq!(
+                tracker.current_reported_state().state,
+                InputState::Idle,
+                "injected={injected}"
+            );
+        }
+    }
+
+    #[test]
+    fn framed_composer_relocation_keeps_a_live_draft_held() {
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n> \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: "draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, b"\x1b[3;1H> draft");
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        feed(
+            &mut term,
+            format!("\x1b[4;1H\x1b[K\x1b[7;1H{border}\r\n> draft\r\n{border}\x1b[8;8H").as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+        feed(&mut term, b"\x1b[8;1H> \x1b[K");
+        tracker.observe_output(start + Duration::from_millis(3), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Idle);
+    }
+
+    #[test]
+    fn framed_composer_keeps_multiline_drafts_held_and_releases_after_resize() {
+        use alacritty_terminal::term::test::TermSize;
+
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n> \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Paste {
+                text: "first\nsecond".into(),
+            },
+            start,
+            &term,
+        );
+        feed(
+            &mut term,
+            format!("\x1b[3;1H> first\r\nsecond\r\n{border}").as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+
+        term.resize(TermSize::new(30, 12));
+        let border = "─".repeat(30);
+        feed(
+            &mut term,
+            format!(
+                "\x1b[H\x1b[J> first\r\nsecond\x1b[7;1H{border}\r\n> first\r\nsecond\r\n{border}"
+            )
+            .as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+        feed(
+            &mut term,
+            format!("\x1b[8;1H> \x1b[K\r\n{border}\r\n\x1b[K\x1b[8;3H").as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(3), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Idle);
+    }
+
+    #[test]
+    fn an_unrelated_frame_cannot_release_a_multiline_or_hidden_draft() {
+        for hidden in [false, true] {
+            let start = Instant::now();
+            let mut term = new_term(40, 12);
+            let border = "─".repeat(40);
+            feed(
+                &mut term,
+                format!("\x1b[2;1H{border}\r\n> Ask\r\n{border}").as_bytes(),
+            );
+            let mut tracker = InputTracker::new(start);
+            tracker.initial_observation(start);
+            tracker.observe_input(
+                &InputEvent::Paste {
+                    text: "first\nsecond".into(),
+                },
+                start,
+                &term,
+            );
+            feed(
+                &mut term,
+                format!("\x1b[3;1H> first\r\nsecond\r\n{border}").as_bytes(),
+            );
+            tracker.observe_output(start + Duration::from_millis(1), &term);
+            if hidden {
+                feed(&mut term, b"\x1b[3;1Hmenu\x1b[K\r\nchoice\x1b[K");
+            }
+            feed(
+                &mut term,
+                format!("\x1b[8;1H{border}\r\n> Ask\r\n{border}\x1b[4;7H").as_bytes(),
+            );
+            tracker.observe_output(start + Duration::from_millis(2), &term);
+            assert_eq!(
+                tracker.current_reported_state().state,
+                InputState::Drafting,
+                "hidden={hidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn ambiguous_framed_prompts_cannot_release_a_live_draft() {
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n> \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: "draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, b"\x1b[3;1H> draft");
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        feed(
+            &mut term,
+            format!("\x1b[7;1H{border}\r\n> \r\n{border}").as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+    }
+
+    #[test]
+    fn claude_framed_composer_releases_after_output_moves_it() {
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n❯ \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: "draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, "\x1b[3;1H❯ draft".as_bytes());
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        feed(
+            &mut term,
+            format!(
+                "\x1b[2;1H● working\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[5;1H{border}\r\n❯ draft\r\n{border}\x1b[6;8H"
+            )
+            .as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+        feed(&mut term, "\x1b[6;1H❯ \x1b[K\x1b[6;3H".as_bytes());
+        tracker.observe_output(start + Duration::from_millis(3), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Idle);
+    }
+
+    #[test]
+    fn a_reshaped_frame_still_releases_the_cleared_composer_under_the_cursor() {
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n> \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: "draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, b"\x1b[3;1H> draft");
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        feed(
+            &mut term,
+            format!(
+                "\x1b[2;1H\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[7;1H── plan ──\x1b[K\r\n> \x1b[K\r\n{border}\x1b[8;3H"
+            )
+            .as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Idle);
     }
 
     #[test]
@@ -1552,11 +1905,17 @@ mod tests {
 
         let measured_at = Instant::now();
         for _ in 0..ITERATIONS {
-            std::hint::black_box(relocate_row(&term, "missing-prefix ", 30));
+            std::hint::black_box(relocate_row(&term, "missing-prefix ", 30, None));
         }
         let relocation_us = measured_at.elapsed().as_secs_f64() * 1_000_000. / ITERATIONS as f64;
+
+        let measured_at = Instant::now();
+        for _ in 0..ITERATIONS {
+            std::hint::black_box(relocate_row(&term, "missing-prefix ", 30, Some('─')));
+        }
+        let framed_us = measured_at.elapsed().as_secs_f64() * 1_000_000. / ITERATIONS as f64;
         eprintln!(
-            "input tracker µs/chunk: idle={idle_us:.3} drafting={drafting_us:.3} relocation={relocation_us:.3}"
+            "input tracker µs/chunk: idle={idle_us:.3} drafting={drafting_us:.3} relocation={relocation_us:.3} framed={framed_us:.3}"
         );
     }
 }
