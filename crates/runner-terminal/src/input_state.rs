@@ -328,11 +328,13 @@ impl InputTracker {
     ) -> TrackerState {
         // Submitted prompts can remain in history at the old row. A unique
         // learned frame plus the input cursor distinguishes the current editor.
-        if let Some(row) = composer
-            .frame_border
-            .and_then(|border| framed_composer_row(term, &composer.prefix, border))
-        {
-            composer.row = row;
+        if term.grid().cursor.point.line != Line(composer.row as i32) {
+            if let Some(row) = composer
+                .frame_border
+                .and_then(|border| framed_composer_row(term, &composer.prefix, border))
+            {
+                composer.row = row;
+            }
         }
         let mut current = if composer.row < term.screen_lines() {
             row_to_string(term, composer.row as i32)
@@ -749,6 +751,15 @@ fn framed_composer_row<T>(term: &Term<T>, prefix: &str, border: char) -> Option<
     .then_some(row)
 }
 
+fn cursor_prompt_row<T>(term: &Term<T>, prefix: &str) -> Option<usize> {
+    let cursor = term.grid().cursor.point;
+    let row = usize::try_from(cursor.line.0).ok()?;
+    let text = row_to_string(term, cursor.line.0);
+    ((text.starts_with(prefix) || text.trim_end() == prefix.trim_end())
+        && cursor.column.0 >= prefix.width())
+    .then_some(row)
+}
+
 fn relocate_row<T>(
     term: &Term<T>,
     prefix: &str,
@@ -756,7 +767,10 @@ fn relocate_row<T>(
     frame_border: Option<char>,
 ) -> Option<usize> {
     if let Some(border) = frame_border {
-        return framed_composer_row(term, prefix, border);
+        // The frame can change shape after a resize or mode switch; the input
+        // cursor still marks the live editor where a history row cannot.
+        return framed_composer_row(term, prefix, border)
+            .or_else(|| cursor_prompt_row(term, prefix));
     }
     (0..term.screen_lines())
         .filter(|row| row_to_string(term, *row as i32).starts_with(prefix))
@@ -1389,6 +1403,75 @@ mod tests {
     }
 
     #[test]
+    fn claude_framed_composer_releases_after_output_moves_it() {
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n❯ \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: "draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, "\x1b[3;1H❯ draft".as_bytes());
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        feed(
+            &mut term,
+            format!(
+                "\x1b[2;1H● working\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[5;1H{border}\r\n❯ draft\r\n{border}\x1b[6;8H"
+            )
+            .as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+        feed(&mut term, "\x1b[6;1H❯ \x1b[K\x1b[6;3H".as_bytes());
+        tracker.observe_output(start + Duration::from_millis(3), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Idle);
+    }
+
+    #[test]
+    fn a_reshaped_frame_still_releases_the_cleared_composer_under_the_cursor() {
+        let start = Instant::now();
+        let mut term = new_term(40, 12);
+        let border = "─".repeat(40);
+        feed(
+            &mut term,
+            format!("\x1b[2;1H{border}\r\n> \r\n{border}").as_bytes(),
+        );
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        tracker.observe_input(
+            &InputEvent::Key {
+                kind: InputKind::Content {
+                    text: "draft".into(),
+                },
+            },
+            start,
+            &term,
+        );
+        feed(&mut term, b"\x1b[3;1H> draft");
+        tracker.observe_output(start + Duration::from_millis(1), &term);
+        feed(
+            &mut term,
+            format!(
+                "\x1b[2;1H\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[7;1H── plan ──\x1b[K\r\n> \x1b[K\r\n{border}\x1b[8;3H"
+            )
+            .as_bytes(),
+        );
+        tracker.observe_output(start + Duration::from_millis(2), &term);
+        assert_eq!(tracker.current_reported_state().state, InputState::Idle);
+    }
+
+    #[test]
     fn submitted_accepts_a_rotated_empty_form() {
         let start = Instant::now();
         let mut term = new_term(40, 4);
@@ -1825,8 +1908,14 @@ mod tests {
             std::hint::black_box(relocate_row(&term, "missing-prefix ", 30, None));
         }
         let relocation_us = measured_at.elapsed().as_secs_f64() * 1_000_000. / ITERATIONS as f64;
+
+        let measured_at = Instant::now();
+        for _ in 0..ITERATIONS {
+            std::hint::black_box(relocate_row(&term, "missing-prefix ", 30, Some('─')));
+        }
+        let framed_us = measured_at.elapsed().as_secs_f64() * 1_000_000. / ITERATIONS as f64;
         eprintln!(
-            "input tracker µs/chunk: idle={idle_us:.3} drafting={drafting_us:.3} relocation={relocation_us:.3}"
+            "input tracker µs/chunk: idle={idle_us:.3} drafting={drafting_us:.3} relocation={relocation_us:.3} framed={framed_us:.3}"
         );
     }
 }
