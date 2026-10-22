@@ -11,6 +11,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/yicheng47/runner?style=flat-square&cacheSeconds=86400" alt="License" /></a>
   <a href="#community"><img src="https://img.shields.io/badge/WeChat-user%20group-07C160?style=flat-square&logo=wechat&logoColor=white" alt="WeChat user group" /></a>
   <a href="https://runnersh.dev/downloads/"><img src="https://img.shields.io/badge/macOS%20%7C%20Windows-native-2ea44f?style=flat-square" alt="macOS and Windows" /></a>
+  <a href="https://afdian.com/a/runnersh"><img src="https://img.shields.io/badge/Sponsor-Afdian-946BE7?style=flat-square" alt="Sponsor Runner on Afdian" /></a>
 </p>
 
 <p align="center">
@@ -113,6 +114,12 @@ Runner brings CLI coding agents together in reusable crews, with real terminals 
 A quick tour of reusable roles, crew setup, split terminals, and coder/reviewer/QA coordination in a live mission.
 
 https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
+
+## Support Runner
+
+If Runner is useful to you, you can [buy me a coffee on Afdian](https://afdian.com/a/runnersh). Your support helps fund ongoing development and maintenance.
+
+[![Sponsor Runner on Afdian](https://img.shields.io/badge/Sponsor%20Runner-Afdian-946BE7?style=for-the-badge)](https://afdian.com/a/runnersh)
 
 ## Prerequisites
 
