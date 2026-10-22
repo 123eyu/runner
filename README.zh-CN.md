@@ -117,9 +117,10 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 
 ## 支持 Runner
 
-如果 Runner 对你有帮助，欢迎[通过爱发电请我喝杯咖啡](https://afdian.com/a/runnersh)。你的支持将用于项目的持续开发与维护。
+如果 Runner 对你有帮助，欢迎赞助项目的持续开发与维护。
 
-[![通过爱发电赞助 Runner](https://img.shields.io/badge/%E8%B5%9E%E5%8A%A9%20Runner-%E7%88%B1%E5%8F%91%E7%94%B5-946BE7?style=for-the-badge)](https://afdian.com/a/runnersh)
+- [![通过爱发电赞助 Runner](https://img.shields.io/badge/%E8%B5%9E%E5%8A%A9%20Runner-%E7%88%B1%E5%8F%91%E7%94%B5-946BE7?style=for-the-badge)](https://afdian.com/a/runnersh) — 推荐中国大陆用户使用，通过微信支付或支付宝付款。
+- [![通过 Ko-fi 赞助 Runner](https://img.shields.io/badge/%E8%B5%9E%E5%8A%A9%20Runner-Ko--fi-FF5E5B?style=for-the-badge)](https://ko-fi.com/yichengwang) — 推荐海外用户使用，通过 PayPal 付款。
 
 ## 前置条件
 
