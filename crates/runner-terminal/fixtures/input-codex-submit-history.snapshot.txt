@@ -1,0 +1,13 @@
+cols=80 rows=12 cursor=5,2
+|
+|ACK QA940
+|streaming output
+|
+|
+|› Ask Codex to do anything
+|
+|
+|
+|
+|
+|

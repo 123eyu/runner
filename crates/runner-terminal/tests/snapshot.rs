@@ -193,6 +193,7 @@ split_recordings! {
     input_codex_menu => "input-codex-menu.ndjson",
     input_codex_multiline_paste => "input-codex-multiline-paste.ndjson",
     input_codex_queued_submit => "input-codex-queued-submit.ndjson",
+    input_codex_submit_history => "input-codex-submit-history.ndjson",
     input_zsh_submit => "input-zsh-submit.ndjson",
     procedural_glyphs => "procedural-glyphs.ndjson",
     top_busy => "top-busy.ndjson",
