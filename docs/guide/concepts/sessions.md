@@ -10,6 +10,12 @@ Working and idle indicators help you find active agents. Supported runtimes repo
 
 Stopped and crashed sessions have no running agent to receive input. Read the terminal and any error before choosing the next action.
 
+## Open terminal links
+
+Hover a URL or file path to highlight it, then ⌘-click or Ctrl-click on macOS, or Ctrl-click on Windows, to open it. URLs open in your browser; file paths, including `:line[:column]` suffixes, open in your configured editor.
+
+When a runtime wraps an underlined URL onto indented rows, hovering any fragment highlights the full URL; modifier-clicking any fragment opens the same destination.
+
 ## Choose the right action
 
 | Action | Effect |
