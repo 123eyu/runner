@@ -1,8 +1,6 @@
 # Runtime adapters: a first code walkthrough
 
-Written against Runner `main` on 2026-10-03, after the three parts of [#777](../features/archive/777-runtime-adapter.md) landed: launch arguments (#779), spawn hooks and status watchers (#780), and catalogs and settings (#792).
-
-> Updated 2026-10-08: source links follow the `runner-backend` → `runner-daemon` rename from [#645](../features/archive/645-session-host.md). The hook transport under "Codex status" predates [#797](../features/archive/797-hook-status-ipc.md) (0.13.1), which replaced the feed and payload files with a bounded local connection to `runnerd`: `HookFeed` now wraps a `HookReceiver` from `session/hook_queue.rs`, and watchers drain through `drain_events` rather than `drain_observations`. The launch setup still applies; read the reporter and feed paragraphs as the pre-0.13.1 design.
+Checked against Runner `main` on 2026-10-22. The adapter boundaries came from [#777](../features/archive/777-runtime-adapter.md); daemon ownership, local hook IPC and the shared state reducer followed in [#645](../features/archive/645-session-host.md), [#797](../features/archive/797-hook-status-ipc.md) and [#791](../features/archive/791-session-state.md). The walkthrough below follows the current paths rather than the original file-based hook transport.
 
 The main change is moving each agent's integration code into its own module. Previously, Codex behavior, Claude behavior, and so on were scattered across launch code, status code, settings, and other files. The refactor gives those differences a common interface: `RuntimeAdapter`.
 
@@ -66,130 +64,57 @@ The resulting division is: the manager coordinates the launch, the adapter suppl
 
 ## Codex status: entry points and one example
 
-There are two entry points: setting up the hooks at launch, and reading their reports while Codex runs. The implementation lives in [`codex_status.rs`](../../crates/runner-daemon/src/runtimes/codex/codex_status.rs), connected to the shared session layer through the Codex adapter.
+Hook setup lives in the [`Codex` adapter](../../crates/runner-daemon/src/runtimes/codex/mod.rs); event parsing lives in [`codex_status.rs`](../../crates/runner-daemon/src/runtimes/codex/codex_status.rs). Shared transport and admission live outside the adapter so every runtime uses the same session/generation and queue limits.
 
 ### Launch setup
 
-The Codex adapter exposes its hook integration through `status_hooks()` in [`codex/mod.rs`](../../crates/runner-daemon/src/runtimes/codex/mod.rs):
+`status_hooks()` returns the adapter's `Hooks` implementation. `Hooks::env()` adds a session ID, a new spawn generation and the bundled reporter executable when injection is allowed. The endpoint is supplied by the daemon's runtime. Explicit hook-disable or configuration overrides detected by `inject_codex_hooks` leave that configuration alone.
 
-```rust
-fn status_hooks(&self) -> Option<&'static dyn StatusHooks> {
-    Some(&Hooks)
-}
-```
+`codex_status_args()` adds invocation-only configuration through separate `-c` key/value arguments. It enables hooks and bypasses their own hook-trust review; those flags are separate from tool approvals and sandbox permissions. The values are assembled with TOML serialization rather than shell concatenation.
 
-Its `launch_args()` also calls `codex_status_args()`, which adds configuration telling Codex to execute a reporting command on events such as `UserPromptSubmit` and `Stop`. `Hooks::env()` supplies the feed path and spawn generation through environment variables. The generation lets the feed reject reports from an earlier process launch.
+Normal Codex events use `type="mcp_tool"` against an optional `runner_hooks` stdio helper whose command is the bundled executable with `hook serve`. The helper exposes only status reporting; it is not the old Runner workspace MCP API. `SessionEnd` uses a command hook calling `runner hook report` because Codex does not support that MCP handler during teardown. Both helpers connect to the existing daemon and cannot start or replace it.
 
-When the process is launched, `PtyRuntime::spawn` in [`session/pty_runtime.rs`](../../crates/runner-daemon/src/session/pty_runtime.rs) asks the adapter to create a watcher:
+When [`PtyRuntime::spawn`](../../crates/runner-daemon/src/session/pty_runtime.rs) sees the hook generation, it registers a route for the session, runtime and generation and passes the resulting receiver to `Hooks::start_receiver`. Codex builds a `CodexStatusWatcher::from_receiver`, holding the feed receiver, its parser and an optional transcript tail. Stopping the process retires its route.
 
-```rust
-let hook_status = spec
-    .agent_runtime
-    .and_then(|runtime| crate::runtimes::adapter(runtime).status_hooks())
-    .and_then(|hooks| hooks.start_watcher(&spec));
-```
+### What the reporting helper does
 
-For Codex, `Hooks::start_watcher` reads the feed path and generation from `SpawnSpec.env` and calls:
+The transport contract is [`runner-core/src/protocol/hook.rs`](../../crates/runner-core/src/protocol/hook.rs): `HookReport` carries version, runtime, Runner session ID, spawn generation, event, provider payload and caller-thread identity where required. The route is configured through `RUNNER_HOOK_ENDPOINT`, `RUNNER_HOOK_SESSION` and `RUNNER_HOOK_GENERATION`.
 
-```rust
-codex_status::CodexStatusWatcher::start(
-    Path::new(path),
-    generation.clone(),
-)
-```
+[`runner-cli/src/hook.rs`](../../crates/runner-cli/src/hook.rs) implements the hidden reporters. `hook report` consumes a bounded JSON payload from stdin; `hook serve` adapts persistent stdio tool calls to the same report. They return the provider-neutral response rather than making an approval decision or adding text to the prompt. A transport deadline bounds delivery to 250 ms. Envelope size and per-route queue limits bound memory use; these are admission guarantees, not evidence of a native runtime pass.
 
-Unlike the empty `Codex` adapter struct, this watcher holds mutable state for this particular session: the current conversation and turn, pending tools, compaction state, and a transcript reader.
-
-### How the injected hook configuration works
-
-Official references, checked on 2026-10-03: [Hooks](https://learn.chatgpt.com/docs/hooks), [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference), and [one-off CLI overrides](https://learn.chatgpt.com/docs/config-file/config-advanced#one-off-overrides-from-the-cli). The external docs describe Codex's contract; the following examples explain Runner's implementation.
-
-`-c` overrides a configuration key for this invocation, with a TOML value. Runner supplies one override for each event in `codex_status::EVENTS`. This example substitutes `REPORT_COMMAND` for the actual generated shell or PowerShell command:
-
-```text
--c
-hooks.UserPromptSubmit=[{hooks=[{type="command",command="REPORT_COMMAND",timeout=2}]}]
-```
-
-These are two separate strings in the argument vector, not one string for a shell to parse. The same configuration expressed as expanded TOML would be:
-
-```toml
-[[hooks.UserPromptSubmit]]
-
-[[hooks.UserPromptSubmit.hooks]]
-type = "command"
-command = "REPORT_COMMAND"
-timeout = 2
-```
-
-The nesting is event → matcher group → handlers. `type` selects a command handler; `command` specifies what to execute; `timeout` is in seconds. See the official [hook configuration shape](https://learn.chatgpt.com/docs/hooks#config-shape).
-
-The Rust `format!` expression uses `{{` and `}}` to emit literal TOML braces. `{event}` inserts an event name, and `{command}` inserts a string serialized by `toml_edit::Value`, including its TOML quoting and escaping. This keeps shell-command text valid inside the TOML value.
-
-Before building these overrides, Runner calls `inject_codex_hooks(role_args, ...)`. Despite its name, that helper checks whether injection is allowed; it returns false for explicit hook disable/config overrides it detects. Runner then adds `--enable hooks` and `--dangerously-bypass-hook-trust`. The latter skips persisted hook-trust review for enabled hooks for this invocation, as described in [hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks); it is separate from the agent's tool approval and sandbox settings.
-
-### What the reporting command does
-
-Codex passes each command hook a JSON object on stdin. For `UserPromptSubmit`, that includes the Codex session ID, turn ID, event name, and prompt. See [common input fields](https://learn.chatgpt.com/docs/hooks#common-input-fields) and [UserPromptSubmit](https://learn.chatgpt.com/docs/hooks#userpromptsubmit).
-
-Runner's command comes from `codex_status::hook_command()`. On macOS/Linux, it invokes the per-session shell reporter prepared by `HookFeed`. The reporter saves stdin to a separate payload file and appends a small NDJSON envelope to the feed, shaped like:
-
-```json
-{"generation":"spawn-generation","hook_event_name":"UserPromptSubmit","payload_file":"runner-session.ndjson.ABC12345"}
-```
-
-This envelope is Runner's transport format, not Codex's hook input schema. The separate payload file prevents large concurrent reports from interleaving in the feed. The Windows reporter uses PowerShell and the same feed/payload arrangement.
-
-The Codex-specific command wrapper emits `{}` on stdout and exits successfully. It reports status to Runner through files rather than adding text to the agent's prompt or making a hook decision. `CodexStatusWatcher` reads the feed and payload, interprets the event, and sends the resulting observation into the shared session layer described below.
+The daemon validates reports and admits them into [`session/hook_queue.rs`](../../crates/runner-daemon/src/session/hook_queue.rs). [`HookFeed`](../../crates/runner-daemon/src/session/hook_feed.rs) wraps that in-memory `HookReceiver` and drains provider payloads. There is no report NDJSON file or separate per-event payload file. The Codex parser validates session and turn identities, rejects stale and subagent reports, and may read Codex's transcript for outcomes that its hooks alone cannot settle.
 
 ### Example: submitting a prompt
 
-Suppose you submit “Explain this function” in the Codex terminal. Codex executes the configured `UserPromptSubmit` reporting command. The command writes a payload file and appends a report referencing it to Runner's hook feed. This status path is separate from the PTY bytes used to render the terminal.
+When you submit a prompt, Codex reports `UserPromptSubmit` through the configured helper. For a valid new turn, `CodexParser::current_hook` produces `AgentEvent::TurnStarted`, wrapped in a runtime batch. This status path is separate from the bytes that render the terminal.
 
 ```mermaid
 sequenceDiagram
     participant C as Codex CLI
-    participant F as Hook feed and payload files
+    participant H as Bundled hook helper
+    participant Q as Daemon HookRoutes / queue
     participant W as CodexStatusWatcher
     participant P as PTY monitor
-    participant M as SessionManager
-    participant U as UI
+    participant M as SessionManager / SessionModel
+    participant U as AppStore
 
-    C->>F: UserPromptSubmit hook writes report
-    P->>W: drain_observations(...)
-    W->>F: Read new reports
-    W-->>P: AgentObservation: Working
-    P->>P: Check observation with IdleDetector
-    P-->>M: RuntimeOutput::AgentObservation via channel
-    M->>M: Update shared session state
-    M-->>U: Publish session status event
+    C->>H: UserPromptSubmit payload
+    H->>Q: Bounded typed HookReport
+    P->>W: drain_events(...)
+    W->>Q: Drain admitted reports
+    W-->>P: AgentEvent::Batch(TurnStarted)
+    P-->>M: RuntimeOutput::AgentEvent
+    M->>M: Reduce session event and run effects
+    M-->>U: Publish session status
 ```
 
-The `idle_monitor_thread` in [`session/pty_runtime.rs`](../../crates/runner-daemon/src/session/pty_runtime.rs) repeatedly calls `watcher.drain_observations(...)`. The Codex implementation reads new reports through `HookFeed`, deserializes them as `StatusReport`, and passes them to `CodexObservation::observe`.
+`idle_monitor_thread` calls `watcher.drain_events`, passing pending cancel information and callbacks. Accepted events go through the runtime output channel. Events needing feedback wait for the manager's response without holding the detector lock; this lets the shared reducer control deferred transcript work.
 
-For a valid new `UserPromptSubmit`, after checking the session and turn IDs, `observe` clears the previous turn outcome and sets:
-
-```rust
-self.value.outcome = None;
-self.value.activity = Activity::Working;
-self.value.detail = None;
-```
-
-The watcher returns the updated observation through a callback. The monitor checks it with `IdleDetector::accept_hook` and sends accepted observations through the output channel. The manager's forwarder in [`session/manager/output.rs`](../../crates/runner-daemon/src/session/manager/output.rs) receives them:
-
-```rust
-Ok(RuntimeOutput::AgentObservation(observation)) => {
-    manager_t.publish_observation(&session_id, observation, events.as_ref())
-}
-```
-
-`publish_observation` in [`session/manager/mod.rs`](../../crates/runner-daemon/src/session/manager/mod.rs) updates the shared session state and publishes the status event that the UI consumes. Thus `codex_status` interprets Codex's evidence, and `SessionManager` incorporates that interpretation into Runner's session state.
+The forwarder in [`session/manager/output.rs`](../../crates/runner-daemon/src/session/manager/output.rs) calls `publish_model_event_for_launch` with `SessionEvent::Agent`. The shared [`session/state/`](../../crates/runner-daemon/src/session/state/) reducer owns status, attention, drafts, turn outcomes and conversation identity. The manager executes publication and persistence effects after reduction. The adapter interprets Codex evidence; it does not independently write UI status.
 
 ## What this refactor leaves for later
 
-#777 improves where behavior lives and deliberately preserves existing runtime behavior. The authorized model-chooser Enter fix in #792 is the documented exception. Moving status watchers into adapter directories does not centralize how session status is decided: shared code and watchers still contain several producers and precedence rules.
-
-The separate [#791 session-state refactor](../features/archive/791-session-state.md), merged on 2026-10-04, centralizes decisions about status, draft state, and conversation identity in one reducer under `session/state/`. That work is not part of the adapter refactor described here.
+#777 reorganized agent knowledge while preserving behavior, apart from its documented model-chooser Enter fix. It did not itself centralize status decisions. The later [#791 reducer](../features/archive/791-session-state.md) now owns shared session state, while adapters still interpret their own provider events. The [runtime integration checklist](../arch/runtime-integration.md) records what a new runtime must prove beyond fitting this code structure.
 
 ## Reading path
 

@@ -40,7 +40,7 @@ Run in the dev app on JASONPC, in a direct chat and in a mission slot.
 2. A command approval dialog shows Approval needed while visible and clears on the decision. AskUserQuestion shows Answer needed as it opens, an answer returns Working, Escape returns Idle without a completion dot. `/clear` still rekeys the pane.
 3. While a session runs, its feed and payload files appear under `%APPDATA%\com.wycstudios.runner-dev\session-status\` and are gone after it stops. A role with its own `--settings` shows estimated status and creates no feed.
 4. In a crew, a message posted during a Claude dialog is held until the dialog resolves; posted while Working or Idle it delivers; a typed draft still protects the input.
-5. The [606](../../features/archive/606-rail-glyph-liveness.md) rail check: both themes, a project with a running session and one without, a shell tab, a mission row, a provider chat, a collapsed and an expanded project, a dragged row's accent drop indicator.
+5. The [606](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/606-rail-glyph-liveness.md) rail check: both themes, a project with a running session and one without, a shell tab, a mission row, a provider chat, a collapsed and an expanded project, a dragged row's accent drop indicator.
 
 ## Automated verification
 

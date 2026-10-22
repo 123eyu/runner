@@ -1,5 +1,7 @@
 # 735 — Start a chat modal redesign
 
+> Historical medium-sized example, shipped in 0.12.5. Paths and mission-specific permissions below describe the 2026-09-30 launch; use the [brief-writing README](README.md) and current `AGENTS.md` when writing a new goal. The retained spec is [735-start-chat-modal.md](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/735-start-chat-modal.md).
+
 Implement [P2 #735](https://github.com/yicheng47/runner/issues/735). Jason asked on 2026-09-30 for a claude pair crew mission that ends in an open PR, not a merge.
 
 Work only in `/Users/jason/repos/yicheng47/runner/.worktrees/feat-735-start-chat-modal`, on branch `feat/735-start-chat-modal`. The mission's directory is this worktree. Its tip is this brief, on top of main `d485284` (the design and spec). Do not create another branch or checkout, touch the root checkout or another worktree, or share another worktree's target directory. If main moves and you need it, rebase onto `origin/main`; never merge main into the branch.

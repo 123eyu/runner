@@ -1,6 +1,6 @@
 # Runner as an environment for agents
 
-> Direction, 2026-09-23, from Jason after a month of daily use. Not yet folded into [`vision.md`](./vision.md); that happens once [562](../features/archive/562-mission-spawn.md) ships and the vocabulary changes with it.
+> Direction set by Jason on 2026-09-23, reconciled with shipped behavior on 2026-10-22. The agent-first framing and mission vocabulary are reflected in [`vision.md`](vision.md); this note retains the rationale and the remaining delegation steps.
 
 ## The shift
 
@@ -22,16 +22,16 @@ Claude Code's subagents spawn Claude and Codex's spawn Codex. No vendor has a re
 
 | Need | How Runner meets it | State |
 | --- | --- | --- |
-| A place to work together | The mission as a container that owns its roster, seeded from a crew or started empty | [#562](https://github.com/yicheng47/runner/issues/562), 0.16 |
+| A place to work together | The mission as a container that owns its roster, seeded from a crew or started empty | Shipped through 0.16.2 in [#562](https://github.com/yicheng47/runner/issues/562) |
 | Identity | Roster handles; outside agents take a seat | 648 decisions shipped; seats in [#916](https://github.com/yicheng47/runner/issues/916) |
 | Coordination | The mission bus: signals, messages, the inbox | Shipped |
-| Handing off directly | An empty mission started from the chat with a worker added to it, its results typed back into that chat | Shipped in [#562](https://github.com/yicheng47/runner/issues/562) (0.16.2); results back into the chat in [#748](https://github.com/yicheng47/runner/issues/748), 0.16; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
+| Handing off directly | A chat uses the CLI to start an empty mission and add a worker; the return path to that chat needs a design | Shipped in [#562](https://github.com/yicheng47/runner/issues/562) (0.16.2); the return path in [#748](https://github.com/yicheng47/runner/issues/748) is on hold after Runner typing updates into a normal chat was rejected on 2026-10-17; [#704](https://github.com/yicheng47/runner/issues/704)'s `runner session send` closed unbuilt on 2026-10-11 |
 | Living past the app | Sessions continue in runnerd when the app quits ([`vision.md`](./vision.md) §4.2) | [#645](https://github.com/yicheng47/runner/issues/645), shipped in 0.13 |
-| Limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | With the lead's verbs in [#916](https://github.com/yicheng47/runner/issues/916) |
+| Planned limits | `MISSION_SPAWN_CAP` (8) and one level of spawning: workers ask the lead and do not spawn | With the lead's verbs in [#916](https://github.com/yicheng47/runner/issues/916) |
 | Reaching the person | A message to the lead, then `ask_human`; a mission without a lead asks the person directly; desktop notifications | Shipped; [#701](https://github.com/yicheng47/runner/issues/701); `ask_lead` retired in [#562](https://github.com/yicheng47/runner/issues/562) Phase 3 |
 | Keeping track | Plan usage is shipped; the token ledger is unscheduled. Remote control starts in the browser, then adds iOS; the desktop Active view is separate | [#706](https://github.com/yicheng47/runner/issues/706), [#630](https://github.com/yicheng47/runner/issues/630), [#836](https://github.com/yicheng47/runner/issues/836), [#912](https://github.com/yicheng47/runner/issues/912), [#887](https://github.com/yicheng47/runner/issues/887) |
 
-The limits matter more as agents do more of the spawning. Once agents can start agents, a runaway fan-out is the first failure to expect, and the cap plus the one-level rule are what stop it.
+The proposed cap and one-level rule belong to #916; they are not a claim that the current CLI implements the reserved coordinator verbs. Today the person controls membership, including when an authorized outside agent operates the CLI for them.
 
 ## What it does not provide
 
@@ -55,4 +55,4 @@ Steps 1 and 2 work today from outside the mission: #562 shipped empty missions a
 
 ## Roadmap implications
 
-The [roadmap](../roadmap.md) owns release scheduling. The session host and #562's mission delegation have shipped; delegation's follow-through is #748, reliable delivery (#907) and the lead's verbs (#916). File review follows. Remote supervision starts with browser access to local hosts, then iOS on the same protocol, then desktop-to-desktop SSH. Historical milestone numbers from the original September direction are superseded by that plan.
+The [roadmap](../roadmap.md) owns release scheduling. The session host and #562's mission delegation have shipped; reliable delivery (#907) shipped in 0.16.5, and delegation's remaining follow-through is #748 and the lead's verbs (#916). File review follows. Remote supervision starts with browser access to local hosts, then iOS on the same protocol, then desktop-to-desktop SSH. Historical milestone numbers from the original September direction are superseded by that plan.

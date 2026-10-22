@@ -1,5 +1,7 @@
 # Mission participants use pushed inbox notifications
 
+> Small brief example, merged 2026-10-21 in [#985](https://github.com/yicheng47/runner/pull/985). The paths and authorization below belong to that completed mission; use the [brief-writing README](README.md) when writing a new goal.
+
 Jason requested a separate mission with one coder and an open PR on 2026-10-21. Work only in `/Volumes/samsung/repos/yicheng47/runner/.worktrees/fix-mission-inbox-guidance` on `fix/mission-inbox-guidance`, based on `origin/main` at `59c1e1621b3152d8c097536d48d6e0718701e2f1`. The root checkout stays on main. This is independent of PR #981 and its Windows relaunch worktree.
 
 ## Problem

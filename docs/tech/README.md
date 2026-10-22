@@ -6,8 +6,8 @@ Dependency notes name the crate version they were written against; internal code
 
 ## Notes
 
-- [`runtime-adapters.md`](./runtime-adapters.md) — a first walkthrough of the runtime adapter refactor: agent identity, adapters, session orchestration, and the PTY process layer, with a Mermaid launch diagram and a code reading path.
-- [`terminal-rendering.md`](./terminal-rendering.md) — the path from a PTY read to painted pixels inside Runner: the terminal model crate, the bridge, the GPUI element, and the four design decisions that shape it.
+- [`runtime-adapters.md`](./runtime-adapters.md) — current runtime launch and status flow: agent identity, adapters, hook IPC, the shared session reducer and the PTY process layer, with diagrams and a code reading path.
+- [`terminal-rendering.md`](./terminal-rendering.md) — the path from a PTY read to painted pixels: daemon-owned models, app-side mirrors, viewport wakes, the GPUI element and the four design decisions that shape it.
 - [`alacritty-terminal.md`](./alacritty-terminal.md) — `alacritty_terminal` 0.26 as an emulator without a window: the vte parser, the Handler vocabulary, the Term and its ring-buffer grid, cells, colors, modes, reflow, and the event channel back to the PTY.
 - [`gpui-rendering.md`](./gpui-rendering.md) — `gpui-pre` 0.3.7 (`zed@1a28cff`) as Runner uses it for the terminal: the frame lifecycle, the Element trait, the scene and its GPU batches, text shaping and the layout cache, paths, masks, hitboxes, IME input, and entities.
 

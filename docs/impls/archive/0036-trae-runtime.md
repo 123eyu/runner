@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented (#361 closed 2026-07-27, `cc97ab5`; ported to the native app). Tracking issue [#361](https://github.com/yicheng47/runner/issues/361). Capabilities were live-probed against `traecli 0.200.19 (internal edition)` on 2026-07-27: help output for the interactive and `exec` surfaces, a real `exec` run in a scratch git repo, the on-disk rollout envelope, and an add/remove round-trip through `traecli mcp`. Follows [0034](0034-qoder-runtime.md), which added qoder and established that a runtime is mostly a catalog edit.
+Implemented (#361 closed 2026-07-27, `cc97ab5`; ported to the native app). Tracking issue [#361](https://github.com/yicheng47/runner/issues/361). Capabilities were live-probed against `traecli 0.200.19 (internal edition)` on 2026-07-27: help output for the interactive and `exec` surfaces, a real `exec` run in a scratch git repo, the on-disk rollout envelope, and an add/remove round-trip through `traecli mcp`. Follows [0034](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/impls/archive/0034-qoder-runtime.md), which added qoder and established that a runtime is mostly a catalog edit.
 
 ## Problem
 

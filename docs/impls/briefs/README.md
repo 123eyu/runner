@@ -1,17 +1,34 @@
 # Mission briefs
 
-A brief is the goal a crew mission starts from: where to work, what to read, what to build, how to verify, and what the crew is authorized to do. It lands on `main` with the mission's pull request, folded into one of its commits. Shipped briefs are pruned in the next release's docs sweep; the ones below stay as references for writing the next one, and every other brief is in git history (the 2026-09-30 prune kept these seven of 59).
+A brief gives a mission its working directory, problem, deliverables, validation and authorization. Write it on the mission's branch before launch, then fold it into an implementation commit when the work lands. Keep three examples of different sizes; other completed briefs live in git history. Active missions keep their briefs until their work is finished.
 
-Start from the brief closest to the mission's shape:
+## Examples by size
 
-| Brief | Shape | What to take from it |
+These are real briefs, with their original dates, paths and task-specific permissions. Copy their structure and replace the details. They do not authorize a new mission or override the current [`AGENTS.md`](../../../AGENTS.md).
+
+| Size | Brief | What to take from it |
 |---|---|---|
-| [752](./752-usage-pill-runtimes.md) | A small bug fix | The whole skeleton at its shortest: worktree, the bug, Read first with line hints, numbered deliverables, boundaries, and the current authorization section |
-| [735](./735-start-chat-modal.md) | A UI feature from a design | Design PNGs in `target/design-ref/`, the spec winning over the brief, a reviewer checklist, and the smoke list for the PR body |
-| [575](./575-live-cwd.md) | Spec first, then code | A spec the reviewer passes with `SPEC OK` before any code, and probes in throwaway shells |
-| [644](./644-antigravity-runtime.md) | A new agent runtime | Phases taken from the spec's site list, and reviewer checks that keep the other runtimes' argv unchanged |
-| [747](./747-antigravity-followups.md) | Work that probes a live agent CLI | Explicit probe boundaries: what may run, where, and what must stay untouched |
-| [644 continuation](./644-antigravity-runtime-continuation.md) | Resuming a mission on an existing PR | The starting state after a rebase, and updating the open PR instead of opening another |
-| [582](./582-split-test-files.md) | A move with no behavior change | The split pattern, the cut table, and verification that proves only code moved |
+| Small | [Mission inbox guidance](mission-inbox-guidance.md) | One coder, one focused change, named authoritative files, bounded checks and an open-PR handoff. Merged in [#985](https://github.com/yicheng47/runner/pull/985). |
+| Medium | [#735 — Start a chat modal](735-start-chat-modal.md) | A designed UI feature: spec and PNG references, concrete states and request mappings, coder/reviewer handoffs and native-check gaps. Shipped in 0.12.5. |
+| Large | [#823 — Linux support](823-linux.md) | A cross-platform change: ordered deliverables across runtime, UI, packaging and CI, review risks, and a separate live-test record. Active in [#982](https://github.com/yicheng47/runner/pull/982). |
 
-The authorization sections in 575, 644 and 582 predate the commit rule in [`AGENTS.md`](../../../AGENTS.md) (Crew Missions); copy that section from 752 or 735 instead. Every brief still carries the standing lines: work only in the named worktree, crews never run the dev app, gate imports used only by `cfg(unix)` tests with `#[cfg(unix)]`, and stop at an open PR with CI green on macOS and Windows.
+Size describes the work, not a required agent count or brief length. Small fixes normally stay inline; launch a mission only when Jason requests or approves one. Large programs may need several independently reviewable missions rather than one long goal. Keep each launch goal under 8 KB and link to its spec or implementation plan for detail. The historical medium and large files exceed that launch limit: use them as supporting references and summarize the goal instead of passing the whole file unchanged.
+
+## Writing the next brief
+
+1. **Starting point.** Name the issue or existing PR, branch, exact worktree and base revision. The root checkout stays on `main`; every worktree uses its own Cargo target directory.
+2. **Problem and outcome.** Describe the trigger, current behavior and intended result. Name the spec and design in `yeelinks_design` when applicable, and say which source wins on detail.
+3. **Read first.** Point to the few source files and docs needed to begin. Prefer symbols over line numbers that will drift.
+4. **Deliverables and boundaries.** State observable acceptance criteria, affected guide pages, non-goals and any approved probes or fixtures. Avoid repeating the repo's rulebook.
+5. **Validation and handoffs.** Tie each selected check to changed behavior under [Test Scope](../../../AGENTS.md#test-scope). State who implements, reviews and runs live checks, and what evidence the final handoff carries.
+6. **Authorization.** Record the actual approved agent count and Git actions. An authorized crew normally ends at an open PR with the required platform CI green; merging, releases and local cleanup need their own authorization. Fold review and CI fixes into the commits they correct.
+
+Use the current [Crew Missions](../../../AGENTS.md#crew-missions) workflow. In particular, the old blanket “crews never run the dev app” in the medium and large examples is historical: coders and reviewers do not run it, while the person assigned selected live checks may use the isolated development environment under [Test Scope](../../../AGENTS.md#test-scope). Use current crate names and verification commands. Rebase only when the repo's current rules require it.
+
+Inside a mission, participants finish their turn when waiting for a teammate and read the inbox when Runner notifies them. An outside operator starting a different mission follows the [external watch workflow](../../guide/guides/drive-runner-from-agents.md#start-and-follow-a-crew).
+
+## Retention
+
+At a docs sweep, prune completed briefs except these three examples. Keep a brief for active work even when it is not a sample. Before pruning, preserve unique current decisions in architecture docs, outstanding scope in its issue, and validation evidence in `docs/tests/`; fix references to use the owning document or a fixed git revision. Do not remove test evidence or implementation logs with a brief.
+
+The 2026-10-22 sweep reduced ten briefs to these three. #823 remains both the large example and an active brief; the requirements in its open PR may have evolved beyond the original launch goal.

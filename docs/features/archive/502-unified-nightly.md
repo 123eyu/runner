@@ -1,6 +1,6 @@
 # One nightly for both platforms
 
-Tracking issue: [#502](https://github.com/yicheng47/runner/issues/502). Status: shipped 2026-09-08 in PR [#503](https://github.com/yicheng47/runner/pull/503), then superseded the same day by [#504](./504-single-nightly-release.md) (one release) and [#505](./505-macos-nightly-replaces-runner.md) (same-app Mac nightly); archived 2026-09-08. Priority P1. Crew brief: [502 — Unified nightly implementation](../../impls/archive/502-unified-nightly.md).
+Tracking issue: [#502](https://github.com/yicheng47/runner/issues/502). Status: shipped 2026-09-08 in PR [#503](https://github.com/yicheng47/runner/pull/503), then superseded the same day by [#504](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/504-single-nightly-release.md) (one release) and [#505](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/505-macos-nightly-replaces-runner.md) (same-app Mac nightly); archived 2026-09-08. Priority P1. Crew brief: [502 — Unified nightly implementation](../../impls/archive/502-unified-nightly.md).
 
 ## Motivation
 

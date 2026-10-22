@@ -84,7 +84,7 @@ Three rules come with it:
 
 The daemon keeps the authoritative `TerminalSession` for every live session. The app keeps a mirror `Term` fed the same bytes, which it paints, selects in and encodes keys against.
 
-- **Only the daemon answers terminal queries:** device attributes, cursor position, colours, kitty keyboard flags and the colour scheme. The mirror discards its replies, so each query gets exactly one answer ([524](./524-double-terminal-query-replies.md)), and agents still get answers while no app is attached.
+- **Only the daemon answers terminal queries:** device attributes, cursor position, colours, kitty keyboard flags and the colour scheme. The mirror discards its replies, so each query gets exactly one answer ([524](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/524-double-terminal-query-replies.md)), and agents still get answers while no app is attached.
 - **Draft observations come from the daemon's `Term`**, next to the delivery gate that reads them.
 - **Attach is a snapshot, then the live stream.** Under the lock that records `seq`, the daemon serializes its `Term` to VT bytes: the primary screen with its scrollback, the alternate screen when active, cursor position and style, SGR attributes, the title, and the modes (application cursor keys, bracketed paste, mouse reporting, focus reporting, scroll region, the kitty keyboard stack). The client feeds those bytes into a fresh `Term`, then applies every frame after `seq`.
 - **The snapshot boundary is exact.** The bytes after the snapshot must land in the same parser state on both sides, so the snapshot also carries any escape sequence cut off at its boundary and any synchronized update the daemon's parser is still holding. The plan picks the mechanism; the split-point test under Verification proves it. One per-session lock covers numbering a chunk, queuing it for clients, parsing it, and taking a snapshot together with its subscription, so a client can neither miss nor repeat a chunk.
@@ -98,7 +98,7 @@ The daemon keeps the authoritative `TerminalSession` for every live session. The
 
 Two alternatives were rejected. A raw byte ring buffer replayed on attach starts a TUI in the wrong modes when it begins mid-stream, and is unbounded when it does not. Sending grid diffs would make a rendering protocol to maintain. The cost of the chosen design is two `Term`s per live session, which doubles terminal memory in the arch §11.4 cost model. At ten or so sessions that is acceptable.
 
-**This was tried before, and failed for reasons that no longer apply.** The Tauri app's tmux runtime ([impl 0004](../../impls/archive/0004-tmux-session-runtime.md)) rebuilt screens from `tmux capture-pane`, rendered text that drops modes such as the alternate screen, which caused the stacked redraws of #150 and [0009](../../impls/archive/0009-terminal-alt-screen-reattach.md). [PR #157](https://github.com/yicheng47/runner/pull/157) then tried a daemon with a headless alacritty `Term` and a serializer, and was closed after one review for four problems ([0011](../../impls/archive/0011-pty-host-terminal-runtime.md) §"Why no headless emulator"). [Spec 42](./42-headless-terminal-model.md) records the raw-replay workarounds that followed and lost Claude Code's history. Against #157's four:
+**This was tried before, and failed for reasons that no longer apply.** The Tauri app's tmux runtime ([impl 0004](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/impls/archive/0004-tmux-session-runtime.md)) rebuilt screens from `tmux capture-pane`, rendered text that drops modes such as the alternate screen, which caused the stacked redraws of #150 and [0009](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/impls/archive/0009-terminal-alt-screen-reattach.md). [PR #157](https://github.com/yicheng47/runner/pull/157) then tried a daemon with a headless alacritty `Term` and a serializer, and was closed after one review for four problems ([0011](../../impls/archive/0011-pty-host-terminal-runtime.md) §"Why no headless emulator"). [Spec 42](./42-headless-terminal-model.md) records the raw-replay workarounds that followed and lost Claude Code's history. Against #157's four:
 
 1. **Two parsers had to agree,** alacritty in the daemon and xterm.js in the webview. Now both sides run the same `alacritty_terminal` crate at the same version, from this workspace, over the same bytes. Since parsing is deterministic, the copies cannot disagree on the live path.
 2. **The serializer had to restore every mode.** That is still true, and it is the one hard part left. It is bounded by alacritty's own mode set, and the round-trip and split-point tests check it against real recordings.
@@ -190,7 +190,7 @@ The launch spec therefore names machine-side files by role, such as the system p
 
 ### The Windows PC as a remote machine (phase 4)
 
-The Windows PC runs a crew slot for a Mac's mission: OpenSSH Server, `runnerd --stdio` on Windows, ConPTY, argv with no quoting layer, the `.cmd` first-turn paste running on the machine where [610](./610-windows-hook-status.md) proved it, and the PowerShell hook reporters local to it. A Windows machine's own local daemon is part of phase 1.
+The Windows PC runs a crew slot for a Mac's mission: OpenSSH Server, `runnerd --stdio` on Windows, ConPTY, argv with no quoting layer, the `.cmd` first-turn paste running on the machine where [610](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/610-windows-hook-status.md) proved it, and the PowerShell hook reporters local to it. A Windows machine's own local daemon is part of phase 1.
 
 ## Design
 
@@ -255,7 +255,7 @@ The [implementation plan](../../impls/archive/645-runnerd/plan.md) has the detai
 
 **Phase 2: dropped** (decision 13). It would have kept agents running through updates.
 
-**Phase 3: remote machines over ssh.** A session daemon on another machine, speaking a session protocol kept stable across releases, reached through `ssh <host> runnerd --stdio`, with the #795 launch steps and the host picker. Supersedes [510](./510-remote-ssh-session.md).
+**Phase 3: remote machines over ssh.** A session daemon on another machine, speaking a session protocol kept stable across releases, reached through `ssh <host> runnerd --stdio`, with the #795 launch steps and the host picker. Supersedes [510](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/510-remote-ssh-session.md).
 
 **Phase 4: the Windows PC as a remote machine** for a crew slot.
 

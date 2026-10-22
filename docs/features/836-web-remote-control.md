@@ -1,7 +1,7 @@
 # 836 — Web remote control
 
 > Tracking issue: [#836](https://github.com/yicheng47/runner/issues/836). Scheduling and priority live on the issue and in the [roadmap](../roadmap.md). Platforms: macOS and Windows first; Linux wherever `runnerd` runs ([#823](https://github.com/yicheng47/runner/issues/823)).
-> Status: draft spec for Phase 1, connecting a host to an account. The encrypted channel, the companion protocol and terminals (Phases 2 and 3) get their sections when their development starts.
+> Status, checked 2026-10-22: this file retains the Phase 1 design and parent contract. Enrollment, trust, companion protocol v1, browser channels and live terminals have merged into `nightly-remote`, not `main`; the [roadmap](../roadmap.md) links the phase PRs. Tailscale and the combined production gate remain open. This is not a claim that remote control shipped in 0.17.0.
 > Scope: Runner's side only, what runs on the person's computer. The web panel and the service are developed separately; this spec describes them only as far as Runner talks to them.
 > Design: `runner/desktop/specs/836-web-remote-control.pen` in `yeelinks_design`, the Settings → Remote access pane and its states, drawn and reviewed in Pencil before the app UI is built.
 > Related: [#912](https://github.com/yicheng47/runner/issues/912) (iOS on the same foundation), [#808](https://github.com/yicheng47/runner/issues/808) (SSH hosts), [#838](https://github.com/yicheng47/runner/issues/838) (multi-client resize).

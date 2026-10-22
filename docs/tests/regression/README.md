@@ -10,12 +10,12 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 | --- | --- | ---: | ---: | ---: |
 | Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 45 | 10 | 35 |
 | Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 25 | 5 | 20 |
-| Windows, tabs, panes, sidebar and its Active view, cwd and drawers | [workspace.md](workspace.md) | 34 | 6 | 28 |
+| Windows, tabs, panes, sidebar and its Active view, cwd and drawers | [workspace.md](workspace.md) | 35 | 6 | 29 |
 | Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 39 | 4 | 35 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
 | Agents, Claude accounts, settings, language, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 44 | 4 | 40 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| **Total** | | **222** | **37** | **185** |
+| **Total** | | **223** | **37** | **186** |
 
 `regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 
@@ -66,14 +66,14 @@ When a feature's test record is archived in a [release's docs sweep](../../../AG
 
 ## Not carried over
 
-The original 56 archive records and #955's release record were considered for promotion. Their lasting current live checks are linked from the area rows. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
+The original 56 archive records and #955's release record were considered for promotion. Their lasting current live checks are linked from the area rows. The 2026-10-22 docs sweep also added `WS-CHROME-05` from merged PR #981; its native checks remain unverified, and adding the case does not establish a pass. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 
 | Archive record/check left out | Reason / current owner |
 | --- | --- |
 | [v0 MVP](../archive/v0-mvp-tests.md): Tauri/React routes, TypeScript/ESLint, DevTools, reset-by-wipe, closed signal allowlist and `status busy/idle` | Retired implementation/control surface. Current native mission/feed/ask workflows survive in `MIS-*` and `CLI-*`. |
 | [#347 Codex](../archive/347-codex-hooks-smoke.md), [#347 UI](../archive/347-status-ui-smoke.md), [#540](../archive/540-copilot-hooks-smoke.md), [#610 Claude](../archive/610-claude-hooks-windows-smoke.md), [Codex](../archive/610-codex-hooks-windows-smoke.md), [Copilot](../archive/610-copilot-hooks-windows-smoke.md): old Windows baseline-only policy and file/helper/payload cleanup | Retired by native Windows adapters and [#797 IPC](../../features/archive/797-hook-status-ipc.md). Hook semantics/opt-outs are retained in `RT-*`, not old transport files. |
 | [#539](../archive/539-pi-hooks-smoke.md), [#799](../archive/799-pi-draft-delivery.md): extension stubs, missing-API versions, timer/subscription teardown and feed-byte assertions | CI fixtures: `editor_draft_requires_a_boolean_and_does_not_change_turn_status` in [pi status](../../../crates/runner-daemon/src/runtimes/pi/pi_status.rs), plus `native_draft_resets_on_bridge_loss_detach_and_attach_and_ignores_late_events` in [session model tests](../../../crates/runner-daemon/src/session/state/tests.rs). Native draft/reload/resume remains `MIS-DRAFT-*`. |
-| [#64](../archive/64-terminal-as-pane-option-smoke.md): unbound ⌘T, three-pane cap, universal empty-pane New terminal and old menu/layout recipes | Reversed by [#469 drawer](../../features/archive/469-terminal-drawer.md) and [#772 keyboard](../../features/archive/772-keyboard-create.md). Current shell/pane behavior is `WS-*`. |
+| [#64](../archive/64-terminal-as-pane-option-smoke.md): unbound ⌘T, three-pane cap, universal empty-pane New terminal and old menu/layout recipes | Reversed by [#469 drawer](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/469-terminal-drawer.md) and [#772 keyboard](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/772-keyboard-create.md). Current shell/pane behavior is `WS-*`. |
 | [#575](../archive/575-live-cwd-smoke.md): literal OSC 7 bytes and hook-list mechanics | CI parser/shell-integration checks in [terminal cwd parser](../../../crates/runner-terminal/src/terminal.rs) and [shell integration](../../../crates/runner-daemon/src/shell_integration.rs). Native split/link/config preservation is `WS-CWD-*`. |
 | [#644](../archive/644-antigravity-smoke.md), [#747](../archive/747-antigravity-followups.md): first-key-only limitation, static-only catalog, old permissions and hook-folder distraction probes | Superseded by active key capture, catalog discovery and fixed mission Bypass. One-off investigation remains in archive. Current cwd/navigation/model/settings cases retained. |
 | [#645 1b](../archive/645-m2-terminal-split.md): parser snapshot split offsets, negative controls, sync deadlines, overflow/resync races and source/cfg audit | CI ownership: `recording_split_points` in [snapshots](../../../crates/runner-terminal/tests/snapshot.rs), `hidden_terminal_answers_each_query_once` and resize fan-out in [terminal seam tests](../../../crates/runner-daemon/src/session/manager/terminal/tests.rs). Native query/history/resize cases remain. |

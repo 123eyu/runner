@@ -1,0 +1,20 @@
+# Archived feature records
+
+Read the shared [archive policy](../../README.md#archive-policy) before retaining or removing a document. This is a curated index of major features and consequential decisions. Completed small features and bug fixes belong in git history, not in new archive files.
+
+Start from the [current architecture](../../arch/arch.md) or [guide](../../guide/README.md). Open only the record relevant to a specific historical question; do not load this directory as context for ordinary work. Original commands, paths, status and permissions are historical, even when a document says “next” or “in progress.”
+
+| Topic | Retained records | Why they stay |
+| --- | --- | --- |
+| Terminal and window model | [Multi-window](12-multi-window.md), [headless model investigation](42-headless-terminal-model.md), [native shell panes](64-native-terminal.md), [runnerd](645-session-host.md) | Ownership and session-lifetime decisions, failed replay approaches and the app/daemon boundary. |
+| Persistent domain model | [Node tree](44-sidebar-node-tree.md), [runner → role](604-rename-runner-to-role.md), [mission roster](562-mission-spawn.md) | Durable schema, terminology and roster migrations; compatibility with existing sessions and logs. |
+| Coordination | [Status hooks](347-hook-based-session-status.md), [general CLI](648-runner-cli.md), [hook IPC](797-hook-status-ipc.md), [targeted messaging](826-targeted-messaging.md) | Protocol, admission, identity and delivery contracts across agents and processes. |
+| Runtime architecture | [Adapters](777-runtime-adapter.md), [session reducer](791-session-state.md), [model discovery](590-runtime-model-discovery.md) | Shared/runtime boundaries, state precedence and last-good catalog semantics. |
+| Agent integrations | [pi](539-pi-runtime.md), [Copilot](540-copilot-cli-runtime.md), [Antigravity](644-antigravity-runtime.md), [Cursor](723-cursor-agent-runtime.md), [Grok](723-grok-build-runtime.md), [OpenCode](592-opencode-runtime.md) | Native CLI probes, conversation identity, permissions, capabilities and platform limitations. TRAE's original probe is in the [implementation archive](../../impls/archive/0036-trae-runtime.md). |
+| Platform and distribution | [Windows port](437-windows-nightly.md), [bundled ConPTY](492-windows-terminal-output-latency.md), [Windows updates](493-windows-auto-update.md), [signing](497-windows-code-signing.md), [unified nightly](502-unified-nightly.md) | OS/process constraints, signed upgrade trust and release-channel transitions. |
+| Agent configuration | [Skills](73-runner-skills.md), [MCP settings](555-mcp-settings.md), [agent updates](533-agent-cli-updates.md), [usage](706-agent-usage.md), [Claude accounts](955-claude-accounts.md) | User-config ownership, preservation of foreign entries, provider contracts and account/conversation storage. |
+| App-wide product changes | [Localization](565-i18n.md), [native notifications](701-desktop-notifications.md), [glass/work-card design](793-liquid-glass.md), [Active sidebar](887-active-sidebar.md) | Cross-window language behavior, background notification routing/defaults, the shared material/layout primitive and activity projection semantics. |
+
+Each retained topic must keep its reason in this index. Retain a separate implementation plan only for distinct migration, failure-analysis or evidence context. Release contents live in the [roadmap](../../roadmap.md) and GitHub releases; this index is not a second changelog.
+
+The 2026-10-22 cleanup retained 34 of 123 feature records. Deleted specs remain available at their original commit, and incoming historical references use fixed commit URLs. [Validation records](../../tests/README.md) and task logs have their own retention rules.

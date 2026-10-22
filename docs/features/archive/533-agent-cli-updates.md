@@ -10,7 +10,7 @@ Design: `design/specs/533-agent-cli-updates.pen`: `533 — Settings → Agents w
 
 ## Motivation
 
-[#475](./475-codex-auto-update.md) (0.8.2) made agent launches quiet. Codex gets `-c check_for_update_on_startup=false` from `trailing_runtime_args` (`crates/runner-backend/src/router/runtime.rs:602`), and Claude Code gets `DISABLE_INSTALLATION_CHECKS=1` and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` from `base_spawn_spec` (`crates/runner-backend/src/session/manager/spawn.rs:410`). That was the right call: Codex's startup prompt installed the update and exited, leaving a direct chat on **Chat paused** and, inside a mission, sometimes taking sibling slots down with it. But the prompt was also the only place a Runner user learned that a CLI was stale. #475 recorded the trade explicitly — "CLI updates remain outside Runner" — and this spec is the other half of it.
+[#475](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/475-codex-auto-update.md) (0.8.2) made agent launches quiet. Codex gets `-c check_for_update_on_startup=false` from `trailing_runtime_args` (`crates/runner-backend/src/router/runtime.rs:602`), and Claude Code gets `DISABLE_INSTALLATION_CHECKS=1` and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` from `base_spawn_spec` (`crates/runner-backend/src/session/manager/spawn.rs:410`). That was the right call: Codex's startup prompt installed the update and exited, leaving a direct chat on **Chat paused** and, inside a mission, sometimes taking sibling slots down with it. But the prompt was also the only place a Runner user learned that a CLI was stale. #475 recorded the trade explicitly — "CLI updates remain outside Runner" — and this spec is the other half of it.
 
 The gap is uneven across the two CLIs. Codex has no background updater at all: with the startup check off, anyone who runs Codex only through Runner never updates. Claude Code's native installer keeps updating itself in the background (Runner does not set `DISABLE_AUTOUPDATER`), but npm and Homebrew installs sit still, and even a native install that updated underneath a running session stays on the old version until the session relaunches. Nothing in Runner shows which version a session is actually running, so there is no way to tell the two situations apart.
 
@@ -73,7 +73,7 @@ The #475 suppression is unchanged. Sessions still get `check_for_update_on_start
 - **TRAE.** No update subcommand is known; the row gains the version probe if `traecli --version` prints one and nothing else.
 - **An MCP tool** for `runtime_update_start`. Updating is a human action in Settings; agents do not update their own runtime.
 - **Restoring the Claude Code startup nudge** by dropping `DISABLE_INSTALLATION_CHECKS`. The sessions stay quiet.
-- **Remote hosts** ([510](./510-remote-ssh-session.md)). The version probe and the update modal run on this machine against the local executable; a remote CLI is updated on the remote.
+- **Remote hosts** ([510](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/510-remote-ssh-session.md)). The version probe and the update modal run on this machine against the local executable; a remote CLI is updated on the remote.
 
 ## Implementation Phases
 

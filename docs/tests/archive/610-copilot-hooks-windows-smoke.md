@@ -42,7 +42,7 @@ Run in the dev app on JASONPC, in a direct chat and in a mission slot.
 3. A disposable repository with `.github/copilot/settings.local.json` holding `{"disableAllHooks":true}` stays estimated. A role's own `--plugin-dir` composes with Runner's.
 4. While a session runs, its feed and payload files appear under `%APPDATA%\com.wycstudios.runner-dev\session-status\` and are gone after it stops.
 5. In a crew, a message posted during a Copilot dialog is held until the dialog resolves; posted while Working or Idle it delivers; a typed draft still protects the input.
-6. The [606](../../features/archive/606-rail-glyph-liveness.md) rail check: both themes, a project with a running session and one without, a shell tab, a mission row, a provider chat, a collapsed and an expanded project, a dragged row's accent drop indicator.
+6. The [606](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/606-rail-glyph-liveness.md) rail check: both themes, a project with a running session and one without, a shell tab, a mission row, a provider chat, a collapsed and an expanded project, a dragged row's accent drop indicator.
 
 ## Automated verification
 

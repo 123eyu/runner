@@ -20,7 +20,7 @@ Core vocabulary:
 
 Surface hierarchy (strict — do not blur these in code, docs, or UI copy):
 
-- **Window**: a real OS window (⇧⌘N). Multi-window support is impl 0018.
+- **Window**: a real OS window (⇧⌘N). Ownership is described in [Surface hierarchy](docs/arch/arch.md#36-surface-hierarchy--project--window--tab--pane).
 - **Tab**: one group of panes shown on a window's chat surface — the unit
   the layout picker builds and the sidebar highlights (formerly "chat
   group" / "split"). ⌘N starts a chat in a new tab.
@@ -45,7 +45,7 @@ Surface hierarchy (strict — do not blur these in code, docs, or UI copy):
 - `docs/arch/`: architecture references (how it works).
 - `docs/product/`: product vision and direction (why we're building this, what surfaces matter).
 - `docs/guide/`: user documentation, with `README.md` as the website's navigation order; writing and generation conventions live in [docs/guide-authoring.md](docs/guide-authoring.md).
-- `docs/features/`: specs of features in development, named `{tracking-issue}-{slug}.md`. A feature is only an issue until its development starts; its spec is then written on the feature's branch and lands with the code. Retained shipped specs live in `docs/features/archive/`; obsolete duplicate proposals may be pruned after preserving useful context.
+- `docs/features/`: specs of features in development, named `{tracking-issue}-{slug}.md`. A feature is only an issue until its development starts; its spec is then written on the feature's branch and lands with the code. Only important shipped records stay in `docs/features/archive/`, indexed by its README under the [archive policy](docs/README.md#archive-policy).
 - `docs/impls/`: implementation plans; retained shipped plans live in `docs/impls/archive/`, mission briefs in `docs/impls/briefs/`.
 - `docs/tests/`: validation and smoke-test plans; records of shipped features live in `docs/tests/archive/`.
 - `docs/roadmap.md`: where the project is, mirrored from the GitHub milestones and dated.
@@ -138,7 +138,9 @@ The mission's brief, test record and spec stay where they are until the next rel
 
 ## Docs Sweep At Release
 
-Shipped work's docs are reviewed once per production release, not after each merge. Once a release is published, one doc-only commit on `main` sweeps everything shipped since the previous sweep: test records move to `docs/tests/archive/` with their lasting live checks promoted into [`docs/tests/regression/`](docs/tests/regression/README.md), merged missions' briefs are pruned unless [`docs/impls/briefs/README.md`](docs/impls/briefs/README.md) keeps one as a reference, specs and plans whose issues have closed are retained in `archive/` only when they explain lasting decisions, migrations or compatibility constraints; obsolete or duplicate proposals are pruned after preserving useful unique content and checking references, and [`docs/roadmap.md`](docs/roadmap.md) records the release. Distant features normally remain issues until development starts. Test evidence and task history are retained; an archive is not a requirement for every historical document. The procedure is the `sweep` action of the [release skill](.agents/skills/release/SKILL.md).
+Shipped work's docs are reviewed once per production release, not after each merge; Jason may also request a cleanup. Follow the [archive policy](docs/README.md#archive-policy): delete completed small-feature and bug-fix specs/plans; retain only important features, architectural changes and consequential migration or compatibility records, with a reason in the relevant archive README. Preserve unique current decisions and repair references before pruning. Read archive indexes first and load only the records needed for the task, never the whole archive for orientation.
+
+Once a release is published, one doc-only commit on `main` sweeps everything shipped since the previous sweep: test records move to `docs/tests/archive/` with lasting live checks promoted into [`docs/tests/regression/`](docs/tests/regression/README.md), merged missions' briefs are pruned except the examples in [`docs/impls/briefs/README.md`](docs/impls/briefs/README.md), specs and plans follow the retention policy, and [`docs/roadmap.md`](docs/roadmap.md) records the release. Distant features remain issues until development starts. Test evidence, run results and task/review logs are retained separately from discarded planning text. The procedure is the `sweep` action of the [release skill](.agents/skills/release/SKILL.md).
 
 ## Notes For Agent Runtimes
 

@@ -367,7 +367,7 @@ The spec's Remote machines section has the rest:
 - the host picker is designed first;
 - the session protocol's version check shows "Update Runner on <host>".
 
-Supersedes [510](../../../features/archive/510-remote-ssh-session.md).
+Supersedes [510](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/510-remote-ssh-session.md).
 
 ## Phase 4 — the Windows PC
 

@@ -1,6 +1,6 @@
 # Terminal Rendering in Runner
 
-How a byte written by an agent CLI becomes pixels in a pane. This note follows the code as it stands at v0.8.7; function names are stable pointers, line numbers are not, so the text names functions and files only.
+How a byte written by an agent CLI becomes pixels in a pane. This note follows `main` as checked on 2026-10-22, with daemon-owned terminal models and app-side mirrors; function names are stable pointers, line numbers are not, so the text names functions and files only.
 
 The note assumes you know what a PTY is, how an escape sequence is shaped, and why a terminal is a grid of cells. If any of that is new, start with the [background reading](./README.md#background-reading).
 
@@ -8,47 +8,40 @@ The note assumes you know what a PTY is, how an escape sequence is shaped, and w
 
 A terminal is a fixed grid of cells, not a text box. The child process writes a byte stream. Most bytes are printable characters that land in the cell under the cursor. Some are escape sequences that move the cursor, set colors, clear regions, or switch screens. An emulator parses the stream and keeps the grid current. A renderer paints the grid. Runner writes no emulator: it embeds alacritty's and writes only the renderer and the glue between the two. [`alacritty-terminal.md`](./alacritty-terminal.md) covers the emulator; [`gpui-rendering.md`](./gpui-rendering.md) covers the framework the renderer is written against.
 
-Three jobs, split across two crates:
+Three jobs span the daemon, terminal library and app:
 
-- Emulation: `alacritty_terminal`, wrapped by `crates/runner-terminal`.
-- Painting: the custom GPUI element in `crates/runner-app/src/terminal/`.
-- Input: the encoders in `crates/runner-terminal/src/mappings.rs`, IME routing in `crates/runner-app/src/terminal_ime.rs`, and the mouse handling at the top of the element file.
+- Process IO and terminal ownership: `crates/runner-daemon/src/session/`.
+- Emulation and snapshots: `alacritty_terminal`, wrapped by `crates/runner-terminal`.
+- Painting and interaction: `crates/runner-app/src/terminal/`, with pure encoders in `runner-terminal/src/mappings.rs` and IME routing in `runner-app/src/terminal_ime.rs`.
 
+```text
+child → PTY reader → daemon SessionManager forwarder
+                         ├─ numbered bytes → client queue → app TerminalMirror → viewport → GPUI
+                         └─ authoritative TerminalModel → draft observations / terminal replies
+
+keys / IME / mouse → app encoders → client input frame → daemon ordered input worker → PTY
 ```
-child ──► PTY master ──► reader thread ──► SessionManager ──► TerminalBridge ──► TerminalSession
- (tty)                   (blocking read)   (stamps seq)       (SessionEvents)     └─ Term (alacritty)
-                                                                                   └─ waker ──► AppStore ──► cx.notify()
-                                                                                                                  │
-                                                             pane render ──► TerminalElement ──► prepaint/paint ◄─┘
-                                                                                     │
-                                                              keys / IME / mouse ────┴──► mappings ──► PTY writer
-```
+
+The daemon keeps parsing when the app is closed. App attachment restores a snapshot and subscribes to the bytes after its sequence number; reconnecting does not start another child. The [process model](../arch/process-model.md) explains workers, ownership and lifecycle in detail.
 
 ## The pipeline, file by file
 
-1. **PTY read.** `crates/runner-daemon/src/session/pty_runtime.rs`, the reader loop. One blocking OS thread per session calls `read` into a buffer and forwards each chunk as a stream message. The same loop feeds the idle detector, with a grace window after a resize so a SIGWINCH repaint does not count as activity.
-2. **Manager forwarder.** `crates/runner-daemon/src/session/manager/output.rs`, `ingest_output_chunk` and `record_output`. Stamps a per-session monotonic `seq` and calls the installed `SessionEvents` observer with an `OutputEvent` carrying session id, mission id, seq, and bytes.
-3. **TerminalBridge.** `crates/runner-terminal/src/terminal.rs`, the `SessionEvents` impl on `TerminalBridge`. The bridge is that observer. It keeps one `TerminalSession` per live session id in a map. `spawned` creates or replaces one with the spawn's cols and rows; `exit` and `archived` drop one; `output` looks one up and feeds it. If output arrives before the spawn event, the bridge creates the session on the spot from the persisted last size, defaulting to 80×24. `set_palette` fans a theme change out to every live session.
-4. **feed_output.** `TerminalSession::feed_output` in the same file. This is where bytes become grid. It locks alacritty's VTE `Processor` and the `Term`, then calls `advance`. That one call is the entire emulator. Everything around it is bookkeeping: skip a chunk whose seq is not newer than the last; record to the fixture recorder if `RUNNER_RECORD_INPUT_FIXTURE` is set; scan for the DEC 2031 colour-scheme sequences alacritty ignores and feed the parser in pieces so each takes effect at its place in the stream; note the seq of the latest alt-screen or bracketed-paste enable as `tui_ready_seq`; record `first_paint_seq` once any visible cell is non-whitespace; drop the selection when mouse mode turns on; hand the grid to the input-state detector; and finally wake GPUI, but only if `viewers > 0`.
-5. **Waker.** `crates/runner-app/src/app_store.rs`, `AppStore::new`. The waker is a closure that sends a unit on an unbounded channel. A GPUI task drains it, coalesces every wake that lands within 4 ms of the first, bumps `revisions.terminal_wake`, and calls `cx.notify()`. Output never pushes pixels. It mutates a `Term` and rings a bell.
-6. **Paint.** On the next frame the pane's render function builds a fresh `TerminalElement` and GPUI drives it through the `Element` trait. Construction sites: `crates/runner-app/src/surfaces/panes.rs` for chat panes and the drawer, `crates/runner-app/src/surfaces/mission_workspace.rs` for mission slots.
+1. **PTY read.** [`session/pty_runtime.rs`](../../crates/runner-daemon/src/session/pty_runtime.rs) runs a blocking reader per session. Its output channel feeds the manager forwarder; terminal activity also feeds the runtime's idle detector.
+2. **Manager forwarder.** [`session/manager/output.rs`](../../crates/runner-daemon/src/session/manager/output.rs), `ingest_output_chunk`, increments the session sequence, publishes a `TerminalFrame::Output` to bounded client queues and feeds the authoritative model under the same state lock. Publishing bytes first allows the app and daemon parsers to run concurrently. Input observations are published after the state lock is released.
+3. **Authoritative parsing.** [`terminal/model.rs`](../../crates/runner-terminal/src/terminal/model.rs), `TerminalModel::feed_output`, locks the parser and `Term`, then advances the VTE processor. It also handles synchronized-update deadlines, shell OSC 7 cwd reports, DEC 2031 colour-scheme sequences, fixture recording and input observations. Its event worker answers terminal queries through `TerminalHost`; the app never answers them a second time.
+4. **App mirror.** [`terminal.rs`](../../crates/runner-terminal/src/terminal.rs), `TerminalMirror::attach`, restores the snapshot, including unfinished parser input, and starts a frame reader. `feed_output` rejects duplicate sequence numbers and advances a separate VTE processor and `Term`. Overflow requests a new snapshot rather than blocking the agent. `TerminalBridge` owns the mirrors and routes session events and palette changes.
+5. **Wakes.** [`app_store.rs`](../../crates/runner-app/src/app_store.rs) receives session IDs from the bridge, coalesces them over 4 ms and emits `TerminalUpdates` for the changed terminals. [`terminal/viewport.rs`](../../crates/runner-app/src/terminal/viewport.rs) subscribes by session ID and notifies its own entity. Title or cwd changes also notify the app store; ordinary terminal output does not require rerendering the whole shell.
+6. **Paint.** The pane creates a `TerminalElement` for its mirror. Construction sites include [`surfaces/panes.rs`](../../crates/runner-app/src/surfaces/panes.rs) for chats and drawers and [`surfaces/mission_workspace/`](../../crates/runner-app/src/surfaces/mission_workspace/) for mission terminals. GPUI drives its layout, prepaint and paint phases.
 
-## The TerminalSession
+## Model and mirror
 
-`TerminalSession` is one live terminal. Its fields are the whole state of a pane's screen:
+`TerminalModel` in the daemon owns the authoritative grid, parser, sequence, palette, input tracker, cwd reports and optional fixture recorder. It reports title and input changes through `TerminalHost` and answers terminal queries even when no app is attached. A snapshot and the subsequent subscription are captured atomically at the manager's sequence boundary.
 
-- `term`: the alacritty `Term` behind a `FairMutex`. The PTY feed thread and the GPUI paint thread both take it; the fair variant stops a chatty agent from starving the renderer. Cheap reads such as `mode()` and hit testing use `lock_unfair`.
-- `parser`: the VTE `Processor`, which carries partial-sequence state between chunks.
-- `size`: the last pushed cols and rows, the value `prepaint` compares against.
-- `palette`: the active `TerminalPalette` plus its expanded 256-entry base table.
-- `scheme`: DEC 2031 subscription state and the byte tail carried across chunk boundaries.
-- `viewers`: an atomic count of panes currently showing this terminal.
-- `user_input`: `Inline` for direct chats, `Queued` for mission slots. Queued input goes through a per-session thread so a delivery waiting on the draft gate can never park GPUI's render thread; a failure surfaces as a `session/input-error` app event.
-- `input_tracker` and `fixture_recorder`: the composer-state detector and the optional fixture capture.
+`TerminalMirror` in the app owns another grid and parser, its subscriber ID, local selection and display offset, metadata, palette and viewer count. Its `FairMutex<Term<EventProxy>>` lets the frame reader and painter share the grid without a chatty stream starving the renderer. Cheap mode and hit-test reads use `lock_unfair`.
 
-`attach_with_input_mode` builds all of this and spawns a per-session event thread. That thread receives alacritty's `Event`s through the `EventProxy` listener: `PtyWrite` answers to queries the TUI sent, `ColorRequest` resolves a palette index through `query_color_for`, `TextAreaSizeRequest` reports the current size, and `Title` updates the stored title. It also rewrites the one DECRQM answer alacritty gets wrong for mode 2031, reporting set or reset from the session's own subscription flag.
+The mirror discards query replies. User keys, text, paste and composition observations go back through `DaemonClient`; both chat and mission input use the daemon's ordered input path. The daemon's delivery gate and writer serialization remain authoritative.
 
-`view()` returns a `TerminalView` guard that increments `viewers` and decrements on drop. A hidden terminal keeps ingesting but never wakes GPUI. The chat surface holds a lease for every session on the active tab and drops the rest in `ensure_owned_active_tab_attached`; the mission workspace holds one per attached slot.
+`view()` returns a `TerminalView` lease that increments the viewer count and decrements it on drop. Hidden attached mirrors keep parsing, but only visible viewers wake the UI. The authoritative model's parsing and status work do not depend on those leases.
 
 ## The Element trait, three phases per frame
 
@@ -61,7 +54,7 @@ GPUI runs every element through three phases each frame. `TerminalElement` imple
 ### prepaint, step by step
 
 1. **Geometry.** Cell width is the em advance of the configured mono font at the configured size, with a fallback of six tenths of the size if the font cannot be measured. Line height is the size times `LINE_HEIGHT_FACTOR` (1.4), rounded. A hitbox covering the bounds is inserted so mouse listeners can test hover.
-2. **Resize.** `terminal_grid_size` floors the bounds into cols and rows, minimum two each, or `None` when the element has no size yet. `size_push_verdict` in `crates/runner-app/src/terminal_resize.rs` compares that against the session's last pushed size: unchanged is a no-op, a non-owner pane never pushes, and an unplaced pane returns an empty prepaint so nothing is painted from a zero-size layout. A real push calls `TerminalSession::resize`, which fires the PTY ioctl through `session_resize` and reflows the `Term` in the same call, every frame of a drag. Nothing clears the grid; the TUI's SIGWINCH repaint plus alacritty's reflow is the whole story.
+2. **Resize.** `terminal_grid_size` floors the bounds into cols and rows, minimum two each, or `None` when the element has no size yet. `size_push_verdict` in `crates/runner-app/src/terminal_resize.rs` compares that against the session's last pushed size: unchanged is a no-op, a non-owner pane never pushes, and an unplaced pane returns an empty prepaint so nothing is painted from a zero-size layout. A real push calls `TerminalMirror::resize`, which reflows the local grid immediately and sends a one-way resize frame. The daemon applies the PTY/model size and informs the other subscribers. Nothing clears the grid; the TUI's SIGWINCH repaint plus alacritty's reflow is the whole story.
 3. **Hover.** The hovered link is refreshed from the mouse position. Hitbox ids are fresh every frame and the hit test runs after prepaint, so `is_hovered` is always false here; the code tests the bounds directly, as GPUI's own tooltips do. If a link has been hovered for 500 ms a tooltip is registered.
 4. **The cell walk.** Under the `Term` lock, `renderable_content` yields the visible cells, the display offset, the cursor, the selection, the colour overrides, and the mode. For each cell:
    - Map the grid point to a viewport row and column with `point_to_viewport`; skip anything off screen.
@@ -94,8 +87,8 @@ After painting, `handle_input` registers the `TerminalInput` entity as the IME h
 
 1. **Column alignment.** GPUI's text shaper positions glyphs by the font's real advances and does not know about cells. Shape a whole row as one string and a fallback font's advance skews every column after it. So a span only grows while both it and the new cell are plain ASCII, where byte length equals column count and the monospace advance is exact. Wide chars, CJK, emoji, and box drawing each get their own span painted at their own column origin. GPUI's per-frame layout cache makes the per-cell shaping cheap: a column of identical glyphs is one shape call and many cache hits.
 2. **Procedural glyphs.** Painting borders from geometry is what makes TUI frames look clean at any zoom, on any font. It also removes the dependence on the Nerd Font having every box-drawing codepoint.
-3. **Wake gating.** A hidden terminal keeps ingesting but never wakes GPUI; only a pane holding a `TerminalView` lease does. Combined with the 4 ms coalescing in the app store, this is what stops a chatty agent from forcing hundreds of frames a second across every hidden tab.
-4. **Resize ownership.** Only the pane that owns the terminal's size pushes it, so two panes showing the same session cannot fight over the PTY size. The push is immediate and synchronous, every frame of a drag. A 175 ms settle thread in the session manager persists the final size once per storm.
+3. **Wake gating.** A hidden terminal keeps ingesting but never wakes GPUI; only a pane holding a `TerminalView` lease does. Together with 4 ms coalescing and session-scoped viewport notifications, this bounds painting to visible terminals without stopping daemon parsing.
+4. **Resize ownership.** Only the pane that owns the terminal's size pushes it, so two panes showing the same session cannot fight over the PTY size. Local reflow is immediate; the IPC resize is one-way. The session manager applies the PTY size and persists settled geometry after a resize storm. The applied-size mirror follow-up in [#986](https://github.com/yicheng47/runner/pull/986) is on `nightly-remote`, outside this `main` walkthrough.
 
 ## Input, the other direction
 
@@ -106,7 +99,7 @@ After painting, `handle_input` registers the `TerminalInput` entity as the IME h
 
 ## Reading order
 
-1. `TerminalSession::feed_output`, about 70 lines.
+1. `TerminalModel::feed_output` in `terminal/model.rs`, then `TerminalMirror::attach`, `start_frames` and `feed_output` in `terminal.rs`.
 2. The cell loop inside `TerminalElement::prepaint`.
 3. `TerminalElement::paint`.
 4. `glyphs.rs` from `paint_part` down. Skip `glyph_data.rs`; it is a generated table.

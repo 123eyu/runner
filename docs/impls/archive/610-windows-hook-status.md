@@ -1,6 +1,6 @@
 # 610 — Hook-based session status on Windows — implementation plan
 
-Plan for feature [610](../../features/archive/610-windows-hook-status.md) ([#610](https://github.com/yicheng47/runner/issues/610)). The spec says *what*; this file carries the Windows hook contract measured on JASONPC, the mission sequence, and what has landed. The macOS adapters, their decisions and their log are the archived [347 program record](./347-hook-status/README.md); nothing there changes.
+Plan for feature [610](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/610-windows-hook-status.md) ([#610](https://github.com/yicheng47/runner/issues/610)). The spec says *what*; this file carries the Windows hook contract measured on JASONPC, the mission sequence, and what has landed. The macOS adapters, their decisions and their log are the archived [347 program record](./347-hook-status/README.md); nothing there changes.
 
 ## Status (2026-09-16)
 
@@ -68,7 +68,7 @@ Jason's JASONPC smoke, per runtime, before merge:
 4. Copilot: `echo` auto-approves with no Approval needed; an Edit in Default mode shows Approval needed while its dialog is open and clears on Enter; `ask_user` shows Answer needed as it opens and Escape ends Idle/Interrupted without a completion dot; a disposable repository with `.github/copilot/settings.local.json` `{"disableAllHooks":true}` stays estimated; a role's own `--plugin-dir` composes with Runner's.
 5. The feed and payload files appear under `%APPDATA%\com.wycstudios.runner-dev\session-status\` while the session runs and are gone after it stops; a role with its own `--settings`, `-c hooks.…`, `-c features.hooks=false` or `--disable hooks` shows estimated status and creates no feed.
 6. In a crew, a message posted during a Claude or Copilot dialog is held until the dialog resolves; posted while Working or Idle it delivers; a typed draft still protects the input.
-7. The [606](../../features/archive/606-rail-glyph-liveness.md) rail check: both themes, a project with a running session and one without, a shell tab, a mission row, a provider chat, a collapsed and an expanded project, a dragged row's accent drop indicator.
+7. The [606](https://github.com/yicheng47/runner/blob/8462b5194e0f1945ef62b1af1a2758c6816fd70d/docs/features/archive/606-rail-glyph-liveness.md) rail check: both themes, a project with a running session and one without, a shell tab, a mission row, a provider chat, a collapsed and an expanded project, a dragged row's accent drop indicator.
 
 ## What moved out
 
