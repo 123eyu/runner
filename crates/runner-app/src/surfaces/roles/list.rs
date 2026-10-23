@@ -90,9 +90,40 @@ impl NativeRoot {
         .detach();
     }
 
-    fn set_role_page(&mut self, page: usize, cx: &mut Context<Self>) {
+    pub(super) fn set_role_page(&mut self, page: usize, cx: &mut Context<Self>) {
         if self.role_surfaces.list.set_page(page) {
+            self.role_surfaces
+                .scroll
+                .set_offset(gpui::point(px(0.), px(0.)));
             self.load_role_page(cx);
+        }
+    }
+
+    pub(super) fn set_role_page_size(&mut self, size: usize, cx: &mut Context<Self>) {
+        if self.role_surfaces.list.set_page_size(size) {
+            self.update_app_settings(cx, true, |settings| {
+                settings.roles_page_size = size;
+                true
+            });
+            self.role_surfaces
+                .scroll
+                .set_offset(gpui::point(px(0.), px(0.)));
+            self.load_role_page(cx);
+        }
+    }
+
+    pub(crate) fn sync_role_page_size(&mut self, cx: &mut Context<Self>) {
+        let size = self.settings(cx).roles_page_size;
+        if self.role_surfaces.list.set_page_size(size) {
+            self.role_surfaces
+                .page_size
+                .update(cx, |select, cx| select.set_value(size.to_string(), cx));
+            self.role_surfaces
+                .scroll
+                .set_offset(gpui::point(px(0.), px(0.)));
+            if self.route == AppRoute::Roles {
+                self.load_role_page(cx);
+            }
         }
     }
 
@@ -332,11 +363,16 @@ impl NativeRoot {
                 .w_full()
                 .flex()
                 .flex_col()
+                .flex_none()
                 .children(rows),
             self.role_surfaces.scroll.clone(),
             self.role_surfaces.scrollbar.clone(),
         )
         .header(role_table_header(&columns))
+        .page_size(
+            self.role_surfaces.page_size.clone(),
+            self.role_table_width(window, cx) < 480.,
+        )
         .counts(
             self.role_surfaces.list.filtered_count,
             self.role_surfaces.list.total_count,

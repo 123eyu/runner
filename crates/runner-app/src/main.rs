@@ -868,8 +868,8 @@ impl NativeRoot {
         let sidebar_collapsed = settings.sidebar_collapsed;
         let sidebar_visibility = SidebarVisibilityTransition::new(!sidebar_collapsed);
         let chat_panel_visibility = SidebarVisibilityTransition::new(settings.chat_panel_open);
-        let role_surfaces = RoleSurfaces::new(cx.entity(), cx);
-        let crew_surfaces = CrewSurfaces::new(cx.entity(), cx);
+        let role_surfaces = RoleSurfaces::new(cx.entity(), settings.roles_page_size, cx);
+        let crew_surfaces = CrewSurfaces::new(cx.entity(), settings.crews_page_size, cx);
         let sidebar_shell = cx.entity().downgrade();
         let sidebar_store = app_store.clone();
         let sidebar = cx.new(move |sidebar_cx| {
@@ -1138,6 +1138,8 @@ impl NativeRoot {
         let reactions = revisions.reactions_since(previous);
 
         if revisions.settings != previous.settings {
+            self.sync_role_page_size(cx);
+            self.sync_crew_page_size(cx);
             let language = self.settings(cx).language.key();
             self.settings_page
                 .language

@@ -1070,7 +1070,7 @@ fn crew_list_table_fits_the_minimum_window_and_counts_its_rows() {
     use gpui::{px, size};
 
     let mut page = crew_page_harness("crew-list-layout");
-    for index in 0..9 {
+    for index in 0..11 {
         page.crew(&format!("Crew {index}"), None, &[&format!("role-{index}")]);
     }
     page.update(|root, window, cx| root.open_crews(window, cx));
@@ -1110,9 +1110,172 @@ fn crew_list_table_fits_the_minimum_window_and_counts_its_rows() {
     );
     assert_eq!(
         page.read(|root| root.crew_surfaces.list.items.len()),
-        runner_app::ui::list::PAGE_SIZE,
-        "the table pages at eight"
+        runner_app::ui::list::DEFAULT_PAGE_SIZE,
+        "the table defaults to ten rows"
     );
+}
+
+#[test]
+fn crew_list_pager_fits_narrow_zoomed_footers_and_navigates() {
+    use gpui::{px, size};
+
+    let mut page = crew_page_harness("crew-pager-zoom");
+    for index in 0..85 {
+        page.crew(&format!("Pager Crew {index:02}"), None, &[]);
+    }
+    page.host
+        .update(&mut page.visual, |root, window, cx| {
+            root.app_store.update(cx, |store, _| {
+                store.settings.sidebar_width = 230.17729;
+            });
+            root.set_sidebar_collapsed(false, false, cx);
+            root.open_crews(window, cx);
+        })
+        .unwrap();
+    page.visual.run_until_parked();
+    for zoom in [1., 1.3] {
+        for width in [640., 1100.] {
+            page.visual.simulate_resize(size(px(width), px(1100.)));
+            page.host
+                .update(&mut page.visual, |root, window, cx| {
+                    root.set_zoom(zoom, window, cx);
+                    root.set_crew_page(4, cx);
+                })
+                .unwrap();
+            page.visual.run_until_parked();
+            let footer = page.visual.debug_bounds("PAGINATED_LIST_FOOTER").unwrap();
+            for selector in [
+                "PAGINATED_LIST_COUNT",
+                "PAGINATED_LIST_PAGE_SIZE",
+                "PAGINATED_LIST_PAGER",
+                "pager-previous",
+                "PAGER_PAGE_3",
+                "PAGER_PAGE_4",
+                "PAGER_PAGE_5",
+                "pager-next",
+            ] {
+                let bounds = page.visual.debug_bounds(selector).unwrap();
+                assert!(
+                    bounds.left() >= footer.left() - px(1.)
+                        && bounds.right() <= footer.right() + px(1.),
+                    "{width}, {zoom}: {selector} {bounds:?} leaves {footer:?}"
+                );
+            }
+            for (selector, expected) in [
+                ("pager-previous", 3),
+                ("pager-next", 4),
+                ("PAGER_PAGE_5", 5),
+            ] {
+                page.click(selector);
+                assert_eq!(
+                    page.read(|root| root.crew_surfaces.list.page),
+                    expected,
+                    "{width}, {zoom}: {selector}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn crew_list_page_size_select_preserves_search_and_independent_preference() {
+    use gpui::{px, size};
+
+    let mut page = crew_page_harness("crew-page-size");
+    for index in 0..27 {
+        page.crew(&format!("Size crew {index:02}"), None, &[]);
+    }
+    page.update(|root, window, cx| root.open_crews(window, cx));
+    page.update(|root, _, cx| {
+        let update = root.crew_surfaces.list.set_query("Size crew".into());
+        root.crew_surfaces
+            .list
+            .apply_debounced_query(update.generation);
+        root.load_crew_page(cx);
+    });
+    assert_eq!(page.read(|root| root.crew_surfaces.list.items.len()), 10);
+    page.update(|root, _, cx| root.set_crew_page(3, cx));
+    assert_eq!(page.read(|root| root.crew_surfaces.list.items.len()), 7);
+    page.click("PAGINATED_LIST_PAGE_SIZE");
+    page.click("STYLED_SELECT_OPTION_1");
+    assert_eq!(
+        page.read(|root| (
+            root.crew_surfaces.list.page,
+            root.crew_surfaces.list.items.len()
+        )),
+        (1, 25)
+    );
+    assert_eq!(
+        page.read(|root| (
+            root.crew_surfaces.list.debounced_query.clone(),
+            root.crew_surfaces.list.filtered_count
+        )),
+        ("Size crew".into(), 27)
+    );
+    let saved =
+        crate::app_settings::AppSettings::load(&page._temp.path().join("settings.json")).unwrap();
+    assert_eq!((saved.roles_page_size, saved.crews_page_size), (10, 25));
+    page.visual.simulate_resize(size(px(640.), px(700.)));
+    page.visual.run_until_parked();
+    let footer = page.visual.debug_bounds("PAGINATED_LIST_FOOTER").unwrap();
+    let selector = page
+        .visual
+        .debug_bounds("PAGINATED_LIST_PAGE_SIZE")
+        .unwrap();
+    assert!(selector.right() <= footer.right());
+    assert!(page.read(|root| root.crew_surfaces.scroll.max_offset().y) > px(0.));
+    page.update(|root, _, cx| root.set_crew_page(2, cx));
+    assert_eq!(page.read(|root| root.crew_surfaces.list.items.len()), 2);
+    assert_eq!(
+        page.read(|root| root.crew_surfaces.scroll.offset().y),
+        px(0.)
+    );
+    page.click("PAGINATED_LIST_PAGE_SIZE");
+    page.click("STYLED_SELECT_OPTION_2");
+    assert_eq!(
+        page.read(|root| (
+            root.crew_surfaces.list.page,
+            root.crew_surfaces.list.items.len()
+        )),
+        (1, 27)
+    );
+    let peer = page._cx.add_window(|window, cx| {
+        crate::NativeRoot::new(
+            "crew-size-peer".into(),
+            page._temp.path().join("logs"),
+            None,
+            None,
+            page.store.clone(),
+            window,
+            cx,
+        )
+    });
+    peer.update(&mut page.visual, |root, window, cx| {
+        root.open_crews(window, cx);
+        assert_eq!(root.crew_surfaces.page_size.read(cx).value(), "50");
+        root.app_store.update(cx, |store, cx| {
+            store.update_settings(
+                |settings| {
+                    settings.crews_page_size = 10;
+                    true
+                },
+                true,
+                cx,
+            );
+        });
+    })
+    .unwrap();
+    page.visual.run_until_parked();
+    for window in [page.host, peer] {
+        window
+            .read_with(&page.visual, |root, cx| {
+                assert_eq!(root.crew_surfaces.page_size.read(cx).value(), "10");
+                assert_eq!(root.crew_surfaces.list.page_size, 10);
+                assert_eq!(root.crew_surfaces.list.items.len(), 10);
+                assert_eq!(root.settings(cx).roles_page_size, 10);
+            })
+            .unwrap();
+    }
 }
 
 #[test]

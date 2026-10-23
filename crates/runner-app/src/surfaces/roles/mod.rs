@@ -129,6 +129,7 @@ impl std::ops::DerefMut for RoleEditForm {
 pub(crate) struct RoleSurfaces {
     list: ListControls<RoleWithActivity>,
     search: Entity<SearchInput>,
+    page_size: Entity<StyledSelect>,
     scroll: ScrollHandle,
     scrollbar: Entity<Scrollbar>,
     detail: RoleDetailState,
@@ -147,7 +148,20 @@ pub(crate) struct RoleSurfaces {
 }
 
 impl RoleSurfaces {
-    pub(crate) fn new(root: Entity<NativeRoot>, cx: &mut Context<NativeRoot>) -> Self {
+    pub(crate) fn new(
+        root: Entity<NativeRoot>,
+        page_size: usize,
+        cx: &mut Context<NativeRoot>,
+    ) -> Self {
+        let size_root = root.clone();
+        let size_select = runner_app::ui::list::page_size_select(
+            "role-page-size",
+            page_size,
+            Rc::new(move |size, _, cx| {
+                size_root.update(cx, |this, cx| this.set_role_page_size(size, cx));
+            }),
+            cx,
+        );
         let search_root = root;
         let search = cx.new(move |search_cx| {
             SearchInput::new(
@@ -163,9 +177,12 @@ impl RoleSurfaces {
         let scroll = ScrollHandle::new();
         let owner = cx.entity_id();
         let scrollbar = cx.new(|_| Scrollbar::app(scroll.clone(), owner));
+        let mut list = ListControls::default();
+        list.set_page_size(page_size);
         Self {
-            list: ListControls::default(),
+            list,
             search,
+            page_size: size_select,
             scroll,
             scrollbar,
             detail: RoleDetailState::default(),

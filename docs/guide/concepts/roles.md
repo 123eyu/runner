@@ -16,6 +16,8 @@ A role is a saved agent configuration that you can reuse in chats and crews. It 
 
 Create and edit roles from **Roles**. A role's system prompt should describe its job, such as “review the diff and report defects without editing files.” Put a particular task in a chat prompt or mission goal so the role remains reusable.
 
+The list starts with 10 roles per page. Use **10 / page** in the footer to choose 10, 25 or 50; Runner remembers this separately from the Crews list. Changing the size keeps your search and returns to page 1. Longer pages scroll while the column headings and footer stay visible.
+
 ## Roles in chats and crews
 
 In **Start a chat → Role**, choosing a role copies its settings into the launch. Changes in that dialog apply to that chat; they do not rewrite the saved role. **Direct** starts an agent without needing a role.
