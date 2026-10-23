@@ -58,18 +58,20 @@ impl TerminalLink {
         })
     }
 
-    fn from_cells(target: LinkTarget, cells: &[LinkCell]) -> Self {
+    fn from_points(target: LinkTarget, points: impl Iterator<Item = Point>) -> Self {
         let mut spans: Vec<(Point, Point)> = Vec::new();
-        for cell in cells {
+        for point in points {
             match spans.last_mut() {
-                Some((_, end)) if end.line == cell.point.line => *end = cell.point,
-                _ => spans.push((cell.point, cell.point)),
+                Some((_, end)) if end.line == point.line && end.column + 1 == point.column => {
+                    *end = point;
+                }
+                _ => spans.push((point, point)),
             }
         }
         Self {
             target,
-            start: cells[0].point,
-            end: cells[cells.len() - 1].point,
+            start: spans[0].0,
+            end: spans[spans.len() - 1].1,
             spans,
         }
     }
@@ -1043,7 +1045,6 @@ struct LinkCell {
     point: Point,
     start: usize,
     end: usize,
-    hyperlink: Option<(String, String)>,
 }
 
 fn link_row_content<T>(term: &Term<T>, line: Line) -> Option<(usize, usize)> {
@@ -1055,6 +1056,53 @@ fn link_row_content<T>(term: &Term<T>, line: Line) -> Option<(usize, usize)> {
 
 fn wrapped_hyperlink_ids_match(left: &str, right: &str) -> bool {
     left == right || (left.ends_with("_alacritty") && right.ends_with("_alacritty"))
+}
+
+fn terminal_hyperlink_at<T>(term: &Term<T>, point: Point) -> Option<TerminalLink> {
+    let hyperlink = term.grid()[point].hyperlink()?;
+    let is_separator = |column| {
+        let cell = &term.grid()[point.line][Column(column)];
+        matches!(cell.c, '│' | '|') && cell.hyperlink().is_none()
+    };
+    let first = (0..point.column.0)
+        .rfind(|&column| is_separator(column))
+        .map_or(0, |column| column + 1);
+    let last = (point.column.0 + 1..term.columns())
+        .find(|&column| is_separator(column))
+        .unwrap_or(term.columns());
+    let columns = first..last;
+    let matches_link = |point: Point| {
+        term.grid()[point].hyperlink().is_some_and(|other| {
+            other.uri() == hyperlink.uri()
+                && wrapped_hyperlink_ids_match(other.id(), hyperlink.id())
+        })
+    };
+    let row_has_link = |line| {
+        columns
+            .clone()
+            .any(|column| matches_link(Point::new(line, Column(column))))
+    };
+    // Redraws can assign new anonymous IDs inside a row; table padding is not link text.
+    let mut start = point.line;
+    while start > term.topmost_line() && row_has_link(start - 1) {
+        start -= 1;
+    }
+    let mut end = point.line;
+    while end < term.bottommost_line() && row_has_link(end + 1) {
+        end += 1;
+    }
+    let points = (start.0..=end.0)
+        .flat_map(|line| {
+            columns
+                .clone()
+                .map(move |column| Point::new(Line(line), Column(column)))
+        })
+        .filter(|&point| matches_link(point));
+    Some(TerminalLink::from_points(
+        file_target_from_uri(hyperlink.uri())
+            .unwrap_or_else(|| LinkTarget::Url(hyperlink.uri().to_owned())),
+        points,
+    ))
 }
 
 fn link_rows_joined<T>(term: &Term<T>, line: Line) -> bool {
@@ -1126,6 +1174,9 @@ fn terminal_link_at_with_hard_breaks<T>(
     {
         point.column = Column(point.column.0.saturating_sub(1));
     }
+    if let Some(link) = terminal_hyperlink_at(term, point) {
+        return Some(link);
+    }
 
     let soft_start = term.line_search_left(point).line;
     let soft_end = term.line_search_right(point).line;
@@ -1176,40 +1227,11 @@ fn terminal_link_at_with_hard_breaks<T>(
                 point: cell_point,
                 start: rendered_start,
                 end: text.len(),
-                hyperlink: cell
-                    .hyperlink()
-                    .map(|link| (link.id().to_owned(), link.uri().to_owned())),
             });
         }
     }
 
     let hit = cells.iter().position(|cell| cell.point == point)?;
-    if let Some((_, uri)) = cells[hit].hyperlink.as_ref() {
-        let same_link = |left: &LinkCell, right: &LinkCell| {
-            left.hyperlink
-                .as_ref()
-                .zip(right.hyperlink.as_ref())
-                .is_some_and(|(left_link, right_link)| {
-                    left_link.1 == right_link.1
-                        && (left_link.0 == right_link.0
-                            || (left.point.line != right.point.line
-                                && wrapped_hyperlink_ids_match(&left_link.0, &right_link.0)))
-                })
-        };
-        let mut first = hit;
-        while first > 0 && same_link(&cells[first - 1], &cells[first]) {
-            first -= 1;
-        }
-        let mut last = hit;
-        while last + 1 < cells.len() && same_link(&cells[last], &cells[last + 1]) {
-            last += 1;
-        }
-        return Some(TerminalLink::from_cells(
-            file_target_from_uri(uri).unwrap_or_else(|| LinkTarget::Url(uri.clone())),
-            &cells[first..=last],
-        ));
-    }
-
     let hit_cell = &cells[hit];
     let overlaps_hit =
         |range: &std::ops::Range<usize>| range.start < hit_cell.end && range.end > hit_cell.start;
@@ -1236,7 +1258,10 @@ fn terminal_link_at_with_hard_breaks<T>(
     };
     let first = cells.iter().position(|cell| cell.end > range.start)?;
     let last = cells.iter().rposition(|cell| cell.start < range.end)?;
-    Some(TerminalLink::from_cells(target, &cells[first..=last]))
+    Some(TerminalLink::from_points(
+        target,
+        cells[first..=last].iter().map(|cell| cell.point),
+    ))
 }
 
 /// A path-shaped token with an optional `:LINE[:COL]`, `(LINE,COL)`, or
@@ -1566,6 +1591,93 @@ mod tests {
         );
         crate::snapshot::TrackedProcessor::new().advance(&mut term, bytes);
         term
+    }
+
+    #[test]
+    fn terminal_links_follow_fragmented_osc_8_in_table_cells() {
+        let uri = "https://www.shopneighbour.com/en-us/collections/all-exclusions-cant-discount/products/our-legacy-mens-third-cut-blue-selvage";
+        let rows = [
+            vec!["Blue Selvedge at Neighbour", " (", "https://"],
+            vec!["www.shopneighbour.com/en", "-us/"],
+            vec!["collections/all-exclusions-cant-"],
+            vec!["discount/products/our-legacy-mens-"],
+            vec!["third-cut-blue-selvage", ")"],
+        ];
+        let mut bytes = String::new();
+        let mut linked_points = Vec::new();
+        let mut unlinked_points = Vec::new();
+        for (line, fragments) in rows.iter().enumerate() {
+            if line > 0 {
+                bytes.push_str("\r\n");
+            }
+            bytes.push_str("  ");
+            let mut column = 2;
+            for fragment in fragments {
+                let linked = !matches!(*fragment, " (" | ")");
+                if linked {
+                    bytes.push_str(&format!("\x1b]8;;{uri}\x1b\\\x1b[4;34m"));
+                }
+                bytes.push_str(fragment);
+                for offset in 0..fragment.len() {
+                    let point = Point::new(Line(line as i32), Column(column + offset));
+                    if linked {
+                        linked_points.push(point);
+                    } else {
+                        unlinked_points.push(point);
+                    }
+                }
+                if linked {
+                    bytes.push_str("\x1b[0m\x1b]8;;\x1b\\");
+                }
+                column += fragment.len();
+            }
+            bytes.push_str(&" ".repeat(38 - column));
+            bytes.push_str("│ ");
+            bytes.push_str(&format!("\x1b]8;;{uri}\x1b\\other cell\x1b]8;;\x1b\\"));
+            unlinked_points.push(Point::new(Line(line as i32), Column(38)));
+            unlinked_points.push(Point::new(Line(line as i32), Column(40)));
+            unlinked_points.push(Point::new(Line(line as i32), Column(0)));
+        }
+        let term = link_term(72, bytes.as_bytes());
+        let expected = terminal_link_at(&term, linked_points[0], &[]).unwrap();
+        assert_eq!(expected.target, LinkTarget::Url(uri.into()));
+        assert_eq!(expected.start, linked_points[0]);
+        assert_eq!(expected.end, *linked_points.last().unwrap());
+        for point in linked_points {
+            assert!(expected.contains(point), "missing linked cell {point:?}");
+            assert_eq!(terminal_link_at(&term, point, &[]), Some(expected.clone()));
+        }
+        for point in unlinked_points {
+            assert!(
+                !expected.contains(point),
+                "included unlinked cell {point:?}"
+            );
+        }
+        let restored = link_term(72, &crate::snapshot::serialize(&term, &[]));
+        assert_eq!(
+            terminal_link_at(&restored, Point::new(Line(1), Column(4)), &[]),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn terminal_links_keep_unrelated_osc_8_rows_separate() {
+        for separator in [
+            "",
+            "────────────────────",
+            "\x1b]8;;https://other.example\x1b\\other\x1b]8;;\x1b\\",
+        ] {
+            let bytes = format!(
+                "\x1b]8;;https://example.com\x1b\\first\x1b]8;;\x1b\\\r\n  \x1b]8;;https://example.com\x1b\\continued\x1b]8;;\x1b\\\r\n{separator}\r\n\x1b]8;;https://example.com\x1b\\separate\x1b]8;;\x1b\\"
+            );
+            let term = link_term(40, bytes.as_bytes());
+            let first = terminal_link_at(&term, Point::new(Line(0), Column(1)), &[]).unwrap();
+            let separate = terminal_link_at(&term, Point::new(Line(3), Column(1)), &[]).unwrap();
+            assert_eq!(first.end, Point::new(Line(1), Column(10)));
+            assert_eq!(separate.start, Point::new(Line(3), Column(0)));
+            assert!(!first.contains(separate.start));
+            assert!(!separate.contains(first.start));
+        }
     }
 
     #[test]

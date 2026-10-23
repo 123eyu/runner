@@ -14,7 +14,7 @@ Stopped and crashed sessions have no running agent to receive input. Read the te
 
 Hover a URL or file path to highlight it, then ⌘-click or Ctrl-click on macOS, or Ctrl-click on Windows, to open it. URLs open in your browser; file paths, including `:line[:column]` suffixes, open in your configured editor.
 
-When a runtime wraps an underlined URL onto indented rows, hovering any fragment highlights the full URL; modifier-clicking any fragment opens the same destination.
+When a runtime wraps an underlined URL onto indented rows or a hyperlink inside a table cell, hovering any fragment highlights the complete link; modifier-clicking any fragment opens the same destination. Links remain usable after reopening the session.
 
 ## Choose the right action
 
