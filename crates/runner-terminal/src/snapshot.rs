@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::{Cursor, Dimensions, Grid};
 use alacritty_terminal::index::{Column, Line};
-use alacritty_terminal::term::cell::{Cell, Flags};
+use alacritty_terminal::term::cell::{Cell, Flags, Hyperlink};
 use alacritty_terminal::term::{Term, TermMode};
 use alacritty_terminal::vte::ansi::{
     CharsetIndex, Color, CursorShape, Handler, KeyboardModes, Processor, StandardCharset,
@@ -204,8 +204,9 @@ fn grid(out: &mut String, grid: &Grid<Cell>) {
     for column in 1..grid.columns() {
         write!(out, "\x1b[{}G\x1bH", column + 1).unwrap();
     }
-    out.push_str("\x1b[?7h\x1b[H\x1b[0m");
+    out.push_str("\x1b[?7h\x1b[H\x1b[0m\x1b]8;;\x1b\\");
     let mut previous = None;
+    let mut previous_link = None;
     for line in -(grid.history_size() as i32)..grid.screen_lines() as i32 {
         let row = &grid[Line(line)];
         for column in 0..grid.columns() {
@@ -226,6 +227,11 @@ fn grid(out: &mut String, grid: &Grid<Cell>) {
                 sgr(out, cell);
                 previous = Some(style);
             }
+            let link = cell.hyperlink();
+            if previous_link != link {
+                hyperlink(out, link.as_ref());
+                previous_link = link;
+            }
             if cell.c == '\t' {
                 write!(out, " \x1b[{}G\t", column + 1).unwrap();
             } else {
@@ -242,6 +248,9 @@ fn grid(out: &mut String, grid: &Grid<Cell>) {
         {
             out.push_str("\r\n");
         }
+    }
+    if previous_link.is_some() {
+        hyperlink(out, None);
     }
 }
 
@@ -262,12 +271,14 @@ fn cursor(out: &mut String, grid: &Grid<Cell>, cursor: &Cursor<Cell>, origin: i3
         }
         let cell = &grid[point];
         sgr(out, cell);
+        hyperlink(out, cell.hyperlink().as_ref());
         out.push(cell.c);
         if let Some(marks) = cell.zerowidth() {
             out.extend(marks);
         }
     }
     sgr(out, &cursor.template);
+    hyperlink(out, cursor.template.hyperlink().as_ref());
     for (index, introducer) in [
         CharsetIndex::G0,
         CharsetIndex::G1,
@@ -282,6 +293,13 @@ fn cursor(out: &mut String, grid: &Grid<Cell>, cursor: &Cursor<Cell>, origin: i3
             StandardCharset::SpecialCharacterAndLineDrawing => '0',
         };
         write!(out, "\x1b{introducer}{code}").unwrap();
+    }
+}
+
+fn hyperlink(out: &mut String, link: Option<&Hyperlink>) {
+    match link {
+        Some(link) => write!(out, "\x1b]8;id={};{}\x1b\\", link.id(), link.uri()).unwrap(),
+        None => out.push_str("\x1b]8;;\x1b\\"),
     }
 }
 

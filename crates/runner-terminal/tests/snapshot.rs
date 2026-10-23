@@ -29,7 +29,8 @@ fn cell_equal(a: &Cell, b: &Cell, context: &str) {
             a.bg,
             a.flags,
             a.zerowidth().unwrap_or_default(),
-            a.underline_color()
+            a.underline_color(),
+            a.hyperlink()
         ),
         (
             b.c,
@@ -37,7 +38,8 @@ fn cell_equal(a: &Cell, b: &Cell, context: &str) {
             b.bg,
             b.flags,
             b.zerowidth().unwrap_or_default(),
-            b.underline_color()
+            b.underline_color(),
+            b.hyperlink()
         ),
         "{context}"
     );
@@ -148,6 +150,26 @@ fn recording_round_trips() {
         }
         let (restored, _, _) = restore(&original, &parser, &scanner);
         equal(&original, &restored, path.to_str().unwrap());
+    }
+}
+
+#[test]
+fn hyperlinks_preserve_cells_cursors_screens_and_continuation() {
+    let bytes = b"\x1b]8;;https://example.com/anonymous\x1b\\anonymous\x1b]8;;\x1b\\ plain\r\n\x1b]8;id=saved;file:///tmp/example.rs#L12\x1b\\saved\x1b7\x1b]8;;\x1b\\\r\n\x1b]8;id=edge;https://example.com/edge\x1b\\\x1b[3;20HX\x1b[?1049h\x1b]8;id=alt;https://example.com/alt\x1b\\alternate\x1b7\x1b]8;id=active;https://example.com/active\x1b\\\x1b[2;20HZ";
+    let mut original = new_term(20, 4);
+    let mut parser = Processor::new();
+    let mut scanner = BoundaryScanner::default();
+    parse(&mut original, &mut parser, &mut scanner, bytes);
+    let (mut restored, mut replay, mut boundary) = restore(&original, &parser, &scanner);
+    equal(&original, &restored, "hyperlink snapshot");
+    for bytes in [
+        b"wrap\x1b]8;;\x1b\\ plain".as_slice(),
+        b"\x1b8continued\x1b]8;;\x1b\\",
+        b"\x1b[?1049l\x1b8continued\x1b]8;;\x1b\\ plain",
+    ] {
+        parse(&mut original, &mut parser, &mut scanner, bytes);
+        parse(&mut restored, &mut replay, &mut boundary, bytes);
+        equal(&original, &restored, "hyperlink continuation");
     }
 }
 
