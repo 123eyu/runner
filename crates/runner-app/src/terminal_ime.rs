@@ -1,10 +1,114 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use gpui::{Bounds, Context, EntityInputHandler, Pixels, UTF16Selection, Window};
+use gpui::{App, Bounds, Context, EntityInputHandler, Keystroke, Pixels, UTF16Selection, Window};
 use runner_terminal::terminal::TerminalMirror;
+use serde::{Deserialize, Serialize};
 
 use crate::text_util;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OptionAsMeta {
+    Both,
+    Left,
+    Right,
+    Off,
+    #[default]
+    #[serde(other)]
+    Automatic,
+}
+
+impl OptionAsMeta {
+    pub const ALL: [Self; 5] = [
+        Self::Automatic,
+        Self::Both,
+        Self::Left,
+        Self::Right,
+        Self::Off,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Automatic => "automatic",
+            Self::Both => "both",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Automatic => "terminal.option_meta_automatic",
+            Self::Both => "terminal.option_meta_both",
+            Self::Left => "terminal.option_meta_left",
+            Self::Right => "terminal.option_meta_right",
+            Self::Off => "terminal.option_meta_off",
+        }
+    }
+
+    pub fn description_key(self) -> &'static str {
+        match self {
+            Self::Automatic => "terminal.option_meta_automatic_description",
+            Self::Both => "terminal.option_meta_both_description",
+            Self::Left => "terminal.option_meta_left_description",
+            Self::Right => "terminal.option_meta_right_description",
+            Self::Off => "terminal.option_meta_off_description",
+        }
+    }
+
+    pub fn is_meta(self, cx: &App) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let flags = if matches!(self, Self::Left | Self::Right) {
+                current_option_flags()
+            } else {
+                0
+            };
+            self.for_layout(cx.keyboard_layout().id(), flags)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = cx;
+            true
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    fn for_layout(self, layout_id: &str, flags: usize) -> bool {
+        match self {
+            Self::Automatic => matches!(
+                layout_id,
+                "com.apple.keylayout.US"
+                    | "com.apple.keylayout.USInternational"
+                    | "com.apple.keylayout.USInternational-PC"
+                    | "com.apple.keylayout.ABC"
+            ),
+            Self::Both => true,
+            Self::Left => flags & NX_DEVICELALTKEYMASK != 0,
+            Self::Right => flags & NX_DEVICERALTKEYMASK != 0,
+            Self::Off => false,
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+const NX_DEVICELALTKEYMASK: usize = 0x20;
+#[cfg(any(target_os = "macos", test))]
+const NX_DEVICERALTKEYMASK: usize = 0x40;
+
+#[cfg(target_os = "macos")]
+fn current_option_flags() -> usize {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    // GPUI dispatches key-down synchronously, while AppKit still owns this event.
+    let main_thread = MainThreadMarker::new().expect("terminal keys run on the main thread");
+    NSApplication::sharedApplication(main_thread)
+        .currentEvent()
+        .map_or(0, |event| event.modifierFlags().bits())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalKeyRoute {
@@ -15,33 +119,47 @@ pub enum TerminalKeyRoute {
 
 pub fn terminal_key_route(
     composing: bool,
-    platform: bool,
-    control: bool,
-    alt: bool,
-    function: bool,
-    key: &str,
+    keystroke: &Keystroke,
+    option_is_meta: bool,
 ) -> TerminalKeyRoute {
-    if platform {
+    let modifiers = keystroke.modifiers;
+    let printable = keystroke
+        .key_char
+        .as_deref()
+        .is_some_and(|text| !text.is_empty() && text.chars().all(|c| !c.is_control()));
+    if modifiers.platform {
         TerminalKeyRoute::AppShortcut
     } else if composing {
         TerminalKeyRoute::Ime
-    } else if control || alt || function || is_raw_terminal_key(key) {
+    } else if modifiers.control
+        || modifiers.function
+        || is_raw_terminal_key(&keystroke.key)
+        || (modifiers.alt && (option_is_meta || !printable))
+    {
         TerminalKeyRoute::Raw
     } else {
         TerminalKeyRoute::Ime
     }
 }
 
-pub fn swallows_option_copy(
-    platform: bool,
-    control: bool,
-    alt: bool,
-    key: &str,
-    key_char: Option<&str>,
-) -> bool {
-    alt && !platform
-        && !control
-        && (key.eq_ignore_ascii_case("c") || key == "ç" || key_char == Some("ç"))
+pub fn swallows_option_copy(keystroke: &Keystroke, option_is_meta: bool) -> bool {
+    let modifiers = keystroke.modifiers;
+    option_is_meta
+        && modifiers.alt
+        && !modifiers.platform
+        && !modifiers.control
+        && (keystroke.key.eq_ignore_ascii_case("c")
+            || keystroke.key == "ç"
+            || keystroke.key_char.as_deref() == Some("ç"))
+}
+
+// macOS layouts type U+00A0 for Option+Space, which a shell reads as part of a word.
+fn typed_text(text: &str) -> &str {
+    if text == "\u{a0}" {
+        " "
+    } else {
+        text
+    }
 }
 
 fn is_raw_terminal_key(key: &str) -> bool {
@@ -257,7 +375,7 @@ impl EntityInputHandler for TerminalInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let result = self.commit_text(new_text);
+        let result = self.commit_text(typed_text(new_text));
         self.record_write_result(result);
         window.invalidate_character_coordinates();
         cx.notify();
@@ -298,14 +416,123 @@ impl EntityInputHandler for TerminalInput {
 
 #[cfg(test)]
 mod tests {
-    use super::swallows_option_copy;
+    use super::{
+        swallows_option_copy, terminal_key_route, typed_text, OptionAsMeta, TerminalKeyRoute,
+    };
+    use gpui::Keystroke;
 
     #[test]
-    fn option_copy_never_reaches_the_terminal() {
-        assert!(swallows_option_copy(false, false, true, "c", Some("ç")));
-        assert!(swallows_option_copy(false, false, true, "ç", Some("ç")));
-        assert!(!swallows_option_copy(true, false, true, "c", Some("ç")));
-        assert!(!swallows_option_copy(false, true, true, "c", Some("ç")));
-        assert!(!swallows_option_copy(false, false, true, "v", Some("√")));
+    fn automatic_uses_meta_only_for_us_and_abc_layouts() {
+        for layout in ["US", "USInternational", "USInternational-PC", "ABC"] {
+            let mut key = Keystroke::parse("alt-b").unwrap();
+            key.key_char = Some("∫".into());
+            assert_eq!(
+                terminal_key_route(
+                    false,
+                    &key,
+                    OptionAsMeta::Automatic
+                        .for_layout(&format!("com.apple.keylayout.{layout}"), 0x20),
+                ),
+                TerminalKeyRoute::Raw,
+                "{layout}",
+            );
+        }
+        for layout in ["German", "Spanish", "SwissGerman", "ABC-QWERTZ", "unknown"] {
+            assert!(
+                !OptionAsMeta::Automatic.for_layout(&format!("com.apple.keylayout.{layout}"), 0x20)
+            );
+        }
+    }
+
+    #[test]
+    fn german_option_characters_follow_the_mode_and_option_side() {
+        for (mode, flags, expected) in [
+            (OptionAsMeta::Automatic, 0x20, TerminalKeyRoute::Ime),
+            (OptionAsMeta::Off, 0x20, TerminalKeyRoute::Ime),
+            (OptionAsMeta::Both, 0x20, TerminalKeyRoute::Raw),
+            (OptionAsMeta::Left, 0x20, TerminalKeyRoute::Raw),
+            (OptionAsMeta::Left, 0x40, TerminalKeyRoute::Ime),
+            (OptionAsMeta::Right, 0x20, TerminalKeyRoute::Ime),
+            (OptionAsMeta::Right, 0x40, TerminalKeyRoute::Raw),
+            (OptionAsMeta::Left, 0x60, TerminalKeyRoute::Raw),
+            (OptionAsMeta::Right, 0x60, TerminalKeyRoute::Raw),
+        ] {
+            for (chord, text) in [
+                ("alt-l", "@"),
+                ("alt-5", "["),
+                ("alt-6", "]"),
+                ("alt-7", "|"),
+                ("alt-/", "\\"),
+                ("alt-n", "˜"),
+            ] {
+                let mut key = Keystroke::parse(chord).unwrap();
+                key.key_char = Some(text.into());
+                assert_eq!(
+                    terminal_key_route(
+                        false,
+                        &key,
+                        mode.for_layout("com.apple.keylayout.German", flags)
+                    ),
+                    expected,
+                    "{mode:?} flags={flags:#x} {chord}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn option_non_text_chords_remain_raw_in_every_mode() {
+        for mode in OptionAsMeta::ALL {
+            for (chord, text) in [
+                ("alt-enter", Some("\n")),
+                ("alt-backspace", None),
+                ("alt-left", None),
+                ("alt-right", None),
+                ("alt-f1", None),
+                ("ctrl-alt-l", Some("@")),
+                ("alt-l", Some("\u{7f}")),
+                ("alt-l", Some("@\n")),
+                ("alt-l", Some("")),
+            ] {
+                let mut key = Keystroke::parse(chord).unwrap();
+                key.key_char = text.map(str::to_owned);
+                assert_eq!(
+                    terminal_key_route(
+                        false,
+                        &key,
+                        mode.for_layout("com.apple.keylayout.German", 0x40)
+                    ),
+                    TerminalKeyRoute::Raw,
+                    "{mode:?} {chord} {text:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn option_copy_never_reaches_the_terminal_while_option_is_meta() {
+        for (chord, text, meta, swallowed) in [
+            ("alt-c", "ç", true, true),
+            ("alt-ç", "ç", true, true),
+            ("cmd-alt-c", "ç", true, false),
+            ("ctrl-alt-c", "ç", true, false),
+            ("alt-v", "√", true, false),
+            ("alt-c", "ç", false, false),
+        ] {
+            let mut key = Keystroke::parse(chord).unwrap();
+            key.key_char = Some(text.into());
+            assert_eq!(
+                swallows_option_copy(&key, meta),
+                swallowed,
+                "{chord} meta={meta}"
+            );
+        }
+    }
+
+    #[test]
+    fn option_space_types_a_plain_space() {
+        assert_eq!(typed_text("\u{a0}"), " ");
+        assert_eq!(typed_text("@"), "@");
+        assert_eq!(typed_text("a\u{a0}b"), "a\u{a0}b");
     }
 }

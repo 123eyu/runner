@@ -300,6 +300,7 @@ pub struct AppSettings {
     pub terminal_font_family: TerminalFontFamily,
     pub terminal_font_size: u16,
     pub terminal_cursor_style: TerminalCursorStyle,
+    pub option_as_meta: runner_app::terminal_ime::OptionAsMeta,
     pub sidebar_width: f32,
     pub sidebar_collapsed: bool,
     pub sidebar_active_only: bool,
@@ -348,6 +349,7 @@ impl Default for AppSettings {
             terminal_font_family: TerminalFontFamily::JetBrainsMono,
             terminal_font_size: TERMINAL_FONT_SIZE_DEFAULT,
             terminal_cursor_style: TerminalCursorStyle::Block,
+            option_as_meta: Default::default(),
             sidebar_width: SIDEBAR_DEFAULT,
             sidebar_collapsed: false,
             sidebar_active_only: false,
@@ -559,6 +561,29 @@ mod tests {
             Locale::SimplifiedChinese
         );
         assert_eq!(serde_json::to_value(Language::System).unwrap(), "system");
+    }
+
+    #[test]
+    fn option_as_meta_defaults_and_persists_each_mode() {
+        use runner_app::terminal_ime::OptionAsMeta;
+
+        for json in [r#"{"appZoom":1.2}"#, r#"{"optionAsMeta":"future"}"#] {
+            let settings: AppSettings = serde_json::from_str(json).unwrap();
+            assert_eq!(settings.option_as_meta, OptionAsMeta::Automatic);
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        for mode in OptionAsMeta::ALL {
+            let settings = AppSettings {
+                option_as_meta: mode,
+                ..AppSettings::default()
+            };
+            settings.save(&path).unwrap();
+            let json: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(json["optionAsMeta"], mode.key());
+            assert_eq!(AppSettings::load(&path).unwrap(), settings);
+        }
     }
 
     #[test]

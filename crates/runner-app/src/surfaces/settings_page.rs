@@ -7,6 +7,8 @@ use gpui::{
     div, px, rems, svg, AnyElement, BoxShadow, Context, CursorStyle, Entity, FontWeight,
     KeyDownEvent, PathPromptOptions, Pixels, ScrollHandle, SharedString, Subscription, Window,
 };
+#[cfg(target_os = "macos")]
+use runner_app::terminal_ime::OptionAsMeta;
 use runner_app::ui::{
     working_dir_text_field, Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize,
     PaneHeader, Scrollbar, SelectHandler, SelectOption, SettingsCard, SettingsRow, StepHandler,
@@ -287,6 +289,8 @@ enum SettingsSelection {
     DarkTerminalTheme,
     TerminalFont,
     TerminalCursor,
+    #[cfg(target_os = "macos")]
+    OptionAsMeta,
     FileLinkEditor,
     QuitBehavior,
 }
@@ -310,6 +314,8 @@ pub(crate) struct SettingsState {
     dark_terminal_theme: Entity<StyledSelect>,
     terminal_font: Entity<StyledSelect>,
     terminal_cursor: Entity<StyledSelect>,
+    #[cfg(target_os = "macos")]
+    pub(crate) option_as_meta: Entity<StyledSelect>,
     file_link_editor: Entity<StyledSelect>,
     pub(crate) language: Entity<StyledSelect>,
     pub(crate) quit_behavior: Entity<StyledSelect>,
@@ -441,6 +447,21 @@ impl SettingsState {
             SettingsSelection::TerminalCursor,
             cx,
         );
+        #[cfg(target_os = "macos")]
+        let option_as_meta = settings_select(
+            &root,
+            "settings-option-as-meta",
+            settings.option_as_meta.key(),
+            OptionAsMeta::ALL
+                .into_iter()
+                .map(|value| {
+                    SelectOption::new(value.key(), i18n::message(value.label_key()))
+                        .description(i18n::message(value.description_key()))
+                })
+                .collect(),
+            SettingsSelection::OptionAsMeta,
+            cx,
+        );
         let file_link_editor = settings_select(
             &root,
             "settings-file-link-editor",
@@ -535,6 +556,8 @@ impl SettingsState {
             dark_terminal_theme,
             terminal_font,
             terminal_cursor,
+            #[cfg(target_os = "macos")]
+            option_as_meta,
             file_link_editor,
             language,
             quit_behavior,
@@ -790,6 +813,8 @@ fn settings_select(
         | SettingsSelection::TerminalCursor
         | SettingsSelection::FileLinkEditor
         | SettingsSelection::QuitBehavior => None,
+        #[cfg(target_os = "macos")]
+        SettingsSelection::OptionAsMeta => None,
     };
     cx.new(|select_cx| {
         let select = StyledSelect::new(
@@ -802,6 +827,12 @@ fn settings_select(
         );
         let select = if matches!(selection, SettingsSelection::QuitBehavior) {
             select.min_menu_width(px(300.))
+        } else {
+            select
+        };
+        #[cfg(target_os = "macos")]
+        let select = if matches!(selection, SettingsSelection::OptionAsMeta) {
+            select.wrapped_menu(px(350.))
         } else {
             select
         };
@@ -1051,6 +1082,11 @@ impl NativeRoot {
                 .is_some_and(|value| update_if_changed(&mut settings.terminal_font_family, value)),
             SettingsSelection::TerminalCursor => parse_terminal_cursor(value)
                 .is_some_and(|value| update_if_changed(&mut settings.terminal_cursor_style, value)),
+            #[cfg(target_os = "macos")]
+            SettingsSelection::OptionAsMeta => OptionAsMeta::ALL
+                .into_iter()
+                .find(|pick| pick.key() == value)
+                .is_some_and(|value| update_if_changed(&mut settings.option_as_meta, value)),
             SettingsSelection::QuitBehavior => runner_app::lifecycle::QuitBehavior::ALL
                 .into_iter()
                 .find(|pick| pick.key() == value)
@@ -2641,6 +2677,45 @@ impl NativeRoot {
         .decrement_disabled(size == TERMINAL_FONT_SIZE_MIN)
         .increment_disabled(size == TERMINAL_FONT_SIZE_MAX);
 
+        let rows = vec![
+            SettingsRow::new(
+                crate::i18n::text("ui.font_family"),
+                div()
+                    .debug_selector(|| "SETTINGS_TERMINAL_FONT".into())
+                    .child(self.settings_page.terminal_font.clone()),
+            )
+            .subtitle(crate::i18n::text(
+                "ui.typeface_used_by_the_embedded_terminal",
+            ))
+            .into_any_element(),
+            SettingsRow::new(crate::i18n::text("ui.terminal_font_size"), size_stepper)
+                .subtitle(crate::i18n::text("ui.glyph_size_for_the_embedded_terminal"))
+                .into_any_element(),
+            SettingsRow::new(
+                crate::i18n::text("ui.cursor_style"),
+                self.settings_page.terminal_cursor.clone(),
+            )
+            .subtitle(crate::i18n::text(
+                "ui.block_underline_or_bar_affects_the_prompt_caret_only",
+            ))
+            .into_any_element(),
+        ];
+        #[cfg(target_os = "macos")]
+        let rows = {
+            let mut rows = rows;
+            rows.push(
+                SettingsRow::new(
+                    crate::i18n::text("terminal.option_as_meta"),
+                    div()
+                        .debug_selector(|| "SETTINGS_OPTION_AS_META".into())
+                        .child(self.settings_page.option_as_meta.clone()),
+                )
+                .subtitle(crate::i18n::text("terminal.option_as_meta_description"))
+                .into_any_element(),
+            );
+            rows
+        };
+
         div()
             .flex()
             .flex_col()
@@ -2652,29 +2727,7 @@ impl NativeRoot {
                     "ui.font_size_and_cursor_for_the_embedded_terminal_palettes_live_in_appearance",
                 ),
             ))
-            .child(SettingsCard::new(vec![
-                SettingsRow::new(
-                    crate::i18n::text("ui.font_family"),
-                    div()
-                        .debug_selector(|| "SETTINGS_TERMINAL_FONT".into())
-                        .child(self.settings_page.terminal_font.clone()),
-                )
-                .subtitle(crate::i18n::text(
-                    "ui.typeface_used_by_the_embedded_terminal",
-                ))
-                .into_any_element(),
-                SettingsRow::new(crate::i18n::text("ui.terminal_font_size"), size_stepper)
-                    .subtitle(crate::i18n::text("ui.glyph_size_for_the_embedded_terminal"))
-                    .into_any_element(),
-                SettingsRow::new(
-                    crate::i18n::text("ui.cursor_style"),
-                    self.settings_page.terminal_cursor.clone(),
-                )
-                .subtitle(crate::i18n::text(
-                    "ui.block_underline_or_bar_affects_the_prompt_caret_only",
-                ))
-                .into_any_element(),
-            ]))
+            .child(SettingsCard::new(rows))
             .into_any_element()
     }
 }

@@ -1418,23 +1418,15 @@ impl NativeRoot {
             return;
         };
         let keystroke = &event.keystroke;
-        if runner_app::terminal_ime::swallows_option_copy(
-            keystroke.modifiers.platform,
-            keystroke.modifiers.control,
-            keystroke.modifiers.alt,
-            &keystroke.key,
-            keystroke.key_char.as_deref(),
-        ) {
+        let option_is_meta = self.settings(cx).option_as_meta.is_meta(cx);
+        if runner_app::terminal_ime::swallows_option_copy(keystroke, option_is_meta) {
             cx.stop_propagation();
             return;
         }
         if runner_app::terminal_ime::terminal_key_route(
             chat.terminal_input.read(cx).is_composing(),
-            keystroke.modifiers.platform,
-            keystroke.modifiers.control,
-            keystroke.modifiers.alt,
-            keystroke.modifiers.function,
-            &keystroke.key,
+            keystroke,
+            option_is_meta,
         ) != runner_app::terminal_ime::TerminalKeyRoute::Raw
         {
             return;

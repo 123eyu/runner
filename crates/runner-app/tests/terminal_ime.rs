@@ -1,3 +1,4 @@
+use gpui::Keystroke;
 use runner_app::terminal_ime::{terminal_key_route, TerminalComposition, TerminalKeyRoute};
 
 #[test]
@@ -27,45 +28,29 @@ fn composition_replaces_and_clears_marked_text_with_utf16_selection_math() {
 
 #[test]
 fn routing_sends_printable_text_only_through_the_input_handler() {
-    assert_eq!(
-        terminal_key_route(false, false, false, false, false, "n"),
-        TerminalKeyRoute::Ime
-    );
-    assert_eq!(
-        terminal_key_route(false, false, false, false, false, "中"),
-        TerminalKeyRoute::Ime
-    );
-    assert_eq!(
-        terminal_key_route(false, false, true, false, false, "c"),
-        TerminalKeyRoute::Raw
-    );
-    assert_eq!(
-        terminal_key_route(false, false, false, true, false, "b"),
-        TerminalKeyRoute::Raw
-    );
-    assert_eq!(
-        terminal_key_route(false, false, false, false, true, "f1"),
-        TerminalKeyRoute::Raw
-    );
-    assert_eq!(
-        terminal_key_route(false, true, false, false, false, "t"),
-        TerminalKeyRoute::AppShortcut
-    );
-    assert_eq!(
-        terminal_key_route(false, false, false, false, false, "enter"),
-        TerminalKeyRoute::Raw
-    );
-    assert_eq!(
-        terminal_key_route(false, false, false, false, false, "left"),
-        TerminalKeyRoute::Raw
-    );
+    for (key, expected) in [
+        ("n", TerminalKeyRoute::Ime),
+        ("中", TerminalKeyRoute::Ime),
+        ("ctrl-c", TerminalKeyRoute::Raw),
+        ("alt-b", TerminalKeyRoute::Raw),
+        ("fn-f1", TerminalKeyRoute::Raw),
+        ("cmd-t", TerminalKeyRoute::AppShortcut),
+        ("enter", TerminalKeyRoute::Raw),
+        ("left", TerminalKeyRoute::Raw),
+    ] {
+        assert_eq!(
+            terminal_key_route(false, &Keystroke::parse(key).unwrap(), true),
+            expected,
+            "{key}",
+        );
+    }
 }
 
 #[test]
 fn composing_routes_special_keys_to_the_ime() {
     for key in ["enter", "backspace", "left"] {
         assert_eq!(
-            terminal_key_route(true, false, false, false, false, key),
+            terminal_key_route(true, &Keystroke::parse(key).unwrap(), true),
             TerminalKeyRoute::Ime
         );
     }

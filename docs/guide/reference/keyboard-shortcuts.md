@@ -6,6 +6,8 @@ Shortcut names, descriptions and command-palette search follow **Settings → Ge
 
 On macOS, `⌘` is Command, `⇧` is Shift, `⌥` is Option and `⌃` is Control. The action depends on focus: pane shortcuts act on the current pane, and mission navigation acts on the current mission. Text fields and the agent's own terminal interface can have additional bindings.
 
+In macOS terminal panes, **Settings → Terminal → Option as Meta key** defaults to **Automatic**: Option sends Meta (Esc) on U.S., U.S. International and ABC layouts, and types characters on other layouts, including `@` and `[` on German. **Both Option keys** keeps Meta on every layout; **Left Option only** and **Right Option only** leave the other Option key available for characters; **Off** uses both for characters. Option chords without printable text, including Option+Enter, Option+Backspace, Option+arrows and Ctrl+Option chords, keep their terminal shortcuts in every mode. Option+←/→ still move by word. When Option types characters, Option+Space types a regular space rather than a non-breaking one. Meta uses the character the key types without Option, so German Option+5 sends Esc followed by `5`.
+
 ## Navigation and creation
 
 | Action | macOS | Windows |
