@@ -44,7 +44,7 @@ pub use field::{
 pub use file_drop::file_drop_target;
 pub use list::{
     clamp_page, count_label, page_window, EmptyStateCard, PageHandler, PageWindowItem, Pager,
-    PaginatedListPage, SearchHandler, SearchInput, PAGE_SIZE,
+    PaginatedListPage, SearchHandler, SearchInput, DEFAULT_PAGE_SIZE,
 };
 pub use menu::{ContextMenu, MenuAction, MenuItem, MenuKey, MenuState, PopoverMenu};
 pub use model_field::ModelField;

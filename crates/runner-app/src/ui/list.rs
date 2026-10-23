@@ -9,13 +9,54 @@ use gpui::{
 use crate::theme;
 use crate::ui::field::TextField;
 use crate::ui::scrollbar::Scrollbar;
+use crate::ui::select::{SelectOption, StyledSelect};
 
 /// Side padding of a paginated list page in logical pixels at 100% zoom. The
 /// list scrollbar is pushed out by the same amount so its thumb rides the
 /// page's right edge instead of the cards' (#553).
 pub const LIST_PAGE_PADDING_X: f32 = 32.;
 
-pub const PAGE_SIZE: usize = 8;
+pub const DEFAULT_PAGE_SIZE: usize = 10;
+pub const PAGE_SIZES: [usize; 3] = [10, 25, 50];
+
+pub fn normalize_page_size(size: usize) -> usize {
+    if PAGE_SIZES.contains(&size) {
+        size
+    } else {
+        DEFAULT_PAGE_SIZE
+    }
+}
+
+pub fn page_size_select(
+    id: &'static str,
+    size: usize,
+    on_change: PageHandler,
+    cx: &mut App,
+) -> Entity<StyledSelect> {
+    cx.new(|cx| {
+        StyledSelect::new(
+            id,
+            cx.focus_handle(),
+            size.to_string(),
+            PAGE_SIZES
+                .into_iter()
+                .map(|size| {
+                    SelectOption::new(
+                        size.to_string(),
+                        crate::i18n::messagef("list.per_page", &[("count", size.to_string())]),
+                    )
+                })
+                .collect(),
+            Rc::new(move |value, window, cx| {
+                on_change(value.parse().expect("numeric page size"), window, cx);
+            }),
+            cx,
+        )
+        .compact(true)
+        .width(px(104.))
+        .min_menu_width(px(144.))
+    })
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PageWindowItem {
@@ -65,6 +106,16 @@ pub fn page_window(current_page: usize, total_pages: usize) -> Vec<PageWindowIte
         Ellipsis,
         Page(total_pages),
     ]
+}
+
+fn compact_page_window(current_page: usize, total_pages: usize) -> Vec<PageWindowItem> {
+    let first = clamp_page(current_page, total_pages)
+        .saturating_sub(1)
+        .max(1)
+        .min(total_pages.saturating_sub(2).max(1));
+    (first..=total_pages.min(first + 2))
+        .map(PageWindowItem::Page)
+        .collect()
 }
 
 pub type SearchHandler = Rc<dyn Fn(String, &mut App)>;
@@ -240,6 +291,7 @@ pub struct Pager {
     page: usize,
     page_count: usize,
     on_page_change: PageHandler,
+    compact: bool,
 }
 
 impl Pager {
@@ -248,7 +300,13 @@ impl Pager {
             page,
             page_count,
             on_page_change,
+            compact: false,
         }
+    }
+
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
+        self
     }
 }
 
@@ -257,6 +315,11 @@ impl RenderOnce for Pager {
         let page = clamp_page(self.page, self.page_count);
         let previous = Rc::clone(&self.on_page_change);
         let next = Rc::clone(&self.on_page_change);
+        let pages = if self.compact {
+            compact_page_window(page, self.page_count)
+        } else {
+            page_window(page, self.page_count)
+        };
         div()
             .flex()
             .items_center()
@@ -267,79 +330,75 @@ impl RenderOnce for Pager {
                 self.page_count == 0 || page == 1,
                 move |window, cx| previous(page.saturating_sub(1), window, cx),
             ))
-            .children(
-                page_window(page, self.page_count)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, item)| match item {
-                        PageWindowItem::Ellipsis => div()
+            .children(pages.into_iter().enumerate().map(|(index, item)| {
+                match item {
+                    PageWindowItem::Ellipsis => div()
+                        .size(rems(28. / 16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(theme::text_ui())
+                        .text_color(theme::faint())
+                        .child("…")
+                        .into_any_element(),
+                    PageWindowItem::Page(page) => {
+                        let handler = Rc::clone(&self.on_page_change);
+                        let key_handler = Rc::clone(&handler);
+                        let active = page == clamp_page(self.page, self.page_count);
+                        div()
+                            .id(("pager-page", index))
+                            .debug_selector(move || format!("PAGER_PAGE_{page}"))
+                            .tab_index(0)
                             .size(rems(28. / 16.))
                             .flex()
                             .items_center()
                             .justify_center()
+                            .rounded(rems(4. / 16.))
+                            .border_1()
+                            .border_color(if active {
+                                theme::border_strong()
+                            } else {
+                                gpui::transparent_black()
+                            })
+                            .bg(if active {
+                                theme::raised()
+                            } else {
+                                gpui::transparent_black()
+                            })
+                            .font_weight(if active {
+                                FontWeight::SEMIBOLD
+                            } else {
+                                FontWeight::NORMAL
+                            })
                             .text_size(theme::text_ui())
-                            .text_color(theme::faint())
-                            .child("…")
-                            .into_any_element(),
-                        PageWindowItem::Page(page) => {
-                            let handler = Rc::clone(&self.on_page_change);
-                            let key_handler = Rc::clone(&handler);
-                            let active = page == clamp_page(self.page, self.page_count);
-                            div()
-                                .id(("pager-page", index))
-                                .tab_index(0)
-                                .size(rems(28. / 16.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(rems(4. / 16.))
-                                .border_1()
-                                .border_color(if active {
-                                    theme::border_strong()
-                                } else {
-                                    gpui::transparent_black()
-                                })
-                                .bg(if active {
-                                    theme::raised()
-                                } else {
-                                    gpui::transparent_black()
-                                })
-                                .font_weight(if active {
-                                    FontWeight::SEMIBOLD
-                                } else {
-                                    FontWeight::NORMAL
-                                })
-                                .text_size(theme::text_ui())
-                                .text_color(if active {
-                                    theme::text()
-                                } else {
-                                    theme::muted()
-                                })
-                                .cursor_pointer()
-                                .focus_visible(|style| {
-                                    style.shadow(vec![BoxShadow {
-                                        color: theme::border_strong(),
-                                        offset: gpui::point(px(0.), px(0.)),
-                                        blur_radius: px(0.),
-                                        spread_radius: px(2.),
-                                        inset: false,
-                                    }])
-                                })
-                                .hover(|button| {
-                                    button.bg(theme::raised()).text_color(theme::text())
-                                })
-                                .on_click(move |_, window, cx| handler(page, window, cx))
-                                .on_key_down(move |event: &KeyDownEvent, window, cx| {
-                                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                                        cx.stop_propagation();
-                                        key_handler(page, window, cx);
-                                    }
-                                })
-                                .child(page.to_string())
-                                .into_any_element()
-                        }
-                    }),
-            )
+                            .text_color(if active {
+                                theme::text()
+                            } else {
+                                theme::muted()
+                            })
+                            .cursor_pointer()
+                            .focus_visible(|style| {
+                                style.shadow(vec![BoxShadow {
+                                    color: theme::border_strong(),
+                                    offset: gpui::point(px(0.), px(0.)),
+                                    blur_radius: px(0.),
+                                    spread_radius: px(2.),
+                                    inset: false,
+                                }])
+                            })
+                            .hover(|button| button.bg(theme::raised()).text_color(theme::text()))
+                            .on_click(move |_, window, cx| handler(page, window, cx))
+                            .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                    cx.stop_propagation();
+                                    key_handler(page, window, cx);
+                                }
+                            })
+                            .child(page.to_string())
+                            .into_any_element()
+                    }
+                }
+            }))
             .child(pager_icon_button(
                 "pager-next",
                 "chevron-right.svg",
@@ -367,6 +426,7 @@ fn pager_icon_button(
         });
     let mut button = div()
         .id(id)
+        .debug_selector(move || id.into())
         .when(!disabled, |button| button.group(id))
         .tab_index(0)
         .tab_stop(!disabled)
@@ -523,6 +583,8 @@ pub struct PaginatedListPage {
     content: AnyElement,
     scroll_handle: ScrollHandle,
     scrollbar: Entity<Scrollbar>,
+    page_size: Option<Entity<StyledSelect>>,
+    compact_footer: bool,
 }
 
 impl PaginatedListPage {
@@ -563,6 +625,8 @@ impl PaginatedListPage {
             content: content.into_any_element(),
             scroll_handle,
             scrollbar,
+            page_size: None,
+            compact_footer: false,
         }
     }
 
@@ -572,6 +636,12 @@ impl PaginatedListPage {
         self.filtered_count = filtered;
         self.total_count = total;
         self.searching = searching;
+        self
+    }
+
+    pub fn page_size(mut self, select: Entity<StyledSelect>, compact_footer: bool) -> Self {
+        self.page_size = Some(select);
+        self.compact_footer = compact_footer;
         self
     }
 
@@ -658,6 +728,62 @@ impl RenderOnce for PaginatedListPage {
                     )
                     .into_any_element()
             };
+            let count = div()
+                .debug_selector(|| "PAGINATED_LIST_COUNT".into())
+                .flex_1()
+                .min_w(px(0.))
+                .truncate()
+                .font_family(theme::UI_MONOSPACE_FONT)
+                .text_size(theme::text_meta())
+                .text_color(theme::faint())
+                .child(count);
+            let pager = (self.page_count > 0).then(|| {
+                div()
+                    .debug_selector(|| "PAGINATED_LIST_PAGER".into())
+                    .flex_none()
+                    .child(
+                        Pager::new(self.page, self.page_count, self.on_page_change)
+                            .compact(self.compact_footer),
+                    )
+            });
+            let size =
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .flex()
+                    .justify_end()
+                    .children(self.page_size.map(|select| {
+                        div()
+                            .debug_selector(|| "PAGINATED_LIST_PAGE_SIZE".into())
+                            .flex_none()
+                            .child(crate::ui::Tooltip::new(
+                                "list-page-size-tooltip",
+                                crate::i18n::text("list.rows_per_page"),
+                                select,
+                            ))
+                    }));
+            let footer = div()
+                .debug_selector(|| "PAGINATED_LIST_FOOTER".into())
+                .mt_auto()
+                .flex_none()
+                .flex()
+                .gap_4()
+                .border_t_1()
+                .border_color(theme::border())
+                .pt(rems(10. / 16.));
+            let footer = if self.compact_footer {
+                footer
+                    .flex_col()
+                    .gap_2()
+                    .child(div().flex().items_center().gap_4().child(count).child(size))
+                    .child(div().flex().justify_center().children(pager))
+            } else {
+                footer
+                    .items_center()
+                    .child(count)
+                    .children(pager)
+                    .child(size)
+            };
             // The footer stays when a search matches nothing, so its count
             // still reads `0 of N`.
             let list = div()
@@ -667,36 +793,7 @@ impl RenderOnce for PaginatedListPage {
                 .flex_col()
                 .gap_3()
                 .child(items)
-                .child(
-                    div()
-                        .mt_auto()
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap_4()
-                        .border_t_1()
-                        .border_color(theme::border())
-                        .pt(rems(10. / 16.))
-                        .child(
-                            div()
-                                .debug_selector(|| "PAGINATED_LIST_COUNT".into())
-                                .flex_1()
-                                .min_w(px(0.))
-                                .truncate()
-                                .font_family(theme::UI_MONOSPACE_FONT)
-                                .text_size(theme::text_meta())
-                                .text_color(theme::faint())
-                                .child(count),
-                        )
-                        .children((self.page_count > 0).then(|| {
-                            div().flex_none().child(Pager::new(
-                                self.page,
-                                self.page_count,
-                                self.on_page_change,
-                            ))
-                        }))
-                        .child(div().flex_1()),
-                );
+                .child(footer);
             div()
                 .min_h(px(0.))
                 .flex_1()
@@ -784,7 +881,7 @@ mod tests {
     use PageWindowItem::{Ellipsis, Page};
 
     #[test]
-    fn compact_page_window_matches_main() {
+    fn page_window_keeps_endpoints_and_neighbors() {
         assert_eq!(page_window(1, 0), []);
         assert_eq!(page_window(2, 4), [Page(1), Page(2), Page(3), Page(4)]);
         assert_eq!(
@@ -807,6 +904,17 @@ mod tests {
             page_window(8, 8),
             [Page(1), Ellipsis, Page(5), Page(6), Page(7), Page(8)]
         );
+    }
+
+    #[test]
+    fn compact_page_window_limits_neighbors_and_clamps_edges() {
+        assert_eq!(compact_page_window(1, 0), []);
+        assert_eq!(compact_page_window(1, 1), [Page(1)]);
+        assert_eq!(compact_page_window(2, 2), [Page(1), Page(2)]);
+        assert_eq!(compact_page_window(1, 7), [Page(1), Page(2), Page(3)]);
+        assert_eq!(compact_page_window(4, 7), [Page(3), Page(4), Page(5)]);
+        assert_eq!(compact_page_window(7, 7), [Page(5), Page(6), Page(7)]);
+        assert_eq!(compact_page_window(100, 9), [Page(7), Page(8), Page(9)]);
     }
 
     #[test]

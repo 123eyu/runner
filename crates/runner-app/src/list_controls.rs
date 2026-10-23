@@ -1,6 +1,7 @@
 use runner_core::protocol::ListPage;
 
-use runner_app::ui::{clamp_page, PAGE_SIZE};
+use runner_app::ui::list::normalize_page_size;
+use runner_app::ui::{clamp_page, DEFAULT_PAGE_SIZE};
 
 pub(crate) const LIST_QUERY_DEBOUNCE_MS: u64 = 200;
 
@@ -24,6 +25,7 @@ pub(crate) struct ListControls<T> {
     pub debounced_query: String,
     pub page: usize,
     pub items: Vec<T>,
+    pub page_size: usize,
     pub filtered_count: usize,
     pub total_count: usize,
     pub loaded: bool,
@@ -39,6 +41,7 @@ impl<T> Default for ListControls<T> {
             query: String::new(),
             debounced_query: String::new(),
             page: 1,
+            page_size: DEFAULT_PAGE_SIZE,
             items: Vec::new(),
             filtered_count: 0,
             total_count: 0,
@@ -72,7 +75,7 @@ impl<T> ListControls<T> {
     }
 
     pub fn page_count(&self) -> usize {
-        self.filtered_count.div_ceil(PAGE_SIZE)
+        self.filtered_count.div_ceil(self.page_size)
     }
 
     pub fn set_query(&mut self, query: String) -> QueryUpdate {
@@ -102,6 +105,17 @@ impl<T> ListControls<T> {
         true
     }
 
+    pub fn set_page_size(&mut self, size: usize) -> bool {
+        let size = normalize_page_size(size);
+        if self.page_size == size {
+            return false;
+        }
+        self.page_size = size;
+        self.page = 1;
+        self.request_id = self.request_id.wrapping_add(1);
+        true
+    }
+
     pub fn begin_load(&mut self) -> ListRequest {
         self.request_id = self.request_id.wrapping_add(1);
         self.loading = true;
@@ -109,7 +123,7 @@ impl<T> ListControls<T> {
         ListRequest {
             request_id: self.request_id,
             page: self.page,
-            page_size: PAGE_SIZE,
+            page_size: self.page_size,
             query: self.debounced_query.clone(),
         }
     }
@@ -208,18 +222,18 @@ mod tests {
     fn success_updates_counts_and_requests_reload_when_page_disappears() {
         let mut controls = ListControls::<String> {
             page: 2,
-            filtered_count: 9,
-            total_count: 9,
+            filtered_count: 11,
+            total_count: 11,
             ..Default::default()
         };
         let request = controls.begin_load();
-        let reload = controls.apply_success(request.request_id, page(vec!["one"], 8, 8));
+        let reload = controls.apply_success(request.request_id, page(vec!["one"], 10, 10));
 
         assert!(reload);
         assert_eq!(controls.page, 1);
         assert_eq!(controls.items, ["one"]);
-        assert_eq!(controls.filtered_count, 8);
-        assert_eq!(controls.total_count, 8);
+        assert_eq!(controls.filtered_count, 10);
+        assert_eq!(controls.total_count, 10);
         assert_eq!(controls.page_count(), 1);
         assert!(controls.loaded);
         assert!(!controls.loading);
@@ -241,7 +255,7 @@ mod tests {
     fn page_changes_are_clamped_to_the_filtered_count() {
         let mut controls = ListControls::<String> {
             page: 1,
-            filtered_count: 17,
+            filtered_count: 21,
             ..Default::default()
         };
         assert!(controls.set_page(99));
@@ -276,5 +290,35 @@ mod tests {
         assert_eq!(controls.error, None);
         assert!(!controls.apply_debounced_query(debounce.generation));
         assert!(!controls.apply_success(request.request_id, page(vec!["stale"], 1, 1)));
+    }
+
+    #[test]
+    fn page_size_change_preserves_search_and_invalidates_old_results() {
+        let mut controls = ListControls::<String>::default();
+        assert_eq!(controls.begin_load().page_size, 10);
+        let query = controls.set_query("review".into());
+        controls.apply_debounced_query(query.generation);
+        controls.filtered_count = 61;
+        controls.total_count = 100;
+        assert!(controls.set_page(3));
+        let stale = controls.begin_load();
+
+        assert!(controls.set_page_size(25));
+        assert_eq!(controls.page, 1);
+        assert_eq!(controls.page_count(), 3);
+        assert_eq!(controls.query, "review");
+        assert!(!controls.apply_success(stale.request_id, page(vec!["stale"], 61, 100)));
+        controls.apply_error(stale.request_id, "stale error".into());
+        assert!(controls.error.is_none());
+        let request = controls.begin_load();
+        assert_eq!(
+            (request.page, request.page_size, request.query.as_str()),
+            (1, 25, "review")
+        );
+        assert!(!controls.set_page_size(25));
+        assert!(controls.set_page_size(50));
+        assert_eq!(controls.page_count(), 2);
+        controls.reset();
+        assert_eq!(controls.begin_load().page_size, 50);
     }
 }

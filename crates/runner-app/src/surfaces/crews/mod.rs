@@ -179,6 +179,7 @@ pub(crate) struct CrewSurfaces {
     /// The list row under the pointer, which trades its play icon for a button.
     hovered_row: Option<String>,
     search: Entity<SearchInput>,
+    page_size: Entity<StyledSelect>,
     scroll: ScrollHandle,
     scrollbar: Entity<Scrollbar>,
     editor: CrewEditorState,
@@ -192,7 +193,20 @@ pub(crate) struct CrewSurfaces {
 }
 
 impl CrewSurfaces {
-    pub(crate) fn new(root: Entity<NativeRoot>, cx: &mut Context<NativeRoot>) -> Self {
+    pub(crate) fn new(
+        root: Entity<NativeRoot>,
+        page_size: usize,
+        cx: &mut Context<NativeRoot>,
+    ) -> Self {
+        let size_root = root.clone();
+        let size_select = runner_app::ui::list::page_size_select(
+            "crew-page-size",
+            page_size,
+            Rc::new(move |size, _, cx| {
+                size_root.update(cx, |this, cx| this.set_crew_page_size(size, cx));
+            }),
+            cx,
+        );
         let search = cx.new(move |search_cx| {
             SearchInput::new(
                 "",
@@ -207,10 +221,13 @@ impl CrewSurfaces {
         let scroll = ScrollHandle::new();
         let owner = cx.entity_id();
         let scrollbar = cx.new(|_| Scrollbar::app(scroll.clone(), owner));
+        let mut list = ListControls::default();
+        list.set_page_size(page_size);
         Self {
-            list: ListControls::default(),
+            list,
             hovered_row: None,
             search,
+            page_size: size_select,
             scroll,
             scrollbar,
             editor: CrewEditorState::default(),

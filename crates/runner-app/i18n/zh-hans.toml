@@ -350,6 +350,8 @@
 "language.system" = "跟随系统"
 "language.title" = "语言"
 "list.total" = "{total} 个{noun}"
+"list.per_page" = "{count} / 页"
+"list.rows_per_page" = "每页行数"
 "mcp.hidden_env" = " · +{count} 个环境变量"
 "mcp.hidden_headers" = " · +{count} 个请求头"
 "model.default_description" = "使用智能体自身的默认模型。"

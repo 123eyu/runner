@@ -350,6 +350,8 @@
 "language.system" = "System"
 "language.title" = "Language"
 "list.total" = "{total} {noun}"
+"list.per_page" = "{count} / page"
+"list.rows_per_page" = "Rows per page"
 "mcp.hidden_env" = " · +{count} env"
 "mcp.hidden_headers" = " · +{count} headers"
 "model.default_description" = "Use the agent's own default model."

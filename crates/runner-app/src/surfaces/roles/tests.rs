@@ -681,6 +681,163 @@ fn role_list_table_fits_the_minimum_window_and_counts_its_rows() {
     );
 }
 
+#[test]
+fn role_list_pager_fits_narrow_zoomed_footers_and_navigates() {
+    use gpui::{px, size};
+
+    let mut page = role_page_harness("role-pager-zoom");
+    for index in 0..61 {
+        create_test_role(&page.core, &format!("pager-role-{index:02}"), None);
+    }
+    page.host
+        .update(&mut page.visual, |root, window, cx| {
+            root.app_store.update(cx, |store, _| {
+                store.settings.sidebar_width = 230.17729;
+            });
+            root.set_sidebar_collapsed(false, false, cx);
+            root.open_roles(window, cx);
+        })
+        .unwrap();
+    page.visual.run_until_parked();
+    for zoom in [1., 1.3] {
+        for width in [640., 1100.] {
+            page.visual.simulate_resize(size(px(width), px(1100.)));
+            page.host
+                .update(&mut page.visual, |root, window, cx| {
+                    root.set_zoom(zoom, window, cx);
+                    root.set_role_page(4, cx);
+                })
+                .unwrap();
+            page.visual.run_until_parked();
+            let footer = page.visual.debug_bounds("PAGINATED_LIST_FOOTER").unwrap();
+            for selector in [
+                "PAGINATED_LIST_COUNT",
+                "PAGINATED_LIST_PAGE_SIZE",
+                "PAGINATED_LIST_PAGER",
+                "pager-previous",
+                "PAGER_PAGE_3",
+                "PAGER_PAGE_4",
+                "PAGER_PAGE_5",
+                "pager-next",
+            ] {
+                let bounds = page.visual.debug_bounds(selector).unwrap();
+                assert!(
+                    bounds.left() >= footer.left() - px(1.)
+                        && bounds.right() <= footer.right() + px(1.),
+                    "{width}, {zoom}: {selector} {bounds:?} leaves {footer:?}"
+                );
+            }
+            for (selector, expected) in [
+                ("pager-previous", 3),
+                ("pager-next", 4),
+                ("PAGER_PAGE_5", 5),
+            ] {
+                page.click(selector);
+                assert_eq!(
+                    page.read(|root| root.role_surfaces.list.page),
+                    expected,
+                    "{width}, {zoom}: {selector}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn role_list_page_size_select_loads_persists_and_fits_the_footer() {
+    use gpui::{px, size};
+
+    let mut page = role_page_harness("role-page-size");
+    for index in 0..61 {
+        create_test_role(&page.core, &format!("size-role-{index:02}"), None);
+    }
+    page.host
+        .update(&mut page.visual, |root, window, cx| {
+            root.open_roles(window, cx)
+        })
+        .unwrap();
+    page.visual.run_until_parked();
+    assert_eq!(page.read(|root| root.role_surfaces.list.items.len()), 10);
+    for width in [640., 1100., 1440.] {
+        page.visual.simulate_resize(size(px(width), px(700.)));
+        page.visual.run_until_parked();
+        let footer = page.visual.debug_bounds("PAGINATED_LIST_FOOTER").unwrap();
+        let count = page.visual.debug_bounds("PAGINATED_LIST_COUNT").unwrap();
+        let pager = page.visual.debug_bounds("PAGINATED_LIST_PAGER").unwrap();
+        let selector = page
+            .visual
+            .debug_bounds("PAGINATED_LIST_PAGE_SIZE")
+            .unwrap();
+        assert!(
+            count.size.width >= px(60.),
+            "{width}: count is clipped: {count:?}"
+        );
+        for bounds in [count, pager, selector] {
+            assert!(
+                bounds.left() >= footer.left() && bounds.right() <= footer.right() + px(1.),
+                "{width}: {bounds:?} leaves {footer:?}"
+            );
+        }
+        if width == 640. {
+            assert!(pager.top() >= selector.bottom());
+        } else {
+            assert!(pager.right() < selector.left());
+            assert!((pager.center().x - footer.center().x).abs() < px(1.));
+        }
+    }
+    page.host
+        .update(&mut page.visual, |root, _, cx| {
+            root.set_role_page(3, cx);
+            root.role_surfaces
+                .scroll
+                .set_offset(gpui::point(px(0.), px(-80.)));
+        })
+        .unwrap();
+    page.visual.run_until_parked();
+    page.click("PAGINATED_LIST_PAGE_SIZE");
+    let menu = page.visual.debug_bounds("STYLED_SELECT_OPTION_0").unwrap();
+    let selector = page
+        .visual
+        .debug_bounds("PAGINATED_LIST_PAGE_SIZE")
+        .unwrap();
+    assert!(menu.top() < selector.top(), "the footer menu opens upwards");
+    page.visual.simulate_keystrokes("down enter");
+    page.visual.run_until_parked();
+    assert_eq!(
+        page.read(|root| (
+            root.role_surfaces.list.page,
+            root.role_surfaces.list.items.len()
+        )),
+        (1, 25)
+    );
+    assert_eq!(
+        page.read(|root| root.role_surfaces.scroll.offset().y),
+        px(0.)
+    );
+    assert!(page.read(|root| root.role_surfaces.scroll.max_offset().y) > px(0.));
+    let saved =
+        crate::app_settings::AppSettings::load(&page._temp.path().join("settings.json")).unwrap();
+    assert_eq!((saved.roles_page_size, saved.crews_page_size), (25, 10));
+    page.click("PAGINATED_LIST_PAGE_SIZE");
+    page.visual.simulate_keystrokes("down enter");
+    page.visual.run_until_parked();
+    assert_eq!(page.read(|root| root.role_surfaces.list.items.len()), 50);
+    page.host
+        .update(&mut page.visual, |root, window, cx| {
+            root.open_crews(window, cx);
+            root.open_roles(window, cx);
+        })
+        .unwrap();
+    page.visual.run_until_parked();
+    assert_eq!(
+        page.read(|root| (
+            root.role_surfaces.list.page_size,
+            root.role_surfaces.list.items.len()
+        )),
+        (50, 50)
+    );
+}
+
 // GPUI's test frames keep a selector's bounds once it has been drawn, so a
 // "not shown" check only holds for an element that window has never drawn.
 #[test]

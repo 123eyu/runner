@@ -2,6 +2,8 @@
 
 A crew is a reusable team of roles arranged into named slots, with one lead and shared team conventions. Starting a crew creates a mission with a terminal for each slot.
 
+The list starts with 10 crews per page. Use **10 / page** in the footer to choose 10, 25 or 50; Runner remembers this separately from the Roles list. Changing the size keeps your search and returns to page 1. Longer pages scroll while the column headings and footer stay visible.
+
 ## Slots and the lead
 
 Each slot selects a role and gives it a handle, such as `coder` or `reviewer`. These handles are the names members use when sending messages. They must be unique within the crew, even when two slots use the same saved role.

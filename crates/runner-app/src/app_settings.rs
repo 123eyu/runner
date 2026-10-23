@@ -302,6 +302,8 @@ pub struct AppSettings {
     pub terminal_cursor_style: TerminalCursorStyle,
     pub option_as_meta: runner_app::terminal_ime::OptionAsMeta,
     pub sidebar_width: f32,
+    pub roles_page_size: usize,
+    pub crews_page_size: usize,
     pub sidebar_collapsed: bool,
     pub sidebar_active_only: bool,
     pub sidebar_projects_open: bool,
@@ -351,6 +353,8 @@ impl Default for AppSettings {
             terminal_cursor_style: TerminalCursorStyle::Block,
             option_as_meta: Default::default(),
             sidebar_width: SIDEBAR_DEFAULT,
+            roles_page_size: runner_app::ui::DEFAULT_PAGE_SIZE,
+            crews_page_size: runner_app::ui::DEFAULT_PAGE_SIZE,
             sidebar_collapsed: false,
             sidebar_active_only: false,
             sidebar_projects_open: true,
@@ -408,6 +412,8 @@ impl AppSettings {
         self.app_zoom = normalize_zoom(self.app_zoom);
         self.terminal_font_size = normalize_terminal_font_size(self.terminal_font_size);
         self.sidebar_width = normalize_sidebar_width(self.sidebar_width);
+        self.roles_page_size = runner_app::ui::list::normalize_page_size(self.roles_page_size);
+        self.crews_page_size = runner_app::ui::list::normalize_page_size(self.crews_page_size);
         self.chat_panel_width = normalize_chat_panel_width(self.chat_panel_width);
         self.mission_rail_width = normalize_mission_rail_width(self.mission_rail_width);
         self.last_mission_terminal_ids
@@ -643,6 +649,26 @@ mod tests {
         assert_eq!(loaded.sidebar_width, 376.);
         assert!(loaded.sidebar_collapsed);
         assert!(loaded.sidebar_active_only);
+    }
+
+    #[test]
+    fn list_page_sizes_default_and_persist_independently() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("ui-settings.json");
+        std::fs::write(&path, "{}").unwrap();
+        let old = AppSettings::load(&path).unwrap();
+        assert_eq!((old.roles_page_size, old.crews_page_size), (10, 10));
+        let settings = AppSettings {
+            roles_page_size: 25,
+            crews_page_size: 50,
+            ..old
+        };
+        settings.save(&path).unwrap();
+        let loaded = AppSettings::load(&path).unwrap();
+        assert_eq!((loaded.roles_page_size, loaded.crews_page_size), (25, 50));
+        std::fs::write(&path, r#"{"rolesPageSize":0,"crewsPageSize":8}"#).unwrap();
+        let invalid = AppSettings::load(&path).unwrap();
+        assert_eq!((invalid.roles_page_size, invalid.crews_page_size), (10, 10));
     }
 
     #[test]
