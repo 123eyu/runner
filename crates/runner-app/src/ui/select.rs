@@ -242,6 +242,7 @@ pub struct StyledSelect {
     anchor_bounds: Option<Bounds<Pixels>>,
     width: Pixels,
     min_menu_width: Pixels,
+    wrapped_menu_width: Option<Pixels>,
     detailed: bool,
     compact: bool,
     picker: bool,
@@ -278,6 +279,7 @@ impl StyledSelect {
             anchor_bounds: None,
             width: px(160.),
             min_menu_width: px(240.),
+            wrapped_menu_width: None,
             detailed: false,
             compact: false,
             picker: false,
@@ -326,6 +328,11 @@ impl StyledSelect {
 
     pub fn min_menu_width(mut self, width: Pixels) -> Self {
         self.min_menu_width = width;
+        self
+    }
+
+    pub fn wrapped_menu(mut self, width: Pixels) -> Self {
+        self.wrapped_menu_width = Some(width);
         self
     }
 
@@ -513,6 +520,7 @@ impl StyledSelect {
                 monospace: self.monospace,
                 runtime_style: self.runtime_style,
                 mono_description: self.picker,
+                wrapped: self.wrapped_menu_width.is_some(),
             },
             &self.menu_scroll,
             self.menu_scrollbar.clone(),
@@ -763,11 +771,11 @@ impl Render for StyledSelect {
                     zoom,
                 )
             };
-            root = root.child(if compact {
+            root = root.child(if compact || self.wrapped_menu_width.is_some() {
                 crate::ui::menu::popup_layer_right_aligned(
                     anchor,
                     window,
-                    self.min_menu_width * zoom,
+                    self.wrapped_menu_width.unwrap_or(self.min_menu_width) * zoom,
                     menu,
                     dismiss,
                 )
@@ -790,6 +798,7 @@ pub(crate) struct OptionMenuStyle {
     pub runtime_style: bool,
     /// Descriptions in monospace, for a list of commands or handles.
     pub mono_description: bool,
+    pub wrapped: bool,
 }
 
 pub(crate) type OptionHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
@@ -836,7 +845,7 @@ pub(crate) fn option_menu(
             .items_center()
             .gap_2()
             .when(stacked && option.leading.is_none(), |row| row.items_start())
-            .when(style.detailed || style.compact, |row| {
+            .when(style.detailed || style.compact || style.wrapped, |row| {
                 row.rounded(rems(4. / 16.))
             })
             .when(style.compact, |row| row.line_height(rems(18. / 16.)))
@@ -860,19 +869,25 @@ pub(crate) fn option_menu(
                     }
                 })
             })
-            .when(style.compact, |row| {
-                row.child(div().size(rems(14. / 16.)).flex_none().children(if active {
-                    Some(
-                        svg()
-                            .debug_selector(|| "STYLED_SELECT_CHECK".into())
-                            .path("check.svg")
-                            .size_full()
-                            .text_color(theme::muted())
-                            .into_any_element(),
-                    )
-                } else {
-                    option.leading.as_ref().map(|leading| leading.draw(14.))
-                }))
+            .when(style.compact || style.wrapped, |row| {
+                row.child(
+                    div()
+                        .size(rems(14. / 16.))
+                        .flex_none()
+                        .when(style.wrapped, |slot| slot.mt(rems(3. / 16.)))
+                        .children(if active {
+                            Some(
+                                svg()
+                                    .debug_selector(|| "STYLED_SELECT_CHECK".into())
+                                    .path("check.svg")
+                                    .size_full()
+                                    .text_color(theme::muted())
+                                    .into_any_element(),
+                            )
+                        } else {
+                            option.leading.as_ref().map(|leading| leading.draw(14.))
+                        }),
+                )
             })
             .children(option.swatch.map(|color| {
                 div()
@@ -932,26 +947,29 @@ pub(crate) fn option_menu(
                             .child(description)
                     })),
             )
-            .when(active && !style.detailed && !style.compact, |row| {
-                row.child(
-                    svg()
-                        .debug_selector(|| "STYLED_SELECT_CHECK".into())
-                        .path("check.svg")
-                        .size(rems(14. / 16.))
-                        .flex_none()
-                        .map(|mut check| {
-                            // Stacked rows top-align their items; the check still
-                            // sits on the row's centre line.
-                            check.style().align_self = Some(AlignSelf::Center);
-                            check
-                        })
-                        .text_color(if option.danger {
-                            theme::danger()
-                        } else {
-                            theme::accent()
-                        }),
-                )
-            })
+            .when(
+                active && !style.detailed && !style.compact && !style.wrapped,
+                |row| {
+                    row.child(
+                        svg()
+                            .debug_selector(|| "STYLED_SELECT_CHECK".into())
+                            .path("check.svg")
+                            .size(rems(14. / 16.))
+                            .flex_none()
+                            .map(|mut check| {
+                                // Stacked rows top-align their items; the check still
+                                // sits on the row's centre line.
+                                check.style().align_self = Some(AlignSelf::Center);
+                                check
+                            })
+                            .text_color(if option.danger {
+                                theme::danger()
+                            } else {
+                                theme::accent()
+                            }),
+                    )
+                },
+            )
             .when(!option.disabled, |row| {
                 row.on_click(move |_, window, cx| {
                     on_choose(index, window, cx);
@@ -963,11 +981,16 @@ pub(crate) fn option_menu(
     // once it is laid out; the canvas below renders once more if that changed.
     let scrolls = menu_scrolls(scroll);
     let measured = scroll.clone();
+    let max_height = rems(if style.wrapped {
+        400. / 16.
+    } else {
+        260. / 16.
+    });
     div()
         .id("styled-select-options")
         .debug_selector(|| "STYLED_SELECT_MENU".into())
         .relative()
-        .max_h(rems(260. / 16.))
+        .max_h(max_height)
         .overflow_hidden()
         .rounded(rems(if style.detailed { 6. / 16. } else { 4. / 16. }))
         .border_1()
@@ -988,12 +1011,17 @@ pub(crate) fn option_menu(
             div()
                 .id("styled-select-scroll")
                 .debug_selector(|| "STYLED_SELECT_SCROLL".into())
-                .max_h(rems(260. / 16.))
+                .max_h(max_height)
                 .overflow_y_scroll()
                 .scrollbar_width(px(0.))
                 .track_scroll(scroll)
-                .when(style.detailed || style.compact, |menu| menu.p_1())
-                .when(!style.detailed && !style.compact, |menu| menu.py_1())
+                .when(style.detailed || style.compact || style.wrapped, |menu| {
+                    menu.p_1()
+                })
+                .when(
+                    !style.detailed && !style.compact && !style.wrapped,
+                    |menu| menu.py_1(),
+                )
                 .when(scrolls, |menu| menu.pr(app_scrollbar_gutter()))
                 .children(rows),
         )
@@ -1222,6 +1250,87 @@ mod tests {
             press_key(&mut visual, "enter");
             assert_eq!(&*choices.borrow(), &["native"]);
             assert!(visual.debug_bounds("STYLED_SELECT_MENU").is_none());
+        }
+    }
+
+    #[test]
+    fn wrapped_option_menu_shows_every_mode_with_a_leading_check() {
+        use crate::terminal_ime::OptionAsMeta;
+        use crate::theme_snapshot::{assert_fill, ThemeGuard};
+
+        let _theme = ThemeGuard::new();
+        for variant in [
+            theme::ThemeVariant::Carbon,
+            theme::ThemeVariant::RunnerLight,
+        ] {
+            theme::set_active_variant(variant);
+            for zoom in [1., 1.2] {
+                let mut cx = TestAppContext::single();
+                let host = cx.add_window(|window, cx| {
+                    window.resize(gpui::size(px(1200.), px(900.)));
+                    let select = cx.new(|cx| {
+                        StyledSelect::new(
+                            "option-as-meta",
+                            cx.focus_handle(),
+                            "automatic",
+                            OptionAsMeta::ALL
+                                .into_iter()
+                                .map(|mode| {
+                                    SelectOption::new(
+                                        mode.key(),
+                                        crate::i18n::message(mode.label_key()),
+                                    )
+                                    .description(crate::i18n::message(mode.description_key()))
+                                })
+                                .collect(),
+                            Rc::new(|_, _, _| {}),
+                            cx,
+                        )
+                        .wrapped_menu(px(350.))
+                    });
+                    CompactSelectHost { select, zoom }
+                });
+                let select = host.read_with(&cx, |host, _| host.select.clone()).unwrap();
+                let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                visual.run_until_parked();
+                for (index, mode) in OptionAsMeta::ALL.into_iter().enumerate() {
+                    select.update(&mut visual, |select, cx| select.set_value(mode.key(), cx));
+                    visual.run_until_parked();
+                    let trigger = visual.debug_bounds("STYLED_SELECT_TRIGGER").unwrap();
+                    visual.simulate_click(trigger.center(), Modifiers::default());
+                    visual.run_until_parked();
+                    let menu = visual.debug_bounds("STYLED_SELECT_MENU").unwrap();
+                    let viewport = visual.debug_bounds("STYLED_SELECT_SCROLL").unwrap();
+                    assert!((menu.size.width - px(350. * zoom)).abs() <= px(1.));
+                    assert!((menu.right() - trigger.right()).abs() <= px(1.));
+                    for row_index in 0..5 {
+                        let row = visual
+                            .debug_bounds(Box::leak(
+                                format!("STYLED_SELECT_OPTION_{row_index}").into_boxed_str(),
+                            ))
+                            .unwrap();
+                        assert!(
+                            row.top() >= viewport.top() && row.bottom() <= viewport.bottom(),
+                            "{variant:?} {zoom}: {row_index} {row:?} in {viewport:?}"
+                        );
+                    }
+                    assert_eq!(
+                        select.read_with(&visual, |select, _| select.menu_scroll.max_offset().y),
+                        px(0.)
+                    );
+                    let label = visual
+                        .debug_bounds(Box::leak(
+                            format!("STYLED_SELECT_LABEL_{index}").into_boxed_str(),
+                        ))
+                        .unwrap();
+                    let check = visual.debug_bounds("STYLED_SELECT_CHECK").unwrap();
+                    assert!(check.right() <= label.left());
+                    assert!(check.center().y >= label.top() && check.center().y <= label.bottom());
+                    assert_fill(&mut visual, "STYLED_SELECT_MENU", theme::colors().panel);
+                    visual.simulate_click(trigger.center(), Modifiers::default());
+                    visual.run_until_parked();
+                }
+            }
         }
     }
 

@@ -897,6 +897,24 @@ fn keys_follow_the_apps_kitty_keyboard_mode() {
         [b"\x1b[?0u".to_vec(), b"\x1b[?1u".to_vec()],
         "query, push, query"
     );
+    session
+        .send_key("5", false, true, false, Some("["))
+        .unwrap();
+    assert_eq!(
+        wait_for(22)[21],
+        if cfg!(target_os = "macos") {
+            b"\x1b5"
+        } else {
+            b"\x1b["
+        },
+        "legacy Meta uses the key without Option on macOS"
+    );
+    runtime.push_output(b"\x1b[>1u\x1b[?u");
+    assert_eq!(wait_for(23)[22], b"\x1b[?1u");
+    session
+        .send_key("5", false, true, false, Some("["))
+        .unwrap();
+    assert_eq!(wait_for(24)[23], b"\x1b[53;3u");
     core.sessions.kill(&spawned.id).ok();
 }
 

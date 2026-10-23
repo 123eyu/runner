@@ -165,6 +165,13 @@ pub fn encode_key(
                 };
                 &alt_letter
             }
+            _ if cfg!(target_os = "macos")
+                && alt
+                && !mode.intersects(TermMode::KITTY_KEYBOARD_PROTOCOL)
+                && key.chars().count() == 1 =>
+            {
+                key.as_bytes()
+            }
             _ => match key_char {
                 Some(text) if !text.is_empty() => text.as_bytes(),
                 _ => return None,
@@ -650,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn option_letter_fix_does_not_change_other_key_paths() {
+    fn option_text_and_control_paths_keep_their_encoding() {
         assert_eq!(
             encode_key("b", false, false, false, Some("∫"), TermMode::empty()),
             Some("∫".as_bytes().to_vec())
@@ -661,8 +668,55 @@ mod tests {
         );
         assert_eq!(
             encode_key("1", false, true, false, Some("¡"), TermMode::empty()),
-            Some("\x1b¡".as_bytes().to_vec())
+            Some(if cfg!(target_os = "macos") {
+                b"\x1b1".to_vec()
+            } else {
+                "\x1b¡".as_bytes().to_vec()
+            })
         );
+    }
+
+    #[test]
+    fn meta_uses_the_key_without_option_and_preserves_kitty_encoding() {
+        for (key, shift, text, plain) in [
+            ("l", false, "@", "l"),
+            ("5", false, "[", "5"),
+            ("/", false, "\\", "/"),
+            ("d", true, "Î", "D"),
+            ("ö", false, "œ", "ö"),
+        ] {
+            let expected = if cfg!(target_os = "macos") || key == "l" || key == "d" {
+                plain
+            } else {
+                text
+            };
+            assert_eq!(
+                encode_key(key, false, true, shift, Some(text), TermMode::empty()),
+                Some(format!("\x1b{expected}").into_bytes()),
+            );
+        }
+        assert_eq!(
+            encode_key(
+                "5",
+                false,
+                true,
+                false,
+                Some("["),
+                TermMode::DISAMBIGUATE_ESC_CODES
+            ),
+            Some(b"\x1b[53;3u".to_vec()),
+        );
+        for mode in [
+            TermMode::REPORT_EVENT_TYPES,
+            TermMode::REPORT_ALTERNATE_KEYS,
+            TermMode::REPORT_ALL_KEYS_AS_ESC,
+            TermMode::REPORT_ASSOCIATED_TEXT,
+        ] {
+            assert_eq!(
+                encode_key("5", false, true, false, Some("["), mode),
+                Some(b"\x1b[".to_vec()),
+            );
+        }
     }
 
     #[test]

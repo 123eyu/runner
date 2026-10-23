@@ -1146,6 +1146,13 @@ impl NativeRoot {
             self.settings_page
                 .quit_behavior
                 .update(cx, |select, cx| select.set_value(value, cx));
+            #[cfg(target_os = "macos")]
+            {
+                let value = self.settings(cx).option_as_meta.key();
+                self.settings_page
+                    .option_as_meta
+                    .update(cx, |select, cx| select.set_value(value, cx));
+            }
         }
         if revisions.locale != previous.locale {
             self.toasts.relocalize();
