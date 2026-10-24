@@ -1,8 +1,8 @@
 # 1007 — List page-size validation
 
-Date: 2026-10-23. Scope: [Roles and Crews pagination](../features/1007-list-page-size.md). Platform: macOS, local Rust CI profile.
+Date: 2026-10-23. Scope: [Roles and Crews pagination](https://github.com/yicheng47/runner/blob/97fc5b901ba2fa45e970f1eaa44f04c876d1d4dd/docs/features/1007-list-page-size.md). Platform: macOS, local Rust CI profile.
 
-Implementation automated-check candidate: then-uncommitted changes on `feat/1007-list-page-size`, based on `0696c9e1bb163052ecd2f90f40b7e9f3f5782010`. SHA-256 of `git diff -- crates/runner-app`: `31361d12392539ed5ee7ed61f0f90aa3d34c478b04aaaa9ece02ff440438725d`. The approved design is committed in the design repo as `45c085e`. The reviewer's committed native candidate is identified below.
+Implementation automated-check candidate: then-uncommitted changes on `feat/1007-list-page-size`, based on `0696c9e1bb163052ecd2f90f40b7e9f3f5782010`. SHA-256 of `git diff -- crates/runner-app`: `31361d12392539ed5ee7ed61f0f90aa3d34c478b04aaaa9ece02ff440438725d`. The approved design is `runner/desktop/specs/1007-list-page-size.pen` in the private design repo, committed as `45c085e`: Roles `FQVg3`, Crews `vGI5F`, selector and narrow footer `A0tnE`. The reviewer's committed native candidate is identified below.
 
 ## Selected coverage
 
@@ -110,3 +110,7 @@ R2 resolves the P2 pager finding. The original LIST-SIZE-03 attempt above remain
 `python3 /tmp/runner-1007-native-r2-20261023/fixtures.py cleanup` individually deleted all 122 ledger-owned fixtures. Final role and crew JSON lists exactly equal the initial lists (39 roles and 24 crews), with no `QA1007R2` fixtures left. Native controls restored both sizes to 10, zoom to 1.3 and the window to 3190 × 2074 pixels. The attempted native sidebar restoration did not change its width; after stopping the owned wrapper, restored only `sidebarWidth` from the initial settings snapshot and verified complete semantic JSON equality. The wrapper was unregistered from LaunchServices; files and screenshots remain with the evidence. The development daemon and automatically resumed preexisting sessions were left intact. No existing session was operated or archived. Evidence: `fixture-commands.ndjson`, `fixture-ledger.json`, `final-roles.json`, `final-crews.json`, `settings-after-native-restore.json`, `restored-window-size.png` and `cleanup-summary.json`.
 
 Final reviewer verdict for the identified R2 candidate: **NO REMAINING MUST-FIX ISSUES**. Required macOS feature cases have passed across the initial run and affected rerun; native Windows remains disclosed as Blocked. The reviewer edited only this validation record and leaves commits, pushes, PR updates and CI to the external operator.
+
+## Regression coverage
+
+Archived with 0.17.2 on 2026-10-24. Lasting native checks are maintained as `SET-LIST-01` through `SET-LIST-04` in the [settings regression cases](../regression/settings.md). Request invalidation, count math and settings serialization remain automated checks in the owning app tests. This promotion preserves the original failed attempt, successful affected rerun and Windows gap; it establishes no new native pass.

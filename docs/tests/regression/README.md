@@ -9,13 +9,13 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 | Area | File | Cases | Smoke | Additional full |
 | --- | --- | ---: | ---: | ---: |
 | Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 45 | 10 | 35 |
-| Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 25 | 5 | 20 |
+| Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 28 | 5 | 23 |
 | Windows, tabs, panes, sidebar and its Active view, cwd and drawers | [workspace.md](workspace.md) | 35 | 6 | 29 |
 | Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 40 | 4 | 36 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
-| Agents, Claude accounts, settings, language, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 44 | 4 | 40 |
+| Agents, Claude accounts, settings, list preferences, language, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 49 | 4 | 45 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| **Total** | | **224** | **37** | **187** |
+| **Total** | | **232** | **37** | **195** |
 
 `regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 
@@ -66,7 +66,7 @@ When a feature's test record is archived in a [release's docs sweep](../../../AG
 
 ## Not carried over
 
-The original 56 archive records and #955's release record were considered for promotion. Their lasting current live checks are linked from the area rows. The 2026-10-22 docs sweep also added `WS-CHROME-05` from merged PR #981; its native checks remain unverified, and adding the case does not establish a pass. The 0.17.1 sweep added `MIS-DRAFT-07` from [#940](../archive/940-codex-draft-hold.md); its native acceptance remains Incomplete. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
+The original 56 archive records and #955's release record were considered for promotion. Their lasting current live checks are linked from the area rows. The 2026-10-22 docs sweep also added `WS-CHROME-05` from merged PR #981; its native checks remain unverified, and adding the case does not establish a pass. The 0.17.1 sweep added `MIS-DRAFT-07` from [#940](../archive/940-codex-draft-hold.md); its native acceptance remains Incomplete. The 0.17.2 sweep added `TERM-OPTION-01`–`03`, `SET-OPTION-01` and `SET-LIST-01`–`04` from [#929](../archive/929-option-as-meta.md) and [#1007](../archive/1007-list-page-size.md), and reconciled existing wrapped-link and streaming-draft rows with #1006 and #995. Candidate-specific failures, scoped retests, native Windows gaps and the incomplete [#1006 run](../runs/2026-10-23-macos.md) remain evidence, not new passes. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 
 | Archive record/check left out | Reason / current owner |
 | --- | --- |

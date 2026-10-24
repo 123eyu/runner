@@ -32,3 +32,5 @@ Inside a mission, participants finish their turn when waiting for a teammate and
 At a docs sweep, prune completed briefs except these three examples. Keep a brief for active work even when it is not a sample. Before pruning, preserve unique current decisions in architecture docs, outstanding scope in its issue, and validation evidence in `docs/tests/`; fix references to use the owning document or a fixed git revision. Do not remove test evidence or implementation logs with a brief.
 
 The 2026-10-22 sweep reduced ten briefs to these three. #823 remains both the large example and an active brief; the requirements in its open PR may have evolved beyond the original launch goal.
+
+The 2026-10-24 release sweep pruned the completed #929, #1006 and #1007 briefs. The three examples remain; #823 is still open, and the running #836 mission keeps its brief in its own worktree.
