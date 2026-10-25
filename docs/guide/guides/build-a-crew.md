@@ -35,13 +35,28 @@ Runner does not isolate working directories automatically. If the team should wo
 
 ## Use the examples
 
+### Default pair-coding crew
+
+Fresh installations seed **Pair coding crew**, a two-role loop that reviews the working-tree diff before any commit. Both slots use Codex by default; switch either slot to another installed agent if you want to mix providers. Existing installations with roles or crews may not receive the seed.
+
+| Role | Responsibility | System prompt |
+| --- | --- | --- |
+| **@coder** (lead) | Creates the task branch, implements the change, runs checks, hands the diff to the reviewer and fixes findings. | [coder.md](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/coder.md) |
+| **@reviewer** | Reviews the working-tree diff and reports must-fix issues with file and line references, without editing code. | [reviewer.md](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/reviewer.md) |
+
+The [team conventions](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/team-conventions.md) require a task branch and a clean review before committing. Changes stay uncommitted unless the mission goal explicitly authorizes Git actions; merging always requires the person's instruction.
+
+### More crews
+
 The repository includes ready-to-copy prompts and conventions:
 
 - [Pair coding](https://github.com/yicheng47/runner/tree/main/examples/pair-coding): the seeded coder/reviewer loop.
-- [Codex trio](https://github.com/yicheng47/runner/tree/main/examples/codex-trio): coder, reviewer and QA.
+- [Codex trio](https://github.com/yicheng47/runner/tree/main/examples/codex-trio): coder, reviewer and QA; QA builds the reviewed revision and tests it in the live app.
 - [Development crew](https://github.com/yicheng47/runner/tree/main/examples/dev-crew): architect, implementer and reviewer.
 - [Documentation crew](https://github.com/yicheng47/runner/tree/main/examples/docs-crew): architect, writers and editor.
-- [More examples](https://github.com/yicheng47/runner/tree/main/examples): game and role-playing crews.
+- [Tic-tac-toe](https://github.com/yicheng47/runner/tree/main/examples/tic-tac-toe): two players and a referee.
+- [Werewolf](https://github.com/yicheng47/runner/tree/main/examples/werewolf): six players and a moderator.
+- [Tomb raid](https://github.com/yicheng47/runner/tree/main/examples/tomb-raid): a four-person heist crew run by a game master.
 
 Copy the role prompts into roles and the conventions into the crew. The example goals are starting points to replace with your task. The links above show the current examples on `main`; use the repository's tag selector for examples matching an older release.
 

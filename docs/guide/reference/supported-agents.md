@@ -2,6 +2,8 @@
 
 Runner launches separately installed agent CLIs and keeps their native terminal interfaces. Enable agents, inspect detected executables, and choose executable overrides in **Settings → Agents**.
 
+Claude Code, Codex and Antigravity CLI are the primary integrations. Claude Code and Codex have tuned launch and nudge timing.
+
 ## Agent settings
 
 **Settings → Agents** groups agents into Installed and Not installed lists. Every row opens that agent’s page; use the **Agents** breadcrumb to return. Installed rows show the version, executable, default badge, enable switch and an Update button when available. Tab and Shift-Tab move between rows and controls; Enter or Space opens a focused row.
@@ -44,6 +46,7 @@ All listed runtimes except TRAE are enabled by default when detected. The runtim
 | Skills | Catalog and switch | Catalog and switch | Catalog | Catalog | Catalog and switch | Catalog | Catalog |
 | Runner skill installed | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | Mission access | Bypass | Bypass | Bypass | Trusted workspace | Bypass | Bypass | Bypass |
+| Terminal rendering covered by fixtures | Yes | Yes | Yes | No | No | No | Yes |
 
 **OpenCode v2** supports chats, roles, crews, exact session identities, dynamic models and model variants, hook status, skills catalogs, MCP settings and the Runner skill. It has no chat fork, usage indicator, global skill toggle or update control. Backend/native-data checks cover replies, coordination and stop/resume; complete GUI and Windows checks remain unverified. Mission access uses its automatic permission mode.
 

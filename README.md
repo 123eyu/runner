@@ -9,6 +9,7 @@
   <a href="https://github.com/yicheng47/runner/stargazers"><img src="https://img.shields.io/github/stars/yicheng47/runner?style=flat-square&logo=github&label=stars" alt="GitHub stars" /></a>
   <a href="https://github.com/yicheng47/runner/releases"><img src="https://img.shields.io/github/downloads/yicheng47/runner/total?style=flat-square&label=downloads" alt="Downloads" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/yicheng47/runner?style=flat-square&cacheSeconds=86400" alt="License" /></a>
+  <a href="https://discord.gg/6BrfZdHKNf"><img src="https://img.shields.io/badge/Discord-join%20community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join Runner on Discord" /></a>
   <a href="#community"><img src="https://img.shields.io/badge/WeChat-user%20group-07C160?style=flat-square&logo=wechat&logoColor=white" alt="WeChat user group" /></a>
   <a href="https://runnersh.dev/downloads/"><img src="https://img.shields.io/badge/macOS%20%7C%20Windows-native-2ea44f?style=flat-square" alt="macOS and Windows" /></a>
   <a href="https://ko-fi.com/yichengwang"><img src="https://img.shields.io/badge/Sponsor-Ko--fi-FF5E5B?style=flat-square" alt="Sponsor Runner on Ko-fi" /></a>
@@ -44,6 +45,8 @@
   <a href="#drive-runner-from-your-agents">CLI</a>
   ·
   <a href="#example-crew">Crew example</a>
+  ·
+  <a href="#community">Community</a>
   ·
   <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
@@ -122,9 +125,14 @@ If Runner is useful to you, consider supporting its ongoing development and main
 - [![Sponsor Runner on Ko-fi](https://img.shields.io/badge/Sponsor%20Runner-Ko--fi-FF5E5B?style=for-the-badge)](https://ko-fi.com/yichengwang) — Recommended for international supporters using PayPal.
 - [![Sponsor Runner on Afdian](https://img.shields.io/badge/Sponsor%20Runner-Afdian-946BE7?style=for-the-badge)](https://afdian.com/a/runnersh) — Recommended for supporters in mainland China using WeChat Pay or Alipay.
 
-## Prerequisites
+## Community
 
-Runner runs the agent CLIs you already use; it does not install them. Install and sign in to at least one of Claude Code, Codex, Antigravity CLI, GitHub Copilot CLI or pi before you start, and Runner finds it on your `PATH`. On Windows, Claude Code and pi's bash tool need Git for Windows, and npm-installed CLIs need Node.js.
+- Join the [Runner Discord](https://discord.gg/6BrfZdHKNf) for questions, workflows, bug reports and contribution discussions.
+- Bugs and feature requests: [GitHub Issues](https://github.com/yicheng47/runner/issues).
+- Thanks to [LINUX DO](https://linux.do) for providing a community for discussion and sharing open-source projects.
+- 中文用户可以扫码加入 Runner 微信用户群。群二维码 7 天过期，如果扫码提示失效，请[提一个 issue](https://github.com/yicheng47/runner/issues/new) 提醒我更新。
+
+<img src="assets/wechat_group_qr.png" alt="Runner 微信用户群二维码" width="200" />
 
 ## Drive Runner from your agents
 
@@ -154,67 +162,15 @@ runner mission stop "$mission"
 
 ## Supported agents
 
-| | Codex | Claude Code | Antigravity CLI | pi | GitHub Copilot CLI | Cursor | Grok |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| Chats, missions, resume after relaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | macOS ⁵ |
-| In-session conversation change updates Runner's resume key | ✓ | ✓ | ✓ | ✓ | — | macOS/Linux only | macOS/Linux only ⁴ |
-| Runs on Windows | ✓ | ✓ | ✓ ¹ | ✓ ² | ✓ | — ³ | — ³ |
-| Fork a chat | ✓ | ✓ | — | ✓ | — | — | ✓ |
-| Working / Idle from the agent's hooks | ✓ | ✓ | macOS only | ✓ | ✓ | — (terminal baseline) | macOS/Linux only |
-| Needs you: approval and question dialogs shown | — | ✓ | — | from extensions only | ✓ | — | approval only (macOS/Linux) |
-| Model list read from the CLI | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
-| Update from Settings → Agents | ✓ | ✓ | — | ✓ | ✓ | — | — |
-| Weekly usage pill and detailed popover | ✓ | ✓ | ✓ | — | — | — | — |
-| Mission access | Bypass | Bypass | Bypass | trusted workspace | Bypass | Bypass | Bypass |
-| Skills pane | catalog + on/off | catalog + on/off | catalog | catalog | catalog + on/off | catalog | catalog |
-| Runner skill installed | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Terminal rendering covered by fixtures | ✓ | ✓ | ✓ | — | — | — | ✓ |
+Runner integrates with **Codex, Claude Code, Antigravity CLI, GitHub Copilot CLI, pi, Cursor, Grok Build and OpenCode v2**. **TRAE CLI** is available as an opt-in runtime. Features and platform support vary by agent.
 
-¹ Antigravity CLI has not been smoke-tested on Windows yet.
-² pi runs natively on Windows but has not been smoke-tested there yet; its bash tool requires Git for Windows.
-³ Cursor and Grok Build have not been verified on Windows yet.
-⁴ Switching between already loaded Grok dashboard sessions updates the key on the next prompt; an idle switch has no native hook.
-
-⁵ Grok chats, missions and stop/resume passed native macOS checks; full app-relaunch persistence remains unverified.
-
-**OpenCode v2** is enabled by default and has been tested in Runner. It supports native PTY chats, roles and crews, exact session IDs, dynamic models, skills and MCP settings; see the [OpenCode spec](./docs/features/archive/592-opencode-runtime.md) and [focused validation](./docs/tests/archive/592-opencode-runtime.md). Fork, usage/quota and update controls are unavailable.
-
-Claude Code, Codex and Antigravity CLI are the primary agents. Claude Code and Codex have tuned launch and nudge timing. GitHub Copilot CLI needs a Copilot subscription. pi brings your own configured model provider. Antigravity CLI signs in with a Google account and updates itself when it starts, so it has no **Update** button. Cursor is enabled by default; see the [Cursor spec](./docs/features/archive/723-cursor-agent-runtime.md) for its current capabilities. Grok Build uses your existing grok.com sign-in, updates itself, and is enabled by default; see the [Grok spec](./docs/features/archive/723-grok-build-runtime.md) and [validation record](./docs/tests/archive/723-grok-build-runtime.md) for platform evidence. TRAE CLI is available as an opt-in runtime in Settings → Agents. [Issues](https://github.com/yicheng47/runner/issues) are welcome.
-
-Runner detects each CLI on `PATH`, with a per-agent executable override in **Settings → Agents**, which also shows each CLI's version and, when a newer one is published, an **Update** button that runs the CLI's own updater in a terminal. PowerShell 7 is optional on Windows. Agents run natively on Windows, without WSL.
+[Agent setup, capabilities and platform notes →](./docs/guide/reference/supported-agents.md)
 
 ## Example crew
 
-The **default Runner shape** is a two-role pair-coding loop: one implements, one reviews, and the loop runs on the working-tree diff until the review is clean — no architect, no dispatch overhead, just the tightest loop that still has a second pair of eyes. Runner seeds this crew on first launch; the source lives in [`examples/pair-coding/`](./examples/pair-coding/).
+Fresh installations include **Pair coding crew**: a coder implements and a reviewer checks the diff until the review is clean. Both use Codex by default; you can choose a different agent for either role.
 
-| Role | Runtime | Responsibility | System prompt |
-| --- | --- | --- | --- |
-| **@coder** (lead) | `codex` | Branches, implements, runs the checks, hands the diff to the reviewer, fixes findings. | [`coder.md`](./examples/pair-coding/coder.md) |
-| **@reviewer** | `codex` | Reads the working-tree diff, reports must-fix issues with file:line pointers, never edits code. | [`reviewer.md`](./examples/pair-coding/reviewer.md) |
-
-The crew's team conventions — feature branch first, review before any commit, nothing merged unless the human asks — are in [`team-conventions.md`](./examples/pair-coding/team-conventions.md). Both slots ship on `codex`; switching `@coder` to `claude-code` makes it a cross-vendor pair, where each model catches what the other's training glosses over.
-
-### More crews
-
-For weirder, more fun crew shapes, peek at [`examples/`](./examples/):
-
-- [`pair-coding/`](./examples/pair-coding/) — the default coder / reviewer pair above
-- [`codex-trio/`](./examples/codex-trio/) — the pair above plus a QA slot that builds the reviewed revision and tests it in the live app
-- [`dev-crew/`](./examples/dev-crew/) — an architect / impl / reviewer trio: one decomposes, one builds, one audits
-- [`docs-crew/`](./examples/docs-crew/) — architect partitions a complex repo, 2+ writers draft per-module docs in parallel, editor harmonizes
-- [`tic-tac-toe/`](./examples/tic-tac-toe/) — 2 agents + 1 referee actually playing a game against each other
-- [`werewolf/`](./examples/werewolf/) — 6-player social deduction with a god moderator
-- [`tomb-raid/`](./examples/tomb-raid/) — a 4-person heist crew run by a DM
-
-Each is a copy-pasteable handle + system-prompt set you can spawn into a new Crew and hit Start.
-
-## Community
-
-- Bugs and feature requests: [GitHub Issues](https://github.com/yicheng47/runner/issues).
-- Thanks to [LINUX DO](https://linux.do) for providing a community for discussion and sharing open-source projects.
-- 中文用户可以扫码加入 Runner 微信用户群。群二维码 7 天过期，如果扫码提示失效，请[提一个 issue](https://github.com/yicheng47/runner/issues/new) 提醒我更新。
-
-<img src="assets/wechat_group_qr.png" alt="Runner 微信用户群二维码" width="200" />
+[Build a crew and explore example prompts →](./docs/guide/guides/build-a-crew.md)
 
 ## Acknowledgements
 
