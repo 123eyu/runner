@@ -478,6 +478,67 @@ pub fn restore(
 }
 
 pub const CLIENT_KEYS_NAME: &str = "client-keys";
+const CLIENT_KEYS_CLEANUP_NAME: &str = "client-keys-cleanup";
+const CLIENT_KEYS_ITEM_LIMIT: usize = 2560;
+const CLIENT_KEYS_SHARDS_PREFIX: &[u8] = b"RUNNER-CLIENT-KEYS:";
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct ClientKeyShards {
+    generation: String,
+    count: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ClientKeyCleanup {
+    previous: Option<ClientKeyShards>,
+    pending: Option<ClientKeyShards>,
+}
+impl ClientKeyCleanup {
+    fn save(&self, store: &dyn SecretStore) -> StoreResult<()> {
+        let bytes = serde_json::to_vec(self).map_err(|_| "Could not encode client key cleanup")?;
+        if bytes.len() > CLIENT_KEYS_ITEM_LIMIT {
+            return Err("Client key cleanup record is too large");
+        }
+        store.put(CLIENT_KEYS_CLEANUP_NAME, &bytes)
+    }
+    fn recover(
+        store: &dyn SecretStore,
+        keep: Option<&ClientKeyShards>,
+        reset: bool,
+    ) -> StoreResult<()> {
+        let Some(bytes) = store.get(CLIENT_KEYS_CLEANUP_NAME)? else {
+            return Ok(());
+        };
+        let cleanup: Self = match serde_json::from_slice(&bytes) {
+            Ok(cleanup) => cleanup,
+            Err(_) if reset => return store.delete(CLIENT_KEYS_CLEANUP_NAME),
+            Err(_) => return Err("Invalid client key cleanup"),
+        };
+        for shards in [cleanup.previous, cleanup.pending].into_iter().flatten() {
+            if keep.is_none_or(|keep| keep.generation != shards.generation) {
+                shards.delete(store)?;
+            }
+        }
+        store.delete(CLIENT_KEYS_CLEANUP_NAME)
+    }
+}
+impl ClientKeyShards {
+    fn decode(bytes: &[u8]) -> StoreResult<Option<Self>> {
+        bytes
+            .strip_prefix(CLIENT_KEYS_SHARDS_PREFIX)
+            .map(|bytes| serde_json::from_slice(bytes).map_err(|_| "Invalid client key shards"))
+            .transpose()
+    }
+    fn name(&self, index: usize) -> String {
+        format!("{CLIENT_KEYS_NAME}/{}/{index}", self.generation)
+    }
+    fn delete(&self, store: &dyn SecretStore) -> StoreResult<()> {
+        for index in 0..self.count {
+            store.delete(&self.name(index))?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ClientKey {
@@ -493,6 +554,19 @@ impl ClientKeys {
         let Some(bytes) = store.get(CLIENT_KEYS_NAME)? else {
             return Ok(Self::default());
         };
+        let bytes = if let Some(shards) = ClientKeyShards::decode(&bytes)? {
+            let mut bytes = Vec::new();
+            for index in 0..shards.count {
+                bytes.extend(
+                    store
+                        .get(&shards.name(index))?
+                        .ok_or("Missing client key shard")?,
+                );
+            }
+            bytes
+        } else {
+            bytes
+        };
         let keys: Self = serde_json::from_slice(&bytes).map_err(|_| "Invalid client keys")?;
         for (fingerprint, key) in &keys.0 {
             runner_core::remote::HostKey::from_private(&key.private.0)?;
@@ -505,11 +579,136 @@ impl ClientKeys {
         Ok(keys)
     }
     pub fn save(&self, store: &dyn SecretStore) -> StoreResult<()> {
+        self.save_inner(store, false)
+    }
+    pub fn reset(store: &dyn SecretStore) -> StoreResult<()> {
+        Self::default().save_inner(store, true)
+    }
+    fn save_inner(&self, store: &dyn SecretStore, reset: bool) -> StoreResult<()> {
+        let previous = store
+            .get(CLIENT_KEYS_NAME)?
+            .map(|bytes| ClientKeyShards::decode(&bytes))
+            .transpose();
+        let previous = match previous {
+            Ok(previous) => previous.flatten(),
+            Err(_) if reset => None,
+            Err(error) => return Err(error),
+        };
         if self.0.is_empty() {
+            ClientKeyCleanup::recover(store, None, reset)?;
+            if let Some(previous) = previous {
+                previous.delete(store)?;
+            }
             return store.delete(CLIENT_KEYS_NAME);
         }
+        ClientKeyCleanup::recover(store, previous.as_ref(), false)?;
         let bytes = serde_json::to_vec(self).map_err(|_| "Could not encode client keys")?;
-        store.put(CLIENT_KEYS_NAME, &bytes)
+        let shards = (bytes.len() > CLIENT_KEYS_ITEM_LIMIT).then(|| ClientKeyShards {
+            generation: uuid::Uuid::new_v4().to_string(),
+            count: bytes.len().div_ceil(CLIENT_KEYS_ITEM_LIMIT),
+        });
+        if previous.is_some() || shards.is_some() {
+            ClientKeyCleanup {
+                previous,
+                pending: shards.clone(),
+            }
+            .save(store)?;
+        }
+        if let Some(shards) = &shards {
+            for (index, bytes) in bytes.chunks(CLIENT_KEYS_ITEM_LIMIT).enumerate() {
+                store.put(&shards.name(index), bytes)?;
+            }
+            let mut manifest = CLIENT_KEYS_SHARDS_PREFIX.to_vec();
+            manifest.extend(
+                serde_json::to_vec(shards).map_err(|_| "Could not encode client key shards")?,
+            );
+            store.put(CLIENT_KEYS_NAME, &manifest)?;
+        } else {
+            store.put(CLIENT_KEYS_NAME, &bytes)?;
+        }
+        // Publication committed the operation; the journal preserves deferred cleanup.
+        let _ = ClientKeyCleanup::recover(store, shards.as_ref(), false);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod client_key_tests {
+    use super::*;
+    #[derive(Default)]
+    struct LimitedStore {
+        memory: MemoryStore,
+        fail_manifest: std::sync::atomic::AtomicBool,
+    }
+    impl SecretStore for LimitedStore {
+        fn get(&self, name: &str) -> StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> StoreResult<()> {
+            assert!(bytes.len() <= 2560);
+            if name == CLIENT_KEYS_NAME
+                && self
+                    .fail_manifest
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return Err("test write failure");
+            }
+            self.memory.put(name, bytes)
+        }
+        fn delete(&self, name: &str) -> StoreResult<()> {
+            self.memory.delete(name)
+        }
+    }
+    #[test]
+    fn pairing_growth_shrink_and_delete_fit_windows_credential_items() {
+        let store = LimitedStore::default();
+        let mut keys = ClientKeys::default();
+        for index in 0..100 {
+            let key = runner_core::remote::HostKey::generate().unwrap();
+            keys.0.insert(
+                runner_core::remote::fingerprint(&key.public),
+                ClientKey {
+                    private: runner_core::remote::Secret(runner_core::remote::encode_key(
+                        &key.private,
+                    )),
+                    public: key.public.to_vec(),
+                    name: format!("Host {index} {}", "名".repeat(20)),
+                    paired_at: chrono::Utc::now(),
+                },
+            );
+            keys.save(&store).unwrap();
+            assert_eq!(ClientKeys::load(&store).unwrap().0.len(), index + 1);
+            let count = store.memory.0.lock().unwrap().len();
+            assert!(count <= 1 + serde_json::to_vec(&keys).unwrap().len().div_ceil(2560));
+        }
+        let saved = serde_json::to_vec(&keys).unwrap();
+        keys.0.pop_first();
+        store
+            .fail_manifest
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(keys.save(&store).is_err());
+        assert_eq!(
+            serde_json::to_vec(&ClientKeys::load(&store).unwrap()).unwrap(),
+            saved
+        );
+        store
+            .fail_manifest
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        let one = keys.0.pop_first().unwrap();
+        keys.0.clear();
+        keys.0.insert(one.0, one.1);
+        keys.save(&store).unwrap();
+        assert_eq!(store.memory.0.lock().unwrap().len(), 1);
+        assert_eq!(ClientKeys::load(&store).unwrap().0.len(), 1);
+        keys.0.clear();
+        keys.save(&store).unwrap();
+        assert!(store.memory.0.lock().unwrap().is_empty());
+        assert!(ClientKeys::load(&store).unwrap().0.is_empty());
+        #[cfg(windows)]
+        assert_eq!(
+            CLIENT_KEYS_ITEM_LIMIT,
+            windows_sys::Win32::Security::Credentials::CRED_MAX_CREDENTIAL_BLOB_SIZE as usize
+        );
     }
 }
 

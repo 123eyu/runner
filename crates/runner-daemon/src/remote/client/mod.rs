@@ -236,7 +236,7 @@ impl Client {
         let writes = self.0.writes.clone();
         tokio::task::spawn_blocking(move || {
             let _guard = writes.lock().map_err(|_| "Client keys lock failed")?;
-            store.delete(super::store::CLIENT_KEYS_NAME)
+            ClientKeys::reset(store.as_ref())
         })
         .await
         .map_err(|_| "Client keys worker failed")?

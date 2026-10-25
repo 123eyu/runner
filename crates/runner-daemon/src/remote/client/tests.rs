@@ -68,7 +68,7 @@ struct Fixture {
     core: Arc<TestCore>,
     root: tempfile::TempDir,
     cancel: CancellationToken,
-    store: Arc<MemoryStore>,
+    store: Arc<dyn SecretStore>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -77,8 +77,10 @@ impl Drop for Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_store(Arc::new(MemoryStore::default())).await
+    }
+    async fn with_store(store: Arc<dyn SecretStore>) -> Self {
         let root = tempfile::tempdir().unwrap();
-        let store = Arc::new(MemoryStore::default());
         let mut identity = Identity::generate().unwrap();
         identity.pin = Some(Secret("012345".into()));
         let fingerprint = remote::fingerprint(&identity.host_key().unwrap().public);
@@ -541,6 +543,395 @@ async fn terminal_attachment_maps_snapshot_output_resize_input_and_control() {
         [(100, 40, "take"), (110, 45, "take"), (90, 30, "viewport")]
     );
     drop(frames);
+}
+
+#[tokio::test]
+async fn only_explicit_reset_can_discard_corrupt_pairing_metadata() {
+    for paired in [true, false] {
+        let fixture = Fixture::new().await;
+        Identity::generate()
+            .unwrap()
+            .save(fixture.store.as_ref())
+            .unwrap();
+        let identity = fixture
+            .store
+            .get(super::super::store::IDENTITY_NAME)
+            .unwrap();
+        let enrollment = fixture.store.get("https://relay.invalid").unwrap();
+        if paired {
+            fixture.pair().await;
+        }
+        let primary = fixture
+            .store
+            .get(super::super::store::CLIENT_KEYS_NAME)
+            .unwrap();
+        fixture.store.put("client-keys-cleanup", b"{").unwrap();
+        assert!(fixture.client.forget("2".into()).await.is_err());
+        assert!(
+            fixture
+                .store
+                .get(super::super::store::CLIENT_KEYS_NAME)
+                .unwrap()
+                == primary
+        );
+        assert_eq!(
+            fixture.store.get("client-keys-cleanup").unwrap().unwrap(),
+            b"{"
+        );
+        assert!(ClientKeys::default().save(fixture.store.as_ref()).is_err());
+        fixture.client.reset().await.unwrap();
+        fixture.pair().await;
+        fixture.client.overview("2".into()).await.unwrap();
+        fixture.client.reset().await.unwrap();
+        let corrupt = b"RUNNER-CLIENT-KEYS:{";
+        fixture
+            .store
+            .put(super::super::store::CLIENT_KEYS_NAME, corrupt)
+            .unwrap();
+        assert!(ClientKeys::default().save(fixture.store.as_ref()).is_err());
+        assert!(fixture.client.forget("2".into()).await.is_err());
+        assert_eq!(
+            fixture
+                .store
+                .get(super::super::store::CLIENT_KEYS_NAME)
+                .unwrap()
+                .unwrap(),
+            corrupt
+        );
+        fixture.client.reset().await.unwrap();
+        fixture.pair().await;
+        fixture.client.overview("2".into()).await.unwrap();
+        fixture.client.reset().await.unwrap();
+        assert!(
+            fixture
+                .store
+                .get(super::super::store::IDENTITY_NAME)
+                .unwrap()
+                == identity
+        );
+        assert!(fixture.store.get("https://relay.invalid").unwrap() == enrollment);
+        assert!(fixture
+            .store
+            .get(super::super::store::CLIENT_KEYS_NAME)
+            .unwrap()
+            .is_none());
+        assert!(fixture.store.get("client-keys-cleanup").unwrap().is_none());
+    }
+}
+
+#[tokio::test]
+async fn committed_pair_and_forget_succeed_with_deferred_cleanup_and_reset_recovers_corruption() {
+    #[derive(Default)]
+    struct DeferredStore {
+        memory: MemoryStore,
+        names: StdMutex<std::collections::HashSet<String>>,
+        fail_delete: AtomicBool,
+    }
+    impl SecretStore for DeferredStore {
+        fn get(&self, name: &str) -> super::super::store::StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> super::super::store::StoreResult<()> {
+            assert!(bytes.len() <= 2560);
+            self.memory.put(name, bytes)?;
+            self.names.lock().unwrap().insert(name.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> super::super::store::StoreResult<()> {
+            if name.starts_with("client-keys/") && self.fail_delete.load(Ordering::Relaxed) {
+                return Err("test cleanup failure");
+            }
+            self.memory.delete(name)?;
+            self.names.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+    let store = Arc::new(DeferredStore::default());
+    let fixture = Fixture::with_store(store.clone()).await;
+    Identity::generate().unwrap().save(store.as_ref()).unwrap();
+    let identity = store.get(super::super::store::IDENTITY_NAME).unwrap();
+    let origin = "https://relay.invalid";
+    let enrollment = store.get(origin).unwrap();
+    let mut keys = ClientKeys::default();
+    for index in 0..20 {
+        let key = remote::HostKey::generate().unwrap();
+        keys.0.insert(
+            remote::fingerprint(&key.public),
+            ClientKey {
+                private: Secret(remote::encode_key(&key.private)),
+                public: key.public.to_vec(),
+                name: format!("host-{index}"),
+                paired_at: chrono::Utc::now(),
+            },
+        );
+    }
+    keys.save(store.as_ref()).unwrap();
+    store.fail_delete.store(true, Ordering::Relaxed);
+    fixture.pair().await;
+    assert_eq!(ClientKeys::load(store.as_ref()).unwrap().0.len(), 21);
+    assert!(store.get("client-keys-cleanup").unwrap().is_some());
+    assert!(!fixture.client.0.routes.lock().await.is_empty());
+    fixture.client.overview("2".into()).await.unwrap();
+    store.fail_delete.store(false, Ordering::Relaxed);
+    ClientKeys::load(store.as_ref())
+        .unwrap()
+        .save(store.as_ref())
+        .unwrap();
+    assert!(store.get("client-keys-cleanup").unwrap().is_none());
+    store.fail_delete.store(true, Ordering::Relaxed);
+    fixture.client.forget("2".into()).await.unwrap();
+    assert_eq!(ClientKeys::load(store.as_ref()).unwrap().0.len(), 20);
+    assert!(!fixture.client.computers().await.unwrap()[0].paired);
+    assert!(store.get("client-keys-cleanup").unwrap().is_some());
+    assert!(fixture.client.reset().await.is_err());
+    store.fail_delete.store(false, Ordering::Relaxed);
+    fixture.client.reset().await.unwrap();
+    assert_eq!(
+        *store.names.lock().unwrap(),
+        [super::super::store::IDENTITY_NAME.into(), origin.into()]
+            .into_iter()
+            .collect()
+    );
+    store.put("client-keys-cleanup", b"{").unwrap();
+    assert!(keys.save(store.as_ref()).is_err());
+    fixture.client.reset().await.unwrap();
+    assert!(store.get("client-keys-cleanup").unwrap().is_none());
+    fixture.pair().await;
+    fixture.client.overview("2".into()).await.unwrap();
+    fixture.client.reset().await.unwrap();
+    assert_eq!(
+        *store.names.lock().unwrap(),
+        [super::super::store::IDENTITY_NAME.into(), origin.into()]
+            .into_iter()
+            .collect()
+    );
+    assert!(store.get(super::super::store::IDENTITY_NAME).unwrap() == identity);
+    assert!(store.get(origin).unwrap() == enrollment);
+}
+
+#[tokio::test]
+async fn interrupted_key_generation_writes_and_cleanup_recover_before_retry_or_reset() {
+    #[derive(Default)]
+    struct InterruptedStore {
+        memory: MemoryStore,
+        names: StdMutex<std::collections::HashSet<String>>,
+        remaining: StdMutex<Option<usize>>,
+        interrupted: AtomicBool,
+    }
+    impl InterruptedStore {
+        fn mutation(&self) -> super::super::store::StoreResult<()> {
+            if let Some(remaining) = self.remaining.lock().unwrap().as_mut() {
+                if *remaining == 0 {
+                    self.interrupted.store(true, Ordering::Relaxed);
+                    return Err("test interruption");
+                }
+                *remaining -= 1;
+            }
+            Ok(())
+        }
+    }
+    impl SecretStore for InterruptedStore {
+        fn get(&self, name: &str) -> super::super::store::StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> super::super::store::StoreResult<()> {
+            assert!(bytes.len() <= 2560);
+            self.mutation()?;
+            self.memory.put(name, bytes)?;
+            self.names.lock().unwrap().insert(name.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> super::super::store::StoreResult<()> {
+            self.mutation()?;
+            self.memory.delete(name)?;
+            self.names.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+    let mut many = ClientKeys::default();
+    for index in 0..20 {
+        let key = remote::HostKey::generate().unwrap();
+        many.0.insert(
+            remote::fingerprint(&key.public),
+            ClientKey {
+                private: Secret(remote::encode_key(&key.private)),
+                public: key.public.to_vec(),
+                name: format!("host-{index}"),
+                paired_at: chrono::Utc::now(),
+            },
+        );
+    }
+    let mut fewer = many.clone();
+    fewer.0.pop_first();
+    let one = ClientKeys(
+        many.0
+            .iter()
+            .take(1)
+            .map(|(id, key)| (id.clone(), key.clone()))
+            .collect(),
+    );
+    for (old, new) in [
+        (ClientKeys::default(), many.clone()),
+        (many.clone(), fewer),
+        (many, one),
+    ] {
+        for retry in [false, true] {
+            let mut completed = false;
+            for completed_mutations in 0..100 {
+                let root = tempfile::tempdir().unwrap();
+                let store = Arc::new(InterruptedStore::default());
+                Identity::generate().unwrap().save(store.as_ref()).unwrap();
+                let identity = store.get(super::super::store::IDENTITY_NAME).unwrap();
+                let origin = "https://cleanup-test.invalid";
+                store.put(origin, b"isolated-enrollment").unwrap();
+                old.save(store.as_ref()).unwrap();
+                let client = Client::new(
+                    root.path().into(),
+                    store.clone(),
+                    watch::channel(RemoteStatus::default()).1,
+                    Default::default(),
+                    CancellationToken::new(),
+                );
+                *store.remaining.lock().unwrap() = Some(completed_mutations);
+                let saved = new.save(store.as_ref());
+                let count = ClientKeys::load(store.as_ref()).unwrap().0.len();
+                assert!(count == old.0.len() || count == new.0.len());
+                if store.interrupted.load(Ordering::Relaxed) {
+                    assert_eq!(
+                        count,
+                        if saved.is_ok() {
+                            new.0.len()
+                        } else {
+                            old.0.len()
+                        }
+                    );
+                    let names = store.names.lock().unwrap().clone();
+                    assert!(new.save(store.as_ref()).is_err());
+                    assert!(client.reset().await.is_err());
+                    assert_eq!(*store.names.lock().unwrap(), names);
+                } else {
+                    saved.unwrap();
+                    completed = true;
+                }
+                *store.remaining.lock().unwrap() = None;
+                if retry {
+                    new.save(store.as_ref()).unwrap();
+                    assert_eq!(
+                        ClientKeys::load(store.as_ref()).unwrap().0.len(),
+                        new.0.len()
+                    );
+                    assert!(store.get("client-keys-cleanup").unwrap().is_none());
+                }
+                client.reset().await.unwrap();
+                assert!(ClientKeys::load(store.as_ref()).unwrap().0.is_empty());
+                assert_eq!(
+                    *store.names.lock().unwrap(),
+                    [super::super::store::IDENTITY_NAME.into(), origin.into()]
+                        .into_iter()
+                        .collect()
+                );
+                assert!(store.get(super::super::store::IDENTITY_NAME).unwrap() == identity);
+                assert_eq!(store.get(origin).unwrap().unwrap(), b"isolated-enrollment");
+                if completed {
+                    break;
+                }
+            }
+            assert!(completed);
+        }
+    }
+}
+
+#[tokio::test]
+async fn reset_deletes_every_private_key_shard_and_keeps_identity_and_enrollment() {
+    #[derive(Default)]
+    struct AuditedStore {
+        memory: MemoryStore,
+        names: StdMutex<std::collections::HashSet<String>>,
+        fail_delete: AtomicBool,
+    }
+    impl SecretStore for AuditedStore {
+        fn get(&self, name: &str) -> super::super::store::StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> super::super::store::StoreResult<()> {
+            self.memory.put(name, bytes)?;
+            self.names.lock().unwrap().insert(name.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> super::super::store::StoreResult<()> {
+            if name.starts_with("client-keys/") && self.fail_delete.load(Ordering::Relaxed) {
+                return Err("test deletion failure");
+            }
+            self.memory.delete(name)?;
+            self.names.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(AuditedStore::default());
+    Identity::generate().unwrap().save(store.as_ref()).unwrap();
+    let identity = store.get(super::super::store::IDENTITY_NAME).unwrap();
+    let origin = "https://reset-test.invalid";
+    store.put(origin, b"isolated-enrollment").unwrap();
+    let mut keys = ClientKeys::default();
+    for index in 0..20 {
+        let key = remote::HostKey::generate().unwrap();
+        keys.0.insert(
+            remote::fingerprint(&key.public),
+            ClientKey {
+                private: Secret(remote::encode_key(&key.private)),
+                public: key.public.to_vec(),
+                name: format!("host-{index}"),
+                paired_at: chrono::Utc::now(),
+            },
+        );
+    }
+    keys.save(store.as_ref()).unwrap();
+    assert!(store.names.lock().unwrap().len() > 3);
+    let client = Client::new(
+        root.path().into(),
+        store.clone(),
+        watch::channel(RemoteStatus::default()).1,
+        Default::default(),
+        CancellationToken::new(),
+    );
+    store.fail_delete.store(true, Ordering::Relaxed);
+    assert!(client.reset().await.is_err());
+    assert!(store
+        .get(super::super::store::CLIENT_KEYS_NAME)
+        .unwrap()
+        .is_some());
+    store.fail_delete.store(false, Ordering::Relaxed);
+    client.reset().await.unwrap();
+    assert!(ClientKeys::load(store.as_ref()).unwrap().0.is_empty());
+    assert_eq!(
+        *store.names.lock().unwrap(),
+        [super::super::store::IDENTITY_NAME.into(), origin.into()]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        store.get(super::super::store::IDENTITY_NAME).unwrap(),
+        identity
+    );
+    assert_eq!(store.get(origin).unwrap().unwrap(), b"isolated-enrollment");
+    store
+        .put(
+            super::super::store::CLIENT_KEYS_NAME,
+            b"RUNNER-CLIENT-KEYS:{",
+        )
+        .unwrap();
+    assert!(ClientKeys::load(store.as_ref()).is_err());
+    client.reset().await.unwrap();
+    assert!(store
+        .get(super::super::store::CLIENT_KEYS_NAME)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store.get(super::super::store::IDENTITY_NAME).unwrap(),
+        identity
+    );
+    assert_eq!(store.get(origin).unwrap().unwrap(), b"isolated-enrollment");
 }
 
 #[tokio::test]
