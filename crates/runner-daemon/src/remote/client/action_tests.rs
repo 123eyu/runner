@@ -1012,7 +1012,16 @@ async fn large_feed_pages_and_incremental_pushes_keep_the_shared_terminal_route_
         }))
         .await
         .unwrap();
-    adapter.next(true).await.unwrap().unwrap();
+    loop {
+        if let Some(bytes) = adapter.next(true).await.unwrap() {
+            let c::HostMessage::Result(reply) = serde_json::from_slice(&bytes).unwrap() else {
+                panic!("follow result expected")
+            };
+            assert_eq!(reply.id, 1);
+            break;
+        }
+        adapter.changed().await.unwrap();
+    }
     let mut ids = vec![];
     for i in 0..512 {
         let text = format!("packet-{i}: {}", "x".repeat(3072));

@@ -116,43 +116,54 @@ impl DaemonCore {
         })
     }
     pub(super) fn feed_page(&self, request: FeedRequest) -> Result<FeedPage> {
-        let mut entries = std::collections::VecDeque::new();
-        let mut bytes = 0;
-        let mut older = false;
-        let mut cursor = 0;
-        let mut found = request.before.is_none();
-        'pages: loop {
-            let updates = self.updates(&request.mission, cursor)?;
-            for entry in updates.entries {
-                if request.before.as_deref() == Some(&entry.id) {
-                    found = true;
-                    break 'pages;
-                }
-                let size = serde_json::to_vec(&entry).map_err(failed)?.len() + 1;
-                bytes += size;
-                entries.push_back((entry, size));
-                while entries.len() > request.limit.clamp(1, 500) as usize || bytes > ENTRY_BUDGET {
-                    bytes -= entries.pop_front().unwrap().1;
-                    older = true;
-                }
-            }
-            cursor = updates.cursor;
-            if !updates.more {
+        let core = self.core()?;
+        let mission = {
+            let conn = core.db.get().map_err(failed)?;
+            crate::ops::mission::get(&conn, &request.mission).map_err(failed)?
+        };
+        let path = runner_core::event_log::mission_dir(
+            &core.app_data_dir,
+            mission.crew_id.as_deref(),
+            &mission.id,
+        );
+        let log = runner_core::event_log::EventLog::open(&path).map_err(failed)?;
+        let (entries, _) = log.read_from_lossy(0).map_err(failed)?;
+        select_page(request, entries.into_iter().map(|row| row.event))
+    }
+}
+fn select_page(request: FeedRequest, events: impl IntoIterator<Item = Event>) -> Result<FeedPage> {
+    let mut entries = std::collections::VecDeque::new();
+    let mut bytes = 0;
+    let mut older = false;
+    let mut found = request.before.is_none();
+    for event in events {
+        if let Some((entry, size)) = entry(event)? {
+            if request.before.as_deref() == Some(&entry.id) {
+                found = true;
                 break;
             }
+            bytes += size;
+            entries.push_back((entry, size));
+            while entries.len() > request.limit.clamp(1, 500) as usize || bytes > ENTRY_BUDGET {
+                bytes -= entries.pop_front().unwrap().1;
+                older = true;
+            }
         }
-        if !found {
-            return Err(Failure(
-                ErrorCode::BadRequest,
-                "The feed cursor is no longer available.",
-            ));
-        }
-        let before = older.then(|| entries.front().unwrap().0.id.clone());
-        Ok(FeedPage {
-            entries: entries.into_iter().rev().map(|(entry, _)| entry).collect(),
-            before,
-        })
     }
+    if !found {
+        return Err(Failure(
+            ErrorCode::BadRequest,
+            "The feed cursor is no longer available.",
+        ));
+    }
+    let before = older.then(|| entries.front().unwrap().0.id.clone());
+    Ok(FeedPage {
+        entries: entries.into_iter().rev().map(|(entry, _)| entry).collect(),
+        before,
+    })
+}
+
+impl DaemonCore {
     pub(super) fn answer_question(&self, request: AnswerRequest) -> Result<()> {
         let core = self.core()?;
         let pending =
@@ -192,5 +203,66 @@ impl DaemonCore {
         ))
         .map_err(failed)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn long_feed_pages_visit_each_event_once_and_stop_at_the_older_cursor() {
+        let visited = std::cell::Cell::new(0);
+        let events = || {
+            (0..4000)
+                .map(|index| Event {
+                    id: format!("{index:026}"),
+                    ts: chrono::Utc::now(),
+                    crew_id: None,
+                    mission_id: "m".into(),
+                    kind: if index % 2 == 0 {
+                        EventKind::Message
+                    } else {
+                        EventKind::Signal
+                    },
+                    from: "human".into(),
+                    to: Default::default(),
+                    signal_type: (index % 2 == 1)
+                        .then(|| runner_core::model::SignalType::new("runner_status")),
+                    payload: serde_json::json!({"text":"message", "state":"busy"}),
+                })
+                .inspect(|_| visited.set(visited.get() + 1))
+        };
+        let newest = select_page(
+            FeedRequest {
+                id: 1,
+                mission: "m".into(),
+                before: None,
+                limit: 50,
+            },
+            events(),
+        )
+        .unwrap();
+        assert_eq!(visited.get(), 4000);
+        assert_eq!(newest.entries.len(), 50);
+        assert_eq!(newest.entries[0].id, format!("{:026}", 3998));
+        assert_eq!(
+            newest.before.as_deref(),
+            Some(format!("{:026}", 3900).as_str())
+        );
+        visited.set(0);
+        let older = select_page(
+            FeedRequest {
+                id: 2,
+                mission: "m".into(),
+                before: newest.before,
+                limit: 50,
+            },
+            events(),
+        )
+        .unwrap();
+        assert_eq!(visited.get(), 3901);
+        assert_eq!(older.entries.len(), 50);
+        assert_eq!(older.entries[0].id, format!("{:026}", 3898));
+        assert_eq!(older.entries[49].id, format!("{:026}", 3800));
     }
 }

@@ -13,7 +13,10 @@ use runner_core::{
 };
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 use tokio::{
     sync::{broadcast, Notify},
@@ -293,6 +296,31 @@ struct PendingMessage {
     state: Option<StatePush>,
 }
 
+enum RequestReply {
+    Value(serde_json::Value),
+    Follow(String, u64),
+    Unfollow(String),
+}
+struct OverviewSnapshot {
+    overview: Overview,
+    statuses: BTreeMap<String, SessionStatus>,
+    status_revision: u64,
+}
+enum FeedJob {
+    Request(ClientMessage),
+    Unfollow {
+        mission: String,
+        ids: Vec<u64>,
+        reserved: usize,
+    },
+}
+struct FeedWork {
+    ids: Vec<u64>,
+    follow: Option<String>,
+    reserved: usize,
+    work: tokio::task::JoinHandle<core::Result<RequestReply>>,
+}
+
 pub struct Adapter {
     lease: Arc<Lease>,
     core: Arc<dyn Core>,
@@ -310,6 +338,26 @@ pub struct Adapter {
     feed_turn: bool,
     overview_due: Option<Instant>,
     last_overview: Option<Instant>,
+    overview_work: Option<tokio::task::JoinHandle<core::Result<OverviewSnapshot>>>,
+    overview_waiters: Vec<u64>,
+    overview_next: Vec<u64>,
+    overview_replies: VecDeque<(u64, Arc<serde_json::Value>)>,
+    overview_broadcast: bool,
+    status_work: Option<tokio::task::JoinHandle<core::Result<BTreeMap<String, SessionStatus>>>>,
+    status_dirty: bool,
+    status_revision: u64,
+    status_started_revision: u64,
+    status_epoch: Arc<AtomicU64>,
+    requests: VecDeque<FeedJob>,
+    request_work: Option<FeedWork>,
+    feed_outstanding: usize,
+    cleanup_bytes: usize,
+    actions: VecDeque<ActionRequest>,
+    action_work: Option<(
+        u64,
+        tokio::task::JoinHandle<core::Result<serde_json::Value>>,
+    )>,
+    forks: tokio::task::JoinSet<(u64, core::Result<serde_json::Value>)>,
 }
 impl Adapter {
     pub fn new(core: Arc<dyn Core>, channel: u64, name: String) -> core::Result<Self> {
@@ -334,15 +382,29 @@ impl Adapter {
             feed_turn: true,
             overview_due: None,
             last_overview: None,
+            overview_work: None,
+            overview_waiters: Vec::new(),
+            overview_next: Vec::new(),
+            overview_replies: VecDeque::new(),
+            overview_broadcast: false,
+            status_work: None,
+            status_dirty: false,
+            status_revision: 0,
+            status_started_revision: 0,
+            status_epoch: Default::default(),
+            requests: VecDeque::new(),
+            request_work: None,
+            feed_outstanding: 0,
+            cleanup_bytes: 0,
+            actions: VecDeque::new(),
+            action_work: None,
+            forks: tokio::task::JoinSet::new(),
         })
     }
     pub async fn initialize(&mut self) -> Result<(), &'static str> {
-        let overview = self.overview().await.map_err(|_| "core unavailable")?;
-        self.statuses = overview
-            .sessions
-            .into_iter()
-            .map(|(id, info)| (id, info.status))
-            .collect();
+        self.statuses = blocking(self.core.clone(), |core| core.statuses())
+            .await
+            .map_err(|_| "core unavailable")?;
         Ok(())
     }
     pub fn in_flight(&mut self, bytes: usize) {
@@ -368,7 +430,7 @@ impl Adapter {
             }
             !superseded
         });
-        if self.queued + self.in_flight + bytes.len() > MAX_MESSAGE_SIZE {
+        if self.queued + self.in_flight + self.cleanup_bytes + bytes.len() > MAX_MESSAGE_SIZE {
             return Err("reply queue full");
         }
         self.queued += bytes.len();
@@ -385,61 +447,221 @@ impl Adapter {
             stream.release = release;
         }
     }
-    async fn overview(&self) -> core::Result<Overview> {
-        blocking(self.core.clone(), |core| core.overview()).await
-    }
-    fn status_changes(&mut self, overview: &Overview) -> Result<(), &'static str> {
-        for stream in &self.streams {
-            if overview
-                .sessions
-                .get(&stream.session)
-                .is_none_or(|session| {
-                    matches!(session.status.status, Status::Stopped | Status::Error)
+    fn start_overview(&mut self) {
+        if self.overview_work.is_none() {
+            let core = self.core.clone();
+            let status_epoch = self.status_epoch.clone();
+            self.overview_work = Some(tokio::task::spawn_blocking(move || {
+                let overview = core.overview()?;
+                let status_revision = status_epoch.load(Ordering::Acquire);
+                let statuses = core.statuses()?;
+                Ok(OverviewSnapshot {
+                    overview,
+                    statuses,
+                    status_revision,
                 })
+            }));
+        }
+    }
+    fn start_statuses(&mut self) {
+        if self.status_work.is_none() && self.status_dirty {
+            self.status_dirty = false;
+            self.status_started_revision = self.status_revision;
+            let core = self.core.clone();
+            self.status_work = Some(tokio::task::spawn_blocking(move || core.statuses()));
+        }
+    }
+    fn start_request(&mut self) {
+        if self.request_work.is_none() {
+            if let Some(job) = self.requests.pop_front() {
+                let core = self.core.clone();
+                let (ids, follow, reserved) = match &job {
+                    FeedJob::Request(request) => (
+                        vec![request.id().unwrap()],
+                        match request {
+                            ClientMessage::Follow(request) => Some(request.mission.clone()),
+                            _ => None,
+                        },
+                        0,
+                    ),
+                    FeedJob::Unfollow { ids, reserved, .. } => (ids.clone(), None, *reserved),
+                };
+                self.request_work = Some(FeedWork {
+                    ids,
+                    follow,
+                    reserved,
+                    work: tokio::task::spawn_blocking(move || match job {
+                        FeedJob::Unfollow { mission, .. } => Ok(RequestReply::Unfollow(mission)),
+                        FeedJob::Request(ClientMessage::Feed(request)) => core
+                            .feed(request)
+                            .and_then(|page| serde_json::to_value(page).map_err(core::failed))
+                            .map(RequestReply::Value),
+                        FeedJob::Request(ClientMessage::Follow(request)) => core
+                            .feed_cursor(&request.mission)
+                            .map(|cursor| RequestReply::Follow(request.mission, cursor)),
+                        _ => unreachable!(),
+                    }),
+                });
+            }
+        }
+    }
+    fn start_action(&mut self) {
+        if self.action_work.is_none() {
+            if let Some(request) = self.actions.pop_front() {
+                let core = self.core.clone();
+                self.action_work = Some((
+                    request.id(),
+                    tokio::task::spawn_blocking(move || core.action(request)),
+                ));
+            }
+        }
+    }
+    fn unfollow(&mut self, request: MissionRequest) -> Result<(), &'static str> {
+        let pending = self.request_work.as_ref().is_some_and(|work| work.follow.as_ref() == Some(&request.mission))
+            || self.requests.iter().any(|job| matches!(job, FeedJob::Request(ClientMessage::Follow(follow)) if follow.mission == request.mission));
+        if !pending {
+            self.feeds.remove(&request.mission);
+            return self.reply(request.id, Ok(serde_json::Value::Null));
+        }
+        let reserved = serde_json::to_vec(&HostMessage::Result(ResultMessage {
+            id: request.id,
+            result: serde_json::Value::Null,
+        }))
+        .map_err(|_| "companion encoding failed")?
+        .len();
+        if self.queued + self.in_flight + self.cleanup_bytes + reserved > MAX_MESSAGE_SIZE {
+            return Err("reply queue full");
+        }
+        self.cleanup_bytes += reserved;
+        for job in self.requests.iter_mut().rev() {
+            match job {
+                FeedJob::Request(ClientMessage::Follow(follow))
+                    if follow.mission == request.mission =>
+                {
+                    break
+                }
+                FeedJob::Unfollow {
+                    mission,
+                    ids,
+                    reserved: total,
+                } if mission == &request.mission => {
+                    ids.push(request.id);
+                    *total += reserved;
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        self.requests.push_back(FeedJob::Unfollow {
+            mission: request.mission,
+            ids: vec![request.id],
+            reserved,
+        });
+        self.start_request();
+        Ok(())
+    }
+    fn status_changes(
+        &mut self,
+        statuses: BTreeMap<String, SessionStatus>,
+    ) -> Result<(), &'static str> {
+        for stream in &self.streams {
+            if statuses
+                .get(&stream.session)
+                .is_none_or(|status| matches!(status.status, Status::Stopped | Status::Error))
             {
                 (stream.cancel)();
             }
         }
-        for (session, info) in &overview.sessions {
-            if self
-                .statuses
-                .get(session)
-                .is_some_and(|old| old != &info.status)
-            {
+        for (session, status) in &statuses {
+            if self.statuses.get(session).is_some_and(|old| old != status) {
                 self.push(HostMessage::Status(StatusPush {
                     session: session.clone(),
-                    status: info.status.clone(),
+                    status: status.clone(),
                 }))?;
             }
         }
-        self.statuses = overview
-            .sessions
-            .iter()
-            .map(|(id, info)| (id.clone(), info.status.clone()))
-            .collect();
+        self.statuses = statuses;
+        self.status_revision += 1;
+        self.status_epoch
+            .store(self.status_revision, Ordering::Release);
         Ok(())
     }
     pub async fn request(&mut self, message: ClientMessage) -> Result<(), &'static str> {
         let message = match message {
+            ClientMessage::Action(request) => {
+                if self.actions.len() + usize::from(self.action_work.is_some()) + self.forks.len()
+                    >= 8
+                {
+                    return self.reply(
+                        request.id(),
+                        Err(Failure(ErrorCode::Failed, "Too many actions are pending.")),
+                    );
+                }
+                if matches!(request, ActionRequest::Fork { .. }) {
+                    let core = self.core.clone();
+                    self.forks.spawn(async move {
+                        let id = request.id();
+                        let result = tokio::task::spawn_blocking(move || core.action(request))
+                            .await
+                            .unwrap_or(Err(Failure(ErrorCode::Failed, "The host worker failed.")));
+                        (id, result)
+                    });
+                } else {
+                    self.actions.push_back(request);
+                    self.start_action();
+                }
+                return Ok(());
+            }
+            ClientMessage::Unfollow(request) => return self.unfollow(request),
+            ClientMessage::Overview(request) => {
+                if self.overview_waiters.len()
+                    + self.overview_next.len()
+                    + self.overview_replies.len()
+                    >= 8
+                {
+                    return self.reply(
+                        request.id,
+                        Err(Failure(
+                            ErrorCode::Failed,
+                            "Too many overview requests are pending.",
+                        )),
+                    );
+                }
+                if self.overview_work.is_some() {
+                    // A running scan can predate a mutation this caller has awaited.
+                    self.overview_next.push(request.id);
+                } else {
+                    self.overview_waiters.push(request.id);
+                    self.start_overview();
+                }
+                return Ok(());
+            }
+            message @ (ClientMessage::Feed(_) | ClientMessage::Follow(_)) => {
+                if self.feed_outstanding >= 8 {
+                    return self.reply(
+                        message.id().unwrap(),
+                        Err(Failure(ErrorCode::Failed, "Too many requests are pending.")),
+                    );
+                }
+                self.feed_outstanding += 1;
+                self.requests.push_back(FeedJob::Request(message));
+                self.start_request();
+                return Ok(());
+            }
             ClientMessage::TakeControl(request) => return self.viewport(request, true).await,
             ClientMessage::Viewport(request) => return self.viewport(request, false).await,
             message => message,
         };
         let id;
         let result: core::Result<serde_json::Value> = match message {
-            ClientMessage::TakeControl(_) | ClientMessage::Viewport(_) => unreachable!(),
+            ClientMessage::TakeControl(_)
+            | ClientMessage::Viewport(_)
+            | ClientMessage::Action(_)
+            | ClientMessage::Feed(_)
+            | ClientMessage::Follow(_)
+            | ClientMessage::Unfollow(_)
+            | ClientMessage::Overview(_) => unreachable!(),
             ClientMessage::Hello(_) => return Err("unexpected hello"),
-            ClientMessage::Overview(request) => {
-                id = request.id;
-                match self.overview().await {
-                    Ok(overview) => {
-                        self.status_changes(&overview)?;
-                        Ok(serde_json::to_value(overview)
-                            .map_err(|_| "companion encoding failed")?)
-                    }
-                    Err(error) => Err(error),
-                }
-            }
             ClientMessage::Attach(request) => {
                 id = request.id;
                 let session = request.session.clone();
@@ -498,37 +720,6 @@ impl Adapter {
                 self.remove(&request.session, true);
                 Ok(serde_json::Value::Null)
             }
-            ClientMessage::Action(request) => {
-                id = request.id();
-                blocking(self.core.clone(), move |core| core.action(request)).await
-            }
-            ClientMessage::Feed(request) => {
-                id = request.id;
-                blocking(self.core.clone(), move |core| core.feed(request))
-                    .await
-                    .and_then(|page| serde_json::to_value(page).map_err(core::failed))
-            }
-            ClientMessage::Follow(request) => {
-                id = request.id;
-                let mission = request.mission.clone();
-                match blocking(self.core.clone(), move |core| core.feed_cursor(&mission)).await {
-                    Ok(cursor) => {
-                        self.feeds
-                            .entry(request.mission)
-                            .or_insert(FeedSubscription {
-                                cursor,
-                                dirty: false,
-                            });
-                        Ok(serde_json::Value::Null)
-                    }
-                    Err(error) => Err(error),
-                }
-            }
-            ClientMessage::Unfollow(request) => {
-                id = request.id;
-                self.feeds.remove(&request.mission);
-                Ok(serde_json::Value::Null)
-            }
             ClientMessage::Answer(request) => {
                 id = request.id;
                 blocking(self.core.clone(), move |core| core.answer(request))
@@ -549,6 +740,13 @@ impl Adapter {
                 ))
             }
         };
+        self.reply(id, result)
+    }
+    fn reply(
+        &mut self,
+        id: u64,
+        result: core::Result<serde_json::Value>,
+    ) -> Result<(), &'static str> {
         self.push(match result {
             Ok(result) => HostMessage::Result(ResultMessage { id, result }),
             Err(Failure(code, message)) => HostMessage::Error(ErrorMessage {
@@ -608,6 +806,14 @@ impl Adapter {
         if let Some(message) = self.priority.pop_front() {
             self.queued -= message.bytes.len();
             return Ok(Some(message.bytes));
+        }
+        if let Some((id, overview)) = self.overview_replies.pop_front() {
+            return serde_json::to_vec(&HostMessage::Result(ResultMessage {
+                id,
+                result: overview.as_ref().clone(),
+            }))
+            .map(Some)
+            .map_err(|_| "companion encoding failed");
         }
         if !terminal_credit {
             return Ok(None);
@@ -696,7 +902,9 @@ impl Adapter {
         self.ready.notify_one();
     }
     async fn next_feed(&mut self) -> Result<Option<Vec<u8>>, &'static str> {
-        if self.queued + self.in_flight + feed::MAX_BATCH_BYTES > MAX_MESSAGE_SIZE {
+        if self.queued + self.in_flight + self.cleanup_bytes + feed::MAX_BATCH_BYTES
+            > MAX_MESSAGE_SIZE
+        {
             return Ok(None);
         }
         let next = self
@@ -743,6 +951,7 @@ impl Adapter {
     }
     pub async fn changed(&mut self) -> Result<(), &'static str> {
         let due = self.overview_due;
+        let overview_running = self.overview_work.is_some();
         tokio::select! {
             _ = self.ready.notified() => {},
             event = self.events.recv() => {
@@ -757,20 +966,83 @@ impl Adapter {
                         }
                         if self.overview_due.is_none() { self.overview_due = Some(self.last_overview.map(|last| last + Duration::from_millis(250)).unwrap_or_else(Instant::now)); }
                         if event.name == "event/appended" { self.feed_changes(); }
-                        let overview = self.overview().await.map_err(|_| "core unavailable")?;
-                        self.status_changes(&overview)?;
+                        self.status_dirty = true; self.start_statuses();
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => { self.feed_changes(); self.overview_due = Some(Instant::now()); }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        self.feed_changes(); self.overview_due = Some(Instant::now());
+                        self.status_dirty = true; self.start_statuses();
+                    }
                     Err(broadcast::error::RecvError::Closed) => return Err("core stopped"),
                     _ => {}
                 }
             }
-            _ = async { match due { Some(due) => tokio::time::sleep_until(due).await, None => std::future::pending().await } } => {
-                let overview = self.overview().await.map_err(|_| "core unavailable")?;
-                self.status_changes(&overview)?;
-                self.push(HostMessage::Overview(overview))?;
-                self.overview_due = None;
+            result = async { match &mut self.overview_work { Some(work) => work.await, None => std::future::pending().await } } => {
+                self.overview_work = None;
+                let waiters = std::mem::take(&mut self.overview_waiters);
+                let broadcast = std::mem::take(&mut self.overview_broadcast);
+                match result.unwrap_or(Err(Failure(ErrorCode::Failed, "The host worker failed."))) {
+                    Ok(OverviewSnapshot { mut overview, statuses, status_revision }) => {
+                        if self.status_revision == status_revision { self.status_changes(statuses)?; }
+                        for (id, session) in &mut overview.sessions { if let Some(status) = self.statuses.get(id) { session.status = status.clone(); } }
+                        if !waiters.is_empty() {
+                            let value = Arc::new(serde_json::to_value(&overview).map_err(|_| "companion encoding failed")?);
+                            self.overview_replies.extend(waiters.into_iter().map(|id| (id, value.clone())));
+                        }
+                        if broadcast { self.push(HostMessage::Overview(overview))?; }
+                    }
+                    Err(Failure(code, message)) => {
+                        if waiters.is_empty() && self.overview_next.is_empty() { return Err("core unavailable"); }
+                        for id in waiters { self.reply(id, Err(Failure(code.clone(), message)))?; }
+                    }
+                }
                 self.last_overview = Some(Instant::now());
+                if self.overview_due.is_some() { self.overview_due = Some(Instant::now() + Duration::from_millis(250)); }
+                if !self.overview_next.is_empty() {
+                    self.overview_waiters = std::mem::take(&mut self.overview_next);
+                    self.start_overview();
+                }
+            }
+            result = async { match &mut self.status_work { Some(work) => work.await, None => std::future::pending().await } } => {
+                self.status_work = None;
+                if self.status_started_revision == self.status_revision {
+                    self.status_changes(result.map_err(|_| "core unavailable")?.map_err(|_| "core unavailable")?)?;
+                } else { self.status_dirty = true; }
+                self.start_statuses();
+            }
+            result = async { match &mut self.request_work { Some(work) => (&mut work.work).await, None => std::future::pending().await } } => {
+                let work = self.request_work.take().unwrap();
+                if work.reserved == 0 { self.feed_outstanding -= 1; }
+                self.cleanup_bytes -= work.reserved;
+                let result = result.unwrap_or(Err(Failure(ErrorCode::Failed, "The host worker failed.")))
+                    .map(|reply| match reply {
+                        RequestReply::Value(value) => value,
+                        RequestReply::Follow(mission, cursor) => {
+                            self.feeds.entry(mission).and_modify(|feed| feed.dirty = true).or_insert(FeedSubscription { cursor, dirty:true });
+                            self.ready.notify_one();
+                            serde_json::Value::Null
+                        }
+                        RequestReply::Unfollow(mission) => { self.feeds.remove(&mission); serde_json::Value::Null }
+                    });
+                for id in work.ids {
+                    let result = match &result { Ok(value) => Ok(value.clone()), Err(Failure(code, message)) => Err(Failure(code.clone(), message)) };
+                    self.reply(id, result)?;
+                }
+                self.start_request();
+            }
+            result = async { match &mut self.action_work { Some((id, work)) => (*id, work.await), None => std::future::pending().await } } => {
+                self.action_work = None;
+                let (id, result) = result;
+                self.reply(id, result.unwrap_or(Err(Failure(ErrorCode::Failed, "The host worker failed."))))?;
+                self.start_action();
+            }
+            result = self.forks.join_next(), if !self.forks.is_empty() => {
+                let (id, result) = result.ok_or("host worker failed")?.map_err(|_| "host worker failed")?;
+                self.reply(id, result)?;
+            }
+            _ = async { match due { Some(due) => tokio::time::sleep_until(due).await, None => std::future::pending().await } }, if !overview_running => {
+                self.overview_due = None;
+                self.overview_broadcast = true;
+                self.start_overview();
             }
         }
         Ok(())

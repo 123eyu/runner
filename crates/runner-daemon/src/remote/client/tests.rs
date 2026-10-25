@@ -304,12 +304,14 @@ struct TestCore {
     attaches: AtomicU32,
     stopped: AtomicBool,
     closed: tokio::sync::Notify,
-    action_gate: StdMutex<
-        Option<(
-            tokio::sync::mpsc::UnboundedSender<()>,
-            std::sync::mpsc::Receiver<()>,
-        )>,
-    >,
+    action_gate: StdMutex<Option<ActionGate>>,
+    feed_gate: StdMutex<Option<ActionGate>>,
+    fork_calls: AtomicU32,
+}
+struct ActionGate {
+    fork_only: bool,
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+    release: std::sync::mpsc::Receiver<()>,
 }
 struct TestFrames(
     StdMutex<std::sync::mpsc::Receiver<TerminalFrame>>,
@@ -354,29 +356,74 @@ impl TestCore {
     }
 }
 impl crate::companion::core::Core for TestCore {
+    fn statuses(
+        &self,
+    ) -> crate::companion::core::Result<std::collections::BTreeMap<String, c::SessionStatus>> {
+        if let Some(core) = self.backend.get() {
+            core.statuses()
+        } else {
+            self.fake.statuses()
+        }
+    }
     fn action(
         &self,
         request: c::ActionRequest,
     ) -> crate::companion::core::Result<serde_json::Value> {
-        if let Some((entered, release)) = self.action_gate.lock().unwrap().as_ref() {
-            entered.send(()).unwrap();
-            release.recv().unwrap();
+        let fork = matches!(request, c::ActionRequest::Fork { .. });
+        if fork {
+            self.fork_calls.fetch_add(1, Ordering::Relaxed);
+        }
+        let gate = {
+            let mut gate = self.action_gate.lock().unwrap();
+            if gate.as_ref().is_some_and(|gate| !gate.fork_only || fork) {
+                gate.take()
+            } else {
+                None
+            }
+        };
+        if let Some(gate) = gate {
+            gate.entered.send(()).unwrap();
+            gate.release.recv().unwrap();
             return Ok(serde_json::json!({"session":"forked"}));
         }
-        self.backend.get().unwrap().action(request)
+        match self.backend.get() {
+            Some(core) => core.action(request),
+            None => Ok(serde_json::json!({"ok":true})),
+        }
     }
     fn feed(&self, request: c::FeedRequest) -> crate::companion::core::Result<c::FeedPage> {
-        self.backend.get().unwrap().feed(request)
+        let gate = self.feed_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.send(()).unwrap();
+            gate.release.recv().unwrap();
+        }
+        match self.backend.get() {
+            Some(core) => core.feed(request),
+            None => Ok(c::FeedPage {
+                entries: vec![],
+                before: None,
+            }),
+        }
     }
     fn feed_cursor(&self, mission: &str) -> crate::companion::core::Result<u64> {
-        self.backend.get().unwrap().feed_cursor(mission)
+        match self.backend.get() {
+            Some(core) => core.feed_cursor(mission),
+            None => Ok(0),
+        }
     }
     fn feed_since(
         &self,
         mission: &str,
         cursor: u64,
     ) -> crate::companion::core::Result<crate::companion::feed::Updates> {
-        self.backend.get().unwrap().feed_since(mission, cursor)
+        match self.backend.get() {
+            Some(core) => core.feed_since(mission, cursor),
+            None => Ok(crate::companion::feed::Updates {
+                cursor,
+                entries: vec![],
+                more: false,
+            }),
+        }
     }
     fn answer(&self, request: c::AnswerRequest) -> crate::companion::core::Result<()> {
         self.backend.get().unwrap().answer(request)
@@ -1815,7 +1862,11 @@ async fn delayed_actions_survive_the_ipc_and_fork_route_deadlines() {
     for kind in ["rename", "fork"] {
         let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
         let (release, gate) = std::sync::mpsc::channel();
-        *fixture.core.action_gate.lock().unwrap() = Some((entered, gate));
+        *fixture.core.action_gate.lock().unwrap() = Some(ActionGate {
+            fork_only: false,
+            entered,
+            release: gate,
+        });
         let request = if kind == "fork" {
             serde_json::json!({"type":"fork","id":1,"session":"session","cols":80,"rows":24})
         } else {
@@ -1849,6 +1900,130 @@ async fn delayed_actions_survive_the_ipc_and_fork_route_deadlines() {
         assert_eq!(action.await.unwrap().unwrap().result["session"], "forked");
         fixture.core.action_gate.lock().unwrap().take();
     }
+}
+
+async fn ipc_remote_request(
+    client: &runner_core::protocol::DaemonClient,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let request = c::ClientMessage::decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+    let client = client.clone();
+    tokio::task::spawn_blocking(move || client.remote_request("2".into(), request))
+        .await
+        .unwrap()
+        .unwrap()
+        .result
+}
+
+#[tokio::test]
+async fn a_pending_fork_does_not_block_unrelated_ipc_requests_or_reconnect_the_route() {
+    let fixture = Fixture::new().await;
+    fixture.pair().await;
+    let (_root, _server, ipc) = ipc_fixture(&fixture).await;
+    let route = fixture.client.route("2").await.unwrap();
+    let generation = route.generation();
+    let mut events = fixture.client.0.events.subscribe();
+    let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    *fixture.core.action_gate.lock().unwrap() = Some(ActionGate {
+        fork_only: true,
+        entered,
+        release: gate,
+    });
+    let client = ipc.clone();
+    let fork = tokio::spawn(async move {
+        ipc_remote_request(
+            &client,
+            serde_json::json!({"type":"fork","id":1,"session":"session","cols":80,"rows":24}),
+        )
+        .await
+    });
+    ready.recv().await.unwrap();
+    for request in [
+        serde_json::json!({"type":"layout","id":1,"target":{"kind":"tab","id":"tab"},"name":"Layout","panes":{"id":"p","session":"session"},"shells":[]}),
+        serde_json::json!({"type":"rename","id":1,"target":{"kind":"session","id":"session"},"name":"new"}),
+        serde_json::json!({"type":"catalog","id":1}),
+        serde_json::json!({"type":"feed","id":1,"mission":"m","limit":20}),
+    ] {
+        ipc_remote_request(&ipc, request).await;
+    }
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(40)).await;
+    tokio::task::yield_now().await;
+    assert!(route.ready.load(Ordering::Acquire));
+    assert_eq!(route.generation(), generation);
+    assert!(!fork.is_finished());
+    ipc_remote_request(&ipc, serde_json::json!({"type":"catalog","id":1})).await;
+    tokio::time::advance(Duration::from_secs(20)).await;
+    tokio::task::yield_now().await;
+    release.send(()).unwrap();
+    tokio::time::resume();
+    assert_eq!(fork.await.unwrap()["session"], "forked");
+    assert_eq!(fixture.core.fork_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(fixture.relay.opens.load(Ordering::Relaxed), 1);
+    assert!(route.ready.load(Ordering::Acquire));
+    while let Ok(event) = events.try_recv() {
+        assert!(event.name != "remote/connection" || event.payload["state"] == "connected");
+    }
+}
+
+#[tokio::test]
+async fn unfollow_under_feed_saturation_releases_the_client_route_for_idle_close() {
+    let fixture = Fixture::new().await;
+    fixture.pair().await;
+    let route = fixture.client.route("2").await.unwrap();
+    route
+        .request(|id| {
+            c::ClientMessage::Follow(c::MissionRequest {
+                id,
+                mission: "m".into(),
+            })
+        })
+        .await
+        .unwrap();
+    let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    *fixture.core.feed_gate.lock().unwrap() = Some(ActionGate {
+        fork_only: false,
+        entered,
+        release: gate,
+    });
+    let mut replies = Vec::new();
+    for _ in 0..8 {
+        let (reply, receive) = oneshot::channel();
+        route
+            .send(route::Command::Request(
+                c::ClientMessage::Feed(c::FeedRequest {
+                    id: route.next_id(),
+                    mission: "m".into(),
+                    before: None,
+                    limit: 20,
+                }),
+                reply,
+            ))
+            .await
+            .unwrap();
+        replies.push(receive);
+    }
+    ready.recv().await.unwrap();
+    route
+        .request(|id| {
+            c::ClientMessage::Unfollow(c::MissionRequest {
+                id,
+                mission: "m".into(),
+            })
+        })
+        .await
+        .unwrap();
+    release.send(()).unwrap();
+    for reply in replies {
+        reply.await.unwrap().unwrap();
+    }
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(61)).await;
+    route.cancel.cancelled().await;
+    tokio::time::resume();
+    assert_eq!(fixture.relay.opens.load(Ordering::Relaxed), 1);
 }
 
 async fn ipc_attach(client: &runner_core::protocol::DaemonClient) -> TerminalAttachment {
