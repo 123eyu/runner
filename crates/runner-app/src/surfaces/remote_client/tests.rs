@@ -513,6 +513,44 @@ pub(crate) fn fixture(
     });
     (store, fake, clients)
 }
+
+#[test]
+fn remote_layout_round_trips_through_the_host_desktop_model() {
+    use runner_daemon::companion::core::{Core, DaemonCore};
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, _, _) = fixture(&mut cx, temp.path());
+    let core = Arc::new(store.read_with(&cx, |store, _| store.test_core.clone()));
+    let host = DaemonCore(Arc::downgrade(&core));
+    for sizes in [[0.4, 0.6], [40., 60.], [4., 6.]] {
+        let request = serde_json::from_value(serde_json::json!({
+            "type":"layout", "id":1,
+            "target":{"kind":"tab","id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+            "name":"Split", "shells":[],
+            "panes":{"id":"s1","split":"row","sizes":sizes,
+                "a":{"id":"p1","session":null},
+                "b":{"id":"s2","split":"column","sizes":[0.25,0.75],
+                    "a":{"id":"p2","session":null},
+                    "b":{"id":"p3","session":null}}}
+        }))
+        .unwrap();
+        host.action(request).unwrap();
+        let rows = runner_daemon::ops::node::node_list(&core).unwrap();
+        let row = rows
+            .iter()
+            .find(|row| row.id == "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+            .unwrap();
+        let layout = PaneLayout::from_node_row(row).unwrap();
+        let runner_app::pane_layout::PaneNode::Split(split) = layout.root else {
+            panic!("split")
+        };
+        assert_eq!(split.sizes, [40., 60.]);
+        let runner_app::pane_layout::PaneNode::Split(nested) = *split.b else {
+            panic!("nested split")
+        };
+        assert_eq!(nested.sizes, [25., 75.]);
+    }
+}
 pub(crate) fn add_window(
     cx: &mut TestAppContext,
     store: &Entity<AppStore>,

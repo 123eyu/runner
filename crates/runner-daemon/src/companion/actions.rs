@@ -71,6 +71,10 @@ fn pane_layout(pane: ActionPane, slots: &mut Vec<Option<String>>) -> Result<Valu
             {
                 return Err(bad_request());
             }
+            let scale = sizes[0].max(sizes[1]);
+            let weights = [sizes[0] / scale, sizes[1] / scale];
+            let total = weights[0] + weights[1];
+            let sizes = [weights[0] / total * 100., weights[1] / total * 100.];
             Ok(
                 json!({"kind":"split","id":id,"orientation":split,"sizes":sizes,
                 "a":pane_layout(*a,slots)?,"b":pane_layout(*b,slots)?}),
