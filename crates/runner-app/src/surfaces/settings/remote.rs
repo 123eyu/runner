@@ -11,6 +11,8 @@ use runner_core::{
 };
 use std::rc::Rc;
 
+use super::about::{DISCORD_URL, WECHAT_README_URL};
+
 pub(crate) mod account;
 pub(crate) mod pin;
 use pin::PinField;
@@ -449,15 +451,18 @@ impl NativeRoot {
                             )
                             .child(account::badge("remote.private_beta", true)),
                     )
-                    .child(div().text_color(theme::muted()).child(tr(
-                        "remote.relay_choice_detail",
-                        &[("service", &status.origin)],
-                    )))
                     .child(
                         div()
-                            .debug_selector(|| "REMOTE_SIGN_IN".into())
+                            .text_color(theme::muted())
+                            .child(crate::i18n::text("remote.relay_choice_detail")),
+                    )
+                    .child(
+                        div()
                             .self_start()
                             .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_3()
                             .child(
                                 self.remote_button(
                                     "remote-connect",
@@ -465,30 +470,30 @@ impl NativeRoot {
                                     Self::remote_connect,
                                     cx,
                                 )
+                                .debug_selector("REMOTE_SIGN_IN")
                                 .variant(ButtonVariant::Primary),
+                            )
+                            .child(
+                                Button::new("remote-invite-discord", "Discord")
+                                    .debug_selector("REMOTE_INVITE_DISCORD")
+                                    .icon("discord.svg")
+                                    .size(ButtonSize::Sm)
+                                    .variant(ButtonVariant::Ghost)
+                                    .on_press(|_, cx| cx.open_url(DISCORD_URL)),
+                            )
+                            .child(
+                                Button::new(
+                                    "remote-invite-wechat-readme",
+                                    crate::i18n::text("community.wechat_readme"),
+                                )
+                                .debug_selector("REMOTE_INVITE_WECHAT_README")
+                                .icon("wechat.svg")
+                                .size(ButtonSize::Sm)
+                                .variant(ButtonVariant::Ghost)
+                                .on_press(|_, cx| cx.open_url(WECHAT_README_URL)),
                             ),
                     ),
             );
-        if matches!(status.state, RemoteState::Stopped { .. }) {
-            content = content.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_color(theme::muted())
-                            .child(stopped_text(status)),
-                    )
-                    .child(self.settings_link(
-                        SettingsPane::Account,
-                        "remote-stop-account",
-                        "account.title",
-                        cx,
-                    )),
-            );
-        }
         if let Some(error) = self
             .settings_page
             .remote
@@ -1311,6 +1316,12 @@ mod tests {
                             visual.debug_bounds("REMOTE_RELAY_SIGNED_OUT").is_some(),
                             !signed_in && !waiting
                         );
+                        for selector in ["REMOTE_INVITE_DISCORD", "REMOTE_INVITE_WECHAT_README"] {
+                            assert_eq!(
+                                visual.debug_bounds(selector).is_some(),
+                                !signed_in && !waiting
+                            );
+                        }
                         assert!(visual.debug_bounds("REMOTE_TAILSCALE_DISABLED").is_none());
                         assert_eq!(visual.debug_bounds("REMOTE_DEVICES").is_some(), signed_in);
                         assert_eq!(
@@ -1370,6 +1381,46 @@ mod tests {
                             })
                             .unwrap();
                     }
+                    cx.simulate_window_resize(window.into(), size(px(640.), px(700.)));
+                    cx.run_until_parked();
+                    let mut visual = VisualTestContext::from_window(window.into(), &cx);
+                    let card = visual.debug_bounds("REMOTE_RELAY_SIGNED_OUT").unwrap();
+                    for selector in [
+                        "REMOTE_SIGN_IN",
+                        "REMOTE_INVITE_DISCORD",
+                        "REMOTE_INVITE_WECHAT_README",
+                    ] {
+                        let link = visual.debug_bounds(selector).unwrap();
+                        assert!(
+                            link.left() >= card.left() && link.right() <= card.right(),
+                            "{selector}"
+                        );
+                        assert!(
+                            link.top() >= card.top() && link.bottom() <= card.bottom(),
+                            "{selector}"
+                        );
+                    }
+                    window
+                        .update(&mut cx, |root, window, cx| {
+                            root.enter_settings_pane(SettingsPane::About, window, cx);
+                        })
+                        .unwrap();
+                    cx.run_until_parked();
+                    let mut visual = VisualTestContext::from_window(window.into(), &cx);
+                    for selector in [
+                        "about-discord",
+                        "about-wechat-readme",
+                        "ABOUT_INVITE_GUIDANCE",
+                    ] {
+                        assert!(visual.debug_bounds(selector).is_some(), "{selector}");
+                    }
+                    window
+                        .update(&mut cx, |root, _, cx| {
+                            root.settings_page.pane = SettingsPane::Remote;
+                            cx.notify();
+                        })
+                        .unwrap();
+                    cx.simulate_window_resize(window.into(), size(px(1200.), px(900.)));
                 }
             });
         }

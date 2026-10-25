@@ -66,7 +66,7 @@ impl Transport for InProcessTransport {
         }
         self.0
             .sessions
-            .queue_terminal_input(id, bytes)
+            .desktop_input(id, bytes)
             .map_err(|error| ClientError::msg(error.to_string()))
     }
     fn resize(&self, id: &str, origin: u64, cols: u16, rows: u16) {

@@ -190,7 +190,12 @@ impl Core for Fake {
     fn subscribe(&self) -> core::Result<broadcast::Receiver<AppEvent>> {
         Ok(self.events.subscribe())
     }
-    fn attach(self: Arc<Self>, session: &str, history: usize) -> core::Result<core::Attachment> {
+    fn attach(
+        self: Arc<Self>,
+        session: &str,
+        history: usize,
+        _channel: u64,
+    ) -> core::Result<core::Attachment> {
         self.history.lock().unwrap().push(history);
         let subscriber_id = self.snapshots.fetch_add(1, Ordering::Relaxed) + 1;
         let (preceding_char, unfinished_len) = *self.continuation.lock().unwrap();
@@ -215,13 +220,17 @@ impl Core for Fake {
         let session = session.to_owned();
         Ok(core::Attachment {
             terminal,
-            resync: Arc::new(move || self.clone().attach(&session, history).map(|a| a.terminal)),
+            resync: Arc::new(move || {
+                self.clone()
+                    .attach(&session, history, 0)
+                    .map(|a| a.terminal)
+            }),
         })
     }
     fn resize(&self, _: &str, _: u64, _: &str, _: (u16, u16), _: Control) -> core::Result<()> {
         Ok(())
     }
-    fn input(&self, session: &str, bytes: &[u8]) -> core::Result<()> {
+    fn input(&self, session: &str, _: u64, bytes: &[u8]) -> core::Result<()> {
         self.input
             .lock()
             .unwrap()

@@ -34,6 +34,12 @@ impl Controller {
         }
     }
 }
+#[derive(Default)]
+pub(super) struct ControlState {
+    attachments: HashMap<(u64, String, u64), String>,
+    groups: HashMap<String, Controller>,
+}
+
 pub(super) enum ResizeControl {
     Desktop,
     TakeBack,
@@ -244,6 +250,8 @@ impl SessionManager {
     ) -> Result<()> {
         let model = self.create_terminal(id, size.0, size.1, pool, events)?;
         let (input, worker) = self.start_terminal_input(id, Arc::clone(&model), Arc::clone(events));
+        let mut control = self.terminal_control.lock().unwrap();
+        let controller = self.inherited_controller(id, pool, &mut control)?;
         let state = self.session_state_or_insert(id);
         let mut state = state.lock().unwrap();
         state.finish_companion_terminals();
@@ -251,7 +259,7 @@ impl SessionManager {
             queue.close();
         }
         state.last_exit_was_killed = false;
-        state.controller = Controller::Desktop;
+        state.controller = controller;
         state.terminal = Some(model);
         state.terminal_input = Some(input);
         state.terminal_input_worker = Some(worker);
@@ -384,7 +392,29 @@ impl SessionManager {
             });
         }
     }
-    pub fn queue_terminal_input(&self, id: &str, bytes: &[u8]) -> Result<()> {
+    #[cfg(test)]
+    pub(crate) fn record_terminal_input(&self, id: &str) -> mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = mpsc::channel();
+        self.session_state(id)
+            .unwrap()
+            .lock()
+            .unwrap()
+            .terminal_input = Some(tx);
+        rx
+    }
+
+    pub fn desktop_input(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _control = self.terminal_control.lock().unwrap();
+        if !self
+            .session_state(id)
+            .is_some_and(|state| state.lock().unwrap().controller == Controller::Desktop)
+        {
+            return Err(Error::msg("terminal is controlled elsewhere"));
+        }
+        self.queue_terminal_input(id, bytes)
+    }
+
+    fn queue_terminal_input(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let state = self
             .session_state(id)
             .ok_or_else(|| Error::msg(format!("session not found: {id}")))?;
@@ -432,6 +462,174 @@ impl SessionManager {
         // The sender also adopts the accepted size from the ordered frame stream.
         self.resize(id, cols, rows, pool)
     }
+    fn control_group(&self, id: &str, pool: &DbPool) -> Result<(String, Vec<String>)> {
+        let conn = pool.get()?;
+        let tab = crate::repo::node::find_for_session(&conn, id)?;
+        Ok(match tab {
+            Some(tab) => (tab.id.clone(), crate::repo::node::session_ids(&tab)),
+            None => (format!("session:{id}"), vec![id.to_owned()]),
+        })
+    }
+
+    pub(super) fn inherited_controller(
+        &self,
+        id: &str,
+        pool: &DbPool,
+        control: &mut ControlState,
+    ) -> Result<Controller> {
+        let (group, ids) = self.control_group(id, pool)?;
+        let controller = control.groups.entry(group).or_insert_with(|| {
+            ids.iter()
+                .filter(|other| other.as_str() != id)
+                .filter_map(|other| self.session_state(other))
+                .find_map(|state| {
+                    let state = state.lock().unwrap();
+                    state
+                        .terminal_input
+                        .as_ref()
+                        .map(|_| state.controller.clone())
+                })
+                .unwrap_or_default()
+        });
+        Ok(controller.clone())
+    }
+
+    pub(crate) fn reconcile_tab_control(&self, tab_id: &str, pool: &DbPool) -> Result<()> {
+        let mut control = self.terminal_control.lock().unwrap();
+        let conn = pool.get()?;
+        let Some(tab) = crate::repo::node::get(&conn, tab_id)? else {
+            return Ok(());
+        };
+        let controller = control.groups.entry(tab.id.clone()).or_default().clone();
+        let ids = crate::repo::node::session_ids(&tab);
+        for id in &ids {
+            control.groups.remove(&format!("session:{id}"));
+        }
+        self.set_group_controller(&ids, "", &controller);
+        Ok(())
+    }
+
+    fn set_group_controller(&self, ids: &[String], except: &str, controller: &Controller) {
+        for id in ids.iter().filter(|id| id.as_str() != except) {
+            let Some(state) = self.session_state(id) else {
+                continue;
+            };
+            let mut state = state.lock().unwrap();
+            if state.terminal_input.is_none() || state.controller == *controller {
+                continue;
+            }
+            state.controller = controller.clone();
+            Self::push_controller(&mut state);
+        }
+    }
+
+    fn push_controller(state: &mut SessionState) {
+        if let Some(model) = &state.terminal {
+            let (cols, rows) = model.size();
+            state.output_seq += 1;
+            Self::push_frame(
+                state,
+                TerminalFrame::Resized {
+                    seq: state.output_seq,
+                    cols,
+                    rows,
+                    controller: state.controller.wire(),
+                },
+            );
+        }
+    }
+
+    pub fn browser_input(&self, id: &str, channel: u64, bytes: &[u8]) -> Result<()> {
+        let _control = self.terminal_control.lock().unwrap();
+        let model = {
+            let state = self
+                .session_state(id)
+                .ok_or_else(|| Error::msg("terminal not found"))?;
+            let state = state.lock().unwrap();
+            if !matches!(state.controller, Controller::Browser { channel: owner, .. } if owner == channel)
+            {
+                return Err(Error::msg("terminal is controlled elsewhere"));
+            }
+            state
+                .terminal
+                .clone()
+                .ok_or_else(|| Error::msg("terminal not found"))?
+        };
+        model.observe_input(&crate::companion::classify_input(bytes));
+        self.queue_terminal_input(id, bytes)
+    }
+
+    pub fn browser_attached(
+        &self,
+        id: &str,
+        subscriber: u64,
+        channel: u64,
+        pool: &DbPool,
+    ) -> Result<()> {
+        let mut attachments = self.terminal_control.lock().unwrap();
+        let (group, _) = self.control_group(id, pool)?;
+        attachments
+            .attachments
+            .insert((channel, id.to_owned(), subscriber), group);
+        Ok(())
+    }
+
+    pub fn browser_detached(
+        &self,
+        id: &str,
+        subscriber: u64,
+        channel: u64,
+        release: bool,
+        pool: &DbPool,
+    ) -> Result<()> {
+        let mut attachments = self.terminal_control.lock().unwrap();
+        let group = match attachments
+            .attachments
+            .remove(&(channel, id.to_owned(), subscriber))
+        {
+            Some(group) => group,
+            None if subscriber == 0 => self.control_group(id, pool)?.0,
+            None => return Ok(()),
+        };
+        if !release {
+            return Ok(());
+        }
+        let conn = pool.get()?;
+        let ids = if let Some(tab) = crate::repo::node::get(&conn, &group)? {
+            crate::repo::node::session_ids(&tab)
+        } else if group == format!("session:{id}") {
+            vec![id.to_owned()]
+        } else {
+            Vec::new()
+        };
+        drop(conn);
+        let current_group = self.control_group(id, pool)?.0;
+        if current_group.starts_with("session:")
+            && current_group != group
+            && !attachments
+                .attachments
+                .keys()
+                .any(|(owner, member, _)| *owner == channel && member == id)
+        {
+            self.release_browser_locked(id, channel);
+        }
+        if attachments
+            .attachments
+            .iter()
+            .any(|((owner, _, _), other)| *owner == channel && *other == group)
+        {
+            return Ok(());
+        }
+        if matches!(attachments.groups.get(&group), Some(Controller::Browser { channel: owner, .. }) if *owner == channel)
+        {
+            attachments.groups.insert(group, Controller::None);
+        }
+        for id in ids {
+            self.release_browser_locked(&id, channel);
+        }
+        Ok(())
+    }
+
     pub fn take_back_terminal(
         &self,
         id: &str,
@@ -439,6 +637,10 @@ impl SessionManager {
         rows: u16,
         pool: &Arc<DbPool>,
     ) -> Result<()> {
+        let mut control = self.terminal_control.lock().unwrap();
+        let (group, ids) = self.control_group(id, pool)?;
+        control.groups.insert(group, Controller::Desktop);
+        self.set_group_controller(&ids, id, &Controller::Desktop);
         self.resize_controlled(id, cols, rows, pool, ResizeControl::TakeBack)
     }
     #[allow(clippy::too_many_arguments)]
@@ -453,7 +655,44 @@ impl SessionManager {
         viewport: bool,
         pool: &Arc<DbPool>,
     ) -> Result<()> {
+        let mut control = self.terminal_control.lock().unwrap();
         self.terminal_model(id)?;
+        if take || !viewport {
+            let (group, ids) = self.control_group(id, pool)?;
+            let free = ids
+                .iter()
+                .filter_map(|id| self.session_state(id))
+                .all(|state| {
+                    let state = state.lock().unwrap();
+                    state.terminal_input.is_none() || state.controller == Controller::None
+                });
+            if !take
+                && !viewport
+                && !free
+                && self
+                    .session_state(id)
+                    .is_some_and(|state| state.lock().unwrap().controller == Controller::None)
+            {
+                return Ok(());
+            }
+            if take || !viewport && free {
+                control.groups.insert(
+                    group,
+                    Controller::Browser {
+                        channel,
+                        name: name.into(),
+                    },
+                );
+                self.set_group_controller(
+                    &ids,
+                    id,
+                    &Controller::Browser {
+                        channel,
+                        name: name.into(),
+                    },
+                );
+            }
+        }
         self.resize_controlled(
             id,
             cols.clamp(20, 512),
@@ -467,33 +706,35 @@ impl SessionManager {
             },
         )
     }
+    #[cfg(test)]
     pub fn release_browser(&self, id: &str, channel: u64) {
+        let _control = self.terminal_control.lock().unwrap();
+        self.release_browser_locked(id, channel);
+    }
+    fn release_browser_locked(&self, id: &str, channel: u64) {
         if let Some(state) = self.session_state(id) {
             let mut state = state.lock().unwrap();
             if matches!(state.controller, Controller::Browser { channel: owner, .. } if owner == channel)
             {
                 state.controller = Controller::None;
-                if let Some(model) = &state.terminal {
-                    let (cols, rows) = model.size();
-                    state.output_seq += 1;
-                    let seq = state.output_seq;
-                    Self::push_frame(
-                        &mut state,
-                        TerminalFrame::Resized {
-                            seq,
-                            cols,
-                            rows,
-                            controller: runner_core::protocol::terminal::TerminalController::None,
-                        },
-                    );
-                }
+                Self::push_controller(&mut state);
             }
         }
     }
     pub fn release_browser_channel(&self, channel: u64) {
+        let mut attachments = self.terminal_control.lock().unwrap();
+        attachments
+            .attachments
+            .retain(|(owner, _, _), _| *owner != channel);
+        for controller in attachments.groups.values_mut() {
+            if matches!(controller, Controller::Browser { channel: owner, .. } if *owner == channel)
+            {
+                *controller = Controller::None;
+            }
+        }
         let ids: Vec<_> = self.sessions.lock().unwrap().keys().cloned().collect();
         for id in ids {
-            self.release_browser(&id, channel);
+            self.release_browser_locked(&id, channel);
         }
     }
     pub fn terminal_was_stopped(&self, id: &str) -> bool {

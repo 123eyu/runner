@@ -344,7 +344,7 @@ impl TestCore {
     ) -> crate::companion::core::Result<TerminalAttachment> {
         let fake = Arc::new(crate::companion::tests::Fake::default());
         *fake.bytes.lock().unwrap() = self.fake.bytes.lock().unwrap().clone();
-        let mut terminal = fake.attach(target, history)?.terminal;
+        let mut terminal = fake.attach(target, history, 1)?.terminal;
         let (tx, rx) = std::sync::mpsc::channel();
         self.streams.lock().unwrap().push(tx.clone());
         terminal.frames = Box::new(TestFrames(
@@ -450,9 +450,10 @@ impl crate::companion::core::Core for TestCore {
         self: Arc<Self>,
         target: &str,
         history: usize,
+        channel: u64,
     ) -> crate::companion::core::Result<crate::companion::core::Attachment> {
         if let Some(core) = self.backend.get() {
-            return core.clone().attach(target, history);
+            return core.clone().attach(target, history, channel);
         }
         self.attaches.fetch_add(1, Ordering::Relaxed);
         if self.stopped.load(Ordering::Relaxed) {
@@ -487,11 +488,16 @@ impl crate::companion::core::Core for TestCore {
         self.sizes.lock().unwrap().push((size.0, size.1, mode));
         Ok(())
     }
-    fn input(&self, target: &str, bytes: &[u8]) -> crate::companion::core::Result<()> {
+    fn input(
+        &self,
+        target: &str,
+        channel: u64,
+        bytes: &[u8],
+    ) -> crate::companion::core::Result<()> {
         if let Some(core) = self.backend.get() {
-            return core.input(target, bytes);
+            return core.input(target, channel, bytes);
         }
-        self.fake.input(target, bytes)
+        self.fake.input(target, channel, bytes)
     }
     fn detach(&self, session: &str, subscriber: u64, channel: u64, release: bool) {
         if let Some(core) = self.backend.get() {

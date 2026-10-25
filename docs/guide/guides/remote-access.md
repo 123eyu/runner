@@ -2,6 +2,8 @@
 
 Connect this computer to your account so Runner on your other computers can reach its chats and missions. Remote access is a private beta, invite-only and available only in mainland China for now. Signing in to the hosted service needs an account created from an invite code. Sessions are encrypted end to end; the service relays them.
 
+Request an invite code in the [Runner Discord](https://discord.gg/6BrfZdHKNf) or the WeChat user group. **Settings → Remote access** and **Settings → About** provide both links. The WeChat link opens the [README’s Community section](https://github.com/yicheng47/runner#community) for the current group QR code.
+
 ## Local only
 
 **Settings → General → Remote access → Local only**, immediately above the Sessions section, keeps Runner on this computer alone. It is off by default, so Account and Remote access are available in Settings and the account avatar appears in the footer. The computer picker appears once this computer is signed in; signed out, use Account, Remote access or the avatar’s Sign in menu instead.
@@ -94,7 +96,7 @@ Turn off **Allow remote access** to close the connection while keeping this comp
 
 **Sign out on this computer** in Account, **Sign out…** in the avatar menu, or `runner remote logout`, deletes this computer's enrollment credential first and asks the service to remove it once. If the service cannot be reached, Runner reports that the computer is still listed offline; remove that entry in the web panel. Runner asks for confirmation before signing out in the app. Restarting Runner does not reconnect a signed-out computer. Signing in again needs a new code and keeps the same identity key and fingerprint, PIN and paired devices.
 
-If the computer was removed in the web panel or the account was deactivated, Runner stops the connection. Account shows the reason even when an old enrollment remains; Remote access returns to relay sign-in with a link to Account. **Try again** uses the existing credential, which can work after an administrator reactivates the account. **Sign in again** clears the old enrollment and starts fresh. Other stop reasons explain whether to retry, approve a new code or update Runner.
+If the computer was removed in the web panel or the account was deactivated, Runner stops the connection. Account shows the reason even when an old enrollment remains; Remote access returns to relay sign-in. **Try again** uses the existing credential, which can work after an administrator reactivates the account. **Sign in again** clears the old enrollment and starts fresh. Other stop reasons explain whether to retry, approve a new code or update Runner.
 
 Remote access never stops your agents or sessions. Closing the desktop app leaves the connection with the background daemon; stopping the daemon closes it. Release builds keep keys and credentials in the macOS Keychain or Windows Credential Manager. macOS development builds use separate files with mode 0600 under the development data directory (`com.wycstudios.runner-dev`): `remote-identity.json`, `remote-client-keys.json`, and one `remote-credential-<hash>.json` per service. Rebuilding the development daemon therefore does not prompt for the login Keychain password. Existing development Keychain secrets are not copied into these files; sign in and pair again when first using this storage. Linux also uses private files. Development storage is separate from the installed app.
 
@@ -115,10 +117,10 @@ If you suspect this computer’s identity key has leaked, choose **Reset remote 
 
 ## Take a terminal back
 
-While another Runner controls a terminal, its pane is covered by **Controlled from {computer}** and **Take back**. The remote computer sets the terminal’s size. The covered pane sends neither its own size nor terminal input, including typing, paste, file drops and IME composition. A mission composer submission addressed to a covered terminal keeps its draft until you take the terminal back.
+Remote control applies to an entire tab, including its split panes and terminal drawer. Taking control of one terminal takes every running terminal in that tab. The host shows one centered **Controlled from {computer}** card with **Take back** over the tab. The remote computer sets the terminal’s size. The covered pane sends neither its own size nor terminal input, including typing, paste, file drops and IME composition. A mission composer submission addressed to a covered terminal keeps its draft until you take the terminal back.
 
-Choose **Take back**, or press Enter on the card, to return control to this desktop and fit the terminal to its pane. If one computer controls all the terminals in a split tab or mission, one card covers the group; taking it back fits each terminal to its own pane.
+Choose **Take back**, or press Enter on the card, to return the whole tab to this desktop and fit each terminal to its own pane. Each pane keeps its own size. Restarted and newly added panes follow the tab’s current controller; moving a pane to another tab gives it that tab’s controller. A mission shows one card when one computer controls all its terminals.
 
-When the remote computer leaves, the terminal keeps its last size. The card changes to **{computer} has left** with **Continue here**. Choose it, or press Enter on the card, to fit the terminal here and continue. If Runner did not see the computer’s name, it says **Another computer has left**.
+Closing one remote pane leaves the remaining panes under that computer’s control. When it leaves the tab or disconnects, every terminal keeps its last size. The card changes to **{computer} has left** with **Continue here**. Choose it, or press Enter on the card, to fit the terminal here and continue. If Runner did not see the computer’s name, it says **Another computer has left**.
 
 Several desktop windows can show the card, and you can take control back from any of them. With no remote computer using the terminal, desktop input and resizing work as usual. Use the CLI above to pair and read another computer’s overview; opening its terminals in the desktop follows with the computer picker.

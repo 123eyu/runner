@@ -745,6 +745,7 @@ impl SessionManager {
     /// the spawn-time grid regardless of how big the visible grid
     /// is.
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16, pool: &Arc<DbPool>) -> Result<()> {
+        let _control = self.terminal_control.lock().unwrap();
         self.resize_controlled(
             session_id,
             cols,

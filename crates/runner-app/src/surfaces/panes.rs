@@ -460,12 +460,7 @@ impl NativeRoot {
                 }
             }
         }
-        let group_control = self.remote_window.is_none()
-            && crate::terminal::control::group_covered(
-                self.control_tab_session_ids(&layout, cx)
-                    .iter()
-                    .map(|id| self.attached.get(id)),
-            );
+        let group_control = self.remote_window.is_none() && self.tab_control_covered(&layout, cx);
         let show_start = start_surface_visible(Some(&layout));
         let grouped = pane_identity_visible(layout.root.leaves().len());
         let focused_shell = layout
@@ -2277,13 +2272,10 @@ impl NativeRoot {
             .filter(|chat| {
                 entry.status == SessionStatus::Running && !chat.terminal.control().desktop()
             });
-        let group = self.tabs.active().is_some_and(|layout| {
-            crate::terminal::control::group_covered(
-                self.control_tab_session_ids(layout, cx)
-                    .iter()
-                    .map(|id| self.attached.get(id)),
-            )
-        });
+        let group = self
+            .tabs
+            .active()
+            .is_some_and(|layout| self.tab_control_covered(layout, cx));
         let remote_overlay = (!group)
             .then(|| {
                 remote.map(|chat| {
@@ -2794,12 +2786,8 @@ impl NativeRoot {
                     })
                     .into_any_element()
             };
-            let group_control = self.remote_window.is_none()
-                && crate::terminal::control::group_covered(
-                    self.control_tab_session_ids(layout, cx)
-                        .iter()
-                        .map(|id| self.attached.get(id)),
-                );
+            let group_control =
+                self.remote_window.is_none() && self.tab_control_covered(layout, cx);
             let remote_card = self
                 .attached
                 .get(&session_id)
