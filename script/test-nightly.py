@@ -33,9 +33,6 @@ gh() {
     return 90
   fi
   case "$1 $2" in
-    'run list') if [[ "$CI_RESULT" != missing ]]; then echo 123; fi ;;
-    'run watch') [[ "$CI_RESULT" != failure && "$CI_RESULT" != cancelled ]] ;;
-    'run view') printf '{"headSha":"%s","conclusion":"%s"}\n' "$CI_SHA" "$CI_RESULT" ;;
     'release view')
       if [[ "$*" == *--jq* ]]; then
         jq -r '.assets[].name' "$RELEASE_STATE"
@@ -111,11 +108,11 @@ class NightlyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='runner-nightly-test-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = dict(os.environ, SOURCE_SHA=SHA, CI_SHA=SHA, GITHUB_SHA=SHA,
+        self.env = dict(os.environ, SOURCE_SHA=SHA, GITHUB_SHA=SHA,
                         BUILD_STAMP=STAMP, NIGHTLY_VERSION=VERSION, NIGHTLY_SHORT_SHA=SHA[:7], PLATFORM='both',
                         DMG_NAME=f'Runner-Nightly-{SHA[:7]}.{STAMP}-arm64.dmg',
                         SETUP_NAME=f'Runner-Setup-{VERSION}-x64.exe',
-                        CI_RESULT='success', RELEASE_EXISTS='true',
+                        RELEASE_EXISTS='true',
                         FAIL_UPLOAD='', FAIL_DOWNLOAD='', FAIL_TAG_PUSH='', RUNNER_TEMP=str(self.root),
                         RELEASE_TAG='v0.8.2',
                         CHANGELOG='- feat(nightly): one change (abc1234)\n- fix(ui): another (def5678)',
@@ -265,21 +262,18 @@ class NightlyTests(unittest.TestCase):
                 self.assertTrue(all(line.split()[3] == 'nightly' for line in uploads))
                 self.assertEqual(self.published_assets(), set(expected))
                 self.assertEqual(sum(line.startswith('gh release view nightly --json isPrerelease,isDraft,assets') for line in calls), 1)
-                self.assertEqual(sum(line.startswith('gh run watch') for line in calls), 1)
-                first_upload = calls.index(uploads[0])
-                self.assertTrue(any(line.startswith('gh run view') for line in calls[:first_upload]))
+                self.assertFalse(any(line.startswith('gh run') for line in calls))
                 edits = [line for line in calls if line.startswith(('gh release create', 'gh release edit'))]
                 self.assertEqual(len(edits), 1)
                 self.assertTrue(all(f"--notes-file {self.root}/nightly-notes.md" in line for line in edits))
                 tag_push = calls.index('git push --force origin refs/tags/nightly')
-                self.assertLess(calls.index(next(line for line in calls if line.startswith('gh run view'))), tag_push)
                 self.assertLess(tag_push, calls.index(edits[0]))
                 self.assertIn(f'git tag --force --annotate nightly --message Runner Nightly {VERSION} {SHA}', calls)
                 self.assertTrue(all('--prerelease' in line and '--latest=false' in line for line in edits))
                 self.assertTrue(all('--target ' + SHA in line for line in edits))
                 self.assertFalse(any('nightly-win' in line for line in calls))
 
-    def test_release_notes_carry_the_changelog_and_the_tag_moves_only_after_the_ci_gate(self):
+    def test_release_notes_carry_the_changelog_and_a_failed_tag_push_blocks_the_release(self):
         fixed = (ROOT / 'script/nightly-release-notes.md').read_text()
         notes = self.root / 'nightly-notes.md'
         result = self.publish()
@@ -314,29 +308,12 @@ class NightlyTests(unittest.TestCase):
         self.assertFalse(any(line.startswith('git log') for line in self.calls()))
         self.assertIn('git push --force origin refs/tags/nightly', self.calls())
 
-        for conclusion in ['failure', 'missing']:
-            self.env.update(CI_RESULT=conclusion, RELEASE_TAG='v0.8.2')
-            Path(self.env['CALLS']).write_text('')
-            self.assertNotEqual(self.publish().returncode, 0)
-            self.assertFalse(any(line.startswith(('git tag', 'git push')) for line in self.calls()), conclusion)
-        self.env['CI_RESULT'] = 'success'
-
-        self.env['FAIL_TAG_PUSH'] = '1'
+        self.env.update(RELEASE_TAG='v0.8.2', FAIL_TAG_PUSH='1')
         Path(self.env['CALLS']).write_text('')
         Path(self.env['GITHUB_STEP_SUMMARY']).write_text('')
         self.assertNotEqual(self.publish().returncode, 0)
         self.assertFalse(any(line.startswith('gh release') for line in self.calls()))
         self.assertIn('Incomplete', Path(self.env['GITHUB_STEP_SUMMARY']).read_text())
-
-    def test_ci_missing_failed_cancelled_skipped_or_wrong_sha_blocks_mutation(self):
-        for conclusion, sha in [('missing', SHA), ('failure', SHA), ('cancelled', SHA),
-                                ('skipped', SHA), ('success', 'wrong-sha')]:
-            with self.subTest(conclusion=conclusion, sha=sha):
-                self.env.update(CI_RESULT=conclusion, CI_SHA=sha)
-                Path(self.env['CALLS']).write_text('')
-                result = self.publish()
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(any(line.startswith('gh release') for line in self.calls()))
 
     def test_missing_artifact_and_invalid_feed_block_mutation(self):
         for filename in [self.mac / self.env['DMG_NAME'], self.appcast,

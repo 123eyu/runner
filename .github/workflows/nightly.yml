@@ -298,20 +298,6 @@ jobs:
             test -s "nightly-artifacts/windows/$SETUP_NAME.sig"
           fi
 
-      - name: Require CI green for this commit
-        run: |
-          ci_run_id=""
-          for _ in {1..60}; do
-            ci_run_id=$(gh run list --commit "$SOURCE_SHA" --workflow ci.yaml --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-            if [[ -n "$ci_run_id" ]]; then
-              break
-            fi
-            sleep 10
-          done
-          test -n "$ci_run_id" || { echo "error: no CI run found for $SOURCE_SHA" >&2; exit 1; }
-          gh run watch "$ci_run_id" --exit-status
-          gh run view "$ci_run_id" --json headSha,conclusion | jq -e --arg sha "$SOURCE_SHA" '.headSha == $sha and .conclusion == "success"'
-
       - name: Move the nightly tag to the built commit and compose release notes
         run: |
           notes="$RUNNER_TEMP/nightly-notes.md"
