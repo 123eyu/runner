@@ -16,8 +16,24 @@ pub const FORK_REQUEST_TIMEOUT: Duration =
 
 pub const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 
+pub fn companion_request_timeout(request: &crate::companion::ClientMessage) -> Duration {
+    if matches!(
+        request,
+        crate::companion::ClientMessage::Action(crate::companion::ActionRequest::Fork { .. })
+    ) {
+        FORK_REQUEST_TIMEOUT
+    } else {
+        Duration::from_secs(30)
+    }
+}
+
 fn request_timeout(request: &Request, timeout: Duration) -> Option<Duration> {
     match request {
+        Request::remote_request { request, .. } => Some(
+            timeout
+                .max(REMOTE_REQUEST_TIMEOUT)
+                .max(companion_request_timeout(request) + Duration::from_secs(10)),
+        ),
         Request::remote_enroll_start { .. }
         | Request::remote_enroll_confirm { .. }
         | Request::remote_enroll_cancel { .. }
@@ -1045,6 +1061,12 @@ mod remote_deadline_tests {
                 fingerprint: "device".into(),
             },
             Request::remote_reset_identity {},
+            Request::remote_request {
+                computer: "computer".into(),
+                request: crate::companion::ClientMessage::Overview(
+                    crate::companion::OverviewRequest { id: 1 },
+                ),
+            },
         ] {
             assert_eq!(
                 request_timeout(&request, REQUEST_TIMEOUT),
@@ -1061,5 +1083,18 @@ mod remote_deadline_tests {
                 assert_eq!(request_timeout(&request, timeout), Some(timeout));
             }
         }
+        let fork = crate::companion::ClientMessage::decode(
+            br#"{"type":"fork","id":1,"session":"source","cols":80,"rows":24}"#,
+        )
+        .unwrap();
+        assert_eq!(companion_request_timeout(&fork), FORK_REQUEST_TIMEOUT);
+        let request = Request::remote_request {
+            computer: "computer".into(),
+            request: fork,
+        };
+        assert_eq!(
+            request_timeout(&request, REQUEST_TIMEOUT),
+            Some(FORK_REQUEST_TIMEOUT + Duration::from_secs(10))
+        );
     }
 }

@@ -48,8 +48,10 @@ impl Handle {
     ) -> Result<serde_json::Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (reply, receive) = oneshot::channel();
-        self.send(Command::Request(message(id), reply)).await?;
-        tokio::time::timeout(Duration::from_secs(35), receive)
+        let message = message(id);
+        let timeout = runner_core::protocol::socket::companion_request_timeout(&message);
+        self.send(Command::Request(message, reply)).await?;
+        tokio::time::timeout(timeout + Duration::from_secs(5), receive)
             .await
             .map_err(|_| "Remote request timed out")?
             .map_err(|_| self.failure())?
@@ -336,6 +338,7 @@ impl Session {
             c::ClientMessage::Unfollow(request) => Some((request.mission.clone(), false)),
             _ => None,
         };
+        let timeout = runner_core::protocol::socket::companion_request_timeout(&message);
         match self.queue(message) {
             Ok(()) => {
                 self.pending.insert(
@@ -343,7 +346,7 @@ impl Session {
                     Pending {
                         subscription,
                         reply,
-                        deadline: Instant::now() + Duration::from_secs(30),
+                        deadline: Instant::now() + timeout,
                     },
                 );
             }

@@ -257,6 +257,12 @@ struct TestCore {
     attaches: AtomicU32,
     stopped: AtomicBool,
     closed: tokio::sync::Notify,
+    action_gate: StdMutex<
+        Option<(
+            tokio::sync::mpsc::UnboundedSender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
 }
 struct TestFrames(
     StdMutex<std::sync::mpsc::Receiver<TerminalFrame>>,
@@ -305,6 +311,11 @@ impl crate::companion::core::Core for TestCore {
         &self,
         request: c::ActionRequest,
     ) -> crate::companion::core::Result<serde_json::Value> {
+        if let Some((entered, release)) = self.action_gate.lock().unwrap().as_ref() {
+            entered.send(()).unwrap();
+            release.recv().unwrap();
+            return Ok(serde_json::json!({"session":"forked"}));
+        }
         self.backend.get().unwrap().action(request)
     }
     fn feed(&self, request: c::FeedRequest) -> crate::companion::core::Result<c::FeedPage> {
@@ -1284,6 +1295,51 @@ async fn ipc_fixture(
     let server = super::super::tests::SocketHarness::new(root.path(), core).await;
     let client = server.client(Duration::from_secs(5)).await;
     (root, server, client)
+}
+
+#[tokio::test]
+async fn delayed_actions_survive_the_ipc_and_fork_route_deadlines() {
+    let fixture = Fixture::new().await;
+    fixture.pair().await;
+    let (_root, server, _) = ipc_fixture(&fixture).await;
+    let ipc = server.client(Duration::from_millis(40)).await;
+    for kind in ["rename", "fork"] {
+        let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        *fixture.core.action_gate.lock().unwrap() = Some((entered, gate));
+        let request = if kind == "fork" {
+            serde_json::json!({"type":"fork","id":1,"session":"session","cols":80,"rows":24})
+        } else {
+            serde_json::json!({"type":"rename","id":1,"target":{"kind":"session","id":"session"},"name":"new"})
+        };
+        let request = c::ClientMessage::decode(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let client = ipc.clone();
+        let action =
+            tokio::task::spawn_blocking(move || client.remote_request("2".into(), request));
+        ready.recv().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !action.is_finished(),
+            "generic remote requests must outlive the ordinary IPC budget"
+        );
+        if kind == "fork" {
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(40)).await;
+            tokio::task::yield_now().await;
+            assert!(!action.is_finished());
+            assert!(fixture
+                .client
+                .route("2")
+                .await
+                .unwrap()
+                .ready
+                .load(Ordering::Acquire));
+            tokio::time::resume();
+        }
+        release.send(()).unwrap();
+        assert_eq!(action.await.unwrap().unwrap().result["session"], "forked");
+        fixture.core.action_gate.lock().unwrap().take();
+    }
 }
 
 async fn ipc_attach(client: &runner_core::protocol::DaemonClient) -> TerminalAttachment {
