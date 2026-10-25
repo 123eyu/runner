@@ -18,6 +18,125 @@ struct Service {
     signout_gate: Arc<std::sync::Mutex<Option<Arc<CallGate>>>>,
     signout_status: Arc<AtomicUsize>,
 }
+
+struct HeartbeatWriter {
+    read: tokio::io::DuplexStream,
+    entered: Arc<tokio::sync::Notify>,
+    fail: bool,
+}
+impl tokio::io::AsyncRead for HeartbeatWriter {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.read).poll_read(cx, buffer)
+    }
+}
+impl tokio::io::AsyncWrite for HeartbeatWriter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        _: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.entered.notify_one();
+        if self.fail {
+            std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Pending
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn heartbeat_write_failures_release_local_access_removal_commands() {
+    for fail in [false, true] {
+        for action in ["pause", "revoke", "reset", "logout"] {
+            let service = Service::new(vec![]).await;
+            let root = tempfile::tempdir().unwrap();
+            let handle = spawn_with_store(
+                root.path().into(),
+                Arc::new(store::MemoryStore::default()),
+                crate::events::EventChannel::new(),
+            );
+            handle
+                .start(Some(service.origin.clone()), false)
+                .await
+                .unwrap();
+            until(&handle, |s| {
+                matches!(s.state, RemoteState::Connected { .. })
+            })
+            .await;
+            handle
+                .set_pin(remote::Secret("012345".into()))
+                .await
+                .unwrap();
+            handle
+                .record_paired(vec![7; 32], "test device".into())
+                .await
+                .unwrap();
+            let fingerprint = handle.trust().devices[0].fingerprint.clone();
+            let entered = Arc::new(tokio::sync::Notify::new());
+            let (host, peer) = tokio::io::duplex(1024);
+            let host = tokio_tungstenite::WebSocketStream::from_raw_socket(
+                Box::new(HeartbeatWriter {
+                    read: host,
+                    entered: entered.clone(),
+                    fail,
+                }) as Box<dyn transport::Connection>,
+                Role::Client,
+                None,
+            )
+            .await;
+            let mut peer =
+                tokio_tungstenite::WebSocketStream::from_raw_socket(peer, Role::Server, None).await;
+            handle
+                .request(Command::TestSocket(transport::TestSocket(Box::new(host))))
+                .await
+                .unwrap();
+            peer.send(Message::Ping(vec![1].into())).await.unwrap();
+            entered.notified().await;
+            let command = match action {
+                "pause" => Command::Pause(true),
+                "revoke" => Command::RevokeDevice(fingerprint),
+                "reset" => Command::ResetIdentity(store::Identity::generate().unwrap()),
+                _ => Command::Logout,
+            };
+            let caller = handle.clone();
+            let removal = tokio::spawn(async move { caller.request(command).await });
+            if !fail {
+                tokio::time::pause();
+                tokio::time::advance(std::time::Duration::from_secs(11)).await;
+                tokio::time::resume();
+            }
+            tokio::time::timeout(std::time::Duration::from_secs(3), removal)
+                .await
+                .expect(action)
+                .unwrap()
+                .unwrap();
+            assert!(!matches!(
+                handle.status().state,
+                RemoteState::Connected { .. }
+            ));
+            if matches!(action, "revoke" | "reset") {
+                assert!(handle.trust().devices.is_empty());
+            }
+            handle.shutdown().await;
+        }
+    }
+}
 impl Drop for Service {
     fn drop(&mut self) {
         self.task.abort();
