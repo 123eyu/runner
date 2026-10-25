@@ -44,10 +44,10 @@ use futures::StreamExt as _;
 #[cfg(all(target_os = "macos", not(test)))]
 use gpui::QuitMode;
 use gpui::{
-    actions, div, point, prelude::*, px, relative, rems, size, AnyElement, App, Bounds,
-    ClipboardItem, Context, CursorStyle, DragMoveEvent, Entity, FocusHandle, Global, KeyDownEvent,
-    Menu, MenuItem, MouseButton, OsAction, Pixels, ScrollHandle, SharedString, Size, Subscription,
-    SystemMenuType, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    actions, div, point, prelude::*, px, relative, rems, size, AnyElement, App, Bounds, Context,
+    CursorStyle, DragMoveEvent, Entity, FocusHandle, Global, KeyDownEvent, Menu, MenuItem,
+    MouseButton, OsAction, Pixels, ScrollHandle, SharedString, Size, Subscription, SystemMenuType,
+    TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use runner_app::bootstrap::NativePaths;
 use runner_app::pane_layout::{
@@ -284,6 +284,10 @@ fn close_target(
 
 #[cfg(not(test))]
 fn close_tab(this: &mut NativeRoot, window: &mut Window, cx: &mut Context<NativeRoot>) {
+    if this.remote_window.is_some() {
+        this.close_remote_front_page(window, cx);
+        return;
+    }
     let drawer_focused = this.route == AppRoute::Chat
         && this.tabs.active().is_some_and(PaneLayout::drawer_open)
         && this.drawer_focus.contains_focused(window, cx);
@@ -516,6 +520,9 @@ impl SidebarVisibilityTransition {
 
 struct NativeRoot {
     composition: Entity<surfaces::render_cache::ShellComposition>,
+    client_ui: surfaces::remote_client::ClientUi,
+    remote_window: Option<surfaces::remote_client::RemoteWindow>,
+    _remote_subscription: Subscription,
     render_regions: HashMap<String, Entity<surfaces::render_cache::CachedRegion<Self>>>,
     window_label: String,
     log_dir: PathBuf,
@@ -574,6 +581,7 @@ struct NativeRoot {
     settings_page: SettingsState,
     route: AppRoute,
     settings_return_route: AppRoute,
+    account_menu: surfaces::app_shell::account_menu::AccountMenuState,
     usage_open: bool,
     claude_account_picker: Option<Entity<runner_app::ui::select::StyledSelect>>,
     usage_anchor: Option<Bounds<Pixels>>,
@@ -911,7 +919,12 @@ impl NativeRoot {
         let updater = global_updater(cx);
         let root_entity = cx.entity().downgrade();
         let composition = cx.new(|_| surfaces::render_cache::ShellComposition::new(root_entity));
+        let clients = app_store.read(cx).remote_clients.clone();
+        let remote_subscription = cx.observe(&clients, |root, _, cx| root.sync_remote_state(cx));
         let mut root = Self {
+            client_ui: surfaces::remote_client::ClientUi::new(cx),
+            remote_window: None,
+            _remote_subscription: remote_subscription,
             composition,
             render_regions: HashMap::new(),
             window_label: window_label.clone(),
@@ -971,6 +984,7 @@ impl NativeRoot {
             settings_page,
             route: initial_route.clone(),
             settings_return_route: initial_route,
+            account_menu: surfaces::app_shell::account_menu::AccountMenuState::new(cx),
             usage_open: false,
             claude_account_picker: None,
             usage_anchor: None,
@@ -1013,8 +1027,10 @@ impl NativeRoot {
                 }
                 cx.notify();
             }),
-            _store_subscription: cx
-                .observe(&app_store, |this, _, cx| this.handle_app_store_update(cx)),
+            _store_subscription: cx.observe_in(&app_store, window, |this, _, window, cx| {
+                this.sync_remote_access_visibility(window, cx);
+                this.handle_app_store_update(cx);
+            }),
         };
         root._appearance_subscription = Some(cx.observe_window_appearance(window, |_, _, cx| {
             cx.notify();
@@ -1136,6 +1152,27 @@ impl NativeRoot {
         let previous = self.store_revisions;
         self.store_revisions = revisions;
         let reactions = revisions.reactions_since(previous);
+        if revisions.remote_notice != previous.remote_notice {
+            let status = self.app_store.read(cx).remote_warning.clone();
+            if let Some(status) = status {
+                let pin_locked = matches!(status, app_store::RemoteWarning::PinLocked);
+                self.show_toast(
+                    match status {
+                        app_store::RemoteWarning::Stopped(status) => {
+                            surfaces::settings::remote::stopped_text(&status).into()
+                        }
+                        app_store::RemoteWarning::PinLocked => {
+                            i18n::message("remote.pin_locked_toast")
+                        }
+                    },
+                    toast::ToastTone::Warning,
+                    cx,
+                );
+                if pin_locked {
+                    self.toasts.pin_lock_warning();
+                }
+            }
+        }
 
         if revisions.settings != previous.settings {
             self.sync_role_page_size(cx);
@@ -1219,14 +1256,14 @@ impl NativeRoot {
         }
         if reactions.reload_role_surfaces {
             match self.route.clone() {
-                AppRoute::Roles => self.load_role_page(cx),
+                AppRoute::Roles => self.load_local_role_page(cx),
                 AppRoute::RoleDetail(handle) => self.load_role_detail(handle, cx),
                 _ => {}
             }
         }
         if reactions.reload_crew_surfaces {
             match self.route.clone() {
-                AppRoute::Crews => self.load_crew_page(cx),
+                AppRoute::Crews => self.load_local_crew_page(cx),
                 AppRoute::CrewEditor(crew_id) => self.load_crew_editor(crew_id, cx),
                 _ => {}
             }
@@ -1840,7 +1877,6 @@ fn handle_reopen(cx: &mut App) {
     cx.activate(true);
 }
 
-#[cfg(not(test))]
 fn open_new_runner_window(initial_route: Option<String>, cx: &mut App) -> Result<String> {
     let label = if !window_label_is_open(cx, "main") {
         "main".into()

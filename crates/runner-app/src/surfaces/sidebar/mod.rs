@@ -6,6 +6,7 @@ mod archive;
 mod drag;
 mod elements;
 mod menus;
+mod model;
 mod project;
 mod rows;
 mod rows_render;
@@ -17,20 +18,25 @@ mod view;
 
 use elements::sidebar_tab_target;
 
-pub(crate) use archive::{archive_all_confirmation_body, archive_targets_for_chats};
+pub(crate) use archive::{
+    archive_all_confirmation_body, archive_confirmation_counts, archive_targets_for_chats,
+};
 pub(crate) use elements::{
-    default_session_label, direct_chat_display_status, session_label, session_label_live,
+    default_session_label, direct_chat_display_status, project_children, session_label,
+    session_label_live, sidebar_item_row, sidebar_section_header, SidebarItemView,
 };
 
 use super::*;
+use crate::surfaces::front_page::model::{
+    MissionDisplay as MissionSummary, SessionDisplay, SidebarNodeDisplay as NodeRow,
+};
 use crate::surfaces::sidebar_logic::{
     AttentionState, DropTarget, NumberedSidebarRow, SidebarActivationTarget, SidebarShortcutRow,
 };
 use crate::*;
 use gpui::WeakEntity;
 use runner_app::ui::TextField;
-use runner_core::protocol::mission::MissionSummary;
-use runner_core::protocol::node::{NodeRow, NodeType};
+use runner_core::protocol::node::NodeType;
 use runner_core::protocol::project::ProjectScope;
 
 #[derive(Clone, Copy)]
@@ -50,7 +56,7 @@ enum SidebarRow {
     Tab {
         node: NodeRow,
         layout: PaneLayout,
-        members: Vec<DirectSessionEntry>,
+        members: Vec<SessionDisplay>,
         attention: AttentionState,
     },
     Mission {
@@ -82,7 +88,7 @@ impl SidebarRow {
         }
     }
 
-    fn shortcut_row(&self, nodes: &[NodeRow]) -> SidebarShortcutRow {
+    fn shortcut_row(&self, nodes: &[impl Clone + Into<NodeRow>]) -> SidebarShortcutRow {
         let node = self.node();
         let target = match self {
             Self::Tab {
@@ -137,6 +143,7 @@ impl SidebarRenameTarget {
 }
 
 pub(crate) struct SidebarRename {
+    pending: bool,
     target: SidebarRenameTarget,
     input: Entity<TextField>,
 }
@@ -227,6 +234,8 @@ enum SidebarMenuAction {
         session_id: String,
     },
     ArchiveMission(String),
+    StopMission(String),
+    ResumeMission(String),
     DeleteProject(String),
 }
 
@@ -269,16 +278,23 @@ impl WorkspaceEntry {
 pub(crate) struct Sidebar {
     shell: WeakEntity<NativeRoot>,
     app_store: Entity<AppStore>,
+    front_page: crate::surfaces::front_page::FrontPageClient,
+    remote_settings: Option<AppSettings>,
+    remote_layouts: HashMap<String, PaneLayout>,
+    remote_sessions: HashMap<String, SessionDisplay>,
+    remote_selection: Option<crate::surfaces::remote_client::RemoteItem>,
     store_revisions: StoreRevisions,
     scroll: ScrollHandle,
     scrollbar: Entity<Scrollbar>,
     create_menu: Entity<PopoverMenu>,
+    create_actions: Vec<SidebarMenuAction>,
     context_menu: Option<Entity<ContextMenu>>,
     rename: Option<SidebarRename>,
     live_titles: HashMap<String, String>,
     archiving_sessions: HashSet<String>,
     archiving_missions: HashSet<String>,
     active_project_id: Option<String>,
+    project_anchor: Option<Bounds<Pixels>>,
     window_id: u64,
     dragged_id: Option<String>,
     drop_target: Option<DropTarget>,
@@ -302,7 +318,16 @@ impl Render for Sidebar {
     }
 }
 
-fn node_project_id(nodes: &[NodeRow], node: &NodeRow) -> Option<String> {
+fn node_project_id<N: Clone + Into<NodeRow>, M: Clone + Into<NodeRow>>(
+    nodes: &[N],
+    node: &M,
+) -> Option<String> {
+    let node = node.clone().into();
+    let nodes = nodes
+        .iter()
+        .cloned()
+        .map(Into::into)
+        .collect::<Vec<NodeRow>>();
     let parent = nodes
         .iter()
         .find(|candidate| node.parent_id.as_deref() == Some(candidate.id.as_str()))?;

@@ -745,15 +745,21 @@ impl SessionManager {
     /// the spawn-time grid regardless of how big the visible grid
     /// is.
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16, pool: &Arc<DbPool>) -> Result<()> {
-        self.resize_with_origin(session_id, cols, rows, pool, None)
+        self.resize_controlled(
+            session_id,
+            cols,
+            rows,
+            pool,
+            terminal::ResizeControl::Desktop,
+        )
     }
-    pub(super) fn resize_with_origin(
+    pub(super) fn resize_controlled(
         &self,
         session_id: &str,
         cols: u16,
         rows: u16,
         pool: &Arc<DbPool>,
-        origin: Option<u64>,
+        control: terminal::ResizeControl,
     ) -> Result<()> {
         let state = self.session_state_or_insert(session_id);
         let settle_ms = self
@@ -761,6 +767,10 @@ impl SessionManager {
             .load(std::sync::atomic::Ordering::Relaxed);
         let (settle_generation, resize_result) = {
             let mut session = state.lock().unwrap();
+            if !control.apply(&mut session.controller) {
+                return Ok(());
+            }
+            let controller = session.controller.wire();
             if let Some(model) = &session.terminal {
                 model.resize(cols, rows);
             }
@@ -768,8 +778,12 @@ impl SessionManager {
             let seq = session.output_seq;
             Self::push_frame(
                 &mut session,
-                runner_core::protocol::terminal::TerminalFrame::Resized { seq, cols, rows },
-                origin,
+                runner_core::protocol::terminal::TerminalFrame::Resized {
+                    seq,
+                    cols,
+                    rows,
+                    controller,
+                },
             );
             session.last_requested_size = Some((cols, rows));
             session.last_requested_size_dirty = true;
@@ -966,7 +980,6 @@ impl SessionManager {
                     seq,
                     bytes: bytes.to_vec(),
                 },
-                None,
             );
             let model = state.terminal.clone();
             let observation = model

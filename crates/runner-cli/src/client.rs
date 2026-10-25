@@ -189,6 +189,9 @@ impl SocketClient {
             app_version,
         })
     }
+    pub fn daemon(&self) -> DaemonClient {
+        self.daemon.clone()
+    }
     pub fn endpoint(&self) -> &IpcEndpoint {
         &self.endpoint
     }
@@ -518,5 +521,51 @@ mod cursor_tests {
             result.value,
             json!({"start_offset":123,"ack_id":"ack","ack_offset":456})
         );
+    }
+}
+
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+    struct NoCalls;
+    impl runner_core::protocol::Transport for NoCalls {
+        fn call(
+            &self,
+            _: runner_core::protocol::Request,
+        ) -> Result<runner_core::protocol::Response, runner_core::protocol::ClientError> {
+            panic!("remote tools must never reach the daemon through runner call");
+        }
+        fn subscribe(&self) -> Box<dyn EventSubscription> {
+            panic!("no subscription expected");
+        }
+    }
+    #[test]
+    fn generic_call_has_no_remote_requests() {
+        let client = DaemonClient::new(std::sync::Arc::new(NoCalls));
+        for name in [
+            "remote_request",
+            "remote_overview",
+            "remote_follow",
+            "remote_take_control",
+            "remote_status",
+            "remote_enroll_start",
+            "remote_enroll_confirm",
+            "remote_enroll_cancel",
+            "remote_set_paused",
+            "remote_retry",
+            "remote_logout",
+            "remote_trust",
+            "remote_set_pin",
+            "remote_unlock_pin",
+            "remote_revoke_device",
+            "remote_reset_identity",
+        ]
+        .into_iter()
+        .chain(runner_core::companion::ActionRequest::NAMES.iter().copied())
+        {
+            assert!(
+                matches!(call_daemon(&client, name, json!({})), Err(ClientError::Refused(message)) if message == "tool not found")
+            );
+        }
     }
 }

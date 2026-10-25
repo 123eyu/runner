@@ -6,6 +6,56 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
+impl Sample for crate::companion::ClientMessage {
+    fn sample() -> Self {
+        Self::Overview(crate::companion::OverviewRequest { id: 7 })
+    }
+}
+impl Sample for crate::remote::RemoteResult {
+    fn sample() -> Self {
+        Self {
+            result: serde_json::json!({"session":"s"}),
+            features: vec!["startChat".into()],
+        }
+    }
+}
+impl Sample for crate::remote::Computer {
+    fn sample() -> Self {
+        Self::default()
+    }
+}
+impl Sample for crate::remote::RemoteOverview {
+    fn sample() -> Self {
+        Self(crate::companion::Overview {
+            projects: Vec::new(),
+            tabs: Vec::new(),
+            missions: Vec::new(),
+            sessions: BTreeMap::new(),
+            sidebar: None,
+        })
+    }
+}
+impl Sample for crate::remote::RemoteTrust {
+    fn sample() -> Self {
+        Self::default()
+    }
+}
+impl Sample for crate::remote::Secret {
+    fn sample() -> Self {
+        Self("0123456789".into())
+    }
+}
+impl Sample for crate::remote::RemoteStatus {
+    fn sample() -> Self {
+        Self::default()
+    }
+}
+impl Sample for crate::remote::RemoteLogout {
+    fn sample() -> Self {
+        Self::Removed
+    }
+}
+
 trait Sample {
     fn sample() -> Self;
 }
@@ -688,7 +738,8 @@ record!(TerminalMetadata {
     live_cwd,
     link_cwd,
     cols,
-    rows
+    rows,
+    controller
 });
 record!(RuntimeUpdateCommand {
     session_id,
@@ -699,6 +750,11 @@ record!(RuntimeUpdateCommand {
     shell_path,
     size
 });
+impl Sample for TerminalController {
+    fn sample() -> Self {
+        Self::Desktop
+    }
+}
 impl Sample for InputEvent {
     fn sample() -> Self {
         Self::Paste {
@@ -717,4 +773,22 @@ impl Sample for TerminalPalette {
             ansi: [[16, 17, 18]; 16],
         }
     }
+}
+
+#[test]
+fn remote_pin_request_redacts_debug_and_trust_contains_no_pin() {
+    let pin = "001234567890";
+    let request = Request::remote_set_pin {
+        pin: crate::remote::Secret(pin.into()),
+    };
+    assert!(!format!("{request:?}").contains(pin));
+    assert!(format!("{request:?}").contains("[redacted]"));
+    let trust = crate::remote::RemoteTrust {
+        pin_set: true,
+        ..Default::default()
+    };
+    let response = Response::remote_set_pin(Ok(trust));
+    assert!(!serde_json::to_string(&response).unwrap().contains(pin));
+    assert!(Request::remote_trust {}.is_fast());
+    assert!(!request.is_fast());
 }

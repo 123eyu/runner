@@ -44,6 +44,12 @@ On Windows, launching Runner while it is running, from the Start menu, a shortcu
 
 **⌘W** / **Ctrl+Shift+W** acts on the focused drawer, pane or chat tab. It is different from closing the whole window. Use **Stop** when you specifically want to halt an agent, and **Archive** when you want a chat out of active lists.
 
-For alerts while the app is in the background, open **Settings → Notifications**. Chat events are enabled by default; mission events are opt-in. Clicking a notification opens its chat or mission.
+For alerts while the app is in the background, open **Settings → Notifications**. Chat events are enabled by default; mission events are opt-in. Clicking a notification opens its chat or mission. When the active window shows another computer, local alerts can still appear; clicking one returns a window to this computer and opens the local item.
 
 See [Keyboard shortcuts](../reference/keyboard-shortcuts.md) for all defaults and customization.
+
+## Work on another computer
+
+Once signed in, choose a computer in the sidebar’s picker. **Settings → General → Local only** hides the remote surfaces and keeps Runner on this computer; see [Remote access](remote-access.md#local-only). Chat creation, pane splits and resizing, drawer shells, chat lifecycle and sidebar organization use the same controls on that host. Remote missions use the same feed, answer cards, recipient composer, member tabs and terminal drawer. Start mission selects an existing host crew; creating or editing a crew stays on the host. Available actions depend on the host’s version. The command palette searches that computer’s chats and missions; Role and Crew open the host’s read-only lists, with chat and mission launch actions. Creating/editing/deleting roles or crews, Settings and Archived are available after returning to this computer.
+
+New chat uses the host’s agents and defaults. In New chat and Start mission, the Working directory Browse menu lists host projects and recent folders, then lets you browse folders on that computer. Choosing a folder fills the field; Escape or clicking outside leaves it unchanged. Local windows keep their OS folder picker. Returning to this computer restores its own tabs, selection and sidebar state; remote sidebar choices do not change saved local preferences.

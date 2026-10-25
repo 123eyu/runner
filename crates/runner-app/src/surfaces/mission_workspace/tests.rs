@@ -10,6 +10,314 @@ use super::*;
 use crate::surfaces::*;
 use crate::*;
 
+struct SuspendedMissionClient {
+    base: runner_daemon::daemon::InProcessTransport,
+    replay: std::sync::Mutex<Vec<Event>>,
+    viewed: std::sync::Mutex<Vec<String>>,
+}
+
+impl runner_core::protocol::Transport for SuspendedMissionClient {
+    fn call(
+        &self,
+        request: runner_core::protocol::Request,
+    ) -> Result<runner_core::protocol::Response, runner_core::protocol::ClientError> {
+        use runner_core::protocol::{Request, Response};
+        match request {
+            Request::mission_attach { mission_id } => Ok(Response::mission_attach(
+                runner_daemon::ops::mission::mission_get(&self.base.0, &mission_id)
+                    .map_err(|error| runner_core::protocol::ClientError::msg(error.to_string())),
+            )),
+            Request::mission_events_replay { .. } => Ok(Response::mission_events_replay(Ok(self
+                .replay
+                .lock()
+                .unwrap()
+                .clone()))),
+            Request::remote_follow { .. } => Ok(Response::remote_follow(Ok(()))),
+            Request::mark_direct_sessions_viewed { session_ids } => {
+                self.viewed.lock().unwrap().extend(session_ids.clone());
+                self.base
+                    .call(Request::mark_direct_sessions_viewed { session_ids })
+            }
+            Request::remote_overview { .. } => Ok(Response::remote_overview(Ok(
+                runner_core::remote::RemoteOverview(
+                    serde_json::from_value(
+                        serde_json::json!({"projects":[],"tabs":[],"missions":[],"sessions":{}}),
+                    )
+                    .unwrap(),
+                ),
+            ))),
+            request => self.base.call(request),
+        }
+    }
+
+    fn subscribe(&self) -> Box<dyn runner_core::protocol::EventSubscription> {
+        self.base.subscribe()
+    }
+}
+
+fn suspended_mission_test() -> (
+    tempfile::TempDir,
+    gpui::TestAppContext,
+    gpui::WindowHandle<NativeRoot>,
+    Arc<SuspendedMissionClient>,
+) {
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = gpui::TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    store.update(&mut cx, |store, _| {
+        store.settings.local_only = false;
+        crate::app_store::seed_mixed_working_sessions(store)
+    });
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let fake = Arc::new(SuspendedMissionClient {
+        base: runner_daemon::daemon::InProcessTransport(core.clone()),
+        replay: Default::default(),
+        viewed: Default::default(),
+    });
+    let client = runner_core::protocol::DaemonClient::new(fake.clone());
+    let clients = cx.new(|cx| remote_client::model::ClientState::new(client.clone(), cx));
+    store.update(&mut cx, |store, _| {
+        store.client = client;
+        store.remote_clients = clients;
+        let events: Arc<dyn runner_daemon::session::manager::SessionEvents> =
+            Arc::new(core.session_events());
+        for id in ["mission-agent", "mission-shell"] {
+            core.sessions
+                .prepare_unlisted_terminal(id, (80, 24), &core.db, &events)
+                .unwrap();
+            store.bridge.attach(id).unwrap();
+        }
+    });
+    cx.update(|cx| {
+        cx.set_global(GlobalNativePaths(NativePaths::new(
+            temp.path().into(),
+            temp.path().join("logs"),
+        )));
+        cx.set_app_identity("com.wycstudios.runner-dev", "Runner");
+        crate::notifications::install(cx);
+    });
+    let host = cx.add_window(|window, cx| {
+        NativeRoot::new(
+            "main".into(),
+            temp.path().join("logs"),
+            None,
+            None,
+            store,
+            window,
+            cx,
+        )
+    });
+    cx.simulate_window_resize(host.into(), size(px(1440.), px(900.)));
+    (temp, cx, host, fake)
+}
+
+fn other_computer() -> runner_core::remote::Computer {
+    runner_core::remote::Computer {
+        id: "host".into(),
+        name: "Other computer".into(),
+        paired: true,
+        online: true,
+        ..Default::default()
+    }
+}
+
+fn local_mission_event(id: &str) -> Event {
+    Event {
+        id: id.into(),
+        ts: Utc::now(),
+        crew_id: Some("test-crew".into()),
+        mission_id: "test-mission".into(),
+        kind: EventKind::Message,
+        from: "human".into(),
+        to: Default::default(),
+        signal_type: None,
+        payload: serde_json::json!({"text": id}),
+    }
+}
+
+#[test]
+fn local_mission_resumes_terminals_selection_and_missed_state_after_a_remote_visit() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let (_temp, mut cx, host, fake) = suspended_mission_test();
+    host.update(&mut cx, |root, window, cx| {
+        root.open_mission("test-mission".into(), window, cx)
+    })
+    .unwrap();
+    cx.run_until_parked();
+    let layout = host
+        .update(&mut cx, |root, window, cx| {
+            let layout = root.mission_workspace.update(cx, |workspace, cx| {
+                assert!(!workspace.loading);
+                assert!(workspace.attached.contains_key("mission-agent"));
+                workspace.active_tab = MissionTab::Session("mission-agent".into());
+                workspace.open_tabs.retain(|id| id != "mission-shell");
+                workspace.layout.drawer.set_height(333.);
+                workspace.composer.draft = "Keep this draft".into();
+                assert!(workspace.mission_terminal_interactive("mission-agent", cx));
+                workspace.layout.serialize().unwrap()
+            });
+            root.visit_computer(other_computer(), window, cx);
+            assert!(!root.mission_workspace.read(cx).active);
+            assert!(root.mission_workspace.read(cx).attached.is_empty());
+            layout
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let missed = local_mission_event("missed-while-remote");
+    fake.replay.lock().unwrap().push(missed.clone());
+    fake.base.0.events.emit(
+        "event/appended",
+        &serde_json::json!({"mission_id":"test-mission", "event": missed}),
+    );
+    fake.base
+        .0
+        .db
+        .get()
+        .unwrap()
+        .execute(
+            "UPDATE missions SET title = 'Changed while remote' WHERE id = 'test-mission'",
+            [],
+        )
+        .unwrap();
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert!(root.mission_workspace.read(cx).events.is_empty())
+    })
+    .unwrap();
+    host.update(&mut cx, |root, window, cx| {
+        root.return_to_this_computer(window, cx)
+    })
+    .unwrap();
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        let workspace = root.mission_workspace.read(cx);
+        assert!(workspace.active);
+        assert!(workspace.attached.contains_key("mission-agent"));
+        assert!(!workspace.attached.contains_key("mission-shell"));
+        assert!(workspace.mission_terminal_interactive("mission-agent", cx));
+        assert_eq!(
+            workspace.active_tab,
+            MissionTab::Session("mission-agent".into())
+        );
+        assert_eq!(workspace.layout.serialize().unwrap(), layout);
+        assert_eq!(workspace.composer.draft, "Keep this draft");
+        assert_eq!(
+            workspace.mission.as_ref().unwrap().title,
+            "Changed while remote"
+        );
+        assert!(workspace
+            .events
+            .iter()
+            .any(|event| event.id == "missed-while-remote"));
+    })
+    .unwrap();
+    fake.base.0.events.emit(
+        "event/appended",
+        &serde_json::json!({"mission_id":"test-mission", "event": local_mission_event("after-return")}),
+    );
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert!(root
+            .mission_workspace
+            .read(cx)
+            .events
+            .iter()
+            .any(|event| event.id == "after-return"))
+    })
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn same_mission_notification_resumes_a_suspended_local_mission() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let (_temp, mut cx, host, fake) = suspended_mission_test();
+    host.update(&mut cx, |root, window, cx| {
+        root.open_mission("test-mission".into(), window, cx)
+    })
+    .unwrap();
+    cx.run_until_parked();
+    host.update(&mut cx, |root, window, cx| {
+        root.mission_workspace.update(cx, |workspace, _| {
+            workspace.active_tab = MissionTab::Session("mission-shell".into());
+        });
+        root.visit_computer(other_computer(), window, cx)
+    })
+    .unwrap();
+    cx.run_until_parked();
+    fake.viewed.lock().unwrap().clear();
+    cx.update(|cx| crate::notifications::open("mission-agent", cx));
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert!(root.remote_window.is_none());
+        assert_eq!(root.route, AppRoute::Mission("test-mission".into()));
+        let workspace = root.mission_workspace.read(cx);
+        assert!(workspace.active);
+        assert_eq!(
+            workspace.active_tab,
+            MissionTab::Session("mission-agent".into())
+        );
+        assert!(workspace.attached.contains_key("mission-agent"));
+        assert!(workspace.mission_terminal_interactive("mission-agent", cx));
+    })
+    .unwrap();
+    assert!(fake
+        .viewed
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|id| id == "mission-agent"));
+    assert!(!fake
+        .viewed
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|id| id == "mission-shell"));
+}
+
+#[test]
+fn local_mission_load_finishes_while_remote_and_attaches_only_on_return() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let (_temp, mut cx, host, fake) = suspended_mission_test();
+    host.update(&mut cx, |root, window, cx| {
+        root.open_mission("test-mission".into(), window, cx);
+        assert!(root.mission_workspace.read(cx).loading);
+        root.visit_computer(other_computer(), window, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        assert!(root.remote_window.is_some());
+        let workspace = root.mission_workspace.read(cx);
+        assert!(!workspace.active);
+        assert!(!workspace.loading);
+        assert!(workspace.mission.is_some());
+        assert!(workspace.attached.is_empty());
+    })
+    .unwrap();
+    fake.replay
+        .lock()
+        .unwrap()
+        .push(local_mission_event("after-load"));
+    host.update(&mut cx, |root, window, cx| {
+        root.return_to_this_computer(window, cx)
+    })
+    .unwrap();
+    cx.run_until_parked();
+    host.read_with(&cx, |root, cx| {
+        let workspace = root.mission_workspace.read(cx);
+        assert!(workspace.active);
+        assert!(!workspace.loading);
+        assert!(workspace.attached.contains_key("mission-agent"));
+        assert!(workspace.mission_terminal_interactive("mission-agent", cx));
+        assert!(workspace
+            .events
+            .iter()
+            .any(|event| event.id == "after-load"));
+    })
+    .unwrap();
+}
+
 struct MissionComposerInputTest {
     workspace: Entity<MissionWorkspace>,
     show_feed: bool,
@@ -446,7 +754,11 @@ fn sidebar_and_mission_fills_follow_carbon_and_runner_light() {
         host.update(&mut cx, |root, window, cx| {
             assert!(window.is_window_active());
             root.mission_workspace.update(cx, |workspace, cx| {
-                drop(workspace.render_mission_terminal_pane(archived_slot.clone(), window, cx));
+                drop(workspace.render_mission_terminal_pane(
+                    crate::surfaces::front_page::model::MissionMemberDisplay::from(&archived_slot),
+                    window,
+                    cx,
+                ));
                 workspace.mark_active_session_viewed(window, cx);
             });
         })
@@ -1266,7 +1578,12 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
                 .collect();
                 workspace.sync_mission_copy_entities(cx);
                 assert_eq!(
-                    workspace.session_title_tooltip(&workspace.sessions[0], cx),
+                    workspace.session_title_tooltip(
+                        &crate::surfaces::front_page::model::MissionMemberDisplay::from(
+                            &workspace.sessions[0]
+                        ),
+                        cx
+                    ),
                     "@abcdefghijklmnopqrstuvwxyz012345"
                 );
                 workspace
@@ -3117,4 +3434,111 @@ fn feed_scrollbar_track_drag_and_wheel_reach_unmeasured_history() {
     });
     host.update(&mut visual, |_, window, _| window.remove_window())
         .unwrap();
+}
+
+#[test]
+fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
+    use crate::terminal::control::tests::{attached, change, mirror_named, remote};
+    use runner_core::protocol::terminal::TerminalController;
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = gpui::TestAppContext::single();
+    let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+    store.update(&mut cx, |store, _| {
+        crate::app_store::seed_mixed_working_sessions(store)
+    });
+    let core = store.read_with(&cx, |store, _| store.test_core.clone());
+    let (left_host, left, left_tx, left_ack) = mirror_named("mission-agent", remote());
+    let (right_host, right, right_tx, right_ack) = mirror_named("mission-shell", remote());
+    let window = cx.add_window(|window, cx| {
+        let mut root = NativeRoot::new(
+            "mission-control-test".into(),
+            temp.path().join("logs"),
+            None,
+            None,
+            store.clone(),
+            window,
+            cx,
+        );
+        root.route = AppRoute::Mission("test-mission".into());
+        root.mission_workspace.update(cx, |workspace, cx| {
+            workspace.active = true;
+            workspace.mission_id = Some("test-mission".into());
+            workspace.mission =
+                Some(runner_daemon::ops::mission::mission_get(&core, "test-mission").unwrap());
+            workspace.roster =
+                runner_daemon::ops::mission::mission_roster(&core, "test-mission").unwrap();
+            workspace.sessions =
+                runner_daemon::ops::session::session_list(&core, "test-mission").unwrap();
+            workspace.open_tabs = vec!["mission-agent".into(), "mission-shell".into()];
+            workspace
+                .attached
+                .insert("mission-agent".into(), attached(left, cx, 101, 30));
+            workspace
+                .attached
+                .insert("mission-shell".into(), attached(right, cx, 72, 45));
+        });
+        root
+    });
+    let mut visual = gpui::VisualTestContext::from_window(window.into(), &cx);
+    let overlay = visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission")
+        .unwrap();
+    let header = visual.debug_bounds("MISSION_HEADER").unwrap();
+    assert!(overlay.top() >= header.bottom() + px(WORKSPACE_TABS_HEIGHT));
+    assert!(left_host.sizes.lock().unwrap().is_empty());
+    assert!(right_host.sizes.lock().unwrap().is_empty());
+    window
+        .update(&mut cx, |root, window, cx| {
+            root.mission_workspace.update(cx, |workspace, cx| {
+                workspace.composer.draft = "Keep this draft while covered".into();
+                workspace.composer_input.update(cx, |input, cx| {
+                    input.reset("Keep this draft while covered", cx)
+                });
+                workspace.on_mission_composer_key_down("enter", false, window, cx);
+                assert!(!workspace.composer_posting);
+                assert_eq!(workspace.composer.draft, "Keep this draft while covered");
+            })
+        })
+        .unwrap();
+    change(&left_tx, &left_ack, 1, TerminalController::None);
+    change(&right_tx, &right_ack, 1, TerminalController::None);
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.mission_workspace.update(cx, |_, cx| cx.notify())
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission")
+        .is_some());
+    change(&left_tx, &left_ack, 2, TerminalController::Desktop);
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.mission_workspace.update(cx, |workspace, cx| {
+                workspace.active_tab = MissionTab::Session("mission-shell".into());
+                cx.notify();
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission")
+        .is_none());
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-slot-mission-shell")
+        .is_some());
+    change(&right_tx, &right_ack, 2, TerminalController::Desktop);
+    store.update(&mut cx, |store, cx| {
+        store
+            .terminal_updates
+            .update(cx, |_, cx| cx.emit("mission-shell".to_string()))
+    });
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.mission_workspace.update(cx, |_, cx| cx.notify())
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(visual.debug_bounds("REMOTE_CONTROL_CARD").is_none());
+    assert!(!right_host.sizes.lock().unwrap().is_empty());
 }

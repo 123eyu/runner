@@ -864,27 +864,45 @@ impl StatusRollup {
     }
 
     pub fn render(&self, id: impl Into<ElementId>) -> AnyElement {
-        self.render_with_pane_tooltip(id.into(), false)
+        self.render_with_pane_tooltip(id.into(), false, true)
     }
 
     pub fn render_pane(&self, id: impl Into<ElementId>) -> AnyElement {
-        self.render_with_pane_tooltip(id.into(), true)
+        self.render_pane_with_elapsed(id, true)
     }
 
-    fn render_with_pane_tooltip(&self, id: ElementId, pane_tooltip: bool) -> AnyElement {
+    pub fn render_pane_with_elapsed(&self, id: impl Into<ElementId>, elapsed: bool) -> AnyElement {
+        self.render_with_pane_tooltip(id.into(), true, elapsed)
+    }
+
+    fn render_with_pane_tooltip(
+        &self,
+        id: ElementId,
+        pane_tooltip: bool,
+        elapsed: bool,
+    ) -> AnyElement {
         let Some((_, status)) = self.dominant() else {
             return div().into_any_element();
         };
         let glyph = if Self::priority(status) == 2 {
             div()
+                .debug_selector(|| "STATUS_ROLLUP_UNREAD_DOT".into())
                 .size(rems(6. / 16.))
                 .rounded_full()
                 .bg(theme::accent())
                 .into_any_element()
         } else {
-            status_glyph(attention_presentation(status), (id.clone(), "glyph"))
+            status_glyph(rollup_presentation(status, elapsed), (id.clone(), "glyph"))
         };
         let indicator = div()
+            .debug_selector({
+                let label = if Self::priority(status) == 2 {
+                    "Unread".into()
+                } else {
+                    format!("{:?}", rollup_presentation(status, elapsed).kind)
+                };
+                move || format!("STATUS_ROLLUP:{label}")
+            })
             .flex_none()
             .flex()
             .items_center()
@@ -893,7 +911,7 @@ impl StatusRollup {
             .child(glyph);
         if pane_tooltip && pane_uses_status_tooltip(status) {
             status_tooltip_with_unread(
-                attention_presentation(status),
+                rollup_presentation(status, elapsed),
                 status.unread_since.is_some(),
                 (id, "tooltip"),
                 indicator,
@@ -902,6 +920,14 @@ impl StatusRollup {
             Tooltip::new((id, "tooltip"), self.tooltip(), indicator).into_any_element()
         }
     }
+}
+
+fn rollup_presentation(status: &AgentStatus, elapsed: bool) -> StatusPresentation {
+    let mut presentation = attention_presentation(status);
+    if !elapsed {
+        presentation.waiting_since = None;
+    }
+    presentation
 }
 
 fn attention_presentation(status: &AgentStatus) -> StatusPresentation {
@@ -1075,5 +1101,42 @@ mod rollup_tests {
         assert_eq!(rollup.priority_value(), 0);
         rollup.entries[0].1.observation.activity = Activity::Unavailable;
         assert_eq!(rollup.priority_value(), 1);
+    }
+}
+
+#[cfg(test)]
+mod remote_elapsed_tests {
+    use super::*;
+    use runner_core::protocol::status::{AgentObservation, HumanInteraction};
+
+    #[test]
+    fn remote_single_pane_tooltips_keep_attention_without_inventing_elapsed_time() {
+        let status = AgentStatus {
+            lifecycle: Lifecycle::Running,
+            observation: AgentObservation {
+                activity: Activity::Working,
+                source: ObservationSource::Hook,
+                interactions: vec![HumanInteraction {
+                    id: "remote".into(),
+                    reason: WaitReason::Approval,
+                    owners: vec![],
+                    since: i64::MAX,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let remote = rollup_presentation(&status, false);
+        assert_eq!(remote.waiting_since, None);
+        for unread in [false, true] {
+            let tooltip = status_tooltip_text_at(remote, unread, 120_000);
+            assert!(tooltip.contains("approve"));
+            assert!(!tooltip.contains("0s"));
+            assert_eq!(tooltip.contains("unread"), unread);
+        }
+        assert_eq!(
+            rollup_presentation(&status, true).waiting_since,
+            Some(i64::MAX)
+        );
     }
 }

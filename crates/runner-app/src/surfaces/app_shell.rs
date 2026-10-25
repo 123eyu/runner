@@ -14,6 +14,8 @@ use crate::toast::ToastTone;
 use crate::*;
 use runner_app::ui::resize::{resize_strip, resize_strip_inset, ResizeAxis};
 
+pub(crate) mod account_menu;
+
 pub(crate) const TITLEBAR_DRAG_HEIGHT: f32 = 28.;
 #[cfg(target_os = "macos")]
 pub(crate) const SIDEBAR_TOGGLE_GLYPH_X: f32 = 102.3;
@@ -817,7 +819,11 @@ impl NativeRoot {
             self.show_toast(error, ToastTone::Error, cx);
         }
 
-        let workspace = self.render_entity_surface(window, cx);
+        let workspace = if self.remote_window.is_some() {
+            self.render_remote_workspace(window, cx)
+        } else {
+            self.render_entity_surface(window, cx)
+        };
         let (sidebar, sidebar_divider) = self.render_app_sidebar(window, cx);
         let sidebar_resize =
             sidebar_divider.map(|divider| self.render_sidebar_resize_handle(divider, cx));
@@ -830,24 +836,40 @@ impl NativeRoot {
             .start_mission_modal
             .is_some()
             .then(|| self.render_start_mission_modal(cx));
-        let chat_rename_modal = (self.route == AppRoute::Chat)
+        let chat_rename_modal = (self.remote_window.is_some() || self.route == AppRoute::Chat)
             .then_some(self.chat_rename_modal.as_ref())
             .flatten()
             .map(|_| self.render_chat_rename_modal(cx));
-        let terminal_close_confirm = matches!(self.route, AppRoute::Chat | AppRoute::Mission(_))
-            .then_some(self.terminal_close_confirm.as_ref())
-            .flatten()
-            .map(|_| self.render_terminal_close_confirm(cx));
-        let fork_confirm = (self.route == AppRoute::Chat)
+        let terminal_close_confirm = (self.remote_window.is_some()
+            || matches!(self.route, AppRoute::Chat | AppRoute::Mission(_)))
+        .then_some(self.terminal_close_confirm.as_ref())
+        .flatten()
+        .map(|_| self.render_terminal_close_confirm(cx));
+        let fork_confirm = (self.remote_window.is_some() || self.route == AppRoute::Chat)
             .then_some(self.fork_confirm.as_ref())
             .flatten()
             .map(|_| self.render_fork_confirm(cx));
-        let sidebar_overlays = if self.route != AppRoute::Settings {
+        let sidebar_overlays = if self.route != AppRoute::Settings || self.remote_window.is_some() {
             self.render_sidebar_overlays(cx)
         } else {
             Vec::new()
         };
-        let entity_overlays = if self.route != AppRoute::Settings {
+        let entity_overlays = if let Some(remote) = &self.remote_window {
+            let fallback = (!self.create_modal_open()
+                && self.chat_rename_modal.is_none()
+                && self.fork_confirm.is_none()
+                && self.terminal_close_confirm.is_none()
+                && self.client_ui.pair.is_none()
+                && !self.client_ui.picker_open)
+                .then(|| self.root_focus.clone());
+            remote
+                .mission_workspace
+                .clone()
+                .update(cx, |workspace, cx| {
+                    workspace.restore_remote_dialog_focus(fallback.as_ref(), window, cx);
+                    workspace.render_mission_overlays(cx)
+                })
+        } else if self.route != AppRoute::Settings {
             self.render_entity_overlays(window, cx)
         } else {
             Vec::new()
@@ -859,7 +881,7 @@ impl NativeRoot {
             .flex()
             .children(sidebar)
             .child(
-                runner_app::ui::work_card::work_card(self.sidebar_collapsed)
+                runner_app::ui::work_card::work_card(self.front_page_sidebar_collapsed())
                     .when(cfg!(test), |column| {
                         column.debug_selector(|| "APP_CONTENT_COLUMN".into())
                     })
@@ -890,17 +912,31 @@ impl NativeRoot {
             .children(fork_confirm)
             .children(sidebar_overlays)
             .children(entity_overlays);
-        let settings =
-            (self.route == AppRoute::Settings).then(|| self.render_settings_takeover(window, cx));
+        let settings = (self.remote_window.is_none() && self.route == AppRoute::Settings)
+            .then(|| self.render_settings_takeover(window, cx));
         let settings_confirm = self
-            .settings_confirm_overlay(cx)
+            .remote_window
+            .is_none()
+            .then(|| self.settings_confirm_overlay(cx))
+            .flatten()
             .map(|overlay| deferred(overlay).with_priority(100));
-        let command_palette = deferred(self.command_palette.clone()).with_priority(50);
+        let computer_pair = self
+            .render_computer_pair(cx)
+            .map(|dialog| deferred(dialog).with_priority(110));
+        let computer_picker = self
+            .render_computer_picker(window, cx)
+            .map(|picker| deferred(picker).with_priority(80));
+        let command_palette = Some(deferred(self.command_palette.clone()).with_priority(50));
+        let toast_priority = if self.route == AppRoute::Settings && self.remote_pin_dialog_open() {
+            101
+        } else {
+            3
+        };
         let toast = self
             .render_toast(cx)
-            .map(|toast| deferred(toast).with_priority(3));
-        let modifier_sidebar = self.sidebar.clone();
-        let key_sidebar = self.sidebar.clone();
+            .map(|toast| deferred(toast).with_priority(toast_priority));
+        let modifier_sidebar = self.front_page_sidebar();
+        let key_sidebar = self.front_page_sidebar();
         let usage_root = cx.entity();
 
         div()
@@ -912,13 +948,18 @@ impl NativeRoot {
             .font(crate::app_settings::app_font())
             .bg(theme::chrome())
             .text_color(theme::text())
-            .children((self.route != AppRoute::Settings).then_some(chrome))
+            .children(
+                (self.remote_window.is_some() || self.route != AppRoute::Settings)
+                    .then_some(chrome),
+            )
             .children(settings)
             .children(self.render_window_navigation(window, cx))
             .children(modal)
             .children(mission_modal)
             .children(settings_confirm)
-            .child(command_palette)
+            .children(command_palette)
+            .children(computer_picker)
+            .children(computer_pair)
             .children(toast)
             .children(
                 self.quit_dialog
@@ -968,6 +1009,14 @@ impl NativeRoot {
                         this.sidebar_resizing = true;
                         cx.notify();
                     }
+                    if let Some(remote) = this.remote_window.as_mut() {
+                        remote.sidebar_width = width;
+                        remote.mission_workspace.update(cx, |workspace, cx| {
+                            workspace.set_remote_sidebar_width(width, cx)
+                        });
+                        cx.notify();
+                        return;
+                    }
                     this.update_app_settings(cx, false, |settings| {
                         if settings.sidebar_width == width {
                             return false;
@@ -979,7 +1028,9 @@ impl NativeRoot {
             ))
             .on_drop(cx.listener(|this, _: &SidebarResizeDrag, _, cx| {
                 this.finish_sidebar_resize(cx);
-                this.save_settings(cx);
+                if this.remote_window.is_none() {
+                    this.save_settings(cx);
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -997,16 +1048,18 @@ impl NativeRoot {
                     this.clear_crew_slot_drag(cx);
                 }),
             )
-            .on_action(cx.listener(Self::open_new_tab_modal))
-            .on_action(cx.listener(Self::new_terminal_action))
-            .on_action(cx.listener(Self::new_mission_action))
-            .on_action(cx.listener(Self::split_pane_right))
-            .on_action(cx.listener(Self::split_pane_down))
-            .on_action(cx.listener(Self::focus_previous_chat_pane))
-            .on_action(cx.listener(Self::focus_next_chat_pane))
-            .on_action(cx.listener(Self::stop_focused_session))
-            .on_action(cx.listener(Self::resume_focused_session))
-            .on_action(cx.listener(Self::toggle_terminal_drawer_action))
+            .map(|root| {
+                root.on_action(cx.listener(Self::open_new_tab_modal))
+                    .on_action(cx.listener(Self::new_terminal_action))
+                    .on_action(cx.listener(Self::new_mission_action))
+                    .on_action(cx.listener(Self::split_pane_right))
+                    .on_action(cx.listener(Self::split_pane_down))
+                    .on_action(cx.listener(Self::focus_previous_chat_pane))
+                    .on_action(cx.listener(Self::focus_next_chat_pane))
+                    .on_action(cx.listener(Self::stop_focused_session))
+                    .on_action(cx.listener(Self::resume_focused_session))
+                    .on_action(cx.listener(Self::toggle_terminal_drawer_action))
+            })
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::open_command_palette))
             .on_action(cx.listener(Self::open_settings))
@@ -1016,15 +1069,17 @@ impl NativeRoot {
             .on_action(cx.listener(Self::zoom_out))
             .on_action(cx.listener(Self::zoom_reset))
             .on_action(cx.listener(Self::toggle_fullscreen))
-            .on_action(cx.listener(Self::select_tab_1))
-            .on_action(cx.listener(Self::select_tab_2))
-            .on_action(cx.listener(Self::select_tab_3))
-            .on_action(cx.listener(Self::select_tab_4))
-            .on_action(cx.listener(Self::select_tab_5))
-            .on_action(cx.listener(Self::select_tab_6))
-            .on_action(cx.listener(Self::select_tab_7))
-            .on_action(cx.listener(Self::select_tab_8))
-            .on_action(cx.listener(Self::select_tab_9))
+            .map(|root| {
+                root.on_action(cx.listener(Self::select_tab_1))
+                    .on_action(cx.listener(Self::select_tab_2))
+                    .on_action(cx.listener(Self::select_tab_3))
+                    .on_action(cx.listener(Self::select_tab_4))
+                    .on_action(cx.listener(Self::select_tab_5))
+                    .on_action(cx.listener(Self::select_tab_6))
+                    .on_action(cx.listener(Self::select_tab_7))
+                    .on_action(cx.listener(Self::select_tab_8))
+                    .on_action(cx.listener(Self::select_tab_9))
+            })
             .into_any_element()
     }
 
@@ -1033,7 +1088,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (Option<AnyElement>, Option<f32>) {
-        let visible = !self.sidebar_collapsed || self.sidebar_preview_open;
+        let visible = !self.front_page_sidebar_collapsed() || self.sidebar_preview_open;
         let visibility_target = if visible { 1. } else { 0. };
         let (visibility, animating) = self.sidebar_visibility.animate_to(
             visibility_target,
@@ -1044,7 +1099,7 @@ impl NativeRoot {
             window.request_animation_frame();
         }
         let show_panel = visible || animating;
-        let full_width = self.settings(cx).sidebar_width * self.settings(cx).app_zoom;
+        let full_width = self.front_page_sidebar_width(cx) * self.settings(cx).app_zoom;
         let width = full_width * visibility;
         if !show_panel {
             return (
@@ -1061,8 +1116,8 @@ impl NativeRoot {
                 None,
             );
         }
-        let preview =
-            self.sidebar_collapsed && (self.sidebar_preview_open || self.sidebar_preview_peeking);
+        let preview = self.front_page_sidebar_collapsed()
+            && (self.sidebar_preview_open || self.sidebar_preview_peeking);
         let content = self.cached_region(
             "sidebar",
             gpui::StyleRefinement::default()
@@ -1102,7 +1157,7 @@ impl NativeRoot {
                 .rounded_br(px(12. * self.settings(cx).app_zoom))
                 .shadow_2xl()
                 .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                    if !*hovered && this.sidebar_collapsed {
+                    if !*hovered && this.front_page_sidebar_collapsed() {
                         this.sidebar_preview_open = false;
                         cx.notify();
                     }
@@ -1118,53 +1173,62 @@ impl NativeRoot {
     fn render_sidebar_brand(&self, update_version: Option<String>, cx: &Context<Self>) -> Div {
         let zoom = self.settings(cx).app_zoom;
         let updater = global_updater(cx);
-        let update_hint = update_version.map(|version| {
-            let click_updater = updater.clone();
-            #[cfg(not(windows))]
-            let tooltip = crate::platform_ui::update_hint_tooltip(&version);
-            #[cfg(windows)]
-            let tooltip =
-                crate::platform_ui::update_hint_tooltip(&version, updater.read(cx).state());
-            Tooltip::new(
-                "sidebar-update-tooltip",
-                tooltip,
-                div()
-                    .id("sidebar-update")
-                    .when(cfg!(test), |button| {
-                        button.debug_selector(|| "SIDEBAR_UPDATE".into())
-                    })
-                    .flex_none()
-                    .size(rems(24. / 16.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(gpui::transparent_black())
-                    .cursor_pointer()
-                    .hover(|button| {
-                        button
-                            .border_color(alpha(theme::accent(), 0.4))
-                            .bg(alpha(theme::accent(), 0.1))
-                    })
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(move |_, _window, cx| {
-                        cx.stop_propagation();
-                        #[cfg(not(windows))]
-                        crate::platform_ui::activate_update_hint(&click_updater, cx);
-                        #[cfg(windows)]
-                        crate::platform_ui::activate_update_hint(&click_updater, _window, cx);
-                    })
-                    .child(
-                        svg()
-                            .path("circle-arrow-down.svg")
-                            .flex_none()
-                            .size(px(14. * zoom))
-                            .text_color(theme::accent()),
-                    ),
-            )
-        });
-        let active_only = self.settings(cx).sidebar_active_only;
+        let update_hint = update_version
+            .filter(|_| self.remote_window.is_none())
+            .map(|version| {
+                let click_updater = updater.clone();
+                let click_root = cx.weak_entity();
+                #[cfg(not(windows))]
+                let tooltip = crate::platform_ui::update_hint_tooltip(&version);
+                #[cfg(windows)]
+                let tooltip =
+                    crate::platform_ui::update_hint_tooltip(&version, updater.read(cx).state());
+                Tooltip::new(
+                    "sidebar-update-tooltip",
+                    tooltip,
+                    div()
+                        .id("sidebar-update")
+                        .when(cfg!(test), |button| {
+                            button.debug_selector(|| "SIDEBAR_UPDATE".into())
+                        })
+                        .flex_none()
+                        .size(rems(24. / 16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .cursor_pointer()
+                        .hover(|button| {
+                            button
+                                .border_color(alpha(theme::accent(), 0.4))
+                                .bg(alpha(theme::accent(), 0.1))
+                        })
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_, _window, cx| {
+                            cx.stop_propagation();
+                            if !click_root
+                                .upgrade()
+                                .is_some_and(|root| root.read(cx).remote_window.is_none())
+                            {
+                                return;
+                            }
+                            #[cfg(not(windows))]
+                            crate::platform_ui::activate_update_hint(&click_updater, cx);
+                            #[cfg(windows)]
+                            crate::platform_ui::activate_update_hint(&click_updater, _window, cx);
+                        })
+                        .child(
+                            svg()
+                                .path("circle-arrow-down.svg")
+                                .flex_none()
+                                .size(px(14. * zoom))
+                                .text_color(theme::accent()),
+                        ),
+                )
+            });
+        let active_only = self.front_page_sidebar().read(cx).active_only(cx);
         let active_toggle = IconButton::new("sidebar-active-toggle", "list-filter.svg")
             .size(IconButtonSize::Md)
             .variant(if active_only {
@@ -1182,6 +1246,13 @@ impl NativeRoot {
                 move |_, cx| {
                     owner.update(cx, |this, cx| {
                         this.clear_sidebar_drag("change-view", cx);
+                        if this.remote_window.is_some() {
+                            this.front_page_sidebar()
+                                .update(cx, |sidebar, cx| sidebar.toggle_active_only(cx));
+                            this.sync_sidebar_shortcut_rows(cx);
+                            cx.notify();
+                            return;
+                        }
                         this.app_store.update(cx, |store, cx| {
                             store.update_settings(
                                 |settings| {
@@ -1323,7 +1394,9 @@ impl NativeRoot {
         let brand = self.render_sidebar_brand(update_version, cx);
         let enabled = self.settings(cx).model_runtimes();
         let visible_usage_runtimes = visible_usage_runtimes(&self.usage_installed, &enabled);
-        let show_usage = !visible_usage_runtimes.is_empty() && !self.sidebar_collapsed;
+        let show_usage = self.remote_window.is_none()
+            && !visible_usage_runtimes.is_empty()
+            && !self.front_page_sidebar_collapsed();
         let anchor_owner = cx.entity();
         let usage = show_usage.then(|| {
             let snapshot = self.app_store.read(cx).usage.clone();
@@ -1344,7 +1417,7 @@ impl NativeRoot {
             div()
                 .relative()
                 .w(px((visible_usage_runtimes.len() as f32 * 52. + 20.)
-                    .min(self.settings(cx).sidebar_width - 56.)
+                    .min(self.front_page_sidebar_width(cx) - 56.)
                     * zoom))
                 .flex_none()
                 .child(trigger)
@@ -1387,51 +1460,15 @@ impl NativeRoot {
                     .flex()
                     .items_center()
                     .children(usage)
-                    .child(div().flex_1())
-                    .child(
-                        div().occlude().cursor_pointer().child(Tooltip::new(
-                            "sidebar-settings-tooltip",
-                            crate::i18n::text("ui.settings"),
-                            div()
-                                .id("open-settings")
-                                .group("sidebar-settings")
-                                .when(cfg!(test), |button| {
-                                    button.debug_selector(|| "SIDEBAR_SETTINGS".into())
-                                })
-                                .tab_index(0)
-                                .flex_none()
-                                .size(px(32. * zoom))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(4. * zoom))
-                                .cursor_pointer()
-                                .hover(|button| button.bg(theme::chrome_hover()))
-                                .focus_visible(|button| button.bg(theme::chrome_hover()))
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.enter_settings_route(None, window, cx);
-                                }))
-                                .on_key_down(cx.listener(
-                                    |this, event: &KeyDownEvent, window, cx| {
-                                        if matches!(event.keystroke.key.as_str(), "enter" | "space")
-                                        {
-                                            cx.stop_propagation();
-                                            this.enter_settings_route(None, window, cx);
-                                        }
-                                    },
-                                ))
-                                .child(
-                                    svg()
-                                        .path("settings.svg")
-                                        .size(px(16. * zoom))
-                                        .text_color(theme::faint())
-                                        .group_hover("sidebar-settings", |icon| {
-                                            icon.text_color(theme::text())
-                                        }),
-                                ),
-                        )),
-                    ),
+                    .children(
+                        self.remote_window
+                            .as_ref()
+                            .map(|_| self.render_remote_connection(cx)),
+                    )
+                    .when(self.remote_window.is_none(), |footer| {
+                        footer.child(div().flex_1())
+                    })
+                    .child(self.render_account_avatar(cx)),
             );
         // The content keeps its full width while the wrapper animates, so the
         // transition clips instead of squashing every row; a squashed row
@@ -1445,8 +1482,19 @@ impl NativeRoot {
             .pb_3()
             .children(titlebar)
             .child(brand)
-            .child(self.sidebar.clone())
+            .when(
+                self.app_store.read(cx).remote_access_enabled()
+                    && self
+                        .app_store
+                        .read(cx)
+                        .remote_status
+                        .as_ref()
+                        .is_some_and(crate::surfaces::settings::remote::account::signed_in),
+                |sidebar| sidebar.child(self.render_computer_trigger(cx)),
+            )
+            .child(self.front_page_sidebar())
             .child(footer)
+            .children(self.render_account_menu(window, cx))
             .children(
                 (self.usage_open && show_usage)
                     .then(|| {
@@ -1506,7 +1554,9 @@ impl NativeRoot {
     }
 
     fn render_sidebar_preview_trigger(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        (self.sidebar_collapsed && self.route != AppRoute::Settings).then(|| {
+        (self.front_page_sidebar_collapsed()
+            && (self.route != AppRoute::Settings || self.remote_window.is_some()))
+        .then(|| {
             div()
                 .id("sidebar-preview-trigger")
                 .absolute()
@@ -1553,7 +1603,7 @@ impl NativeRoot {
                     return;
                 }
                 this.sidebar_preview_dwell = 0;
-                if this.sidebar_preview_trigger_hovered && this.sidebar_collapsed {
+                if this.sidebar_preview_trigger_hovered && this.front_page_sidebar_collapsed() {
                     this.sidebar_preview_open = true;
                     this.sidebar_preview_peeking = true;
                     cx.notify();
@@ -1657,15 +1707,19 @@ impl NativeRoot {
     fn render_toast(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.toasts.active().map(|toast| {
             let zoom = self.settings(cx).app_zoom;
-            let icon = toast.tone.icon();
+            let icon = toast.icon.unwrap_or_else(|| toast.tone.icon());
             let icon_color = match toast.tone {
                 ToastTone::Info => theme::muted(),
                 ToastTone::Success | ToastTone::Restart => theme::accent(),
+                ToastTone::Warning => theme::warning(),
                 ToastTone::Error => theme::danger(),
             };
             div()
                 .absolute()
-                .top(px((TITLEBAR_DRAG_HEIGHT + 12.) * zoom))
+                .when(toast.bottom, |toast| toast.bottom(px(24. * zoom)))
+                .when(!toast.bottom, |toast| {
+                    toast.top(px((TITLEBAR_DRAG_HEIGHT + 12.) * zoom))
+                })
                 .left(px(16. * zoom))
                 .right(px(16. * zoom))
                 .flex()
@@ -1677,7 +1731,7 @@ impl NativeRoot {
                         .max_w(px(if toast.single_line { 600. } else { 420. } * zoom))
                         .pl(px(14. * zoom))
                         .pr(px(12. * zoom))
-                        .py(px(10. * zoom))
+                        .py(px(if toast.open_remote { 8. } else { 10. } * zoom))
                         .flex()
                         .items_center()
                         .gap(px(10. * zoom))
@@ -1719,6 +1773,30 @@ impl NativeRoot {
                                 .line_height(px(18. * zoom))
                                 .child(SharedString::from(toast.message.clone())),
                         )
+                        .children(toast.open_remote.then(|| {
+                            div()
+                                .id("toast-open-remote")
+                                .debug_selector(|| "REMOTE_TOAST_ACTION".into())
+                                .tab_index(0)
+                                .text_size(theme::text_body())
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(crate::i18n::text("remote.open_remote"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.toasts.dismiss();
+                                    this.enter_settings_route(Some("remote"), window, cx);
+                                }))
+                                .on_key_down(cx.listener(
+                                    |this, event: &KeyDownEvent, window, cx| {
+                                        if matches!(event.keystroke.key.as_str(), "enter" | "space")
+                                        {
+                                            cx.stop_propagation();
+                                            this.toasts.dismiss();
+                                            this.enter_settings_route(Some("remote"), window, cx);
+                                        }
+                                    },
+                                ))
+                        }))
                         .child(
                             svg()
                                 .debug_selector(|| "GLOBAL_TOAST_CLOSE".into())
@@ -1791,7 +1869,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn render_collapsed_titlebar_spacer(&self) -> Option<AnyElement> {
-        (self.sidebar_collapsed && !cfg!(windows)).then(|| {
+        (self.front_page_sidebar_collapsed() && !cfg!(windows)).then(|| {
             div()
                 .debug_selector(|| "WINDOW_NAVIGATION_SPACE".into())
                 .flex_none()
@@ -1802,7 +1880,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn page_navigation_state(&self) -> (bool, bool) {
-        let in_settings = self.route == AppRoute::Settings;
+        let in_settings = self.route == AppRoute::Settings || self.remote_window.is_some();
         let can_go_back =
             !in_settings && self.runtime_navigation_index.is_some_and(|index| index > 0);
         let can_go_forward = !in_settings
@@ -1814,7 +1892,7 @@ impl NativeRoot {
 
     pub(crate) fn workspace_titlebar_padding(&self, window: &Window, cx: &App) -> f32 {
         let zoom = self.settings(cx).app_zoom;
-        if self.sidebar_collapsed && !cfg!(windows) {
+        if self.front_page_sidebar_collapsed() && !cfg!(windows) {
             // The card's scaled inset and unscaled edge already consume part of the window anchor.
             platform_ui::navigation_left(window, zoom) - 8. * zoom - 1.
         } else {
@@ -1873,6 +1951,15 @@ impl NativeRoot {
         persist: bool,
         cx: &mut Context<Self>,
     ) {
+        if let Some(remote) = self.remote_window.as_mut() {
+            remote.sidebar_collapsed = collapsed;
+            remote.mission_workspace.update(cx, |workspace, cx| {
+                workspace.set_sidebar_collapsed(collapsed, cx)
+            });
+            cx.notify();
+            return;
+        }
+
         let changed = self.sidebar_collapsed != collapsed;
         self.sidebar_collapsed = collapsed;
         if collapsed {
@@ -1932,6 +2019,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn leave_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dismiss_remote_dialog();
         if self.shortcut_recording_active() {
             self.finish_shortcut_recording(window, cx);
         }
@@ -1990,15 +2078,19 @@ impl NativeRoot {
     }
 
     pub(crate) fn toggle_window_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.route == AppRoute::Settings {
+        if self.route == AppRoute::Settings && self.remote_window.is_none() {
             return;
         }
-        let collapsed = !self.sidebar_collapsed;
+        let collapsed = !self.front_page_sidebar_collapsed();
         self.set_sidebar_collapsed(collapsed, true, cx);
         self.sidebar_preview_peeking = false;
         if !collapsed {
             self.sidebar_preview_open = false;
-            if matches!(self.route, AppRoute::Mission(_)) {
+            if let Some(workspace) = self.remote_mission_workspace() {
+                workspace.update(cx, |workspace, cx| {
+                    workspace.focus_active_mission_terminal(window, cx)
+                });
+            } else if self.remote_window.is_none() && matches!(self.route, AppRoute::Mission(_)) {
                 self.mission_workspace.update(cx, |workspace, cx| {
                     workspace.focus_active_mission_terminal(window, cx);
                 });
@@ -2010,10 +2102,10 @@ impl NativeRoot {
     }
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        if self.route == AppRoute::Settings {
+        if self.route == AppRoute::Settings && self.remote_window.is_none() {
             return;
         }
-        let collapsed = !self.sidebar_collapsed;
+        let collapsed = !self.front_page_sidebar_collapsed();
         self.set_sidebar_collapsed(collapsed, true, cx);
         if !collapsed {
             self.sidebar_preview_open = false;
@@ -2033,7 +2125,7 @@ impl NativeRoot {
 
     fn select_sidebar_shortcut(&mut self, index: u8, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_sidebar_shortcut_rows(cx);
-        self.sidebar.update(cx, |sidebar, sidebar_cx| {
+        self.front_page_sidebar().update(cx, |sidebar, sidebar_cx| {
             sidebar.select_shortcut_row(index, window, sidebar_cx)
         });
     }
@@ -2075,9 +2167,10 @@ impl NativeRoot {
     }
 
     fn show_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.route == AppRoute::Settings {
+        if self.route == AppRoute::Settings && self.remote_window.is_none() {
             return;
         }
+        self.refresh_remote_palette(cx);
         self.command_palette
             .update(cx, |palette, palette_cx| palette.open(window, palette_cx));
     }
@@ -2944,7 +3037,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_footer_fits_three_weekly_values_and_settings_in_one_row() {
+    fn sidebar_footer_fits_three_weekly_values_and_avatar_in_one_row() {
         use crate::theme_snapshot::ThemeGuard;
         use gpui::{size, TestAppContext, VisualTestContext};
 
@@ -2962,6 +3055,7 @@ mod tests {
                     let temp = tempfile::tempdir().unwrap();
                     let mut cx = TestAppContext::single();
                     let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+                    store.update(&mut cx, |store, _| store.settings.local_only = false);
                     store.update(&mut cx, |store, _| {
                         store.settings.app_theme = if variant.is_light() {
                             theme::ThemeIntent::Light
@@ -2995,7 +3089,7 @@ mod tests {
 
                     let footer = visual.debug_bounds("SIDEBAR_FOOTER").unwrap();
                     let usage = visual.debug_bounds("SIDEBAR_USAGE").unwrap();
-                    let gear = visual.debug_bounds("SIDEBAR_SETTINGS").unwrap();
+                    let gear = visual.debug_bounds("SIDEBAR_ACCOUNT").unwrap();
                     let row = visual.debug_bounds("SIDEBAR_FOOTER_ROW").unwrap();
                     assert!((usage.size.height - px(32. * zoom)).abs() <= px(1.));
                     assert!((gear.size.width - px(32. * zoom)).abs() <= px(1.));
@@ -3033,18 +3127,18 @@ mod tests {
                     visual.simulate_mouse_move(usage.center(), None, gpui::Modifiers::default());
                     visual.run_until_parked();
                     assert_eq!(visual.debug_bounds("SIDEBAR_USAGE"), Some(usage));
-                    assert_eq!(visual.debug_bounds("SIDEBAR_SETTINGS"), Some(gear));
+                    assert_eq!(visual.debug_bounds("SIDEBAR_ACCOUNT"), Some(gear));
                     visual.simulate_mouse_move(gear.center(), None, gpui::Modifiers::default());
                     visual.run_until_parked();
                     assert_eq!(visual.debug_bounds("SIDEBAR_USAGE"), Some(usage));
-                    assert_eq!(visual.debug_bounds("SIDEBAR_SETTINGS"), Some(gear));
+                    assert_eq!(visual.debug_bounds("SIDEBAR_ACCOUNT"), Some(gear));
                 }
             }
         }
     }
 
     #[test]
-    fn sidebar_footer_opens_usage_and_settings_and_hides_usage_in_collapsed_preview() {
+    fn sidebar_footer_opens_usage_and_account_menu_and_hides_usage_in_collapsed_preview() {
         use crate::theme_snapshot::ThemeGuard;
         use gpui::{size, Modifiers, TestAppContext, VisualTestContext};
 
@@ -3052,6 +3146,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut cx = TestAppContext::single();
         let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        store.update(&mut cx, |store, _| store.settings.local_only = false);
         let host = cx.add_window(|window, cx| {
             let mut root = NativeRoot::new(
                 "sidebar-footer-actions".into(),
@@ -3076,8 +3171,12 @@ mod tests {
         visual.simulate_click(usage.center(), Modifiers::default());
         visual.run_until_parked();
         assert!(visual.debug_bounds("USAGE_POPOVER_PANEL").is_none());
-        let gear = visual.debug_bounds("SIDEBAR_SETTINGS").unwrap();
+        let gear = visual.debug_bounds("SIDEBAR_ACCOUNT").unwrap();
         visual.simulate_click(gear.center(), Modifiers::default());
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("ACCOUNT_MENU").is_some());
+        let settings = visual.debug_bounds("ACCOUNT_MENU_ITEM_0").unwrap();
+        visual.simulate_click(settings.center(), Modifiers::default());
         visual.run_until_parked();
         assert_eq!(
             host.read_with(&visual, |root, _| root.route.clone())
@@ -3093,7 +3192,7 @@ mod tests {
         .unwrap();
         visual.run_until_parked();
         assert!(visual.debug_bounds("SIDEBAR_USAGE").is_none());
-        assert!(visual.debug_bounds("SIDEBAR_SETTINGS").is_some());
+        assert!(visual.debug_bounds("SIDEBAR_ACCOUNT").is_some());
         host.update(&mut visual, |root, _, cx| {
             root.sidebar_collapsed = false;
             root.sidebar_preview_open = false;
@@ -3103,7 +3202,7 @@ mod tests {
         .unwrap();
         visual.run_until_parked();
         assert!(visual.debug_bounds("SIDEBAR_USAGE").is_none());
-        assert!(visual.debug_bounds("SIDEBAR_SETTINGS").is_some());
+        assert!(visual.debug_bounds("SIDEBAR_ACCOUNT").is_some());
     }
 
     struct SidebarHeaderProbe {
@@ -3122,6 +3221,45 @@ mod tests {
                     root.render_sidebar_brand(self.available.then(|| "0.99.0".into()), cx)
                 }))
         }
+    }
+
+    #[test]
+    fn remote_sidebar_hides_an_available_local_update() {
+        use crate::surfaces::remote_client::tests::{choose_host, enable_front_page, fixture};
+        use gpui::{TestAppContext, VisualTestContext};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (store, fake, _) = fixture(&mut cx, temp.path());
+        enable_front_page(&fake);
+        let host = cx.add_window(|window, cx| SidebarHeaderProbe {
+            root: cx.new(|cx| {
+                NativeRoot::new(
+                    "remote-update".into(),
+                    temp.path().join("logs"),
+                    None,
+                    None,
+                    store.clone(),
+                    window,
+                    cx,
+                )
+            }),
+            width: app_settings::SIDEBAR_DEFAULT,
+            zoom: 1.,
+            available: true,
+        });
+        let mut visual = VisualTestContext::from_window(host.into(), &cx);
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("SIDEBAR_UPDATE").is_some());
+        host.update(&mut visual, |probe, window, cx| {
+            probe
+                .root
+                .update(cx, |root, cx| choose_host(root, window, cx));
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("SIDEBAR_UPDATE").is_none());
+        assert!(visual.debug_bounds("SIDEBAR_BRAND_MARK").is_some());
     }
 
     #[test]

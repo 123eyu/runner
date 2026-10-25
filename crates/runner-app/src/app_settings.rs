@@ -289,6 +289,7 @@ pub struct MissionNotifications {
 pub struct AppSettings {
     pub language: runner_app::i18n::Language,
     pub notifications: NotificationSettings,
+    pub local_only: bool,
     pub app_theme: ThemeIntent,
     pub window_material: runner_app::appearance::WindowMaterial,
     pub light_app_theme: LightTheme,
@@ -341,6 +342,7 @@ impl Default for AppSettings {
         Self {
             language: runner_app::i18n::Language::System,
             notifications: NotificationSettings::default(),
+            local_only: false,
             app_theme: ThemeIntent::Auto,
             window_material: Default::default(),
             light_app_theme: LightTheme::RunnerLight,
@@ -535,6 +537,31 @@ pub fn clamp_mission_rail_width(value: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_only_defaults_off_and_ignores_both_legacy_key_spellings() {
+        for key in ["remoteAccessEnabled", "remote_access_enabled"] {
+            for enabled in [false, true] {
+                let temp = tempfile::tempdir().unwrap();
+                let path = temp.path().join("settings.json");
+                std::fs::write(
+                    &path,
+                    serde_json::json!({(key):enabled,"appZoom":1.2}).to_string(),
+                )
+                .unwrap();
+                let mut settings = super::AppSettings::load(&path).unwrap();
+                assert!(!settings.local_only);
+                assert_eq!(settings.app_zoom, 1.2);
+                settings.local_only = true;
+                settings.save(&path).unwrap();
+                let saved: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                assert_eq!(saved["localOnly"], true);
+                assert!(saved.get(key).is_none());
+                assert!(super::AppSettings::load(&path).unwrap().local_only);
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

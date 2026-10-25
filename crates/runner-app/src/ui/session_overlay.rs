@@ -34,6 +34,9 @@ pub struct SessionOverlay {
     on_primary: Option<PressHandler>,
     on_secondary: Option<PressHandler>,
     ended_style: EndedStyle,
+    primary_visible: bool,
+    secondary_visible: bool,
+    primary_selector: Option<SharedString>,
 }
 
 impl SessionOverlay {
@@ -47,6 +50,9 @@ impl SessionOverlay {
             subtitle: None,
             on_primary: None,
             on_secondary: None,
+            primary_visible: true,
+            secondary_visible: true,
+            primary_selector: None,
             ended_style: EndedStyle::Chat,
         }
     }
@@ -65,6 +71,9 @@ impl SessionOverlay {
             subtitle: Some(subtitle.into()),
             on_primary: Some(Rc::new(on_primary)),
             on_secondary: Some(Rc::new(on_secondary)),
+            primary_visible: true,
+            secondary_visible: true,
+            primary_selector: None,
             ended_style: EndedStyle::Chat,
         }
     }
@@ -83,8 +92,22 @@ impl SessionOverlay {
             subtitle: Some(subtitle.into()),
             on_primary: Some(Rc::new(on_restart)),
             on_secondary: Some(Rc::new(on_close)),
+            primary_visible: true,
+            secondary_visible: true,
+            primary_selector: None,
             ended_style: EndedStyle::Shell,
         }
+    }
+
+    pub fn actions_visible(mut self, primary: bool, secondary: bool) -> Self {
+        self.primary_visible = primary;
+        self.secondary_visible = secondary;
+        self
+    }
+
+    pub fn primary_debug_selector(mut self, selector: impl Into<SharedString>) -> Self {
+        self.primary_selector = Some(selector.into());
+        self
     }
 
     pub fn slot_stopped(mut self) -> Self {
@@ -235,23 +258,26 @@ impl RenderOnce for SessionOverlay {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(
+                        .children(self.primary_visible.then(|| {
                             Button::new(
                                 SharedString::from(format!("{id}-restart")),
                                 crate::i18n::text("ui.restart"),
                             )
                             .size(ButtonSize::Sm)
                             .variant(ButtonVariant::Primary)
-                            .on_press(move |window, cx| primary_click(window, cx)),
-                        )
-                        .child(
+                            .when_some(self.primary_selector.clone(), |button, selector| {
+                                button.debug_selector(selector)
+                            })
+                            .on_press(move |window, cx| primary_click(window, cx))
+                        }))
+                        .children(self.secondary_visible.then(|| {
                             Button::new(
                                 SharedString::from(format!("{id}-close")),
                                 crate::i18n::text("ui.close"),
                             )
                             .size(ButtonSize::Sm)
-                            .on_press(move |window, cx| secondary_click(window, cx)),
-                        )
+                            .on_press(move |window, cx| secondary_click(window, cx))
+                        }))
                         .into_any_element()
                 } else {
                     div()
@@ -259,7 +285,7 @@ impl RenderOnce for SessionOverlay {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(
+                        .children(self.primary_visible.then(|| {
                             Button::new(
                                 SharedString::from(format!("{id}-resume")),
                                 if slot {
@@ -270,9 +296,12 @@ impl RenderOnce for SessionOverlay {
                             )
                             .icon("play.svg")
                             .variant(ButtonVariant::Primary)
-                            .on_press(move |window, cx| primary_click(window, cx)),
-                        )
-                        .child(
+                            .when_some(self.primary_selector.clone(), |button, selector| {
+                                button.debug_selector(selector)
+                            })
+                            .on_press(move |window, cx| primary_click(window, cx))
+                        }))
+                        .children(self.secondary_visible.then(|| {
                             Button::new(
                                 SharedString::from(format!("{id}-archive")),
                                 if slot {
@@ -286,8 +315,8 @@ impl RenderOnce for SessionOverlay {
                             } else {
                                 "archive.svg"
                             })
-                            .on_press(move |window, cx| secondary_click(window, cx)),
-                        )
+                            .on_press(move |window, cx| secondary_click(window, cx))
+                        }))
                         .into_any_element()
                 };
                 div()

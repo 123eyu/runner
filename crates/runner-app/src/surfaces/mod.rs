@@ -6,6 +6,7 @@ pub(crate) mod chat;
 pub(crate) mod chat_lifecycle;
 pub(crate) mod command_palette;
 pub(crate) mod crews;
+pub(crate) mod front_page;
 pub(crate) mod mission_composer;
 pub(crate) mod mission_feed;
 pub(crate) mod mission_markdown;
@@ -13,6 +14,7 @@ pub(crate) mod mission_workspace;
 pub(crate) mod panes;
 pub(crate) mod profile_page;
 pub(crate) mod quit_dialog;
+pub(crate) mod remote_client;
 pub(crate) mod render_cache;
 pub(crate) mod roles;
 pub(crate) mod settings;
@@ -35,8 +37,6 @@ pub(crate) use panes::{
 };
 pub(crate) use roles::RoleSurfaces;
 pub(crate) use settings_page::{SettingsPane, SettingsState};
-pub(crate) use sidebar::{
-    default_session_label, session_label, session_label_live, ProjectModal, Sidebar,
-};
+pub(crate) use sidebar::{session_label, session_label_live, ProjectModal, Sidebar};
 pub(crate) use start_chat::StartChatModal;
 pub(crate) use start_mission::StartMissionModalState;

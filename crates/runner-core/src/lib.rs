@@ -5,6 +5,7 @@ pub mod addressing;
 pub mod app_paths;
 pub mod cli_install;
 pub mod command_install;
+pub mod companion;
 pub mod daemon_process;
 pub mod error;
 pub mod event_log;
@@ -38,3 +39,5 @@ pub const fn runner_skill_name(debug: bool) -> &'static str {
 pub mod protocol;
 
 pub mod version;
+
+pub mod remote;

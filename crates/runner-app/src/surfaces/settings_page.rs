@@ -140,11 +140,13 @@ enum CommandInstallActivity {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum SettingsPane {
+    Account,
     #[default]
     General,
     Missions,
     Appearance,
     Notifications,
+    Remote,
     Terminal,
     Shortcuts,
     Agents,
@@ -159,8 +161,10 @@ pub(crate) enum SettingsPane {
 impl SettingsPane {
     fn from_route(value: Option<&str>) -> Self {
         match value {
+            Some("account") => Self::Account,
             Some("missions") => Self::Missions,
             Some("appearance") => Self::Appearance,
+            Some("remote") => Self::Remote,
             Some("notifications") => Self::Notifications,
             Some("terminal") => Self::Terminal,
             Some("shortcuts") => Self::Shortcuts,
@@ -177,9 +181,11 @@ impl SettingsPane {
 
     fn key(self) -> &'static str {
         match self {
+            Self::Account => "account",
             Self::General => "general",
             Self::Missions => "missions",
             Self::Appearance => "appearance",
+            Self::Remote => "remote",
             Self::Notifications => "notifications",
             Self::Terminal => "terminal",
             Self::Shortcuts => "shortcuts",
@@ -195,9 +201,11 @@ impl SettingsPane {
 
     fn label(self) -> &'static str {
         match self {
+            Self::Account => crate::i18n::text("account.title"),
             Self::General => crate::i18n::text("ui.general"),
             Self::Missions => crate::i18n::text("ui.missions"),
             Self::Appearance => crate::i18n::text("ui.appearance"),
+            Self::Remote => crate::i18n::text("ui.remote_access"),
             Self::Notifications => crate::i18n::text("ui.notifications"),
             Self::Terminal => crate::i18n::text("ui.terminal"),
             Self::Shortcuts => crate::i18n::text("ui.keyboard_shortcuts"),
@@ -213,9 +221,11 @@ impl SettingsPane {
 
     fn icon(self) -> &'static str {
         match self {
+            Self::Account => "user-round.svg",
             Self::General => "settings.svg",
             Self::Missions => "rocket.svg",
             Self::Appearance => "sun.svg",
+            Self::Remote => "globe.svg",
             Self::Notifications => "bell.svg",
             Self::Terminal => "terminal.svg",
             Self::Shortcuts => "keyboard.svg",
@@ -232,8 +242,10 @@ impl SettingsPane {
 
 const APP_PANES: &[SettingsPane] = &[
     SettingsPane::General,
+    SettingsPane::Account,
     SettingsPane::Appearance,
     SettingsPane::Notifications,
+    SettingsPane::Remote,
     SettingsPane::Missions,
     SettingsPane::Terminal,
     SettingsPane::Shortcuts,
@@ -255,7 +267,7 @@ const NAV_GROUPS: &[(&str, &[SettingsPane])] = &[
     ("ui.system", SYSTEM_PANES),
 ];
 
-fn filtered_nav_groups(query: &str) -> Vec<(&'static str, Vec<SettingsPane>)> {
+fn filtered_nav_groups(query: &str, remote_access: bool) -> Vec<(&'static str, Vec<SettingsPane>)> {
     let query = query.trim().to_lowercase();
     NAV_GROUPS
         .iter()
@@ -263,6 +275,9 @@ fn filtered_nav_groups(query: &str) -> Vec<(&'static str, Vec<SettingsPane>)> {
             let panes = panes
                 .iter()
                 .copied()
+                .filter(|pane| {
+                    remote_access || !matches!(pane, SettingsPane::Account | SettingsPane::Remote)
+                })
                 .filter(|pane| query.is_empty() || pane.label().to_lowercase().contains(&query))
                 .collect::<Vec<_>>();
             (!panes.is_empty()).then_some((crate::i18n::text(label), panes))
@@ -296,7 +311,8 @@ enum SettingsSelection {
 }
 
 pub(crate) struct SettingsState {
-    pane: SettingsPane,
+    pub(crate) remote: settings::remote::RemotePaneState,
+    pub(crate) pane: SettingsPane,
     focus: FocusHandle,
     search_query: String,
     search: Entity<TextField>,
@@ -538,6 +554,7 @@ impl SettingsState {
             }
         });
         Self {
+            remote: settings::remote::RemotePaneState::new(cx),
             pane: SettingsPane::General,
             focus: cx.focus_handle(),
             search_query: String::new(),
@@ -645,13 +662,13 @@ fn settings_content_column(
         )
 }
 
-pub(crate) fn settings_section_heading(label: &'static str) -> AnyElement {
+pub(crate) fn settings_section_heading(label: impl Into<SharedString>) -> AnyElement {
     div()
         .px_1()
         .text_size(theme::text_meta())
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::faint())
-        .child(label)
+        .child(label.into())
         .into_any_element()
 }
 
@@ -919,6 +936,20 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.remote_window.is_some() {
+            return;
+        }
+
+        let pane = if matches!(pane, SettingsPane::Account | SettingsPane::Remote)
+            && !self.app_store.read(cx).remote_access_enabled()
+        {
+            SettingsPane::General
+        } else {
+            pane
+        };
+        if self.settings_page.pane != pane {
+            self.dismiss_remote_dialog();
+        }
         if self.settings_page.pane == SettingsPane::Updates && pane != SettingsPane::Updates {
             self.pause_updates_pane(cx);
         }
@@ -949,6 +980,7 @@ impl NativeRoot {
         }
         self.settings_page.pane = pane;
         match pane {
+            SettingsPane::Account | SettingsPane::Remote => self.enter_remote_settings(cx),
             SettingsPane::Missions => self.refresh_settings_crews(cx),
             SettingsPane::Agents => {
                 if self.settings_page.agents.is_none() {
@@ -1052,6 +1084,10 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.remote_window.is_some() {
+            return;
+        }
+
         self.enter_settings_pane(SettingsPane::from_route(pane), window, cx);
     }
 
@@ -1152,6 +1188,9 @@ impl NativeRoot {
         activity: CommandInstallActivity,
         cx: &mut Context<Self>,
     ) {
+        if self.remote_window.is_some() {
+            return;
+        }
         if self.settings_page.command_install_activity.is_some() {
             return;
         }
@@ -1248,7 +1287,10 @@ impl NativeRoot {
     ) -> AnyElement {
         let zoom = self.settings(cx).app_zoom;
         let width = self.settings(cx).sidebar_width * zoom;
-        let groups = filtered_nav_groups(&self.settings_page.search_query);
+        let groups = filtered_nav_groups(
+            &self.settings_page.search_query,
+            self.app_store.read(cx).remote_access_enabled(),
+        );
         let active = self.settings_page.pane;
         let nav = if groups.is_empty() {
             vec![div()
@@ -1490,6 +1532,7 @@ impl NativeRoot {
         let key_root = root.clone();
         div()
             .id(SharedString::from(format!("settings-nav-{}", pane.key())))
+            .debug_selector(move || format!("SETTINGS_NAV_{}", pane.key()))
             .tab_index(0)
             .px(rems(10. / 16.))
             .py_1()
@@ -1571,6 +1614,8 @@ impl NativeRoot {
             SettingsPane::General => Some(self.render_general_settings(cx)),
             SettingsPane::Missions => Some(self.render_missions_settings(cx)),
             SettingsPane::Appearance => Some(self.render_appearance_settings(cx)),
+            SettingsPane::Account => Some(self.render_account_settings(cx)),
+            SettingsPane::Remote => Some(self.render_remote_settings(cx)),
             SettingsPane::Notifications => Some(self.render_notifications_settings(cx)),
             SettingsPane::Terminal => Some(self.render_terminal_settings(cx)),
             SettingsPane::Shortcuts => Some(self.render_shortcuts_settings(cx)),
@@ -1643,17 +1688,23 @@ impl NativeRoot {
         }
     }
 
-    pub(crate) fn settings_confirm_overlay(&self, cx: &App) -> Option<AnyElement> {
-        if self.route == AppRoute::Settings && self.settings_page.pane == SettingsPane::Agents {
+    pub(crate) fn settings_confirm_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.route != AppRoute::Settings {
+            return None;
+        }
+        if self.remote_overlay_open() {
+            return Some(self.remote_confirm_overlay(cx));
+        }
+        if self.settings_page.pane == SettingsPane::Agents {
             return self
                 .settings_page
                 .agents
                 .as_ref()
                 .map(|agents| agents.read(cx).accounts_overlay(cx));
         }
-        (self.route == AppRoute::Settings)
-            .then_some(self.settings_page.archived.as_ref())
-            .flatten()
+        self.settings_page
+            .archived
+            .as_ref()
             .map(|archived| archived.read(cx).confirm_overlay().into_any_element())
     }
 
@@ -2164,6 +2215,7 @@ impl NativeRoot {
                     )
                     .into_any_element(),
             ]))
+            .child(self.render_local_only_setting(cx))
             .child(
                 div().flex().flex_col().gap_2()
                     .child(settings_section_heading(crate::i18n::text("ui.sessions")))
@@ -3490,6 +3542,12 @@ mod tests {
     fn settings_routes_fall_back_to_general() {
         assert_eq!(SettingsPane::from_route(None), SettingsPane::General);
         assert_eq!(
+            SettingsPane::from_route(Some("account")),
+            SettingsPane::Account
+        );
+        assert_eq!(SettingsPane::Account.key(), "account");
+        assert_eq!(SettingsPane::Account.icon(), "user-round.svg");
+        assert_eq!(
             SettingsPane::from_route(Some("appearance")),
             SettingsPane::Appearance
         );
@@ -3514,17 +3572,19 @@ mod tests {
 
     #[test]
     fn nav_search_filters_labels_and_removes_empty_groups() {
-        let all = filtered_nav_groups("");
+        let all = filtered_nav_groups("", true);
         assert_eq!(all.len(), 3);
-        assert_eq!(all.iter().map(|(_, panes)| panes.len()).sum::<usize>(), 13);
+        assert_eq!(all.iter().map(|(_, panes)| panes.len()).sum::<usize>(), 15);
         assert_eq!(
             all[0],
             (
                 "App",
                 vec![
                     SettingsPane::General,
+                    SettingsPane::Account,
                     SettingsPane::Appearance,
                     SettingsPane::Notifications,
+                    SettingsPane::Remote,
                     SettingsPane::Missions,
                     SettingsPane::Terminal,
                     SettingsPane::Shortcuts,
@@ -3550,20 +3610,20 @@ mod tests {
         );
         assert_eq!(SettingsPane::from_route(Some("mcp")), SettingsPane::Mcp);
         assert_eq!(
-            filtered_nav_groups("mcp"),
+            filtered_nav_groups("mcp", true),
             vec![("Integrations", vec![SettingsPane::Mcp])]
         );
         assert_eq!(
-            filtered_nav_groups("skills"),
+            filtered_nav_groups("skills", true),
             vec![("Integrations", vec![SettingsPane::Skills])]
         );
 
-        let terminal = filtered_nav_groups("  TERM  ");
+        let terminal = filtered_nav_groups("  TERM  ", true);
         assert_eq!(terminal, vec![("App", vec![SettingsPane::Terminal])]);
 
-        let archived = filtered_nav_groups("archived");
+        let archived = filtered_nav_groups("archived", true);
         assert_eq!(archived, vec![("App", vec![SettingsPane::Archived])]);
-        assert!(filtered_nav_groups("no such setting").is_empty());
+        assert!(filtered_nav_groups("no such setting", true).is_empty());
     }
 
     #[test]

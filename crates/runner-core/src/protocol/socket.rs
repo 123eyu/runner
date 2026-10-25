@@ -14,13 +14,30 @@ pub const FORK_MATERIALIZE_TIMEOUT: Duration = Duration::from_secs(120);
 pub const FORK_REQUEST_TIMEOUT: Duration =
     Duration::from_secs(FORK_MATERIALIZE_TIMEOUT.as_secs() + 30);
 
-fn request_timeout(request: &Request, timeout: Duration) -> Duration {
+pub const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
+
+fn request_timeout(request: &Request, timeout: Duration) -> Option<Duration> {
     match request {
-        Request::session_fork { .. } => timeout.max(FORK_REQUEST_TIMEOUT),
-        _ => timeout,
+        Request::remote_enroll_start { .. }
+        | Request::remote_enroll_confirm { .. }
+        | Request::remote_enroll_cancel { .. }
+        | Request::remote_set_paused { .. }
+        | Request::remote_retry { .. }
+        | Request::remote_logout { .. }
+        | Request::remote_set_pin { .. }
+        | Request::remote_unlock_pin { .. }
+        | Request::remote_revoke_device { .. }
+        | Request::remote_reset_identity { .. }
+        | Request::remote_computers { .. }
+        | Request::remote_pair { .. }
+        | Request::remote_forget { .. }
+        | Request::remote_overview { .. }
+        | Request::remote_follow { .. }
+        | Request::remote_take_control { .. } => Some(timeout.max(REMOTE_REQUEST_TIMEOUT)),
+        Request::session_fork { .. } => Some(timeout.max(FORK_REQUEST_TIMEOUT)),
+        _ => Some(timeout),
     }
 }
-const QUEUE_CAPACITY: usize = 64;
 
 #[cfg(unix)]
 type Stream = std::os::unix::net::UnixStream;
@@ -145,7 +162,7 @@ impl Frames {
         if state.closed {
             return;
         }
-        if state.frames.len() == QUEUE_CAPACITY {
+        if state.frames.len() == TERMINAL_QUEUE_CAPACITY {
             state.frames.clear();
             state.output.clear();
             state.frames.push_back(TerminalFrame::Resync);
@@ -456,6 +473,7 @@ impl SocketTransport {
                 let rows = binary.u16()?;
                 let unfinished_len = binary.u64()? as usize;
                 let preceding_char = char::from_u32(binary.u32()?);
+                let controller = serde_json::from_slice(binary.0)?;
                 if let Some(pending) = self.attaching.lock().unwrap().get_mut(&id) {
                     pending.subscriber.store(subscriber, Ordering::Relaxed);
                     pending.snapshot = Some(TerminalSnapshot {
@@ -465,6 +483,7 @@ impl SocketTransport {
                         bytes: Vec::new(),
                         unfinished_len,
                         preceding_char,
+                        controller,
                     });
                 }
             }
@@ -519,6 +538,7 @@ impl SocketTransport {
                                 seq: binary.u64()?,
                                 cols: binary.u16()?,
                                 rows: binary.u16()?,
+                                controller: serde_json::from_slice(binary.0)?,
                             });
                         }
                         wire::RESYNC => queue.push(TerminalFrame::Resync),
@@ -556,10 +576,13 @@ impl Transport for SocketTransport {
         let response = Frame::json(wire::REQUEST, &wire::Call { id, request })
             .map_err(client_error)
             .and_then(|frame| self.send(frame))
-            .and_then(|()| {
-                result
+            .and_then(|()| match timeout {
+                Some(timeout) => result
                     .recv_timeout(timeout)
-                    .map_err(|_| ClientError::msg("runnerd request deadline exceeded"))?
+                    .map_err(|_| ClientError::msg("runnerd request deadline exceeded"))?,
+                None => result
+                    .recv()
+                    .map_err(|_| ClientError::msg("runnerd connection closed"))?,
             });
         self.pending.lock().unwrap().remove(&id);
         response
@@ -571,44 +594,13 @@ impl Transport for SocketTransport {
         *self.observer.lock().unwrap() = Some(observer);
     }
     fn attach(&self, session_id: &str) -> Result<TerminalAttachment, ClientError> {
-        let id = self.next.fetch_add(1, Ordering::Relaxed);
-        let (done, result) = mpsc::channel();
-        let queue = Arc::new(Frames::default());
-        let subscriber = Arc::new(AtomicU64::new(0));
-        self.attaching.lock().unwrap().insert(
-            id,
-            PendingAttach {
-                done,
-                snapshot: None,
-                queue: queue.clone(),
-                subscriber: subscriber.clone(),
-            },
-        );
-        let mut frame = wire::numbered(wire::ATTACH, id);
-        frame
-            .payload
-            .extend(wire::session_payload(session_id).map_err(client_error)?);
-        let snapshot = self.send(frame).and_then(|()| {
-            result
-                .recv_timeout(self.timeout)
-                .map_err(|_| ClientError::msg("runnerd attach deadline exceeded"))?
-        });
-        self.attaching.lock().unwrap().remove(&id);
-        match snapshot {
-            Ok(snapshot) => Ok(TerminalAttachment {
-                subscriber_id: subscriber.load(Ordering::Relaxed),
-                snapshot,
-                frames: Box::new(Subscription {
-                    queue,
-                    owner: self.own.clone(),
-                    id,
-                }),
-            }),
-            Err(error) => {
-                let _ = self.send(wire::numbered(wire::DETACH, id));
-                Err(error)
-            }
-        }
+        self.attach_terminal(session_id, None)
+    }
+    fn attach_remote(
+        &self,
+        config: crate::remote::RemoteTerminal,
+    ) -> Result<TerminalAttachment, ClientError> {
+        self.attach_terminal(&config.address(), Some(&config))
     }
     fn input(&self, session_id: &str, bytes: &[u8]) -> Result<(), ClientError> {
         let _ordered = self.one_way.lock().unwrap();
@@ -636,6 +628,63 @@ impl Transport for SocketTransport {
                 let _ = self.events.send(wire::Event {
                     event: Some(ClientEvent { name: "session/input-error".into(), payload: serde_json::json!({"session_id": session_id, "message": error.to_string()}) }), lagged: None,
                 });
+            }
+        }
+    }
+}
+impl SocketTransport {
+    fn attach_terminal(
+        &self,
+        session_id: &str,
+        config: Option<&crate::remote::RemoteTerminal>,
+    ) -> Result<TerminalAttachment, ClientError> {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        let (done, result) = mpsc::channel();
+        let queue = Arc::new(Frames::default());
+        let subscriber = Arc::new(AtomicU64::new(0));
+        self.attaching.lock().unwrap().insert(
+            id,
+            PendingAttach {
+                done,
+                snapshot: None,
+                queue: queue.clone(),
+                subscriber: subscriber.clone(),
+            },
+        );
+        let mut frame = wire::numbered(wire::ATTACH, id);
+        frame
+            .payload
+            .extend(wire::session_payload(session_id).map_err(client_error)?);
+        if let Some(config) = config {
+            frame.payload.extend(
+                serde_json::to_vec(config).map_err(|_| {
+                    ClientError::msg("Could not encode remote terminal configuration")
+                })?,
+            );
+        }
+        let snapshot = self.send(frame).and_then(|()| {
+            result
+                .recv_timeout(if config.is_some() {
+                    self.timeout.max(REMOTE_REQUEST_TIMEOUT)
+                } else {
+                    self.timeout
+                })
+                .map_err(|_| ClientError::msg("runnerd attach deadline exceeded"))?
+        });
+        self.attaching.lock().unwrap().remove(&id);
+        match snapshot {
+            Ok(snapshot) => Ok(TerminalAttachment {
+                subscriber_id: subscriber.load(Ordering::Relaxed),
+                snapshot,
+                frames: Box::new(Subscription {
+                    queue,
+                    owner: self.own.clone(),
+                    id,
+                }),
+            }),
+            Err(error) => {
+                let _ = self.send(wire::numbered(wire::DETACH, id));
+                Err(error)
             }
         }
     }
@@ -908,7 +957,7 @@ mod tests {
     #[test]
     fn client_terminal_overflow_requests_resync() {
         let queue = Frames::default();
-        for seq in 0..=QUEUE_CAPACITY as u64 {
+        for seq in 0..=TERMINAL_QUEUE_CAPACITY as u64 {
             queue.push(TerminalFrame::Output {
                 seq,
                 bytes: vec![42],
@@ -929,7 +978,7 @@ mod deadline_tests {
     use super::*;
 
     #[test]
-    fn only_forks_extend_the_request_deadline_to_cover_materialization() {
+    fn ordinary_requests_keep_their_deadlines_and_forks_cover_materialization() {
         let fast = Request::app_version {};
         let fork = Request::session_fork {
             source_session_id: "source".into(),
@@ -939,13 +988,13 @@ mod deadline_tests {
         };
         assert_eq!(
             request_timeout(&fast, REQUEST_TIMEOUT),
-            Duration::from_secs(10)
+            Some(Duration::from_secs(10))
         );
         assert_eq!(
             request_timeout(&fast, Duration::from_millis(200)),
-            Duration::from_millis(200)
+            Some(Duration::from_millis(200))
         );
-        assert!(request_timeout(&fork, REQUEST_TIMEOUT) > FORK_MATERIALIZE_TIMEOUT);
+        assert!(request_timeout(&fork, REQUEST_TIMEOUT).unwrap() > FORK_MATERIALIZE_TIMEOUT);
         for ordinary in [
             Request::session_list {
                 mission_id: "mission".into(),
@@ -957,15 +1006,60 @@ mod deadline_tests {
             },
         ] {
             assert!(!ordinary.is_fast());
-            assert_eq!(request_timeout(&ordinary, REQUEST_TIMEOUT), REQUEST_TIMEOUT);
+            assert_eq!(
+                request_timeout(&ordinary, REQUEST_TIMEOUT),
+                Some(REQUEST_TIMEOUT)
+            );
             assert_eq!(
                 request_timeout(&ordinary, Duration::from_millis(200)),
-                Duration::from_millis(200)
+                Some(Duration::from_millis(200))
             );
             assert_eq!(
                 request_timeout(&ordinary, Duration::from_secs(30)),
-                Duration::from_secs(30)
+                Some(Duration::from_secs(30))
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod remote_deadline_tests {
+    use super::*;
+    #[test]
+    fn remote_budgets_cover_service_calls_and_enrollment_retries() {
+        for request in [
+            Request::remote_enroll_start {
+                origin: None,
+                confirm_account: true,
+            },
+            Request::remote_enroll_confirm { allow: true },
+            Request::remote_enroll_cancel {},
+            Request::remote_set_paused { paused: false },
+            Request::remote_retry {},
+            Request::remote_logout {},
+            Request::remote_set_pin {
+                pin: crate::remote::Secret("001234".into()),
+            },
+            Request::remote_unlock_pin {},
+            Request::remote_revoke_device {
+                fingerprint: "device".into(),
+            },
+            Request::remote_reset_identity {},
+        ] {
+            assert_eq!(
+                request_timeout(&request, REQUEST_TIMEOUT),
+                Some(REMOTE_REQUEST_TIMEOUT)
+            );
+            assert_eq!(
+                request_timeout(&request, Duration::from_secs(60)),
+                Some(Duration::from_secs(60))
+            );
+            assert!(REMOTE_REQUEST_TIMEOUT > Duration::from_secs(30));
+        }
+        for request in [Request::remote_status {}, Request::remote_trust {}] {
+            for timeout in [REQUEST_TIMEOUT, Duration::from_millis(200)] {
+                assert_eq!(request_timeout(&request, timeout), Some(timeout));
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{ClipboardItem, KeyDownEvent, Window};
+use gpui::{KeyDownEvent, Window};
 use runner_terminal::input_state::ECHO_WINDOW;
 
 use super::*;
@@ -9,7 +9,8 @@ use crate::*;
 
 impl MissionWorkspace {
     pub(crate) fn mark_active_session_viewed(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if !self.is_active(cx)
+        if self.remote.is_some()
+            || !self.is_active(cx)
             || !window.is_window_active()
             || self.archived()
             || self.secondary
@@ -70,7 +71,7 @@ impl MissionWorkspace {
                 self.open_tabs
                     .iter()
                     .filter(|session_id| {
-                        self.sessions
+                        self.members()
                             .iter()
                             .any(|session| session.session.id == session_id.as_str())
                     })
@@ -103,7 +104,10 @@ impl MissionWorkspace {
             }
         }
         self.active_tab = MissionTab::Feed;
-        crate::notifications::view_changed(cx);
+        self.remote_navigation_changed(cx);
+        if self.remote.is_none() {
+            crate::notifications::view_changed(cx);
+        }
         if self.feed_was_near_bottom {
             self.scroll_feed_to_bottom();
             self.feed_has_new_messages = false;
@@ -122,7 +126,7 @@ impl MissionWorkspace {
             return;
         }
         let valid = self
-            .sessions
+            .members()
             .iter()
             .any(|session| session.session.id == session_id);
         if !valid {
@@ -147,7 +151,14 @@ impl MissionWorkspace {
         }
         self.feed_list.scrollbar_drag_ended();
         self.active_tab = MissionTab::Session(session_id.to_owned());
-        crate::notifications::view_changed(cx);
+        self.remote_selected_handle = self
+            .members()
+            .iter()
+            .find(|member| member.session.id == session_id)
+            .map(|member| member.handle.clone());
+        if self.remote.is_none() {
+            crate::notifications::view_changed(cx);
+        }
         self.mark_active_session_viewed(window, cx);
         if let Err(error) = self.ensure_mission_terminals_attached(window, cx) {
             self.error = Some(error.to_string().into());
@@ -182,10 +193,14 @@ impl MissionWorkspace {
         if self.active_tab == MissionTab::Session(session_id.to_owned()) {
             self.clear_feed_selection();
             self.active_tab = MissionTab::Feed;
-            crate::notifications::view_changed(cx);
+            self.remote_navigation_changed(cx);
+            if self.remote.is_none() {
+                crate::notifications::view_changed(cx);
+            }
             window.focus(&self.root_focus, cx);
         }
         self.attached.remove(session_id);
+        self.remote_navigation_changed(cx);
         cx.notify();
     }
 
@@ -196,35 +211,42 @@ impl MissionWorkspace {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .attached
+            .get(session_id)
+            .is_some_and(|chat| !chat.terminal.control().desktop())
+        {
+            cx.stop_propagation();
+            if event.keystroke.key == "enter" && !event.is_held {
+                let ids = self.control_session_ids(cx);
+                let chats = if crate::terminal::control::mission_covered(
+                    ids.iter().map(|id| self.attached.get(id)),
+                ) {
+                    ids.iter()
+                        .filter_map(|id| self.attached.get(id))
+                        .collect::<Vec<_>>()
+                } else {
+                    self.attached.get(session_id).into_iter().collect()
+                };
+                crate::terminal::control::take_back(&chats, cx);
+            }
+            return;
+        }
         if !self.mission_terminal_interactive(session_id, cx) {
             return;
         }
         let Some(chat) = self.attached.get(session_id) else {
             return;
         };
-        let keystroke = &event.keystroke;
         let option_is_meta = self.settings(cx).option_as_meta.is_meta(cx);
-        if runner_app::terminal_ime::swallows_option_copy(keystroke, option_is_meta) {
-            cx.stop_propagation();
-            return;
-        }
-        if runner_app::terminal_ime::terminal_key_route(
+        match crate::terminal::input::handle_key(
+            &chat.terminal,
             chat.terminal_input.read(cx).is_composing(),
-            keystroke,
+            &event.keystroke,
             option_is_meta,
-        ) != runner_app::terminal_ime::TerminalKeyRoute::Raw
-        {
-            return;
-        }
-        match chat.terminal.send_key(
-            &keystroke.key,
-            keystroke.modifiers.control,
-            keystroke.modifiers.alt,
-            keystroke.modifiers.shift,
-            keystroke.key_char.as_deref(),
+            cx,
         ) {
             Ok(true) => {
-                chat.terminal.scroll_to_bottom();
                 self.error = None;
                 cx.stop_propagation();
                 cx.notify();
@@ -245,17 +267,14 @@ impl MissionWorkspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(text) = self
+        let copied = self
             .attached
             .get(session_id)
-            .and_then(|chat| chat.terminal.selection_text())
-        else {
+            .is_some_and(|chat| crate::terminal::input::copy_selection(&chat.terminal, cx));
+        if !copied {
             #[cfg(windows)]
             cx.propagate();
-            return;
-        };
-        cx.write_to_clipboard(ClipboardItem::new_string(text));
-        cx.stop_propagation();
+        }
     }
 
     pub(super) fn on_mission_paste(
@@ -276,29 +295,16 @@ impl MissionWorkspace {
         }) else {
             return;
         };
-        match paste {
-            runner_app::terminal_paste::TerminalPaste::Image => {
-                let runtime = self
-                    .sessions
-                    .iter()
-                    .find(|row| row.session.id == session_id)
-                    .and_then(|row| runner_core::Runtime::parse(&row.runtime));
-                let Some(chat) = self.attached.get(session_id) else {
-                    return;
-                };
-                let input = runner_app::terminal_paste::image_paste_shortcut(runtime);
-                if let Err(error) = chat.terminal.write_user_bytes(input) {
-                    self.error = Some(error.to_string().into());
-                }
-            }
-            runner_app::terminal_paste::TerminalPaste::Text(text) => {
-                let Some(chat) = self.attached.get(session_id) else {
-                    return;
-                };
-                if let Err(error) = chat.terminal.paste(&text) {
-                    self.error = Some(error.to_string().into());
-                }
-            }
+        let runtime = self
+            .members()
+            .iter()
+            .find(|row| row.session.id == session_id)
+            .and_then(|row| runner_core::Runtime::parse(&row.runtime));
+        let Some(chat) = self.attached.get(session_id) else {
+            return;
+        };
+        if let Err(error) = crate::terminal::input::paste(&chat.terminal, &paste, runtime) {
+            self.error = Some(error.to_string().into());
         }
     }
 
@@ -353,5 +359,15 @@ impl MissionWorkspace {
         .detach();
         chat.terminal_focus.focus(window, cx);
         cx.notify();
+    }
+}
+
+impl MissionWorkspace {
+    pub(crate) fn close_visible_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drawer_focused(window, cx) {
+            self.hide_terminal_drawer(window, cx);
+        } else if let MissionTab::Session(id) = self.active_tab.clone() {
+            self.close_mission_session_tab(&id, window, cx);
+        }
     }
 }

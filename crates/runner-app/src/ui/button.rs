@@ -30,6 +30,7 @@ pub enum ButtonVariant {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ButtonSize {
     Sm,
+    Compact,
     #[default]
     Md,
 }
@@ -38,6 +39,7 @@ impl ButtonSize {
     pub const fn height(self, bordered: bool) -> f32 {
         let height = match self {
             Self::Sm => 24.,
+            Self::Compact => 28.,
             Self::Md => 32.,
         };
         if bordered {
@@ -62,6 +64,7 @@ pub struct Button {
     loading: bool,
     focus_handle: Option<FocusHandle>,
     tooltip: Option<SharedString>,
+    debug_selector: Option<SharedString>,
     on_press: Option<PressHandler>,
 }
 
@@ -80,6 +83,7 @@ impl Button {
             loading: false,
             focus_handle: None,
             tooltip: None,
+            debug_selector: None,
             on_press: None,
         }
     }
@@ -141,6 +145,11 @@ impl Button {
         self.on_press = Some(Rc::new(handler));
         self
     }
+
+    pub fn debug_selector(mut self, selector: impl Into<SharedString>) -> Self {
+        self.debug_selector = Some(selector.into());
+        self
+    }
 }
 
 impl RenderOnce for Button {
@@ -181,6 +190,7 @@ impl RenderOnce for Button {
         let height = self.size.height(has_border);
         let (horizontal_padding, text_size, icon_size) = match self.size {
             ButtonSize::Sm => (10., theme::text_ui(), 12.),
+            ButtonSize::Compact => (12., theme::text_ui(), 13.),
             ButtonSize::Md => (12., theme::text_title(), 14.),
         };
         let mouse_focus = self.focus_handle.clone();
@@ -189,6 +199,9 @@ impl RenderOnce for Button {
         let spinner_id = (self.id.clone(), "loading");
         let icon = (!self.loading).then_some(self.icon).flatten();
         let mut button = div()
+            .when_some(self.debug_selector, |button, selector| {
+                button.debug_selector(|| selector.to_string())
+            })
             .id(self.id)
             .when_some(self.focus_handle, |button, handle| {
                 button.track_focus(&handle.tab_stop(!inactive))
@@ -207,6 +220,9 @@ impl RenderOnce for Button {
             .bg(background)
             .font_weight(FontWeight::MEDIUM)
             .text_size(text_size)
+            .when(self.size == ButtonSize::Compact, |button| {
+                button.line_height(rems(14. / 16.))
+            })
             .text_color(foreground)
             .opacity(if inactive { 0.5 } else { 1. })
             .cursor(if inactive {

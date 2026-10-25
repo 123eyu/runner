@@ -20,6 +20,9 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.remote.is_some() {
+            return;
+        }
         self.active = true;
         let _ = self.core(cx).window_set_mission(
             &self.window_label,
@@ -96,7 +99,7 @@ impl MissionWorkspace {
         cx.spawn_in(window, async move |weak, cx| {
             let result = load.await;
             let _ = weak.update_in(cx, |this, window, cx| {
-                if !this.is_current(&mission_id, generation) || !this.is_active(cx) {
+                if !this.is_current(&mission_id, generation) {
                     return;
                 }
                 match result {
@@ -170,12 +173,14 @@ impl MissionWorkspace {
                         let active = this.is_active(cx);
                         this.sync_mission_subject_ownership(active, window, cx);
                         this.mark_active_session_viewed(window, cx);
-                        if !this.secondary {
+                        if active && !this.secondary {
                             if let Err(error) = this.ensure_mission_terminals_attached(window, cx) {
                                 this.error = Some(error.to_string().into());
                             }
                         }
-                        this.focus_active_mission_terminal(window, cx);
+                        if active {
+                            this.focus_active_mission_terminal(window, cx);
+                        }
                         crate::notifications::view_changed(cx);
                     }
                     Err(error) => {
@@ -292,17 +297,23 @@ impl MissionWorkspace {
         )
     }
 
-    #[cfg(not(test))]
     pub(crate) fn drawer_focused(&self, window: &Window, cx: &App) -> bool {
         self.layout.drawer.open() && self.drawer_focus.contains_focused(window, cx)
     }
 
     pub(crate) fn drawer_available(&self, cx: &App) -> bool {
-        self.mission.is_some()
+        self.mission_view().is_some()
             && mission_drawer_available(self.archived(), self.secondary_state(cx).secondary)
     }
 
     pub(crate) fn current_mission_terminal_size(&self, window: &Window, cx: &App) -> (u16, u16) {
+        if let Some(remote) = &self.remote {
+            if let MissionTab::Session(id) = &self.active_tab {
+                if let Some(size) = remote.terminal_sizes.get(id) {
+                    return *size;
+                }
+            }
+        }
         let measured = match &self.active_tab {
             MissionTab::Session(session_id) => self
                 .attached
@@ -334,6 +345,9 @@ impl MissionWorkspace {
     }
 
     pub(crate) fn schedule_mission_grid_hint(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
         if !self.is_active(cx) || self.secondary || self.grid_hint_pending {
             return;
         }
@@ -367,7 +381,11 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        if self.archived() || self.secondary_state(cx).secondary {
+        if self.remote.is_some() {
+            self.remote_navigation_changed(cx);
+            return Ok(());
+        }
+        if self.archived() {
             return Ok(());
         }
         let mut errors = Vec::new();
@@ -376,7 +394,14 @@ impl MissionWorkspace {
             errors.push(error.to_string());
         }
         for session in self.sessions.clone() {
-            if !self.open_tabs.contains(&session.session.id) {
+            if !self.open_tabs.contains(&session.session.id)
+                && self
+                    .app_store
+                    .read(cx)
+                    .bridge
+                    .session(&session.session.id)
+                    .is_none_or(|terminal| terminal.control().desktop())
+            {
                 continue;
             }
             if let Err(error) = self.ensure_mission_terminal_attached(
@@ -414,6 +439,9 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
+        if self.remote.is_some() {
+            return Ok(());
+        }
         let Some(session_id) = layout.drawer.active_shell() else {
             return Ok(());
         };
@@ -443,7 +471,17 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        if self.secondary_state(cx).secondary {
+        if self.remote.is_some() {
+            return Ok(());
+        }
+        if self.secondary_state(cx).secondary
+            && self
+                .app_store
+                .read(cx)
+                .bridge
+                .session(session_id)
+                .is_none_or(|terminal| terminal.control().desktop())
+        {
             return Ok(());
         }
         if status != SessionStatus::Running {
@@ -610,12 +648,17 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.remote.is_some() {
+            return;
+        }
         if !active {
             return;
         }
         let Some(mission_id) = self.mission_id.as_ref() else {
             return;
         };
+        let resumed = !self.active;
+        self.active = true;
         let state = runner_core::protocol::window::is_secondary_for(
             &self.core(cx).window_snapshot().unwrap_or_default(),
             &self.window_label,
@@ -623,7 +666,7 @@ impl MissionWorkspace {
         );
         let secondary = state.secondary;
         let primary = state.primary_label;
-        if secondary != self.secondary {
+        if secondary != self.secondary || resumed {
             self.secondary = secondary;
             self.duplicate_dismissed = false;
             self.primary_label = primary;
@@ -637,10 +680,26 @@ impl MissionWorkspace {
         } else {
             self.primary_label = primary;
         }
+        if resumed {
+            if !self.loading && self.mission.is_some() {
+                self.refresh_open_mission(window, cx);
+            }
+            self.resync_mission_events(cx);
+            self.schedule_mission_grid_hint(window, cx);
+            self.focus_active_mission_terminal(window, cx);
+        }
     }
 
     pub(crate) fn focus_active_mission_terminal(&self, window: &mut Window, cx: &mut App) {
         if self.rename_modal.is_some() || self.stop_all_confirm || self.restart_confirm.is_some() {
+            return;
+        }
+        if self.remote.is_some() {
+            if let MissionTab::Session(id) = &self.active_tab {
+                self.defer_remote_terminal_focus(id.clone(), false, window, cx);
+            } else {
+                self.root_focus.focus(window, cx);
+            }
             return;
         }
         let MissionTab::Session(session_id) = &self.active_tab else {
@@ -662,6 +721,10 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut App,
     ) {
+        if self.remote.is_some() {
+            self.defer_remote_terminal_focus(session_id.to_owned(), true, window, cx);
+            return;
+        }
         if self.mission_terminal_interactive(session_id, cx) {
             if let Some(chat) = self.attached.get(session_id) {
                 chat.terminal_focus.focus(window, cx);
@@ -669,5 +732,42 @@ impl MissionWorkspace {
             }
         }
         self.drawer_focus.focus(window, cx);
+    }
+    fn defer_remote_terminal_focus(
+        &self,
+        id: String,
+        drawer: bool,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let Some(shell) = self.shell.upgrade() else {
+            return;
+        };
+        let target = self.remote.as_ref().unwrap().client.target.clone();
+        let generation = self.generation;
+        window.defer(cx, move |window, cx| {
+            shell.update(cx, |shell, cx| {
+                let current = shell.remote_window.as_ref().is_some_and(|remote| {
+                    if remote.front_page.target != target {
+                        return false;
+                    }
+                    let workspace = remote.mission_workspace.read(cx);
+                    workspace.active
+                        && workspace.generation == generation
+                        && workspace.rename_modal.is_none()
+                        && !workspace.stop_all_confirm
+                        && workspace.restart_confirm.is_none()
+                        && if drawer {
+                            workspace.layout.drawer.open()
+                                && workspace.layout.drawer.active_shell() == Some(&id)
+                        } else {
+                            workspace.active_tab == MissionTab::Session(id.clone())
+                        }
+                });
+                if current {
+                    shell.focus_remote_terminal(&id, window, cx);
+                }
+            })
+        });
     }
 }
