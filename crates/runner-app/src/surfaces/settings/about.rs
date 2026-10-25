@@ -4,6 +4,9 @@ use runner_app::ui::{PaneHeader, SettingsCard};
 
 use crate::{assets::app_icon_source, theme};
 
+pub(super) const DISCORD_URL: &str = "https://discord.gg/6BrfZdHKNf";
+pub(super) const WECHAT_README_URL: &str = "https://github.com/yicheng47/runner#community";
+
 pub(crate) struct AboutPane;
 
 impl AboutPane {
@@ -101,6 +104,20 @@ impl Render for AboutPane {
                     None,
                 ),
                 link_row(
+                    "about-discord",
+                    "discord.svg",
+                    "Discord",
+                    Some(DISCORD_URL),
+                    None,
+                ),
+                link_row(
+                    "about-wechat-readme",
+                    "wechat.svg",
+                    crate::i18n::text("community.wechat_readme"),
+                    Some(WECHAT_README_URL),
+                    None,
+                ),
+                link_row(
                     "about-license",
                     "scale.svg",
                     crate::i18n::text("ui.license"),
@@ -108,6 +125,13 @@ impl Render for AboutPane {
                     Some("MIT"),
                 ),
             ]))
+            .child(
+                div()
+                    .debug_selector(|| "ABOUT_INVITE_GUIDANCE".into())
+                    .text_size(theme::text_ui())
+                    .text_color(theme::muted())
+                    .child(crate::i18n::text("community.invite_guidance")),
+            )
             .child(
                 div()
                     .flex()
@@ -130,6 +154,7 @@ fn link_row(
     let interactive = url.is_some();
     let mut row = div()
         .id(id)
+        .debug_selector(move || id.into())
         .tab_index(if interactive { 0 } else { -1 })
         .w_full()
         .flex()
