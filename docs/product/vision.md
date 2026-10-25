@@ -100,7 +100,7 @@ The user-facing surfaces, described by the value they deliver, not by their impl
 
 ### 4.8 App life
 
-- **Updates** — Settings → Updates and the sidebar indicator expose available downloads and installation. macOS uses Sparkle; Windows verifies a signed installer before Install and restart. Production, nightly and remote-nightly have separate feeds and share the installed app and user data.
+- **Updates** — Settings → Updates and the sidebar indicator expose available downloads and installation. macOS uses Sparkle; Windows verifies a signed installer before Install and restart. Production and nightly have separate feeds and share the installed app and user data.
 - **Logging + crash reporting** — `tracing` writes a rotating log to the OS log dir for the bundle; a panic hook captures backtraces; Help → Reveal Logs in Finder.
 - **Theming** — Settings exposes Auto / Light / Dark appearance, light variants (Runner Light, Catppuccin Latte), dark variants (Runner, Catppuccin Mocha), and separate terminal themes.
 

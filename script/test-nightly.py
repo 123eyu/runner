@@ -24,13 +24,11 @@ STAMP = '20260908.0100'
 SHA = '99e32efa36578ffc484a9cbb046b46203278f93b'
 VERSION = f'nightly.{SHA[:7]}.{STAMP}'
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
-CHANNELS = {'nightly': ('Runner Nightly', 'Runner-Nightly'),
-            'remote-nightly': ('Runner Remote Nightly', 'Runner-Remote-Nightly')}
 
 MOCKS = r'''
 gh() {
   printf 'gh %s\n' "$*" >> "$CALLS"
-  if [[ "$1" == release && "$3" != "$CHANNEL" ]]; then
+  if [[ "$1" == release && "$3" != nightly ]]; then
     echo "unexpected release: $3" >&2
     return 90
   fi
@@ -113,8 +111,10 @@ class NightlyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='runner-nightly-test-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = dict(os.environ, SOURCE_SHA=SHA, CI_SHA=SHA, GITHUB_SHA=SHA, GITHUB_REF='refs/heads/main',
-                        BUILD_STAMP=STAMP, NIGHTLY_SHORT_SHA=SHA[:7], PLATFORM='both',
+        self.env = dict(os.environ, SOURCE_SHA=SHA, CI_SHA=SHA, GITHUB_SHA=SHA,
+                        BUILD_STAMP=STAMP, NIGHTLY_VERSION=VERSION, NIGHTLY_SHORT_SHA=SHA[:7], PLATFORM='both',
+                        DMG_NAME=f'Runner-Nightly-{SHA[:7]}.{STAMP}-arm64.dmg',
+                        SETUP_NAME=f'Runner-Setup-{VERSION}-x64.exe',
                         CI_RESULT='success', RELEASE_EXISTS='true',
                         FAIL_UPLOAD='', FAIL_DOWNLOAD='', FAIL_TAG_PUSH='', RUNNER_TEMP=str(self.root),
                         RELEASE_TAG='v0.8.2',
@@ -124,32 +124,23 @@ class NightlyTests(unittest.TestCase):
                         GITHUB_STEP_SUMMARY=str(self.root / 'summary'))
         (self.root / 'script').mkdir()
         (self.root / 'script/verify-nightly-appcast.py').symlink_to(ROOT / 'script/verify-nightly-appcast.py')
-        for channel in CHANNELS:
-            (self.root / f'script/{channel}-release-notes.md').symlink_to(ROOT / f'script/{channel}-release-notes.md')
+        (self.root / 'script/nightly-release-notes.md').symlink_to(ROOT / 'script/nightly-release-notes.md')
         self.mac = self.root / 'nightly-artifacts/macos'
         self.win = self.root / 'nightly-artifacts/windows'
         self.mac.mkdir(parents=True)
         self.win.mkdir(parents=True)
-        self.use_channel('nightly')
-
-    def use_channel(self, channel):
-        title, dmg_prefix = CHANNELS[channel]
-        version = f'{channel}.{SHA[:7]}.{STAMP}'
-        self.env.update(CHANNEL=channel, RELEASE_TITLE=title, NIGHTLY_VERSION=version,
-                        DMG_NAME=f'{dmg_prefix}-{SHA[:7]}.{STAMP}-arm64.dmg',
-                        SETUP_NAME=f'Runner-Setup-{version}-x64.exe')
         (self.mac / self.env['DMG_NAME']).write_bytes(b'nightly dmg fixture')
         (self.win / self.env['SETUP_NAME']).write_bytes(b'nightly installer fixture')
         (self.win / (self.env['SETUP_NAME'] + '.sig')).write_bytes(b'installer signature fixture')
         self.appcast = self.mac / 'appcast.xml'
         item = ET.SubElement(ET.SubElement(ET.Element('rss'), 'channel'), 'item')
-        release_url = f'https://github.com/yicheng47/runner/releases/tag/{channel}'
+        release_url = 'https://github.com/yicheng47/runner/releases/tag/nightly'
         for field, value in [('version', STAMP), ('shortVersionString', SHA[:7]),
                              ('hardwareRequirements', 'arm64'), ('fullReleaseNotesLink', release_url)]:
             ET.SubElement(item, SPARKLE + field).text = value
         ET.SubElement(item, 'link').text = release_url
         ET.SubElement(item, 'enclosure', {
-            'url': f"https://github.com/yicheng47/runner/releases/download/{channel}/{self.env['DMG_NAME']}",
+            'url': f"https://github.com/yicheng47/runner/releases/download/nightly/{self.env['DMG_NAME']}",
             'length': str((self.mac / self.env['DMG_NAME']).stat().st_size),
             SPARKLE + 'edSignature': base64.b64encode(b'x' * 64).decode(),
         })
@@ -196,9 +187,7 @@ class NightlyTests(unittest.TestCase):
 
     def test_publish_predicate_including_default_and_cancellation(self):
         self.assertEqual(WORKFLOW[True]['workflow_dispatch']['inputs']['platform']['default'], 'both')
-        self.assertEqual(WORKFLOW[True]['workflow_dispatch']['inputs']['channel']['default'], 'nightly')
-        self.assertEqual(WORKFLOW[True]['workflow_dispatch']['inputs']['channel']['options'], list(CHANNELS))
-        self.assertEqual(WORKFLOW['concurrency'], {'group': '${{ inputs.channel }}', 'cancel-in-progress': True})
+        self.assertEqual(WORKFLOW['concurrency'], {'group': 'nightly', 'cancel-in-progress': True})
         self.assertIn('!cancelled()', JOBS['publish']['if'])
         results = ['success', 'failure', 'cancelled', 'skipped']
         for platform, prepare, macos, windows, cancelled in itertools.product(
@@ -221,27 +210,6 @@ class NightlyTests(unittest.TestCase):
         self.assertEqual(outputs['short_sha'], SHA[:7])
         self.assertRegex(outputs['stamp'], r'^\d{8}\.\d{4}$')
         self.assertEqual(outputs['version'], f'nightly.{SHA[:7]}.' + outputs['stamp'])
-        self.assertEqual(outputs['title'], 'Runner Nightly')
-        self.assertEqual(outputs['dmg_name'], f'Runner-Nightly-{SHA[:7]}.' + outputs['stamp'] + '-arm64.dmg')
-
-    def test_each_release_is_cut_only_from_its_own_branch(self):
-        step = next(step for step in JOBS['prepare']['steps'] if step.get('id') == 'build')
-        for channel, branch, allowed in [('nightly', 'main', True), ('nightly', 'nightly-remote', False),
-                                         ('remote-nightly', 'nightly-remote', True), ('remote-nightly', 'main', False),
-                                         ('other', 'main', False)]:
-            with self.subTest(channel=channel, branch=branch):
-                self.env.update(CHANNEL=channel, GITHUB_REF=f'refs/heads/{branch}')
-                (self.root / 'outputs').write_text('')
-                result = self.shell(step['run'])
-                self.assertEqual(result.returncode == 0, allowed, result.stderr)
-                outputs = dict(line.split('=', 1) for line in (self.root / 'outputs').read_text().splitlines())
-                if allowed:
-                    title, dmg_prefix = CHANNELS[channel]
-                    self.assertEqual(outputs['version'], f'{channel}.{SHA[:7]}.' + outputs['stamp'])
-                    self.assertEqual(outputs['title'], title)
-                    self.assertEqual(outputs['dmg_name'], f'{dmg_prefix}-{SHA[:7]}.' + outputs['stamp'] + '-arm64.dmg')
-                else:
-                    self.assertEqual(outputs, {})
 
     def test_bash_syntax_and_shared_source_artifacts(self):
         self.assertIsNone(re.search(r'nightly-win\b', (ROOT / '.github/workflows/nightly.yml').read_text()))
@@ -261,7 +229,7 @@ class NightlyTests(unittest.TestCase):
                 upload = next(step for step in job['steps'] if step.get('uses', '').startswith('actions/upload-artifact@'))
                 download = next(step for step in JOBS['publish']['steps'] if step.get('with', {}).get('name') == upload['with']['name'])
                 self.assertEqual(set(download['with']), {'name', 'path'})
-                identity = 'version' if name == 'build-windows' else 'dmg_name'
+                identity = 'version' if name == 'build-windows' else 'short_sha'
                 self.assertIn('${{ needs.prepare.outputs.' + identity + ' }}', upload['with']['path'])
 
     def test_versions_and_lockfile_agree(self):
@@ -310,26 +278,6 @@ class NightlyTests(unittest.TestCase):
                 self.assertTrue(all('--prerelease' in line and '--latest=false' in line for line in edits))
                 self.assertTrue(all('--target ' + SHA in line for line in edits))
                 self.assertFalse(any('nightly-win' in line for line in calls))
-
-    def test_remote_nightly_publishes_only_to_its_own_release_and_tag(self):
-        self.use_channel('remote-nightly')
-        self.env['GITHUB_REF'] = 'refs/heads/nightly-remote'
-        mac_old = [f'Runner-Remote-Nightly-abc1234.202608{day:02}.0100-arm64.dmg' for day in range(1, 4)]
-        self.assets(mac_old)
-        result = self.publish()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        calls = self.calls()
-        release_calls = [line for line in calls if line.startswith('gh release ')]
-        self.assertTrue(release_calls)
-        self.assertTrue(all(line.split()[3] == 'remote-nightly' for line in release_calls))
-        self.assertIn(f"git tag --force --annotate remote-nightly --message Runner Remote Nightly remote-nightly.{SHA[:7]}.{STAMP} {SHA}", calls)
-        self.assertIn('git push --force origin refs/tags/remote-nightly', calls)
-        self.assertFalse(any('refs/tags/nightly' in line or '/download/nightly/' in line for line in calls))
-        edits = [line for line in calls if line.startswith(('gh release create', 'gh release edit'))]
-        self.assertTrue(all('--title Runner Remote Nightly' in line for line in edits))
-        self.assertTrue((self.root / 'nightly-notes.md').read_text().endswith((ROOT / 'script/remote-nightly-release-notes.md').read_text()))
-        self.assertEqual({line.split()[4] for line in calls if 'delete-asset' in line}, set(mac_old[:2]))
-        self.assertIn('to release remote-nightly.', Path(self.env['GITHUB_STEP_SUMMARY']).read_text())
 
     def test_release_notes_carry_the_changelog_and_the_tag_moves_only_after_the_ci_gate(self):
         fixed = (ROOT / 'script/nightly-release-notes.md').read_text()
