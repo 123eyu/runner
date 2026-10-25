@@ -58,7 +58,7 @@ pub trait Core: Send + Sync {
     fn overview(&self) -> Result<Overview>;
     fn statuses(&self) -> Result<BTreeMap<String, SessionStatus>>;
     fn subscribe(&self) -> Result<broadcast::Receiver<AppEvent>>;
-    fn attach(self: Arc<Self>, session: &str, history: usize) -> Result<Attachment>;
+    fn attach(self: Arc<Self>, session: &str, history: usize, channel: u64) -> Result<Attachment>;
     fn resize(
         &self,
         session: &str,
@@ -67,7 +67,7 @@ pub trait Core: Send + Sync {
         size: (u16, u16),
         control: Control,
     ) -> Result<()>;
-    fn input(&self, session: &str, bytes: &[u8]) -> Result<()>;
+    fn input(&self, session: &str, channel: u64, bytes: &[u8]) -> Result<()>;
     fn detach(&self, session: &str, subscriber: u64, channel: u64, release: bool);
     fn closed_reason(&self, session: &str) -> ClosedReason;
     fn release_channel(&self, channel: u64);
@@ -144,15 +144,29 @@ impl Core for DaemonCore {
     fn subscribe(&self) -> Result<broadcast::Receiver<AppEvent>> {
         Ok(self.core()?.events.subscribe())
     }
-    fn attach(self: Arc<Self>, session: &str, history: usize) -> Result<Attachment> {
-        let (terminal, source) = self
-            .terminal(session)?
+    fn attach(self: Arc<Self>, session: &str, history: usize, channel: u64) -> Result<Attachment> {
+        let core = self.terminal(session)?;
+        let (terminal, source) = core
             .sessions
             .attach_companion_terminal(session, history)
             .map_err(failed)?;
+        core.sessions
+            .browser_attached(session, terminal.subscriber_id, channel, &core.db)
+            .map_err(failed)?;
+        let session = session.to_owned();
+        let core = Arc::downgrade(&core);
         Ok(Attachment {
             terminal,
-            resync: Arc::new(move || source.attach().map_err(failed)),
+            resync: Arc::new(move || {
+                let attachment = source.attach().map_err(failed)?;
+                let core = core
+                    .upgrade()
+                    .ok_or(Failure(ErrorCode::Failed, "The host has stopped."))?;
+                core.sessions
+                    .browser_attached(&session, attachment.subscriber_id, channel, &core.db)
+                    .map_err(failed)?;
+                Ok(attachment)
+            }),
         })
     }
     fn resize(
@@ -182,21 +196,20 @@ impl Core for DaemonCore {
         }
         Ok(())
     }
-    fn input(&self, session: &str, bytes: &[u8]) -> Result<()> {
+    fn input(&self, session: &str, channel: u64, bytes: &[u8]) -> Result<()> {
         let core = self.terminal(session)?;
         core.sessions
-            .terminal_model(session)
-            .map_err(failed)?
-            .observe_input(&super::classify_input(bytes));
-        core.sessions
-            .queue_terminal_input(session, bytes)
+            .browser_input(session, channel, bytes)
             .map_err(failed)
     }
     fn detach(&self, session: &str, subscriber: u64, channel: u64, release: bool) {
         if let Ok(core) = self.core() {
             core.sessions.detach_terminal(session, subscriber);
-            if release {
-                core.sessions.release_browser(session, channel);
+            if let Err(error) = core
+                .sessions
+                .browser_detached(session, subscriber, channel, release, &core.db)
+            {
+                log::warn!("release terminal control: {error}");
             }
         }
     }
@@ -780,11 +793,11 @@ mod tests {
         }));
         assert_eq!(Arc::strong_count(&core), 1);
         assert!(matches!(
-            Arc::new(DaemonCore(backend.0.clone())).attach("missing", 0),
+            Arc::new(DaemonCore(backend.0.clone())).attach("missing", 0, 1),
             Err(Failure(ErrorCode::NotFound, _))
         ));
         assert!(matches!(
-            Arc::new(DaemonCore(backend.0.clone())).attach("a", 0),
+            Arc::new(DaemonCore(backend.0.clone())).attach("a", 0, 1),
             Err(Failure(ErrorCode::NotRunning, _))
         ));
         crate::ops::node::mark_direct_sessions_viewed(&core, &["a".into()]).unwrap();

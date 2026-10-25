@@ -513,7 +513,7 @@ fn resync_keeps_the_last_name_while_a_fresh_unowned_snapshot_has_none() {
 }
 
 #[test]
-fn split_tab_switches_between_group_and_pane_cards_and_resumes_desktop_pushes() {
+fn split_tab_keeps_one_centered_card_through_mixed_control_frames() {
     use runner_app::pane_layout::{PaneLayout, SplitOrientation, TabSet};
     let temp = tempfile::tempdir().unwrap();
     let mut cx = TestAppContext::single();
@@ -565,25 +565,70 @@ fn split_tab_switches_between_group_and_pane_cards_and_resumes_desktop_pushes() 
     change(&left_tx, &left_ack, 1, TerminalController::Desktop);
     window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
     cx.run_until_parked();
-    assert!(visual
+    let overlay = visual
         .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-tab")
-        .is_none());
+        .unwrap();
+    let card = visual.debug_bounds("REMOTE_CONTROL_CARD").unwrap();
+    assert!((f32::from(card.center().x - overlay.center().x)).abs() < 1.);
+    assert!((f32::from(card.center().y - overlay.center().y)).abs() < 1.);
     assert!(visual
         .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-busy-shell")
-        .is_some());
+        .is_none());
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-direct-agent")
+        .is_none());
+    visual.simulate_click(card.center(), Default::default());
+    window
+        .read_with(&cx, |root, cx| {
+            assert!(!root.session_is_interactive("direct-agent", cx));
+            assert!(!root.cached_session_is_interactive("direct-agent", cx));
+        })
+        .unwrap();
     assert!(!left_host.sizes.lock().unwrap().is_empty());
     assert!(right_host.sizes.lock().unwrap().is_empty());
     change(&right_tx, &right_ack, 1, TerminalController::None);
     window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
     cx.run_until_parked();
     assert!(visual
-        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-busy-shell")
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-tab")
         .is_some());
     change(&right_tx, &right_ack, 2, TerminalController::Desktop);
     window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
     cx.run_until_parked();
     assert!(visual.debug_bounds("REMOTE_CONTROL_CARD").is_none());
     assert!(!right_host.sizes.lock().unwrap().is_empty());
+    change(&left_tx, &left_ack, 2, remote());
+    store.update(&mut cx, |store, _| {
+        store
+            .session_statuses
+            .get_mut("busy-shell")
+            .unwrap()
+            .lifecycle = runner_core::protocol::status::Lifecycle::Stopped;
+    });
+    window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
+    cx.run_until_parked();
+    assert!(
+        visual
+            .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-tab")
+            .is_some(),
+        "stopped sibling keeps the tab card"
+    );
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.tabs.active_mut().unwrap().remove_session("busy-shell");
+            cx.notify();
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(
+        visual
+            .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-tab")
+            .is_some(),
+        "empty sibling keeps the tab card"
+    );
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-direct-agent")
+        .is_none());
 }
 
 #[test]

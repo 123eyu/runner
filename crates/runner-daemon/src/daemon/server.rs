@@ -766,9 +766,7 @@ async fn connection(
                         ))
                         .map_err(anyhow::Error::msg)?;
                     } else {
-                        input_core
-                            .sessions
-                            .queue_terminal_input(&session, binary.0)?;
+                        input_core.sessions.desktop_input(&session, binary.0)?;
                     }
                 } else {
                     let origin = binary.u64()?;
@@ -1060,6 +1058,142 @@ pub(crate) async fn remote_test_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn desktop_transports_reject_stale_input_after_split_tab_takeover() {
+        use runner_core::protocol::terminal::TerminalController;
+        let root = tempfile::tempdir().unwrap();
+        let core = crate::test_support::test_core_in(root.path().to_owned());
+        let events: Arc<dyn crate::session::manager::SessionEvents> =
+            Arc::new(core.session_events());
+        for id in ["left", "right"] {
+            core.sessions
+                .prepare_unlisted_terminal(id, (80, 24), &core.db, &events)
+                .unwrap();
+        }
+        crate::repo::node::create_tab(
+            &core.db.get().unwrap(),
+            None,
+            "Split",
+            0,
+            &serde_json::json!({"slots": ["left", "right"]}).to_string(),
+        )
+        .unwrap();
+        let queued = [
+            core.sessions.record_terminal_input("left"),
+            core.sessions.record_terminal_input("right"),
+        ];
+        #[cfg(unix)]
+        let endpoint = IpcEndpoint(root.path().join("runnerd.sock"));
+        #[cfg(windows)]
+        let endpoint = IpcEndpoint(std::path::PathBuf::from(format!(
+            r"\\.\pipe\runner-input-control-test-{}",
+            root.path().file_name().unwrap().to_string_lossy()
+        )));
+        let mut listener = IpcListener::bind(&endpoint).unwrap();
+        let shutdown = CancellationToken::new();
+        let server_shutdown = shutdown.clone();
+        let server_core = core.clone();
+        let server = tokio::spawn(async move {
+            let stream = listener.accept().await.unwrap();
+            let windows = Arc::new(ConnectionWindows {
+                core: server_core.clone(),
+                owners: Arc::new(Mutex::default()),
+                id: 1,
+                closed: CancellationToken::new(),
+            });
+            let (_report, resume_report) = tokio::sync::watch::channel(None);
+            connection(
+                stream,
+                server_core,
+                wire::Welcome {
+                    exe_sha256: "hash".into(),
+                    pid: 1,
+                    started_at: "now".into(),
+                },
+                server_shutdown,
+                true,
+                windows,
+                resume_report,
+            )
+            .await
+        });
+        let client_core = core.clone();
+        let client_shutdown = shutdown.clone();
+        tokio::task::spawn_blocking(move || {
+            let socket = runner_core::protocol::socket::SocketTransport::connect(
+                &endpoint,
+                wire::Hello {
+                    exe_sha256: "hash".into(),
+                    client: "test".into(),
+                },
+            )
+            .unwrap();
+            let local = super::super::InProcessTransport::client(client_core.clone());
+            let stale = [
+                local.attach("left").unwrap(),
+                local.attach("right").unwrap(),
+            ];
+            client_core
+                .sessions
+                .browser_resize("left", 1, "Remote", 100, 30, true, false, &client_core.db)
+                .unwrap();
+            let mut errors = client_core.events.subscribe();
+            for ((id, queued), stale) in ["left", "right"].into_iter().zip(&queued).zip(&stale) {
+                assert_eq!(stale.snapshot.controller, TerminalController::Desktop);
+                assert!(local.input(id, b"stale in-process").is_err());
+                socket.client().input(id, b"stale socket").unwrap();
+                super::super::block_on(async {
+                    tokio::time::timeout(Duration::from_secs(5), async {
+                        loop {
+                            let event = errors.recv().await.unwrap();
+                            if event.name == "session/input-error"
+                                && event.payload["session_id"] == id
+                            {
+                                break;
+                            }
+                        }
+                    })
+                    .await
+                    .unwrap();
+                });
+                assert!(queued.try_recv().is_err());
+                client_core
+                    .sessions
+                    .browser_input(id, 1, b"remote")
+                    .unwrap();
+                assert_eq!(
+                    queued.recv_timeout(Duration::from_secs(2)).unwrap(),
+                    b"remote"
+                );
+            }
+            client_core
+                .sessions
+                .take_back_terminal("left", 80, 24, &client_core.db)
+                .unwrap();
+            for (id, queued) in ["left", "right"].into_iter().zip(&queued) {
+                local.input(id, b"local in-process").unwrap();
+                assert_eq!(
+                    queued.recv_timeout(Duration::from_secs(2)).unwrap(),
+                    b"local in-process"
+                );
+                socket.client().input(id, b"local socket").unwrap();
+                assert_eq!(
+                    queued.recv_timeout(Duration::from_secs(2)).unwrap(),
+                    b"local socket"
+                );
+            }
+            client_shutdown.cancel();
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        core.sessions.drain_terminal_workers();
+    }
 
     #[tokio::test]
     async fn oversized_response_fails_only_its_call_and_connection_serves_next_request() {

@@ -117,10 +117,10 @@ If you suspect this computer’s identity key has leaked, choose **Reset remote 
 
 ## Take a terminal back
 
-While another Runner controls a terminal, its pane is covered by **Controlled from {computer}** and **Take back**. The remote computer sets the terminal’s size. The covered pane sends neither its own size nor terminal input, including typing, paste, file drops and IME composition. A mission composer submission addressed to a covered terminal keeps its draft until you take the terminal back.
+Remote control applies to an entire tab, including its split panes and terminal drawer. Taking control of one terminal takes every running terminal in that tab. The host shows one centered **Controlled from {computer}** card with **Take back** over the tab. The remote computer sets the terminal’s size. The covered pane sends neither its own size nor terminal input, including typing, paste, file drops and IME composition. A mission composer submission addressed to a covered terminal keeps its draft until you take the terminal back.
 
-Choose **Take back**, or press Enter on the card, to return control to this desktop and fit the terminal to its pane. If one computer controls all the terminals in a split tab or mission, one card covers the group; taking it back fits each terminal to its own pane.
+Choose **Take back**, or press Enter on the card, to return the whole tab to this desktop and fit each terminal to its own pane. Each pane keeps its own size. Restarted and newly added panes follow the tab’s current controller; moving a pane to another tab gives it that tab’s controller. A mission shows one card when one computer controls all its terminals.
 
-When the remote computer leaves, the terminal keeps its last size. The card changes to **{computer} has left** with **Continue here**. Choose it, or press Enter on the card, to fit the terminal here and continue. If Runner did not see the computer’s name, it says **Another computer has left**.
+Closing one remote pane leaves the remaining panes under that computer’s control. When it leaves the tab or disconnects, every terminal keeps its last size. The card changes to **{computer} has left** with **Continue here**. Choose it, or press Enter on the card, to fit the terminal here and continue. If Runner did not see the computer’s name, it says **Another computer has left**.
 
 Several desktop windows can show the card, and you can take control back from any of them. With no remote computer using the terminal, desktop input and resizing work as usual. Use the CLI above to pair and read another computer’s overview; opening its terminals in the desktop follows with the computer picker.

@@ -1378,6 +1378,15 @@ impl NativeRoot {
             .collect()
     }
 
+    pub(crate) fn tab_control_covered(&self, layout: &PaneLayout, cx: &App) -> bool {
+        (layout.root.leaves().len() > 1 || layout.all_session_ids().len() > 1)
+            && self
+                .control_tab_session_ids(layout, cx)
+                .iter()
+                .filter_map(|id| self.attached.get(id))
+                .any(|chat| !chat.terminal.control().desktop())
+    }
+
     pub(crate) fn active_focused_session_id(&self) -> Option<String> {
         self.front_page_layout()
             .and_then(PaneLayout::focused_session_id)
@@ -1403,6 +1412,10 @@ impl NativeRoot {
         }
 
         self.route == AppRoute::Chat
+            && !self.tabs.active().is_some_and(|layout| {
+                layout.all_session_ids().iter().any(|id| id == session_id)
+                    && self.tab_control_covered(layout, cx)
+            })
             && self
                 .attached
                 .get(session_id)
@@ -1420,6 +1433,10 @@ impl NativeRoot {
         }
 
         self.route == AppRoute::Chat
+            && !self.tabs.active().is_some_and(|layout| {
+                layout.all_session_ids().iter().any(|id| id == session_id)
+                    && self.tab_control_covered(layout, cx)
+            })
             && self
                 .attached
                 .get(session_id)
@@ -1642,9 +1659,11 @@ impl NativeRoot {
                     .active()
                     .map(|layout| self.control_tab_session_ids(layout, cx))
                     .unwrap_or_default();
-                let chats = if crate::terminal::control::group_covered(
-                    group.iter().map(|id| self.attached.get(id)),
-                ) {
+                let chats = if self
+                    .tabs
+                    .active()
+                    .is_some_and(|layout| self.tab_control_covered(layout, cx))
+                {
                     group
                         .iter()
                         .filter_map(|id| self.attached.get(id))

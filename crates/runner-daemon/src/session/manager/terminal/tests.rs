@@ -2137,6 +2137,9 @@ fn browser_input_uses_the_terminal_queue_and_the_desktop_input_observation() {
         .terminal_input = Some(input);
     let model = core.sessions.terminal_model(&spawned.id).unwrap();
     let backend = DaemonCore(Arc::downgrade(&core));
+    core.sessions
+        .browser_resize(&spawned.id, 1, "Client", 80, 24, true, false, &core.db)
+        .unwrap();
     model.publish_input(model.feed_output(1, "\x1b[2;1H❯ Try a task".as_bytes()));
     let before = model.input_reset_guard();
     let terminal = model.term.lock();
@@ -2145,7 +2148,7 @@ fn browser_input_uses_the_terminal_queue_and_the_desktop_input_observation() {
     let session = spawned.id.clone();
     let input_thread = std::thread::spawn(move || {
         start.send(()).unwrap();
-        DaemonCore(input_core).input(&session, b"h").unwrap();
+        DaemonCore(input_core).input(&session, 1, b"h").unwrap();
     });
     started.recv_timeout(Duration::from_secs(2)).unwrap();
     let premature = queued.recv_timeout(Duration::from_millis(250));
@@ -2176,7 +2179,7 @@ fn browser_input_uses_the_terminal_queue_and_the_desktop_input_observation() {
         b"\x1b[A",
     ] {
         let guard = model.input_reset_guard();
-        backend.input(&spawned.id, bytes).unwrap();
+        backend.input(&spawned.id, 1, bytes).unwrap();
         assert_eq!(queued.recv_timeout(Duration::from_secs(2)).unwrap(), bytes);
         assert!(model.input_reset_guard() > guard);
     }
@@ -2357,7 +2360,7 @@ async fn companion_backlog_sends_final_snapshot_after_exit_for_both_queue_limits
         })
         .await
         .unwrap();
-        assert!(backend.clone().attach(&spawned.id, 0).is_err());
+        assert!(backend.clone().attach(&spawned.id, 0, 1).is_err());
         assert!(state.lock().unwrap().companion_terminals.is_empty());
         wait_for_buffered(&adapter, usize::MAX).await;
         let mut final_bytes = Vec::new();
@@ -2442,4 +2445,375 @@ async fn companion_final_snapshot_outlives_registry_without_retaining_the_termin
         alacritty_terminal::vte::ansi::Processor::new();
     parser.advance(&mut term, &final_attachment.snapshot.bytes);
     assert!(term.grid().history_size() <= 2);
+}
+
+fn prepare_control_tab(
+    core: &AppCore,
+    ids: &[&str],
+    drawer: &[&str],
+) -> crate::repo::node::NodeRow {
+    let events: Arc<dyn SessionEvents> = Arc::new(core.session_events());
+    for id in ids.iter().chain(drawer) {
+        core.sessions
+            .prepare_unlisted_terminal(id, (80, 24), &core.db, &events)
+            .unwrap();
+    }
+    let layout = serde_json::json!({"slots": ids, "drawer": {"shells": drawer}}).to_string();
+    crate::repo::node::create_tab(&core.db.get().unwrap(), None, "Split", 0, &layout).unwrap()
+}
+
+#[test]
+fn split_tab_transfers_all_panes_and_drawer_without_sharing_viewport_sizes() {
+    use runner_core::companion::Controller;
+    let temp = tempfile::tempdir().unwrap();
+    let core = test_core(temp.path());
+    prepare_control_tab(&core, &["left", "right"], &["drawer"]);
+    prepare_control_tab(&core, &["other"], &[]);
+    let all = ["left", "right", "drawer"];
+    core.sessions
+        .browser_resize("left", 1, "First", 100, 30, true, false, &core.db)
+        .unwrap();
+    for id in all {
+        assert_eq!(core.sessions.browser_controller(id, 1), Controller::You);
+    }
+    assert_eq!(
+        core.sessions.browser_controller("other", 1),
+        Controller::Desktop
+    );
+    assert_eq!(
+        core.sessions.terminal_model("right").unwrap().size(),
+        (80, 24)
+    );
+    core.sessions
+        .browser_resize("right", 1, "First", 65, 40, false, true, &core.db)
+        .unwrap();
+    assert_eq!(
+        core.sessions.terminal_model("left").unwrap().size(),
+        (100, 30)
+    );
+    core.sessions
+        .browser_resize("right", 2, "Second", 70, 35, true, false, &core.db)
+        .unwrap();
+    for id in all {
+        assert_eq!(core.sessions.browser_controller(id, 2), Controller::You);
+        assert!(core.sessions.browser_input(id, 1, b"stale").is_err());
+        core.sessions
+            .browser_resize(id, 1, "First", 200, 60, false, true, &core.db)
+            .unwrap();
+    }
+    assert_eq!(
+        core.sessions.terminal_model("left").unwrap().size(),
+        (100, 30)
+    );
+    assert_eq!(
+        core.sessions.terminal_model("right").unwrap().size(),
+        (70, 35)
+    );
+    core.sessions
+        .take_back_terminal("left", 110, 42, &core.db)
+        .unwrap();
+    for id in all {
+        assert_eq!(core.sessions.browser_controller(id, 2), Controller::Desktop);
+        assert!(core.sessions.browser_input(id, 2, b"stale").is_err());
+    }
+    assert_eq!(
+        core.sessions.terminal_model("right").unwrap().size(),
+        (70, 35)
+    );
+    core.sessions.resize("right", 55, 28, &core.db).unwrap();
+    assert_eq!(
+        core.sessions.terminal_model("right").unwrap().size(),
+        (55, 28)
+    );
+    core.sessions.release_browser_channel(2);
+    for id in all {
+        assert_eq!(core.sessions.browser_controller(id, 2), Controller::Desktop);
+    }
+    core.sessions.drain_terminal_workers();
+}
+
+#[test]
+fn split_tab_detach_tracks_group_streams_and_ignores_stale_owner_cleanup() {
+    use runner_core::companion::Controller;
+    let temp = tempfile::tempdir().unwrap();
+    let core = test_core(temp.path());
+    let mut tab = prepare_control_tab(&core, &["left", "right"], &["drawer"]);
+    prepare_control_tab(&core, &["other"], &[]);
+    for (id, subscriber) in [("left", 1), ("right", 2), ("drawer", 3), ("other", 4)] {
+        core.sessions
+            .browser_attached(id, subscriber, 1, &core.db)
+            .unwrap();
+    }
+    core.sessions
+        .browser_resize("left", 1, "First", 100, 30, true, false, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_resize("other", 1, "First", 90, 25, true, false, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_attached("drawer", 5, 1, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_detached("drawer", 3, 1, true, &core.db)
+        .unwrap();
+    assert_eq!(core.sessions.browser_controller("left", 1), Controller::You);
+    tab.layout =
+        Some(serde_json::json!({"slots": ["right"], "drawer": {"shells": ["drawer"]}}).to_string());
+    crate::repo::node::upsert(&core.db.get().unwrap(), &tab).unwrap();
+    core.sessions
+        .browser_detached("left", 1, 1, true, &core.db)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("left", 1),
+        Controller::None
+    );
+    assert_eq!(
+        core.sessions.browser_controller("right", 1),
+        Controller::You
+    );
+    core.sessions
+        .session_state("right")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .terminal_input
+        .take();
+    core.sessions
+        .browser_detached("right", 2, 1, true, &core.db)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("drawer", 1),
+        Controller::You
+    );
+    core.sessions
+        .browser_detached("drawer", 5, 1, true, &core.db)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("drawer", 1),
+        Controller::None
+    );
+    assert_eq!(
+        core.sessions.browser_controller("other", 1),
+        Controller::You
+    );
+    core.sessions
+        .browser_resize("drawer", 2, "Second", 70, 35, true, false, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_attached("drawer", 6, 2, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_detached("drawer", 5, 1, true, &core.db)
+        .unwrap();
+    core.sessions.release_browser_channel(1);
+    assert_eq!(
+        core.sessions.browser_controller("drawer", 2),
+        Controller::You
+    );
+    assert_eq!(
+        core.sessions.browser_controller("other", 2),
+        Controller::None
+    );
+    core.sessions
+        .browser_detached("drawer", 6, 2, true, &core.db)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("drawer", 2),
+        Controller::None
+    );
+    core.sessions.drain_terminal_workers();
+}
+
+#[test]
+fn restarted_and_new_split_panes_inherit_the_destination_tab_controller() {
+    use runner_core::companion::Controller;
+    let temp = tempfile::tempdir().unwrap();
+    let core = test_core(temp.path());
+    let tab = prepare_control_tab(&core, &["left", "right"], &[]);
+    let events: Arc<dyn SessionEvents> = Arc::new(core.session_events());
+    core.sessions
+        .browser_resize("left", 1, "First", 100, 30, true, false, &core.db)
+        .unwrap();
+    let old = core.sessions.attach_terminal("right").unwrap();
+    core.sessions
+        .browser_attached("right", old.subscriber_id, 1, &core.db)
+        .unwrap();
+    core.sessions
+        .prepare_unlisted_terminal("right", (60, 20), &core.db, &events)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("right", 1),
+        Controller::You
+    );
+    let replacement = core.sessions.attach_terminal("right").unwrap();
+    assert_ne!(old.subscriber_id, replacement.subscriber_id);
+    core.sessions
+        .browser_attached("right", replacement.subscriber_id, 1, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_detached("right", old.subscriber_id, 1, true, &core.db)
+        .unwrap();
+    assert_eq!(core.sessions.browser_controller("left", 1), Controller::You);
+    assert_eq!(
+        core.sessions.browser_controller("right", 1),
+        Controller::You
+    );
+    core.sessions
+        .prepare_unlisted_terminal("new", (50, 15), &core.db, &events)
+        .unwrap();
+    let layout = serde_json::json!({"slots": ["left", "right", "new"]}).to_string();
+    crate::ops::node::node_tab_upsert(
+        &core,
+        crate::ops::node::NodeTabUpsertInput {
+            id: tab.id,
+            parent_id: None,
+            name: "Split".into(),
+            layout,
+        },
+    )
+    .unwrap();
+    assert_eq!(core.sessions.browser_controller("new", 1), Controller::You);
+    assert_eq!(
+        core.sessions.terminal_model("new").unwrap().size(),
+        (50, 15)
+    );
+    core.sessions
+        .browser_resize("left", 2, "Second", 80, 24, true, false, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_attached("right", replacement.subscriber_id, 2, &core.db)
+        .unwrap();
+    core.sessions
+        .browser_detached("right", replacement.subscriber_id, 1, true, &core.db)
+        .unwrap();
+    for id in ["left", "right", "new"] {
+        assert_eq!(core.sessions.browser_controller(id, 2), Controller::You);
+        assert!(core
+            .sessions
+            .browser_input(id, 1, b"old generation")
+            .is_err());
+    }
+    core.sessions.release_browser_channel(2);
+    core.sessions
+        .prepare_unlisted_terminal("right", (65, 25), &core.db, &events)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("right", 2),
+        Controller::None
+    );
+    core.sessions
+        .take_back_terminal("left", 110, 42, &core.db)
+        .unwrap();
+    core.sessions
+        .prepare_unlisted_terminal("right", (65, 25), &core.db, &events)
+        .unwrap();
+    assert_eq!(
+        core.sessions.browser_controller("right", 2),
+        Controller::Desktop
+    );
+    core.sessions.drain_terminal_workers();
+}
+
+#[test]
+fn moving_a_pane_adopts_its_destination_without_old_tab_teardown_releasing_it() {
+    use runner_core::companion::Controller;
+    for destination_channel in [1, 2] {
+        let temp = tempfile::tempdir().unwrap();
+        let core = test_core(temp.path());
+        let source = prepare_control_tab(&core, &["left", "moving"], &[]);
+        let destination = prepare_control_tab(&core, &["other"], &[]);
+        core.sessions
+            .browser_resize("left", 1, "Source", 100, 30, true, false, &core.db)
+            .unwrap();
+        core.sessions
+            .browser_resize(
+                "other",
+                destination_channel,
+                "Destination",
+                70,
+                25,
+                true,
+                false,
+                &core.db,
+            )
+            .unwrap();
+        for (id, subscriber, channel) in [
+            ("left", 1, 1),
+            ("moving", 2, 1),
+            ("other", 3, destination_channel),
+        ] {
+            core.sessions
+                .browser_attached(id, subscriber, channel, &core.db)
+                .unwrap();
+        }
+        crate::ops::node::node_tab_upsert(
+            &core,
+            crate::ops::node::NodeTabUpsertInput {
+                id: destination.id,
+                parent_id: None,
+                name: "Destination".into(),
+                layout: serde_json::json!({"slots": ["other", "moving"]}).to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            core.sessions
+                .browser_controller("moving", destination_channel),
+            Controller::You
+        );
+        assert_eq!(core.sessions.browser_controller("left", 1), Controller::You);
+        assert_eq!(
+            crate::repo::node::session_ids(
+                &crate::repo::node::get(&core.db.get().unwrap(), &source.id)
+                    .unwrap()
+                    .unwrap()
+            ),
+            ["left"]
+        );
+        crate::ops::node::node_tab_upsert(
+            &core,
+            crate::ops::node::NodeTabUpsertInput {
+                id: source.id.clone(),
+                parent_id: None,
+                name: "Empty source".into(),
+                layout: serde_json::json!({"slots": []}).to_string(),
+            },
+        )
+        .unwrap();
+        crate::ops::node::node_tab_delete(&core, &source.id).unwrap();
+        core.sessions
+            .browser_detached("moving", 2, 1, true, &core.db)
+            .unwrap();
+        assert_eq!(
+            core.sessions
+                .browser_controller("moving", destination_channel),
+            Controller::You
+        );
+        core.sessions
+            .browser_detached("left", 1, 1, true, &core.db)
+            .unwrap();
+        assert_eq!(
+            core.sessions.browser_controller("left", 1),
+            Controller::None
+        );
+        assert_eq!(
+            core.sessions
+                .browser_controller("other", destination_channel),
+            Controller::You
+        );
+        assert_eq!(
+            core.sessions
+                .browser_controller("moving", destination_channel),
+            Controller::You
+        );
+        core.sessions
+            .browser_detached("other", 3, destination_channel, true, &core.db)
+            .unwrap();
+        assert_eq!(
+            core.sessions
+                .browser_controller("moving", destination_channel),
+            Controller::None
+        );
+        core.sessions.drain_terminal_workers();
+    }
 }

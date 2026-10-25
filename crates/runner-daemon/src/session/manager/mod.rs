@@ -701,6 +701,7 @@ pub struct SessionManager {
     resize_settle_ms: AtomicU64,
     resize_generation: AtomicU64,
     terminal_palette: Mutex<runner_terminal::palette::TerminalPalette>,
+    terminal_control: Mutex<terminal::ControlState>,
     /// App-wide permission mode for mission slots (feature 527). The
     /// GPUI settings store pushes the current value here; every
     /// mission spawn and resume reads it, so the MCP `mission_start`
@@ -848,6 +849,7 @@ impl SessionManager {
             resize_settle_ms: AtomicU64::new(RESIZE_SETTLE_MS),
             resize_generation: AtomicU64::new(0),
             terminal_palette: Mutex::new(runner_terminal::palette::RUNNER),
+            terminal_control: Mutex::default(),
             mission_permission_mode: RwLock::new(router::runtime::MissionPermissionMode::default()),
         })
     }
@@ -1296,6 +1298,10 @@ impl SessionManager {
         let (input, worker) =
             self.start_terminal_input(session_id, Arc::clone(&terminal), Arc::clone(events));
         {
+            let mut control = self.terminal_control.lock().unwrap();
+            let controller = self
+                .inherited_controller(session_id, pool, &mut control)
+                .expect("read terminal control group before handle install");
             let state = self.session_state_or_insert(session_id);
             let mut state = state.lock().unwrap();
             if state
@@ -1309,7 +1315,7 @@ impl SessionManager {
                 }
             }
             state.last_exit_was_killed = false;
-            state.controller = terminal::Controller::Desktop;
+            state.controller = controller;
             state.terminal = Some(terminal);
             state.terminal_input = Some(input);
             state.terminal_input_worker = Some(worker);

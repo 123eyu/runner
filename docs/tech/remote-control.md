@@ -189,6 +189,8 @@ stateDiagram-v2
 
 Opening a tab or a mission on the client takes every terminal in it, at the size of each terminal's pane on the client. While a client controls a terminal, the host desktop's own size requests are refused (`ResizeControl::apply` in `session/manager/terminal.rs`, called by `resize_controlled` in `output.rs`), since a desktop pane pushes its size on every repaint and would otherwise undo the client's at once. Every mirror, the requesting pane's included, takes its size only from the attach snapshot and the ordered `Resized` frames (#986), so a refused request leaves the host desktop drawing at the size the PTY really has. When the client leaves, the size stays as it was until the host desktop takes the terminal back. m6 draws the host desktop's card with Take back over a pane a client controls.
 
+Tab ownership is transferred as one group, including its drawer shells, while each terminal retains an independent grid. The daemon derives the group from the persisted tab layout, serializes control changes, and sends each terminal’s ordered controller frame. The group’s controller survives a pane restart; the existing tab-layout upsert reconciles added or moved panes with the destination controller before publishing the layout change. The host keeps one centered tab card during mixed frame delivery. A stream records its channel, subscriber and tab at attachment: closing or replacing one stream does not release surviving streams in that tab, and closing the last one releases that tab without affecting other tabs on the channel. Input is accepted only from the terminal’s current controlling channel.
+
 Code: `session/manager/terminal.rs`, `Controller`; the client protocol's `TerminalController`.
 
 ## 9. The life of a keystroke

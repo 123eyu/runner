@@ -678,7 +678,7 @@ impl Adapter {
                 let ready = self.ready.clone();
                 let result = blocking(self.core.clone(), move |core| {
                     core.resize(&session, channel, &name, size, control)?;
-                    let attachment = match core.clone().attach(&session, history) {
+                    let attachment = match core.clone().attach(&session, history, channel) {
                         Ok(attachment) => attachment,
                         Err(error) => {
                             core.detach(&session, 0, channel, true);
@@ -708,8 +708,9 @@ impl Adapter {
                         "Attach the terminal before sending input.",
                     ))
                 } else {
+                    let channel = self.channel;
                     blocking(self.core.clone(), move |core| {
-                        core.input(&request.session, &request.data.0)
+                        core.input(&request.session, channel, &request.data.0)
                     })
                     .await
                     .map(|_| serde_json::Value::Null)

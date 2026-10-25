@@ -40,12 +40,14 @@ pub(crate) fn card_state(controls: &[TerminalControl]) -> Option<CardState> {
     })
 }
 
-pub(crate) fn group_covered<'a>(chats: impl IntoIterator<Item = Option<&'a AttachedChat>>) -> bool {
-    let controls: Option<Vec<_>> = chats
-        .into_iter()
-        .map(|chat| Some(chat?.terminal.control()))
-        .collect();
-    controls.is_some_and(|controls| controls.len() > 1 && card_state(&controls).is_some())
+fn tab_card_state(controls: &[TerminalControl]) -> Option<CardState> {
+    let control = controls
+        .iter()
+        .find(|control| matches!(control.controller, TerminalController::Browser { .. }))
+        .or_else(|| controls.iter().find(|control| !control.desktop()))?;
+    let mut state = card_state(std::slice::from_ref(control))?;
+    state.count = controls.len();
+    Some(state)
 }
 
 #[derive(Clone, Copy)]
@@ -70,12 +72,15 @@ pub(crate) fn cover<E: ParentElement + InteractiveElement>(
     chats: &[&AttachedChat],
     group_kind: GroupKind,
 ) -> E {
-    let Some(state) = card_state(
-        &chats
-            .iter()
-            .map(|chat| chat.terminal.control())
-            .collect::<Vec<_>>(),
-    ) else {
+    let controls = chats
+        .iter()
+        .map(|chat| chat.terminal.control())
+        .collect::<Vec<_>>();
+    let state = match group_kind {
+        GroupKind::Tab => tab_card_state(&controls),
+        GroupKind::Mission(_) => card_state(&controls),
+    };
+    let Some(state) = state else {
         return surface;
     };
     let id = id.into();
