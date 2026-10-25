@@ -492,6 +492,39 @@ async fn pin_change_preserves_authenticated_channels_and_new_pin_pairs_successfu
 }
 
 #[tokio::test]
+async fn replayed_ik_without_authenticated_hello_keeps_presence_old_and_expires() {
+    let mut relay = Relay::new();
+    let (mut browser, host) = relay.pair_finish(1, "012345").await;
+    relay.hello(1, &mut browser).await;
+    relay.routes.as_mut().unwrap().closed(1);
+    relay.routes.as_ref().unwrap().sync(&mut relay.machine);
+    let before = chrono::Utc::now() - chrono::Duration::hours(1);
+    relay.machine.trust.devices[0].last_seen_at = before;
+    let (_, connect) = BrowserConnect::start(
+        NoiseKeys {
+            private: &[1; 32],
+            fixed_ephemeral: None,
+        },
+        &host,
+    )
+    .unwrap();
+    for id in [2, 3] {
+        relay.open(id);
+        relay.feed(id, &connect);
+        relay.frame(id).await;
+        assert!(!relay.machine.trust.devices[0].connected);
+        assert_eq!(relay.machine.trust.devices[0].last_seen_at, before);
+    }
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(31)).await;
+    for _ in 0..2 {
+        assert!(matches!(relay.output().await, Message::Text(_)));
+    }
+    assert!(relay.routes.as_ref().unwrap().entries.is_empty());
+    assert_eq!(relay.machine.trust.devices[0].last_seen_at, before);
+}
+
+#[tokio::test]
 async fn pairs_connects_welcomes_and_refuses_requests_over_the_relay() {
     let mut relay = Relay::new();
     let mut events = relay.events.subscribe();
