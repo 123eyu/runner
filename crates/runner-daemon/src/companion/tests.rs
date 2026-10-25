@@ -212,6 +212,61 @@ async fn overview_coalesces_and_delivers_the_final_change_and_status() {
     adapter.changed().await.unwrap();
     assert_eq!(next(&mut adapter).await["tabs"][0]["name"], "last");
 }
+
+#[tokio::test]
+async fn credit_stalled_state_pushes_coalesce_at_the_tail_without_dropping_replies() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let mut overview = fake.overview.lock().unwrap().clone();
+    overview.tabs[0].name = "x".repeat(300 * 1024);
+    adapter
+        .push(HostMessage::Overview(overview.clone()))
+        .unwrap();
+    let in_flight = adapter.next(false).await.unwrap().unwrap();
+    adapter.in_flight(in_flight.len());
+    adapter
+        .push(HostMessage::Result(ResultMessage {
+            id: 7,
+            result: serde_json::Value::Null,
+        }))
+        .unwrap();
+    for index in 0..20 {
+        overview.tabs[0].name = format!("{index}{}", "x".repeat(300 * 1024));
+        adapter
+            .push(HostMessage::Overview(overview.clone()))
+            .unwrap();
+    }
+    let mut status = overview.sessions.values().next().unwrap().status.clone();
+    adapter
+        .push(HostMessage::Status(StatusPush {
+            session: "a".into(),
+            status: status.clone(),
+        }))
+        .unwrap();
+    adapter
+        .push(HostMessage::FeedAppended(FeedAppended {
+            mission: "m".into(),
+            entries: vec![],
+        }))
+        .unwrap();
+    status.unread = !status.unread;
+    adapter
+        .push(HostMessage::Status(StatusPush {
+            session: "a".into(),
+            status: status.clone(),
+        }))
+        .unwrap();
+    assert_eq!(adapter.in_flight, in_flight.len());
+    assert_eq!(next(&mut adapter).await["id"], 7);
+    assert!(next(&mut adapter).await["tabs"][0]["name"]
+        .as_str()
+        .unwrap()
+        .starts_with("19"));
+    assert_eq!(next(&mut adapter).await["type"], "feedAppended");
+    assert_eq!(next(&mut adapter).await["unread"], status.unread);
+    assert!(adapter.next(false).await.unwrap().is_none());
+    assert_eq!(adapter.queued, 0);
+}
 #[tokio::test]
 async fn terminal_chunks_order_fairness_overflow_and_resync_sequence() {
     let fake = Arc::new(Fake::default());

@@ -284,6 +284,15 @@ struct FeedSubscription {
     dirty: bool,
 }
 
+enum StatePush {
+    Overview,
+    Status(String),
+}
+struct PendingMessage {
+    bytes: Vec<u8>,
+    state: Option<StatePush>,
+}
+
 pub struct Adapter {
     lease: Arc<Lease>,
     core: Arc<dyn Core>,
@@ -292,7 +301,7 @@ pub struct Adapter {
     events: broadcast::Receiver<AppEvent>,
     ready: Arc<Notify>,
     streams: VecDeque<Stream>,
-    priority: VecDeque<Vec<u8>>,
+    priority: VecDeque<PendingMessage>,
     queued: usize,
     in_flight: usize,
     statuses: BTreeMap<String, SessionStatus>,
@@ -341,11 +350,29 @@ impl Adapter {
     }
     pub fn push(&mut self, message: HostMessage) -> Result<(), &'static str> {
         let bytes = serde_json::to_vec(&message).map_err(|_| "companion encoding failed")?;
+        let state = match &message {
+            HostMessage::Overview(_) => Some(StatePush::Overview),
+            HostMessage::Status(status) => Some(StatePush::Status(status.session.clone())),
+            _ => None,
+        };
+        self.priority.retain(|pending| {
+            let superseded = match (&state, &pending.state) {
+                (Some(StatePush::Overview), Some(_)) => true,
+                (Some(StatePush::Status(session)), Some(StatePush::Status(previous))) => {
+                    session == previous
+                }
+                _ => false,
+            };
+            if superseded {
+                self.queued -= pending.bytes.len();
+            }
+            !superseded
+        });
         if self.queued + self.in_flight + bytes.len() > MAX_MESSAGE_SIZE {
             return Err("reply queue full");
         }
         self.queued += bytes.len();
-        self.priority.push_back(bytes);
+        self.priority.push_back(PendingMessage { bytes, state });
         Ok(())
     }
     fn remove(&mut self, session: &str, release: bool) {
@@ -578,9 +605,9 @@ impl Adapter {
         })
     }
     pub async fn next(&mut self, terminal_credit: bool) -> Result<Option<Vec<u8>>, &'static str> {
-        if let Some(bytes) = self.priority.pop_front() {
-            self.queued -= bytes.len();
-            return Ok(Some(bytes));
+        if let Some(message) = self.priority.pop_front() {
+            self.queued -= message.bytes.len();
+            return Ok(Some(message.bytes));
         }
         if !terminal_credit {
             return Ok(None);
