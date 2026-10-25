@@ -42,7 +42,7 @@
   ·
   <a href="#支持的-agent">Agent</a>
   ·
-  <a href="#让你的-agent-来驱动-runner">CLI</a>
+  <a href="#runner-cli">CLI</a>
   ·
   <a href="#示例-crew">Crew 示例</a>
   ·
@@ -96,11 +96,17 @@ Runner 让命令行编码 agent 通过可复用的 crew、真实终端和共享 
   </tr>
   <tr>
     <td width="50%" valign="middle">
-      <a href="assets/notifications.png"><img src="assets/notifications.png" alt="Settings → Notifications：选择哪些 chat 和 mission 事件发送桌面通知" width="100%" /></a>
+      <pre><code>runner crew list
+runner mission start \
+  --crew "Pair coding crew" \
+  --goal-file brief.md
+runner mission feed &lt;mission-id&gt; --follow
+runner help agents</code></pre>
     </td>
     <td width="50%" valign="middle">
-      <h3>桌面通知</h3>
-      <p>Runner 在后台时，agent 需要输入、完成一轮回复或失败都可以发通知，点击后打开对应的 chat 或 mission。在 <strong>Settings → Notifications</strong> 中选择通知事件；chat 通知默认开启，mission 通知需要手动开启。</p>
+      <a name="runner-cli"></a>
+      <h3><code>runner</code> 命令行</h3>
+      <p>你的 agent、脚本和终端都能通过 <code>runner</code> 命令发起 chat、启动 crew、跟踪 mission，应用关闭时也照样可用。加上 <code>--json</code> 即可输出机器可读的结果。Runner 会为检测到的 agent 安装 skill，让它们也能直接驱动 Runner。<a href="./docs/guide/guides/drive-runner-from-agents.md">CLI 指南 →</a></p>
     </td>
   </tr>
 </table>
@@ -109,6 +115,7 @@ Runner 让命令行编码 agent 通过可复用的 crew、真实终端和共享 
 
 - **Runner 关闭后 agent 照样工作** — 会话跑在 Runner 的后台服务 `runnerd` 里。退出应用或者应用崩溃，重新打开后会接回同一批正在运行的终端；停止的 agent 会在下次启动时各自接着原来的对话。
 - **在一个地方管理 MCP 服务与技能** — **Settings → MCP** 和 **Settings → Skills** 按 agent 列出它自己的配置，可以按 agent 单独关掉某一项，只改动你碰过的那一条。
+- **桌面通知** — agent 需要输入、完成一轮回复或失败时收到通知，点击即可打开对应的 chat 或 mission。在 **Settings → Notifications** 中选择通知事件。
 - **项目** — 绑定一次工作目录；在项目里发起的 chat 和 mission 会继承它的 cwd，并在侧边栏里归在一起。
 - **浅色与深色** — Carbon 和 Runner Light，外加 Catppuccin，每种模式各有一套应用配色和终端配色。Claude Code 会实时跟着切换。
 
@@ -133,32 +140,6 @@ https://github.com/user-attachments/assets/c2209015-1497-403a-98bd-cdc5502bee47
 - 扫码加入 Runner 微信用户群。群二维码 7 天过期，如果扫码提示失效，请[提一个 issue](https://github.com/yicheng47/runner/issues/new) 提醒我更新。
 
 <img src="assets/wechat_group_qr.png" alt="Runner 微信用户群二维码" width="200" />
-
-## 让你的 agent 来驱动 Runner
-
-Runner 里的一切也都是一条 `runner` 命令，你的 agent、你的脚本和终端前的你都能用它驱动 Runner。你日常用的 agent 可以规划好一个修复，交给一个 coder 加 reviewer 的 crew 去实现，然后继续干自己的事，而它拉起的每个会话仍然是一个你随时可以打开查看的真实终端。
-
-在应用之外驱动一整个 mission：
-
-```sh
-mission=$(runner mission start --crew <crew> --goal-file - -q < brief.md)
-runner mission feed "$mission" --follow                   # 实时查看 crew 的消息
-runner msg post --mission "$mission" --to <lead> "message"
-runner mission answer "$mission" <question_id> <choice>   # 回答 crew 问你的问题
-runner mission stop "$mission"
-```
-
-| 命令 | 用途 |
-| --- | --- |
-| `runner mission` | 启动、跟踪、回答、停止、恢复和归档 mission |
-| `runner crew`、`runner role`、`runner project` | 创建和编辑 crew、角色和项目 |
-| `runner chat start`、`runner session` | 发起 chat；停止、恢复、重启或归档任意会话 |
-| `runner msg`、`runner signal`、`runner ask` | mission 内 crew 成员之间的沟通 |
-| `runner status`、`runner daemon` | 查看和停止 Runner 的后台服务 |
-
-`runner help` 列出全部命令。加上 `--json` 输出机器可读的结果，agent 用的就是这种。后台服务没有运行时，命令会自己拉起它，所以应用关闭时命令照样可用。
-
-**安装。** 在 macOS 上，如果登录 `PATH` 已包含 `~/.local/bin`，Runner 会在首次启动时把 `runner` 安装到那里；如果 `PATH` 中的 `/usr/local/bin` 可写，则安装到后者；否则去 **Settings → General → Command line** 点一下即可。在 Windows 上，Runner 会把它加入用户 `PATH`。agent 不需要额外设置：Runner 会为每个检测到的 agent 安装 `runner` skill，让它读取与当前版本一致的 `runner help agents` 指南；同一个设置区域里的 **Runner skill for agents** 开关可以关掉它。
 
 ## 支持的 Agent
 

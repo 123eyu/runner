@@ -42,7 +42,7 @@
   ·
   <a href="#supported-agents">Agents</a>
   ·
-  <a href="#drive-runner-from-your-agents">CLI</a>
+  <a href="#runner-cli">CLI</a>
   ·
   <a href="#example-crew">Crew example</a>
   ·
@@ -96,11 +96,17 @@ Runner brings CLI coding agents together in reusable crews, with real terminals 
   </tr>
   <tr>
     <td width="50%" valign="middle">
-      <a href="assets/notifications.png"><img src="assets/notifications.png" alt="Settings → Notifications: choose which chat and mission events send desktop notifications" width="100%" /></a>
+      <pre><code>runner crew list
+runner mission start \
+  --crew "Pair coding crew" \
+  --goal-file brief.md
+runner mission feed &lt;mission-id&gt; --follow
+runner help agents</code></pre>
     </td>
     <td width="50%" valign="middle">
-      <h3>Desktop notifications</h3>
-      <p>While Runner is in the background, get notified when an agent needs input, finishes a turn or fails. Clicking a notification opens its chat or mission. Choose events in <strong>Settings → Notifications</strong>; chat notifications are on by default, and mission notifications are opt-in.</p>
+      <a name="runner-cli"></a>
+      <h3>The <code>runner</code> CLI</h3>
+      <p>Your agents, scripts and terminal can start chats, launch crews and follow missions with the <code>runner</code> command, even with the app closed. Add <code>--json</code> for machine-readable output. Runner installs a skill for detected agents so they can drive it too. <a href="./docs/guide/guides/drive-runner-from-agents.md">CLI guide →</a></p>
     </td>
   </tr>
 </table>
@@ -109,6 +115,7 @@ Runner brings CLI coding agents together in reusable crews, with real terminals 
 
 - **Agents keep working when Runner is closed** — Sessions live in `runnerd`, Runner's background service. Quit the app, or let it crash, and reopen it to the same live terminals; stopped agents resume their own conversations on the next launch.
 - **MCP servers and skills in one place** — **Settings → MCP** and **Settings → Skills** list each agent's own config and switch entries off per agent, changing only the entry you touched.
+- **Desktop notifications** — Get notified when an agent needs input, finishes a turn or fails, and click to open its chat or mission. Choose events in **Settings → Notifications**.
 - **Projects** — Bind a working directory once; chats and missions started in it inherit the cwd and group in the sidebar.
 - **Light and dark** — Carbon and Runner Light, plus Catppuccin, with an app palette and a terminal palette per mode. Claude Code follows the switch live.
 
@@ -133,32 +140,6 @@ If Runner is useful to you, consider supporting its ongoing development and main
 - 中文用户可以扫码加入 Runner 微信用户群。群二维码 7 天过期，如果扫码提示失效，请[提一个 issue](https://github.com/yicheng47/runner/issues/new) 提醒我更新。
 
 <img src="assets/wechat_group_qr.png" alt="Runner 微信用户群二维码" width="200" />
-
-## Drive Runner from your agents
-
-Everything in Runner is also a `runner` command, so your agents, your scripts and you at a terminal can drive it. Your daily agent can plan a fix, hand it to a coder-and-reviewer crew, and keep working, while every session it started is still a real terminal you can open and watch.
-
-A whole mission, driven from outside the app:
-
-```sh
-mission=$(runner mission start --crew <crew> --goal-file - -q < brief.md)
-runner mission feed "$mission" --follow                   # the crew's messages as they arrive
-runner msg post --mission "$mission" --to <lead> "message"
-runner mission answer "$mission" <question_id> <choice>   # answer a question the crew asked you
-runner mission stop "$mission"
-```
-
-| Commands | What they do |
-| --- | --- |
-| `runner mission` | Start, follow, answer, stop, resume and archive missions |
-| `runner crew`, `runner role`, `runner project` | Create and edit crews, roles and projects |
-| `runner chat start`, `runner session` | Start a chat; stop, resume, restart or archive any session |
-| `runner msg`, `runner signal`, `runner ask` | How crew members talk to each other inside a mission |
-| `runner status`, `runner daemon` | Check and stop Runner's background service |
-
-`runner help` lists every command. Add `--json` for machine-readable output, which is what agents use. Commands start the background service when it is not running, so they work with the app closed.
-
-**Setup.** On macOS, the first launch installs `runner` to `~/.local/bin`, or a writable `/usr/local/bin`, when that directory is already on the login `PATH`; otherwise it is one click in **Settings → General → Command line**. On Windows, Runner adds it to the user `PATH`. Agents need nothing: Runner installs a `runner` skill for every detected agent that points it at the version-matched `runner help agents` guide, and the **Runner skill for agents** switch in the same settings section turns that off.
 
 ## Supported agents
 
