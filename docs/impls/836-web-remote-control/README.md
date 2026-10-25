@@ -6,7 +6,7 @@ Program record for [feature 836](../../features/836-web-remote-control.md) ([#83
 
 Remote control was planned as the focus of 0.17; 0.17.0 shipped on 2026-10-21 without it, and it is now 0.18's focus, with the umbrella following `main` at 0.17.2. #836 is the parent issue, with one sub-issue per phase.
 
-Building is done. m9 PR 2 merged on 2026-10-24 as [#1017](https://github.com/yicheng47/runner/pull/1017), and a `remote-nightly` was cut from `ad3ec232`. Jason smoke-tested that build on 2026-10-25, and his final polish merged the same day as [#1019](https://github.com/yicheng47/runner/pull/1019). The umbrella was then rebased onto `main`, with m9 and the polish squashed in place, and opened against `main` as one PR that closes #953 and #836 and retires the umbrella's CI trigger. Next, the `remote-nightly` channel is retired on `main`; then 0.18 is released and its docs swept.
+Building is done. m9 PR 2 merged on 2026-10-24 as [#1017](https://github.com/yicheng47/runner/pull/1017), and a `remote-nightly` was cut from `ad3ec232`. Jason smoke-tested that build on 2026-10-25, and his final polish merged the same day as [#1019](https://github.com/yicheng47/runner/pull/1019). The umbrella was then rebased onto `main`, with m9 and the polish squashed in place, and merged into `main` the same day as [#1020](https://github.com/yicheng47/runner/pull/1020), closing #953 and #836 and retiring the umbrella's CI trigger; the `remote-nightly` channel was retired on `main` after it. Next, 0.18 is released and its docs swept.
 
 | Mission | Scope | State |
 | --- | --- | --- |
@@ -36,5 +36,5 @@ Building is done. m9 PR 2 merged on 2026-10-24 as [#1017](https://github.com/yic
 
 ## Open
 
-- Retiring the `remote-nightly` channel once the umbrella is on `main`: `nightly.yml`'s channel input, the bundle scripts and updater feeds with their tests, the release notes and the nightly skill, then the `remote-nightly` release and tag.
+- The `remote-nightly` release and tag, which nothing builds any more, wait for Jason before they are deleted.
 - The service: `runner_server`'s relay channel ([#20](https://github.com/YeelinksCo/runner_server/pull/20)) and client enrollment (R2, #21), one enrollment per computer whose host credential also lists the account's computers and opens `/relay/client`, both merged and deployed on 2026-10-22.
