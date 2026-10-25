@@ -24,6 +24,10 @@ use tokio::{
 use tokio_tungstenite::tungstenite::Message;
 
 pub(super) enum Event {
+    Authenticated {
+        channel: u32,
+        instance: u64,
+    },
     Handshake {
         channel: u32,
         instance: u64,
@@ -227,28 +231,24 @@ impl TrustWrites {
                 &serde_json::json!({"name":device.name,"fingerprint":device.fingerprint}),
             );
         }
-        let Some(entry) = routes
+        let Some(_) = routes
             .and_then(|routes| routes.entries.get_mut(&channel))
             .filter(|entry| entry.instance == instance)
         else {
             return;
         };
         let decision = match completion.result {
-            Ok((Some(transport), response, fingerprint)) => {
-                entry.ready = true;
-                log::info!("remote channel {channel} opened, device {fingerprint}");
-                Decision::Open {
-                    transport: Box::new(transport),
-                    reply: response,
-                    name: machine
-                        .trust
-                        .devices
-                        .iter()
-                        .find(|device| device.fingerprint == fingerprint)
-                        .map(|device| device.name.clone())
-                        .unwrap_or_default(),
-                }
-            }
+            Ok((Some(transport), response, fingerprint)) => Decision::Open {
+                transport: Box::new(transport),
+                reply: response,
+                name: machine
+                    .trust
+                    .devices
+                    .iter()
+                    .find(|device| device.fingerprint == fingerprint)
+                    .map(|device| device.name.clone())
+                    .unwrap_or_default(),
+            },
             Ok((None, Some(response), _)) => Decision::Reply(response),
             Ok(_) => Decision::Reject(Reject::BadHandshake),
             Err(reason) => {
@@ -419,6 +419,31 @@ impl Channels {
         events: &crate::events::EventChannel,
     ) -> Option<Message> {
         match event {
+            Event::Authenticated { channel, instance } => {
+                let entry = self
+                    .entries
+                    .get_mut(&channel)
+                    .filter(|entry| entry.instance == instance && !entry.ready)?;
+                let fingerprint = entry.fingerprint.as_ref()?;
+                let device = machine
+                    .trust
+                    .devices
+                    .iter_mut()
+                    .find(|device| &device.fingerprint == fingerprint)?;
+                entry.ready = true;
+                device.last_seen_at = clock.now();
+                if let Ok(permit) = self.writes.slots.clone().try_acquire_owned() {
+                    let job = self.writes.job(machine.trust.clone(), root.to_path_buf());
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        if !matches!(job.await, Ok(Ok(()))) {
+                            log::warn!("remote channel: could not save last seen");
+                        }
+                    });
+                }
+                log::info!("remote channel {channel} opened, device {fingerprint}");
+                None
+            }
             Event::Send {
                 channel,
                 instance,
@@ -491,7 +516,7 @@ impl Channels {
                     }
                 }
                 drop(unconfirmed);
-                let needs_save = matches!(&result, Ok((Some(_), _, _)))
+                let needs_save = paired
                     || machine.trust.devices != previous.devices
                     || machine.trust.failed_pins != previous.failed_pins;
                 let mut completion = Completion {
@@ -598,14 +623,6 @@ fn authorize(
                     })
                 })?;
                 let fingerprint = remote::fingerprint(&public);
-                if let Some(device) = machine
-                    .trust
-                    .devices
-                    .iter_mut()
-                    .find(|d| d.fingerprint == fingerprint)
-                {
-                    device.last_seen_at = clock.now();
-                }
                 Ok((Some(transport), Some(accept), fingerprint))
             }
             _ => Err(Reject::BadHandshake),
@@ -745,6 +762,7 @@ async fn serve(
             return Ok(());
         }
         let incoming = tokio::select! {
+            _ = tokio::time::sleep_until(deadline), if !hello => return Err("hello deadline"),
             frame = input.recv() => Some(frame.ok_or("route closed")?.frame),
             changed = async {
                 match &mut adapter { Some(adapter) => crate::companion::Adapter::changed(adapter).await, None => std::future::pending().await }
@@ -767,6 +785,12 @@ async fn serve(
                 hello = true;
                 match (companion::VersionRange { min: 1, max: 1 }).negotiate(&greeting.versions) {
                     Ok(_) => {
+                        tx.send(Event::Authenticated {
+                            channel: id,
+                            instance,
+                        })
+                        .await
+                        .map_err(|_| "route closed")?;
                         let core = core.get().ok_or("core unavailable")?;
                         let mut serving =
                             crate::companion::Adapter::new(core.clone(), instance, name.clone())

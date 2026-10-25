@@ -28,6 +28,49 @@ struct Relay {
     hosts: StdMutex<Vec<Computer>>,
     listings: AtomicU32,
     opens: AtomicU32,
+    writer: Arc<WriteGate>,
+}
+#[derive(Default)]
+struct WriteGate {
+    blocked: AtomicBool,
+    entered: tokio::sync::Notify,
+    waker: futures_util::task::AtomicWaker,
+}
+struct GatedConnection(tokio::io::DuplexStream, Arc<WriteGate>);
+impl tokio::io::AsyncRead for GatedConnection {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buffer)
+    }
+}
+impl tokio::io::AsyncWrite for GatedConnection {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.1.waker.register(cx.waker());
+        if self.1.blocked.load(Ordering::Acquire) {
+            self.1.entered.notify_one();
+            return std::task::Poll::Pending;
+        }
+        std::pin::Pin::new(&mut self.0).poll_write(cx, bytes)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
 }
 impl Service for Relay {
     fn list<'a>(&'a self, _: &'a Context) -> BoxFuture<'a, Result<Vec<Computer>>> {
@@ -45,7 +88,8 @@ impl Service for Relay {
             self.opens.fetch_add(1, Ordering::Relaxed);
             let (client, host) = tokio::io::duplex(2 * 1024 * 1024);
             let client = WebSocketStream::from_raw_socket(
-                Box::new(client) as Box<dyn transport::Connection>,
+                Box::new(GatedConnection(client, self.writer.clone()))
+                    as Box<dyn transport::Connection>,
                 Role::Client,
                 None,
             )
@@ -68,7 +112,7 @@ struct Fixture {
     core: Arc<TestCore>,
     root: tempfile::TempDir,
     cancel: CancellationToken,
-    store: Arc<MemoryStore>,
+    store: Arc<dyn SecretStore>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -77,8 +121,10 @@ impl Drop for Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_store(Arc::new(MemoryStore::default())).await
+    }
+    async fn with_store(store: Arc<dyn SecretStore>) -> Self {
         let root = tempfile::tempdir().unwrap();
-        let store = Arc::new(MemoryStore::default());
         let mut identity = Identity::generate().unwrap();
         identity.pin = Some(Secret("012345".into()));
         let fingerprint = remote::fingerprint(&identity.host_key().unwrap().public);
@@ -134,6 +180,7 @@ impl Fixture {
             }]),
             listings: AtomicU32::new(0),
             opens: AtomicU32::new(0),
+            writer: Default::default(),
         });
         assert!(client.0.service.set(relay.clone()).is_ok());
         let core = Arc::new(TestCore::default());
@@ -257,6 +304,14 @@ struct TestCore {
     attaches: AtomicU32,
     stopped: AtomicBool,
     closed: tokio::sync::Notify,
+    action_gate: StdMutex<Option<ActionGate>>,
+    feed_gate: StdMutex<Option<ActionGate>>,
+    fork_calls: AtomicU32,
+}
+struct ActionGate {
+    fork_only: bool,
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+    release: std::sync::mpsc::Receiver<()>,
 }
 struct TestFrames(
     StdMutex<std::sync::mpsc::Receiver<TerminalFrame>>,
@@ -301,24 +356,74 @@ impl TestCore {
     }
 }
 impl crate::companion::core::Core for TestCore {
+    fn statuses(
+        &self,
+    ) -> crate::companion::core::Result<std::collections::BTreeMap<String, c::SessionStatus>> {
+        if let Some(core) = self.backend.get() {
+            core.statuses()
+        } else {
+            self.fake.statuses()
+        }
+    }
     fn action(
         &self,
         request: c::ActionRequest,
     ) -> crate::companion::core::Result<serde_json::Value> {
-        self.backend.get().unwrap().action(request)
+        let fork = matches!(request, c::ActionRequest::Fork { .. });
+        if fork {
+            self.fork_calls.fetch_add(1, Ordering::Relaxed);
+        }
+        let gate = {
+            let mut gate = self.action_gate.lock().unwrap();
+            if gate.as_ref().is_some_and(|gate| !gate.fork_only || fork) {
+                gate.take()
+            } else {
+                None
+            }
+        };
+        if let Some(gate) = gate {
+            gate.entered.send(()).unwrap();
+            gate.release.recv().unwrap();
+            return Ok(serde_json::json!({"session":"forked"}));
+        }
+        match self.backend.get() {
+            Some(core) => core.action(request),
+            None => Ok(serde_json::json!({"ok":true})),
+        }
     }
     fn feed(&self, request: c::FeedRequest) -> crate::companion::core::Result<c::FeedPage> {
-        self.backend.get().unwrap().feed(request)
+        let gate = self.feed_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.send(()).unwrap();
+            gate.release.recv().unwrap();
+        }
+        match self.backend.get() {
+            Some(core) => core.feed(request),
+            None => Ok(c::FeedPage {
+                entries: vec![],
+                before: None,
+            }),
+        }
     }
     fn feed_cursor(&self, mission: &str) -> crate::companion::core::Result<u64> {
-        self.backend.get().unwrap().feed_cursor(mission)
+        match self.backend.get() {
+            Some(core) => core.feed_cursor(mission),
+            None => Ok(0),
+        }
     }
     fn feed_since(
         &self,
         mission: &str,
         cursor: u64,
     ) -> crate::companion::core::Result<crate::companion::feed::Updates> {
-        self.backend.get().unwrap().feed_since(mission, cursor)
+        match self.backend.get() {
+            Some(core) => core.feed_since(mission, cursor),
+            None => Ok(crate::companion::feed::Updates {
+                cursor,
+                entries: vec![],
+                more: false,
+            }),
+        }
     }
     fn answer(&self, request: c::AnswerRequest) -> crate::companion::core::Result<()> {
         self.backend.get().unwrap().answer(request)
@@ -530,6 +635,395 @@ async fn terminal_attachment_maps_snapshot_output_resize_input_and_control() {
         [(100, 40, "take"), (110, 45, "take"), (90, 30, "viewport")]
     );
     drop(frames);
+}
+
+#[tokio::test]
+async fn only_explicit_reset_can_discard_corrupt_pairing_metadata() {
+    for paired in [true, false] {
+        let fixture = Fixture::new().await;
+        Identity::generate()
+            .unwrap()
+            .save(fixture.store.as_ref())
+            .unwrap();
+        let identity = fixture
+            .store
+            .get(super::super::store::IDENTITY_NAME)
+            .unwrap();
+        let enrollment = fixture.store.get("https://relay.invalid").unwrap();
+        if paired {
+            fixture.pair().await;
+        }
+        let primary = fixture
+            .store
+            .get(super::super::store::CLIENT_KEYS_NAME)
+            .unwrap();
+        fixture.store.put("client-keys-cleanup", b"{").unwrap();
+        assert!(fixture.client.forget("2".into()).await.is_err());
+        assert!(
+            fixture
+                .store
+                .get(super::super::store::CLIENT_KEYS_NAME)
+                .unwrap()
+                == primary
+        );
+        assert_eq!(
+            fixture.store.get("client-keys-cleanup").unwrap().unwrap(),
+            b"{"
+        );
+        assert!(ClientKeys::default().save(fixture.store.as_ref()).is_err());
+        fixture.client.reset().await.unwrap();
+        fixture.pair().await;
+        fixture.client.overview("2".into()).await.unwrap();
+        fixture.client.reset().await.unwrap();
+        let corrupt = b"RUNNER-CLIENT-KEYS:{";
+        fixture
+            .store
+            .put(super::super::store::CLIENT_KEYS_NAME, corrupt)
+            .unwrap();
+        assert!(ClientKeys::default().save(fixture.store.as_ref()).is_err());
+        assert!(fixture.client.forget("2".into()).await.is_err());
+        assert_eq!(
+            fixture
+                .store
+                .get(super::super::store::CLIENT_KEYS_NAME)
+                .unwrap()
+                .unwrap(),
+            corrupt
+        );
+        fixture.client.reset().await.unwrap();
+        fixture.pair().await;
+        fixture.client.overview("2".into()).await.unwrap();
+        fixture.client.reset().await.unwrap();
+        assert!(
+            fixture
+                .store
+                .get(super::super::store::IDENTITY_NAME)
+                .unwrap()
+                == identity
+        );
+        assert!(fixture.store.get("https://relay.invalid").unwrap() == enrollment);
+        assert!(fixture
+            .store
+            .get(super::super::store::CLIENT_KEYS_NAME)
+            .unwrap()
+            .is_none());
+        assert!(fixture.store.get("client-keys-cleanup").unwrap().is_none());
+    }
+}
+
+#[tokio::test]
+async fn committed_pair_and_forget_succeed_with_deferred_cleanup_and_reset_recovers_corruption() {
+    #[derive(Default)]
+    struct DeferredStore {
+        memory: MemoryStore,
+        names: StdMutex<std::collections::HashSet<String>>,
+        fail_delete: AtomicBool,
+    }
+    impl SecretStore for DeferredStore {
+        fn get(&self, name: &str) -> super::super::store::StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> super::super::store::StoreResult<()> {
+            assert!(bytes.len() <= 2560);
+            self.memory.put(name, bytes)?;
+            self.names.lock().unwrap().insert(name.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> super::super::store::StoreResult<()> {
+            if name.starts_with("client-keys/") && self.fail_delete.load(Ordering::Relaxed) {
+                return Err("test cleanup failure");
+            }
+            self.memory.delete(name)?;
+            self.names.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+    let store = Arc::new(DeferredStore::default());
+    let fixture = Fixture::with_store(store.clone()).await;
+    Identity::generate().unwrap().save(store.as_ref()).unwrap();
+    let identity = store.get(super::super::store::IDENTITY_NAME).unwrap();
+    let origin = "https://relay.invalid";
+    let enrollment = store.get(origin).unwrap();
+    let mut keys = ClientKeys::default();
+    for index in 0..20 {
+        let key = remote::HostKey::generate().unwrap();
+        keys.0.insert(
+            remote::fingerprint(&key.public),
+            ClientKey {
+                private: Secret(remote::encode_key(&key.private)),
+                public: key.public.to_vec(),
+                name: format!("host-{index}"),
+                paired_at: chrono::Utc::now(),
+            },
+        );
+    }
+    keys.save(store.as_ref()).unwrap();
+    store.fail_delete.store(true, Ordering::Relaxed);
+    fixture.pair().await;
+    assert_eq!(ClientKeys::load(store.as_ref()).unwrap().0.len(), 21);
+    assert!(store.get("client-keys-cleanup").unwrap().is_some());
+    assert!(!fixture.client.0.routes.lock().await.is_empty());
+    fixture.client.overview("2".into()).await.unwrap();
+    store.fail_delete.store(false, Ordering::Relaxed);
+    ClientKeys::load(store.as_ref())
+        .unwrap()
+        .save(store.as_ref())
+        .unwrap();
+    assert!(store.get("client-keys-cleanup").unwrap().is_none());
+    store.fail_delete.store(true, Ordering::Relaxed);
+    fixture.client.forget("2".into()).await.unwrap();
+    assert_eq!(ClientKeys::load(store.as_ref()).unwrap().0.len(), 20);
+    assert!(!fixture.client.computers().await.unwrap()[0].paired);
+    assert!(store.get("client-keys-cleanup").unwrap().is_some());
+    assert!(fixture.client.reset().await.is_err());
+    store.fail_delete.store(false, Ordering::Relaxed);
+    fixture.client.reset().await.unwrap();
+    assert_eq!(
+        *store.names.lock().unwrap(),
+        [super::super::store::IDENTITY_NAME.into(), origin.into()]
+            .into_iter()
+            .collect()
+    );
+    store.put("client-keys-cleanup", b"{").unwrap();
+    assert!(keys.save(store.as_ref()).is_err());
+    fixture.client.reset().await.unwrap();
+    assert!(store.get("client-keys-cleanup").unwrap().is_none());
+    fixture.pair().await;
+    fixture.client.overview("2".into()).await.unwrap();
+    fixture.client.reset().await.unwrap();
+    assert_eq!(
+        *store.names.lock().unwrap(),
+        [super::super::store::IDENTITY_NAME.into(), origin.into()]
+            .into_iter()
+            .collect()
+    );
+    assert!(store.get(super::super::store::IDENTITY_NAME).unwrap() == identity);
+    assert!(store.get(origin).unwrap() == enrollment);
+}
+
+#[tokio::test]
+async fn interrupted_key_generation_writes_and_cleanup_recover_before_retry_or_reset() {
+    #[derive(Default)]
+    struct InterruptedStore {
+        memory: MemoryStore,
+        names: StdMutex<std::collections::HashSet<String>>,
+        remaining: StdMutex<Option<usize>>,
+        interrupted: AtomicBool,
+    }
+    impl InterruptedStore {
+        fn mutation(&self) -> super::super::store::StoreResult<()> {
+            if let Some(remaining) = self.remaining.lock().unwrap().as_mut() {
+                if *remaining == 0 {
+                    self.interrupted.store(true, Ordering::Relaxed);
+                    return Err("test interruption");
+                }
+                *remaining -= 1;
+            }
+            Ok(())
+        }
+    }
+    impl SecretStore for InterruptedStore {
+        fn get(&self, name: &str) -> super::super::store::StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> super::super::store::StoreResult<()> {
+            assert!(bytes.len() <= 2560);
+            self.mutation()?;
+            self.memory.put(name, bytes)?;
+            self.names.lock().unwrap().insert(name.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> super::super::store::StoreResult<()> {
+            self.mutation()?;
+            self.memory.delete(name)?;
+            self.names.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+    let mut many = ClientKeys::default();
+    for index in 0..20 {
+        let key = remote::HostKey::generate().unwrap();
+        many.0.insert(
+            remote::fingerprint(&key.public),
+            ClientKey {
+                private: Secret(remote::encode_key(&key.private)),
+                public: key.public.to_vec(),
+                name: format!("host-{index}"),
+                paired_at: chrono::Utc::now(),
+            },
+        );
+    }
+    let mut fewer = many.clone();
+    fewer.0.pop_first();
+    let one = ClientKeys(
+        many.0
+            .iter()
+            .take(1)
+            .map(|(id, key)| (id.clone(), key.clone()))
+            .collect(),
+    );
+    for (old, new) in [
+        (ClientKeys::default(), many.clone()),
+        (many.clone(), fewer),
+        (many, one),
+    ] {
+        for retry in [false, true] {
+            let mut completed = false;
+            for completed_mutations in 0..100 {
+                let root = tempfile::tempdir().unwrap();
+                let store = Arc::new(InterruptedStore::default());
+                Identity::generate().unwrap().save(store.as_ref()).unwrap();
+                let identity = store.get(super::super::store::IDENTITY_NAME).unwrap();
+                let origin = "https://cleanup-test.invalid";
+                store.put(origin, b"isolated-enrollment").unwrap();
+                old.save(store.as_ref()).unwrap();
+                let client = Client::new(
+                    root.path().into(),
+                    store.clone(),
+                    watch::channel(RemoteStatus::default()).1,
+                    Default::default(),
+                    CancellationToken::new(),
+                );
+                *store.remaining.lock().unwrap() = Some(completed_mutations);
+                let saved = new.save(store.as_ref());
+                let count = ClientKeys::load(store.as_ref()).unwrap().0.len();
+                assert!(count == old.0.len() || count == new.0.len());
+                if store.interrupted.load(Ordering::Relaxed) {
+                    assert_eq!(
+                        count,
+                        if saved.is_ok() {
+                            new.0.len()
+                        } else {
+                            old.0.len()
+                        }
+                    );
+                    let names = store.names.lock().unwrap().clone();
+                    assert!(new.save(store.as_ref()).is_err());
+                    assert!(client.reset().await.is_err());
+                    assert_eq!(*store.names.lock().unwrap(), names);
+                } else {
+                    saved.unwrap();
+                    completed = true;
+                }
+                *store.remaining.lock().unwrap() = None;
+                if retry {
+                    new.save(store.as_ref()).unwrap();
+                    assert_eq!(
+                        ClientKeys::load(store.as_ref()).unwrap().0.len(),
+                        new.0.len()
+                    );
+                    assert!(store.get("client-keys-cleanup").unwrap().is_none());
+                }
+                client.reset().await.unwrap();
+                assert!(ClientKeys::load(store.as_ref()).unwrap().0.is_empty());
+                assert_eq!(
+                    *store.names.lock().unwrap(),
+                    [super::super::store::IDENTITY_NAME.into(), origin.into()]
+                        .into_iter()
+                        .collect()
+                );
+                assert!(store.get(super::super::store::IDENTITY_NAME).unwrap() == identity);
+                assert_eq!(store.get(origin).unwrap().unwrap(), b"isolated-enrollment");
+                if completed {
+                    break;
+                }
+            }
+            assert!(completed);
+        }
+    }
+}
+
+#[tokio::test]
+async fn reset_deletes_every_private_key_shard_and_keeps_identity_and_enrollment() {
+    #[derive(Default)]
+    struct AuditedStore {
+        memory: MemoryStore,
+        names: StdMutex<std::collections::HashSet<String>>,
+        fail_delete: AtomicBool,
+    }
+    impl SecretStore for AuditedStore {
+        fn get(&self, name: &str) -> super::super::store::StoreResult<Option<Vec<u8>>> {
+            self.memory.get(name)
+        }
+        fn put(&self, name: &str, bytes: &[u8]) -> super::super::store::StoreResult<()> {
+            self.memory.put(name, bytes)?;
+            self.names.lock().unwrap().insert(name.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> super::super::store::StoreResult<()> {
+            if name.starts_with("client-keys/") && self.fail_delete.load(Ordering::Relaxed) {
+                return Err("test deletion failure");
+            }
+            self.memory.delete(name)?;
+            self.names.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(AuditedStore::default());
+    Identity::generate().unwrap().save(store.as_ref()).unwrap();
+    let identity = store.get(super::super::store::IDENTITY_NAME).unwrap();
+    let origin = "https://reset-test.invalid";
+    store.put(origin, b"isolated-enrollment").unwrap();
+    let mut keys = ClientKeys::default();
+    for index in 0..20 {
+        let key = remote::HostKey::generate().unwrap();
+        keys.0.insert(
+            remote::fingerprint(&key.public),
+            ClientKey {
+                private: Secret(remote::encode_key(&key.private)),
+                public: key.public.to_vec(),
+                name: format!("host-{index}"),
+                paired_at: chrono::Utc::now(),
+            },
+        );
+    }
+    keys.save(store.as_ref()).unwrap();
+    assert!(store.names.lock().unwrap().len() > 3);
+    let client = Client::new(
+        root.path().into(),
+        store.clone(),
+        watch::channel(RemoteStatus::default()).1,
+        Default::default(),
+        CancellationToken::new(),
+    );
+    store.fail_delete.store(true, Ordering::Relaxed);
+    assert!(client.reset().await.is_err());
+    assert!(store
+        .get(super::super::store::CLIENT_KEYS_NAME)
+        .unwrap()
+        .is_some());
+    store.fail_delete.store(false, Ordering::Relaxed);
+    client.reset().await.unwrap();
+    assert!(ClientKeys::load(store.as_ref()).unwrap().0.is_empty());
+    assert_eq!(
+        *store.names.lock().unwrap(),
+        [super::super::store::IDENTITY_NAME.into(), origin.into()]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        store.get(super::super::store::IDENTITY_NAME).unwrap(),
+        identity
+    );
+    assert_eq!(store.get(origin).unwrap().unwrap(), b"isolated-enrollment");
+    store
+        .put(
+            super::super::store::CLIENT_KEYS_NAME,
+            b"RUNNER-CLIENT-KEYS:{",
+        )
+        .unwrap();
+    assert!(ClientKeys::load(store.as_ref()).is_err());
+    client.reset().await.unwrap();
+    assert!(store
+        .get(super::super::store::CLIENT_KEYS_NAME)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store.get(super::super::store::IDENTITY_NAME).unwrap(),
+        identity
+    );
+    assert_eq!(store.get(origin).unwrap().unwrap(), b"isolated-enrollment");
 }
 
 #[tokio::test]
@@ -1277,6 +1771,7 @@ async fn ipc_fixture(
 ) {
     let root = super::super::tests::socket_root();
     let mut core = crate::test_support::test_core_in(root.path().into());
+    core.events = fixture.client.0.events.clone();
     core.remote = super::super::RemoteHandle {
         client: Some(fixture.client.clone()),
         ..Default::default()
@@ -1284,6 +1779,251 @@ async fn ipc_fixture(
     let server = super::super::tests::SocketHarness::new(root.path(), core).await;
     let client = server.client(Duration::from_secs(5)).await;
     (root, server, client)
+}
+
+#[tokio::test]
+async fn queued_input_rejections_and_teardown_reach_the_scoped_ipc_error_event() {
+    for failure in ["bytes", "generation", "teardown"] {
+        let fixture = Fixture::new().await;
+        fixture.pair().await;
+        let (_root, _server, ipc) = ipc_fixture(&fixture).await;
+        let mut events = ipc.subscribe();
+        let route = fixture.client.route("2").await.unwrap();
+        match failure {
+            "bytes" => fixture
+                .client
+                .input(
+                    "2".into(),
+                    "session".into(),
+                    vec![b'x'; c::MAX_MESSAGE_SIZE],
+                )
+                .await
+                .unwrap(),
+            "generation" => route
+                .tx
+                .try_send(route::Command::Input(
+                    route.generation().wrapping_sub(1),
+                    "session".into(),
+                    b"discarded-generation".to_vec(),
+                ))
+                .unwrap(),
+            _ => {
+                let writer = fixture.relay.writer.clone();
+                writer.blocked.store(true, Ordering::Release);
+                let client = fixture.client.clone();
+                let waiting = tokio::spawn(async move { client.overview("2".into()).await });
+                writer.entered.notified().await;
+                route
+                    .input(
+                        route.generation(),
+                        "session".into(),
+                        b"discarded-teardown".to_vec(),
+                    )
+                    .await
+                    .unwrap();
+                route.cancel.cancel();
+                writer.blocked.store(false, Ordering::Release);
+                writer.waker.wake();
+                assert!(waiting.await.unwrap().is_err());
+            }
+        }
+        let event = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.name == "session/input-error" {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect(failure);
+        assert_eq!(
+            event.payload["session_id"],
+            remote::terminal_address("2", "session")
+        );
+        assert!(event.payload["message"]
+            .as_str()
+            .unwrap()
+            .contains(if failure == "bytes" {
+                "queue"
+            } else {
+                "discarded"
+            }));
+        assert!(fixture.core.fake.input.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn delayed_actions_survive_the_ipc_and_fork_route_deadlines() {
+    let fixture = Fixture::new().await;
+    fixture.pair().await;
+    let (_root, server, _) = ipc_fixture(&fixture).await;
+    let ipc = server.client(Duration::from_millis(40)).await;
+    for kind in ["rename", "fork"] {
+        let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        *fixture.core.action_gate.lock().unwrap() = Some(ActionGate {
+            fork_only: false,
+            entered,
+            release: gate,
+        });
+        let request = if kind == "fork" {
+            serde_json::json!({"type":"fork","id":1,"session":"session","cols":80,"rows":24})
+        } else {
+            serde_json::json!({"type":"rename","id":1,"target":{"kind":"session","id":"session"},"name":"new"})
+        };
+        let request = c::ClientMessage::decode(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let client = ipc.clone();
+        let action =
+            tokio::task::spawn_blocking(move || client.remote_request("2".into(), request));
+        ready.recv().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !action.is_finished(),
+            "generic remote requests must outlive the ordinary IPC budget"
+        );
+        if kind == "fork" {
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(40)).await;
+            tokio::task::yield_now().await;
+            assert!(!action.is_finished());
+            assert!(fixture
+                .client
+                .route("2")
+                .await
+                .unwrap()
+                .ready
+                .load(Ordering::Acquire));
+            tokio::time::resume();
+        }
+        release.send(()).unwrap();
+        assert_eq!(action.await.unwrap().unwrap().result["session"], "forked");
+        fixture.core.action_gate.lock().unwrap().take();
+    }
+}
+
+async fn ipc_remote_request(
+    client: &runner_core::protocol::DaemonClient,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let request = c::ClientMessage::decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+    let client = client.clone();
+    tokio::task::spawn_blocking(move || client.remote_request("2".into(), request))
+        .await
+        .unwrap()
+        .unwrap()
+        .result
+}
+
+#[tokio::test]
+async fn a_pending_fork_does_not_block_unrelated_ipc_requests_or_reconnect_the_route() {
+    let fixture = Fixture::new().await;
+    fixture.pair().await;
+    let (_root, _server, ipc) = ipc_fixture(&fixture).await;
+    let route = fixture.client.route("2").await.unwrap();
+    let generation = route.generation();
+    let mut events = fixture.client.0.events.subscribe();
+    let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    *fixture.core.action_gate.lock().unwrap() = Some(ActionGate {
+        fork_only: true,
+        entered,
+        release: gate,
+    });
+    let client = ipc.clone();
+    let fork = tokio::spawn(async move {
+        ipc_remote_request(
+            &client,
+            serde_json::json!({"type":"fork","id":1,"session":"session","cols":80,"rows":24}),
+        )
+        .await
+    });
+    ready.recv().await.unwrap();
+    for request in [
+        serde_json::json!({"type":"layout","id":1,"target":{"kind":"tab","id":"tab"},"name":"Layout","panes":{"id":"p","session":"session"},"shells":[]}),
+        serde_json::json!({"type":"rename","id":1,"target":{"kind":"session","id":"session"},"name":"new"}),
+        serde_json::json!({"type":"catalog","id":1}),
+        serde_json::json!({"type":"feed","id":1,"mission":"m","limit":20}),
+    ] {
+        ipc_remote_request(&ipc, request).await;
+    }
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(40)).await;
+    tokio::task::yield_now().await;
+    assert!(route.ready.load(Ordering::Acquire));
+    assert_eq!(route.generation(), generation);
+    assert!(!fork.is_finished());
+    ipc_remote_request(&ipc, serde_json::json!({"type":"catalog","id":1})).await;
+    tokio::time::advance(Duration::from_secs(20)).await;
+    tokio::task::yield_now().await;
+    release.send(()).unwrap();
+    tokio::time::resume();
+    assert_eq!(fork.await.unwrap()["session"], "forked");
+    assert_eq!(fixture.core.fork_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(fixture.relay.opens.load(Ordering::Relaxed), 1);
+    assert!(route.ready.load(Ordering::Acquire));
+    while let Ok(event) = events.try_recv() {
+        assert!(event.name != "remote/connection" || event.payload["state"] == "connected");
+    }
+}
+
+#[tokio::test]
+async fn unfollow_under_feed_saturation_releases_the_client_route_for_idle_close() {
+    let fixture = Fixture::new().await;
+    fixture.pair().await;
+    let route = fixture.client.route("2").await.unwrap();
+    route
+        .request(|id| {
+            c::ClientMessage::Follow(c::MissionRequest {
+                id,
+                mission: "m".into(),
+            })
+        })
+        .await
+        .unwrap();
+    let (entered, mut ready) = tokio::sync::mpsc::unbounded_channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    *fixture.core.feed_gate.lock().unwrap() = Some(ActionGate {
+        fork_only: false,
+        entered,
+        release: gate,
+    });
+    let mut replies = Vec::new();
+    for _ in 0..8 {
+        let (reply, receive) = oneshot::channel();
+        route
+            .send(route::Command::Request(
+                c::ClientMessage::Feed(c::FeedRequest {
+                    id: route.next_id(),
+                    mission: "m".into(),
+                    before: None,
+                    limit: 20,
+                }),
+                reply,
+            ))
+            .await
+            .unwrap();
+        replies.push(receive);
+    }
+    ready.recv().await.unwrap();
+    route
+        .request(|id| {
+            c::ClientMessage::Unfollow(c::MissionRequest {
+                id,
+                mission: "m".into(),
+            })
+        })
+        .await
+        .unwrap();
+    release.send(()).unwrap();
+    for reply in replies {
+        reply.await.unwrap().unwrap();
+    }
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(61)).await;
+    route.cancel.cancelled().await;
+    tokio::time::resume();
+    assert_eq!(fixture.relay.opens.load(Ordering::Relaxed), 1);
 }
 
 async fn ipc_attach(client: &runner_core::protocol::DaemonClient) -> TerminalAttachment {

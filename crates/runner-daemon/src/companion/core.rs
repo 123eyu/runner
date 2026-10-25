@@ -56,6 +56,7 @@ pub trait Core: Send + Sync {
         ))
     }
     fn overview(&self) -> Result<Overview>;
+    fn statuses(&self) -> Result<BTreeMap<String, SessionStatus>>;
     fn subscribe(&self) -> Result<broadcast::Receiver<AppEvent>>;
     fn attach(self: Arc<Self>, session: &str, history: usize) -> Result<Attachment>;
     fn resize(
@@ -109,6 +110,16 @@ pub(super) fn failed(_: impl std::fmt::Display) -> Failure {
     )
 }
 impl Core for DaemonCore {
+    fn statuses(&self) -> Result<BTreeMap<String, SessionStatus>> {
+        crate::ops::session::session_status_snapshot(self.core()?.as_ref())
+            .map(|statuses| {
+                statuses
+                    .into_iter()
+                    .map(|(id, status)| (id, SessionStatus::from(&status)))
+                    .collect()
+            })
+            .map_err(failed)
+    }
     fn action(&self, request: ActionRequest) -> Result<serde_json::Value> {
         DaemonCore::action(self, request)
     }

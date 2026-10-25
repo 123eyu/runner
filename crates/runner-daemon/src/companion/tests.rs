@@ -9,8 +9,20 @@ pub struct Fake {
     pub history: Mutex<Vec<usize>>,
     pub released: Mutex<Vec<u64>>,
     pub snapshots: AtomicU64,
+    overview_calls: AtomicU64,
     overview_gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     overview_started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    capture_overview_before_gate: AtomicBool,
+    fail_overview: AtomicBool,
+    feed_enabled: AtomicBool,
+    feed_calls: AtomicU64,
+    feed_gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    feed_started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    requests_enabled: AtomicBool,
+    request_gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    request_started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    request_order: Mutex<Vec<String>>,
+    appended: Mutex<Vec<FeedEntry>>,
     pub bytes: Mutex<Vec<u8>>,
     continuation: Mutex<(Option<char>, usize)>,
     frames: Mutex<Option<Box<dyn TerminalSubscription>>>,
@@ -31,13 +43,44 @@ impl Default for Fake {
             history: Default::default(),
             released: Default::default(),
             snapshots: AtomicU64::new(0),
+            overview_calls: AtomicU64::new(0),
             overview_gate: Default::default(),
             overview_started: Default::default(),
+            capture_overview_before_gate: Default::default(),
+            fail_overview: Default::default(),
+            feed_enabled: AtomicBool::new(false),
+            feed_calls: AtomicU64::new(0),
+            feed_gate: Default::default(),
+            feed_started: Default::default(),
+            requests_enabled: AtomicBool::new(false),
+            request_gate: Default::default(),
+            request_started: Default::default(),
+            request_order: Default::default(),
+            appended: Default::default(),
             bytes: Mutex::new(b"screen".to_vec()),
             continuation: Mutex::new((None, 0)),
             frames: Default::default(),
             closed_reason: Mutex::new(ClosedReason::Exited),
         }
+    }
+}
+impl Fake {
+    fn request_gate(&self, name: String) -> core::Result<()> {
+        if !self.requests_enabled.load(Ordering::Relaxed) {
+            return Err(Failure(
+                ErrorCode::UnknownRequest,
+                "The host does not serve that request.",
+            ));
+        }
+        self.request_order.lock().unwrap().push(name);
+        let gate = self.request_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            if let Some(started) = self.request_started.lock().unwrap().take() {
+                let _ = started.send(());
+            }
+            gate.recv().unwrap();
+        }
+        Ok(())
     }
 }
 #[derive(Default)]
@@ -68,7 +111,70 @@ impl TerminalSubscription for Frames {
     }
 }
 impl Core for Fake {
+    fn feed_since(&self, _: &str, cursor: u64) -> core::Result<feed::Updates> {
+        if !self.requests_enabled.load(Ordering::Relaxed)
+            && !self.feed_enabled.load(Ordering::Relaxed)
+        {
+            return Err(Failure(
+                ErrorCode::UnknownRequest,
+                "The host does not serve that request.",
+            ));
+        }
+        let entries = std::mem::take(&mut *self.appended.lock().unwrap());
+        Ok(feed::Updates {
+            cursor: cursor + entries.len() as u64,
+            entries,
+            more: false,
+        })
+    }
+    fn action(&self, request: ActionRequest) -> core::Result<serde_json::Value> {
+        self.request_gate(format!("action-{}", request.id()))?;
+        if let ActionRequest::Layout { name, .. } = request {
+            self.overview.lock().unwrap().tabs[0].name = name;
+        }
+        Ok(serde_json::json!({"session":"action-result"}))
+    }
+    fn feed_cursor(&self, mission: &str) -> core::Result<u64> {
+        self.request_gate(format!("follow-{mission}"))?;
+        Ok(17)
+    }
+    fn feed(&self, request: FeedRequest) -> core::Result<FeedPage> {
+        if !self.feed_enabled.load(Ordering::Relaxed) {
+            return Err(Failure(
+                ErrorCode::UnknownRequest,
+                "The host does not serve that request.",
+            ));
+        }
+        self.feed_calls.fetch_add(1, Ordering::Relaxed);
+        let gate = self.feed_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            if let Some(started) = self.feed_started.lock().unwrap().take() {
+                let _ = started.send(());
+            }
+            gate.recv().unwrap();
+        }
+        Ok(FeedPage {
+            entries: vec![],
+            before: Some(request.id.to_string()),
+        })
+    }
+    fn statuses(&self) -> core::Result<BTreeMap<String, SessionStatus>> {
+        Ok(self
+            .overview
+            .lock()
+            .unwrap()
+            .sessions
+            .iter()
+            .map(|(id, session)| (id.clone(), session.status.clone()))
+            .collect())
+    }
     fn overview(&self) -> core::Result<Overview> {
+        self.overview_calls.fetch_add(1, Ordering::Relaxed);
+        let fail = self.fail_overview.swap(false, Ordering::Relaxed);
+        let captured = self
+            .capture_overview_before_gate
+            .load(Ordering::Relaxed)
+            .then(|| self.overview.lock().unwrap().clone());
         let gate = self.overview_gate.lock().unwrap().take();
         if let Some(gate) = gate {
             if let Some(started) = self.overview_started.lock().unwrap().take() {
@@ -76,7 +182,10 @@ impl Core for Fake {
             }
             gate.recv().unwrap();
         }
-        Ok(self.overview.lock().unwrap().clone())
+        if fail {
+            return Err(Failure(ErrorCode::Failed, "test overview failure"));
+        }
+        Ok(captured.unwrap_or_else(|| self.overview.lock().unwrap().clone()))
     }
     fn subscribe(&self) -> core::Result<broadcast::Receiver<AppEvent>> {
         Ok(self.events.subscribe())
@@ -131,7 +240,29 @@ fn request(value: serde_json::Value) -> ClientMessage {
     ClientMessage::decode(&serde_json::to_vec(&value).unwrap()).unwrap()
 }
 async fn next(adapter: &mut Adapter) -> serde_json::Value {
-    serde_json::from_slice(&adapter.next(true).await.unwrap().unwrap()).unwrap()
+    loop {
+        if let Some(bytes) = adapter.next(true).await.unwrap() {
+            return serde_json::from_slice(&bytes).unwrap();
+        }
+        assert!(
+            adapter.overview_work.is_some()
+                || adapter.request_work.is_some()
+                || adapter.status_work.is_some()
+                || adapter.overview_due.is_some()
+                || adapter.action_work.is_some()
+                || !adapter.forks.is_empty(),
+            "no pending message"
+        );
+        adapter.changed().await.unwrap();
+    }
+}
+async fn next_non_overview(adapter: &mut Adapter) -> serde_json::Value {
+    loop {
+        let message = next(adapter).await;
+        if message["type"] != "overview" {
+            return message;
+        }
+    }
 }
 async fn attach(adapter: &mut Adapter, session: &str) {
     adapter.request(request(serde_json::json!({"type":"attach","id":1,"session":session,"cols":80,"rows":24,"control":"take","history":2}))).await.unwrap();
@@ -211,6 +342,751 @@ async fn overview_coalesces_and_delivers_the_final_change_and_status() {
     tokio::time::advance(Duration::from_millis(250)).await;
     adapter.changed().await.unwrap();
     assert_eq!(next(&mut adapter).await["tabs"][0]["name"], "last");
+}
+
+#[tokio::test]
+async fn an_old_status_worker_cannot_undo_a_newer_explicit_overview_snapshot() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    adapter.initialize().await.unwrap();
+    let old = adapter.statuses.clone();
+    let session = old.keys().next().unwrap().clone();
+    let (release, held) = tokio::sync::oneshot::channel();
+    adapter.status_work = Some(tokio::spawn(async move {
+        held.await.unwrap();
+        Ok(old)
+    }));
+    adapter.status_started_revision = adapter.status_revision;
+    fake.overview
+        .lock()
+        .unwrap()
+        .sessions
+        .get_mut(&session)
+        .unwrap()
+        .status
+        .unread = true;
+    adapter
+        .request(request(serde_json::json!({"type":"overview","id":99})))
+        .await
+        .unwrap();
+    loop {
+        let message = next(&mut adapter).await;
+        if message["id"] == 99 {
+            break;
+        }
+    }
+    assert!(adapter.statuses[&session].unread);
+    release.send(()).unwrap();
+    while adapter.status_work.is_some() {
+        adapter.changed().await.unwrap();
+    }
+    assert!(adapter.statuses[&session].unread);
+    while let Some(bytes) = adapter.next(false).await.unwrap() {
+        let message: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        if message["type"] == "status" {
+            assert_eq!(message["unread"], true);
+        }
+    }
+}
+
+#[tokio::test]
+async fn debounced_overview_work_survives_cancellation_without_duplicate_scans() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    adapter.initialize().await.unwrap();
+    tokio::time::pause();
+    adapter.last_overview = Some(Instant::now());
+    for _ in 0..32 {
+        fake.events.emit("event/appended", &());
+        adapter.changed().await.unwrap();
+    }
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 0);
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.overview_gate.lock().unwrap() = Some(gate);
+    *fake.overview_started.lock().unwrap() = Some(started);
+    tokio::time::advance(Duration::from_millis(250)).await;
+    while adapter.overview_work.is_none() {
+        adapter.changed().await.unwrap();
+    }
+    ready.await.unwrap();
+    while adapter.status_work.is_some() || !adapter.events.is_empty() {
+        adapter.changed().await.unwrap();
+    }
+    tokio::time::resume();
+    for _ in 0..16 {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(1), adapter.changed())
+                .await
+                .is_err()
+        );
+        assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 1);
+    }
+    fake.overview.lock().unwrap().tabs[0].name = "Final tab".into();
+    let id = fake
+        .overview
+        .lock()
+        .unwrap()
+        .sessions
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    fake.overview
+        .lock()
+        .unwrap()
+        .sessions
+        .get_mut(&id)
+        .unwrap()
+        .status
+        .unread = true;
+    fake.events.emit("chat/tab-attention-changed", &());
+    adapter.changed().await.unwrap();
+    assert_eq!(next(&mut adapter).await["type"], "status");
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 1);
+    release.send(()).unwrap();
+    assert_eq!(next(&mut adapter).await["tabs"][0]["name"], "Final tab");
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn slow_actions_and_follows_keep_terminals_live_and_preserve_request_order() {
+    for slow in ["action", "follow"] {
+        let fake = Arc::new(Fake::default());
+        fake.requests_enabled.store(true, Ordering::Relaxed);
+        let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+        attach(&mut adapter, "a").await;
+        next(&mut adapter).await;
+        next(&mut adapter).await;
+        let (release, gate) = std::sync::mpsc::channel();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        *fake.request_gate.lock().unwrap() = Some(gate);
+        *fake.request_started.lock().unwrap() = Some(started);
+        let first = if slow == "action" {
+            serde_json::json!({"type":"rename","id":100,"target":{"kind":"session","id":"a"},"name":"first"})
+        } else {
+            serde_json::json!({"type":"follow","id":100,"mission":"m"})
+        };
+        adapter.request(request(first)).await.unwrap();
+        ready.await.unwrap();
+        for queued in [
+            serde_json::json!({"type":"follow","id":101,"mission":"m"}),
+            serde_json::json!({"type":"unfollow","id":102,"mission":"m"}),
+            serde_json::json!({"type":"rename","id":103,"target":{"kind":"session","id":"a"},"name":"last"}),
+        ] {
+            adapter.request(request(queued)).await.unwrap();
+        }
+        assert!(adapter.requests.len() <= 3 && adapter.actions.len() <= 1);
+        adapter
+            .request(request(
+                serde_json::json!({"type":"input","id":999,"session":"a","data":"eA=="}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(next(&mut adapter).await["id"], 999);
+        assert_eq!(fake.input.lock().unwrap()[0].1, b"x");
+        adapter.streams[0]
+            .queue
+            .lock()
+            .unwrap()
+            .push(TerminalFrame::Output {
+                seq: 11,
+                bytes: b"live output".to_vec(),
+            });
+        assert_eq!(next(&mut adapter).await["type"], "output");
+        release.send(()).unwrap();
+        let mut ids = std::collections::BTreeSet::new();
+        for _ in 100..104 {
+            let reply = next(&mut adapter).await;
+            assert_eq!(reply["type"], "result");
+            ids.insert(reply["id"].as_u64().unwrap());
+        }
+        assert_eq!(ids, (100..104).collect());
+        assert!(!adapter.feeds.contains_key("m"));
+        let order = fake.request_order.lock().unwrap();
+        assert_eq!(order.len(), 3);
+        if slow == "action" {
+            assert!(
+                order.iter().position(|s| s == "action-100").unwrap()
+                    < order.iter().position(|s| s == "action-103").unwrap()
+            );
+        } else {
+            assert_eq!(order.iter().filter(|s| s.as_str() == "follow-m").count(), 2);
+        }
+        assert!(adapter.requests.is_empty() && adapter.request_work.is_none());
+    }
+}
+
+#[tokio::test]
+async fn a_slow_fork_does_not_block_actions_feed_or_follow() {
+    let fake = Arc::new(Fake::default());
+    fake.requests_enabled.store(true, Ordering::Relaxed);
+    fake.feed_enabled.store(true, Ordering::Relaxed);
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.request_gate.lock().unwrap() = Some(gate);
+    *fake.request_started.lock().unwrap() = Some(started);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"fork","id":100,"session":"a","cols":80,"rows":24}),
+        ))
+        .await
+        .unwrap();
+    ready.await.unwrap();
+    for queued in [
+        serde_json::json!({"type":"rename","id":101,"target":{"kind":"session","id":"a"},"name":"new"}),
+        serde_json::json!({"type":"feed","id":102,"mission":"m","limit":20}),
+        serde_json::json!({"type":"follow","id":103,"mission":"m"}),
+    ] {
+        adapter.request(request(queued)).await.unwrap();
+    }
+    let mut replies = std::collections::BTreeSet::new();
+    for _ in 0..3 {
+        let reply = next(&mut adapter).await;
+        assert_eq!(reply["type"], "result");
+        replies.insert(reply["id"].as_u64().unwrap());
+    }
+    assert_eq!(replies, (101..104).collect());
+    assert_eq!(adapter.forks.len(), 1);
+    assert!(adapter.feeds.contains_key("m"));
+    for id in 104..112 {
+        adapter
+            .request(request(
+                serde_json::json!({"type":"fork","id":id,"session":"a","cols":80,"rows":24}),
+            ))
+            .await
+            .unwrap();
+    }
+    assert_eq!(adapter.forks.len(), 8);
+    let refused = next(&mut adapter).await;
+    assert_eq!(refused["type"], "error");
+    assert_eq!(refused["id"], 111);
+    release.send(()).unwrap();
+    let mut replies = std::collections::BTreeSet::new();
+    for _ in 0..8 {
+        let reply = next(&mut adapter).await;
+        assert_eq!(reply["type"], "result");
+        replies.insert(reply["id"].as_u64().unwrap());
+    }
+    assert_eq!(replies, std::iter::once(100).chain(104..111).collect());
+    assert!(adapter.forks.is_empty());
+}
+
+#[tokio::test]
+async fn unfollow_cleanup_ids_share_the_existing_encoded_byte_budget() {
+    let fake = Arc::new(Fake::default());
+    fake.requests_enabled.store(true, Ordering::Relaxed);
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.request_gate.lock().unwrap() = Some(gate);
+    *fake.request_started.lock().unwrap() = Some(started);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"follow","id":1,"mission":"m"}),
+        ))
+        .await
+        .unwrap();
+    ready.await.unwrap();
+    adapter
+        .request(request(
+            serde_json::json!({"type":"unfollow","id":2,"mission":"m"}),
+        ))
+        .await
+        .unwrap();
+    let reserved = adapter.cleanup_bytes;
+    adapter.in_flight(MAX_MESSAGE_SIZE - 2 * reserved);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"unfollow","id":3,"mission":"m"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(adapter.cleanup_bytes, 2 * reserved);
+    assert_eq!(adapter.requests.len(), 1);
+    assert_eq!(
+        adapter
+            .request(request(
+                serde_json::json!({"type":"unfollow","id":4,"mission":"m"})
+            ))
+            .await,
+        Err("reply queue full")
+    );
+    assert_eq!(adapter.cleanup_bytes, 2 * reserved);
+    adapter.in_flight(0);
+    release.send(()).unwrap();
+    for id in 1..4 {
+        assert_eq!(next(&mut adapter).await["id"], id);
+    }
+    assert!(adapter.feeds.is_empty());
+    assert_eq!(adapter.cleanup_bytes, 0);
+}
+
+#[tokio::test]
+async fn saturated_feed_work_reserves_and_coalesces_unfollow_cleanup() {
+    let fake = Arc::new(Fake::default());
+    fake.requests_enabled.store(true, Ordering::Relaxed);
+    fake.feed_enabled.store(true, Ordering::Relaxed);
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    adapter.feeds.insert(
+        "active".into(),
+        FeedSubscription {
+            cursor: 0,
+            dirty: false,
+        },
+    );
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.request_gate.lock().unwrap() = Some(gate);
+    *fake.request_started.lock().unwrap() = Some(started);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"follow","id":100,"mission":"pending"}),
+        ))
+        .await
+        .unwrap();
+    ready.await.unwrap();
+    for id in 101..108 {
+        adapter
+            .request(request(
+                serde_json::json!({"type":"feed","id":id,"mission":"m","limit":20}),
+            ))
+            .await
+            .unwrap();
+    }
+    for (id, mission) in [
+        (200, "active"),
+        (201, "pending"),
+        (202, "pending"),
+        (203, "unrelated"),
+    ] {
+        adapter
+            .request(request(
+                serde_json::json!({"type":"unfollow","id":id,"mission":mission}),
+            ))
+            .await
+            .unwrap();
+    }
+    assert!(!adapter.feeds.contains_key("active"));
+    assert_eq!(adapter.feed_outstanding, 8);
+    assert_eq!(adapter.requests.len(), 8);
+    assert!(
+        matches!(adapter.requests.back(), Some(FeedJob::Unfollow {ids, ..}) if ids == &[201,202])
+    );
+    assert!(adapter.cleanup_bytes > 0 && adapter.cleanup_bytes < MAX_MESSAGE_SIZE);
+    for id in [200, 203] {
+        assert_eq!(next(&mut adapter).await["id"], id);
+    }
+    release.send(()).unwrap();
+    for id in (100..108).chain([201, 202]) {
+        let reply = next(&mut adapter).await;
+        assert_eq!(reply["type"], "result");
+        assert_eq!(reply["id"], id);
+    }
+    assert!(adapter.feeds.is_empty());
+    assert_eq!(adapter.feed_outstanding, 0);
+    assert_eq!(adapter.cleanup_bytes, 0);
+    assert!(adapter.request_work.is_none() && adapter.requests.is_empty());
+}
+
+#[tokio::test]
+async fn explicit_overview_after_mutation_waits_for_a_fresh_bounded_scan() {
+    for mutation in ["layout", "external"] {
+        let fake = Arc::new(Fake::default());
+        fake.requests_enabled.store(true, Ordering::Relaxed);
+        fake.capture_overview_before_gate
+            .store(true, Ordering::Relaxed);
+        {
+            let mut overview = fake.overview.lock().unwrap();
+            let session = overview.sessions.values().next().unwrap().clone();
+            overview.sessions.insert("a".into(), session);
+        }
+        let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+        attach(&mut adapter, "a").await;
+        next(&mut adapter).await;
+        next(&mut adapter).await;
+        quiet(&mut adapter);
+        let (release, gate) = std::sync::mpsc::channel();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        *fake.overview_gate.lock().unwrap() = Some(gate);
+        *fake.overview_started.lock().unwrap() = Some(started);
+        fake.events.emit("chat/layout-changed", &());
+        while adapter.overview_work.is_none() {
+            adapter.changed().await.unwrap();
+        }
+        ready.await.unwrap();
+        if mutation == "layout" {
+            adapter.request(request(serde_json::json!({"type":"layout","id":50,"target":{"kind":"tab","id":"tab"},"name":"Updated","panes":{"id":"p","session":"a"},"shells":[]}))).await.unwrap();
+            assert_eq!(next(&mut adapter).await["id"], 50);
+        } else {
+            fake.overview.lock().unwrap().tabs[0].name = "Updated".into();
+        }
+        for id in 100..109 {
+            adapter
+                .request(request(serde_json::json!({"type":"overview","id":id})))
+                .await
+                .unwrap();
+        }
+        let refused = next(&mut adapter).await;
+        assert_eq!(refused["type"], "error");
+        assert_eq!(refused["id"], 108);
+        adapter
+            .request(request(
+                serde_json::json!({"type":"input","id":999,"session":"a","data":"eA=="}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(next(&mut adapter).await["id"], 999);
+        assert_eq!(fake.input.lock().unwrap()[0].1, b"x");
+        adapter.streams[0]
+            .queue
+            .lock()
+            .unwrap()
+            .push(TerminalFrame::Output {
+                seq: 11,
+                bytes: b"live output".to_vec(),
+            });
+        assert_eq!(next(&mut adapter).await["type"], "output");
+        assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 1);
+        let (release_next, gate) = std::sync::mpsc::channel();
+        let (started, ready_next) = tokio::sync::oneshot::channel();
+        *fake.overview_gate.lock().unwrap() = Some(gate);
+        *fake.overview_started.lock().unwrap() = Some(started);
+        release.send(()).unwrap();
+        let old = next(&mut adapter).await;
+        assert_eq!(old["type"], "overview");
+        assert_ne!(old["tabs"][0]["name"], "Updated");
+        ready_next.await.unwrap();
+        assert_eq!(adapter.overview_waiters.len(), 8);
+        assert!(adapter.overview_next.is_empty());
+        adapter
+            .request(request(
+                serde_json::json!({"type":"input","id":998,"session":"a","data":"eQ=="}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(next(&mut adapter).await["id"], 998);
+        assert_eq!(fake.input.lock().unwrap()[1].1, b"y");
+        adapter.streams[0]
+            .queue
+            .lock()
+            .unwrap()
+            .push(TerminalFrame::Output {
+                seq: 12,
+                bytes: b"still live".to_vec(),
+            });
+        assert_eq!(next(&mut adapter).await["type"], "output");
+        assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 2);
+        release_next.send(()).unwrap();
+        let mut ids = std::collections::BTreeSet::new();
+        while ids.len() < 8 {
+            let reply = next(&mut adapter).await;
+            if reply["type"] != "result" {
+                continue;
+            }
+            assert_eq!(reply["result"]["tabs"][0]["name"], "Updated", "{mutation}");
+            assert!(ids.insert(reply["id"].as_u64().unwrap()));
+        }
+        assert_eq!(ids, (100..108).collect());
+        assert!(
+            adapter.overview_waiters.is_empty()
+                && adapter.overview_next.is_empty()
+                && adapter.overview_replies.is_empty()
+        );
+        assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 2);
+    }
+}
+
+#[tokio::test]
+async fn explicit_overview_waiters_form_bounded_batches_without_stalling_terminal_io() {
+    let fake = Arc::new(Fake::default());
+    {
+        let mut overview = fake.overview.lock().unwrap();
+        let session = overview.sessions.values().next().unwrap().clone();
+        overview.sessions.insert("a".into(), session);
+    }
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    attach(&mut adapter, "a").await;
+    next(&mut adapter).await;
+    next(&mut adapter).await;
+    quiet(&mut adapter);
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.overview_gate.lock().unwrap() = Some(gate);
+    *fake.overview_started.lock().unwrap() = Some(started);
+    adapter
+        .request(request(serde_json::json!({"type":"overview","id":100})))
+        .await
+        .unwrap();
+    ready.await.unwrap();
+    for id in 101..109 {
+        adapter
+            .request(request(serde_json::json!({"type":"overview","id":id})))
+            .await
+            .unwrap();
+    }
+    let refused = next(&mut adapter).await;
+    assert_eq!(refused["type"], "error");
+    assert_eq!(refused["id"], 108);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"input","id":999,"session":"a","data":"eA=="}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(next(&mut adapter).await["id"], 999);
+    assert_eq!(fake.input.lock().unwrap()[0].1, b"x");
+    adapter.streams[0]
+        .queue
+        .lock()
+        .unwrap()
+        .push(TerminalFrame::Output {
+            seq: 11,
+            bytes: b"live output".to_vec(),
+        });
+    assert_eq!(next(&mut adapter).await["type"], "output");
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 1);
+    release.send(()).unwrap();
+    for id in 100..108 {
+        assert_eq!(next(&mut adapter).await["id"], id);
+    }
+    assert!(adapter.overview_waiters.is_empty() && adapter.overview_replies.is_empty());
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test]
+async fn background_overview_errors_do_not_fail_later_admitted_requests() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.overview_gate.lock().unwrap() = Some(gate);
+    *fake.overview_started.lock().unwrap() = Some(started);
+    fake.fail_overview.store(true, Ordering::Relaxed);
+    adapter.overview_broadcast = true;
+    adapter.start_overview();
+    ready.await.unwrap();
+    fake.overview.lock().unwrap().tabs[0].name = "Recovered".into();
+    for id in 1..4 {
+        adapter
+            .request(request(serde_json::json!({"type":"overview","id":id})))
+            .await
+            .unwrap();
+    }
+    release.send(()).unwrap();
+    for id in 1..4 {
+        let reply = next(&mut adapter).await;
+        assert_eq!(reply["type"], "result");
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["result"]["tabs"][0]["name"], "Recovered");
+    }
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 2);
+    assert!(
+        adapter.overview_waiters.is_empty()
+            && adapter.overview_next.is_empty()
+            && adapter.overview_replies.is_empty()
+    );
+}
+
+#[tokio::test]
+async fn overview_errors_only_fail_their_admitted_batch_and_later_requests_start_fresh() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.overview_gate.lock().unwrap() = Some(gate);
+    *fake.overview_started.lock().unwrap() = Some(started);
+    adapter
+        .request(request(serde_json::json!({"type":"overview","id":1})))
+        .await
+        .unwrap();
+    ready.await.unwrap();
+    for id in [2, 3] {
+        adapter
+            .request(request(serde_json::json!({"type":"overview","id":id})))
+            .await
+            .unwrap();
+    }
+    let (release_next, gate) = std::sync::mpsc::channel();
+    let (started, ready_next) = tokio::sync::oneshot::channel();
+    *fake.overview_gate.lock().unwrap() = Some(gate);
+    *fake.overview_started.lock().unwrap() = Some(started);
+    fake.fail_overview.store(true, Ordering::Relaxed);
+    release.send(()).unwrap();
+    let first = next(&mut adapter).await;
+    assert_eq!(first["type"], "result");
+    assert_eq!(first["id"], 1);
+    ready_next.await.unwrap();
+    fake.overview.lock().unwrap().tabs[0].name = "After failure".into();
+    adapter
+        .request(request(serde_json::json!({"type":"overview","id":4})))
+        .await
+        .unwrap();
+    assert_eq!(adapter.overview_next, [4]);
+    release_next.send(()).unwrap();
+    for id in [2, 3] {
+        let failed = next(&mut adapter).await;
+        assert_eq!(failed["type"], "error");
+        assert_eq!(failed["id"], id);
+        assert_eq!(failed["code"], "failed");
+    }
+    let last = next(&mut adapter).await;
+    assert_eq!(last["type"], "result");
+    assert_eq!(last["id"], 4);
+    assert_eq!(last["result"]["tabs"][0]["name"], "After failure");
+    assert_eq!(fake.overview_calls.load(Ordering::Relaxed), 3);
+    assert!(
+        adapter.overview_waiters.is_empty()
+            && adapter.overview_next.is_empty()
+            && adapter.overview_replies.is_empty()
+    );
+}
+
+#[tokio::test]
+async fn follow_catches_an_append_during_cursor_work_without_another_event() {
+    let fake = Arc::new(Fake::default());
+    fake.requests_enabled.store(true, Ordering::Relaxed);
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.request_gate.lock().unwrap() = Some(gate);
+    *fake.request_started.lock().unwrap() = Some(started);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"follow","id":1,"mission":"m"}),
+        ))
+        .await
+        .unwrap();
+    ready.await.unwrap();
+    let entry = FeedEntry {
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".into(),
+        ts: chrono::Utc::now().to_rfc3339(),
+        from: "coder".into(),
+        to: vec![],
+        content: FeedContent::Message {
+            text: "during Follow".into(),
+        },
+    };
+    fake.appended.lock().unwrap().push(entry.clone());
+    fake.events
+        .emit("event/appended", &serde_json::json!({"mission_id":"m"}));
+    adapter.changed().await.unwrap();
+    assert!(!adapter.feeds.contains_key("m"));
+    release.send(()).unwrap();
+    assert_eq!(next(&mut adapter).await["id"], 1);
+    let pushed = next(&mut adapter).await;
+    assert_eq!(pushed["type"], "feedAppended");
+    assert_eq!(pushed["entries"][0]["id"], entry.id);
+}
+
+#[tokio::test]
+async fn slow_feed_pages_keep_input_output_live_with_bounded_requests_and_matching_ids() {
+    let fake = Arc::new(Fake::default());
+    fake.feed_enabled.store(true, Ordering::Relaxed);
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    attach(&mut adapter, "a").await;
+    next(&mut adapter).await;
+    next(&mut adapter).await;
+    let (release, gate) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    *fake.feed_gate.lock().unwrap() = Some(gate);
+    *fake.feed_started.lock().unwrap() = Some(started);
+    for id in 100..109 {
+        adapter
+            .request(request(
+                serde_json::json!({"type":"feed","id":id,"mission":"m","limit":20}),
+            ))
+            .await
+            .unwrap();
+    }
+    ready.await.unwrap();
+    assert_eq!(adapter.requests.len(), 7);
+    assert_eq!(fake.feed_calls.load(Ordering::Relaxed), 1);
+    let refused = next(&mut adapter).await;
+    assert_eq!(refused["type"], "error");
+    assert_eq!(refused["id"], 108);
+    adapter
+        .request(request(
+            serde_json::json!({"type":"input","id":999,"session":"a","data":"eA=="}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(next(&mut adapter).await["id"], 999);
+    assert_eq!(fake.input.lock().unwrap()[0].1, b"x");
+    adapter.streams[0]
+        .queue
+        .lock()
+        .unwrap()
+        .push(TerminalFrame::Output {
+            seq: 11,
+            bytes: b"live output".to_vec(),
+        });
+    assert_eq!(next(&mut adapter).await["type"], "output");
+    assert_eq!(fake.feed_calls.load(Ordering::Relaxed), 1);
+    release.send(()).unwrap();
+    for id in 100..108 {
+        let reply = next(&mut adapter).await;
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["result"]["before"], id.to_string());
+    }
+    assert_eq!(fake.feed_calls.load(Ordering::Relaxed), 8);
+    assert!(adapter.requests.is_empty() && adapter.request_work.is_none());
+}
+
+#[tokio::test]
+async fn credit_stalled_state_pushes_coalesce_at_the_tail_without_dropping_replies() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    let mut overview = fake.overview.lock().unwrap().clone();
+    overview.tabs[0].name = "x".repeat(300 * 1024);
+    adapter
+        .push(HostMessage::Overview(overview.clone()))
+        .unwrap();
+    let in_flight = adapter.next(false).await.unwrap().unwrap();
+    adapter.in_flight(in_flight.len());
+    adapter
+        .push(HostMessage::Result(ResultMessage {
+            id: 7,
+            result: serde_json::Value::Null,
+        }))
+        .unwrap();
+    for index in 0..20 {
+        overview.tabs[0].name = format!("{index}{}", "x".repeat(300 * 1024));
+        adapter
+            .push(HostMessage::Overview(overview.clone()))
+            .unwrap();
+    }
+    let mut status = overview.sessions.values().next().unwrap().status.clone();
+    adapter
+        .push(HostMessage::Status(StatusPush {
+            session: "a".into(),
+            status: status.clone(),
+        }))
+        .unwrap();
+    adapter
+        .push(HostMessage::FeedAppended(FeedAppended {
+            mission: "m".into(),
+            entries: vec![],
+        }))
+        .unwrap();
+    status.unread = !status.unread;
+    adapter
+        .push(HostMessage::Status(StatusPush {
+            session: "a".into(),
+            status: status.clone(),
+        }))
+        .unwrap();
+    assert_eq!(adapter.in_flight, in_flight.len());
+    assert_eq!(next(&mut adapter).await["id"], 7);
+    assert!(next(&mut adapter).await["tabs"][0]["name"]
+        .as_str()
+        .unwrap()
+        .starts_with("19"));
+    assert_eq!(next(&mut adapter).await["type"], "feedAppended");
+    assert_eq!(next(&mut adapter).await["unread"], status.unread);
+    assert!(adapter.next(false).await.unwrap().is_none());
+    assert_eq!(adapter.queued, 0);
 }
 #[tokio::test]
 async fn terminal_chunks_order_fairness_overflow_and_resync_sequence() {
@@ -380,6 +1256,9 @@ async fn results_precede_terminal_chunks_and_resync_keeps_the_requested_history(
         .request(request(serde_json::json!({"type":"overview","id":2})))
         .await
         .unwrap();
+    while adapter.overview_work.is_some() {
+        adapter.changed().await.unwrap();
+    }
     assert_eq!(next(&mut adapter).await["id"], 2);
     let first = next(&mut adapter).await;
     next(&mut adapter).await;
@@ -468,7 +1347,7 @@ async fn a_stopped_session_still_closes_after_its_exit_event_was_lost() {
     adapter.changed().await.unwrap();
     assert_eq!(next(&mut adapter).await["type"], "status");
     wait_for_end(&adapter).await;
-    assert_eq!(next(&mut adapter).await["type"], "closed");
+    assert_eq!(next_non_overview(&mut adapter).await["type"], "closed");
 }
 
 async fn wait_for_end(adapter: &Adapter) {
@@ -570,18 +1449,23 @@ async fn exit_archive_and_status_recovery_drain_a_held_frame_before_closing() {
             assert_eq!(next(&mut adapter).await["type"], "status");
         }
         assert!(cancelled.load(Ordering::SeqCst));
-        let premature = adapter.next(true).await.unwrap();
+        let mut premature = adapter.next(true).await.unwrap();
+        while premature.as_ref().is_some_and(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["type"] == "overview"
+        }) {
+            premature = adapter.next(true).await.unwrap();
+        }
         release.send(()).unwrap();
         assert!(
             premature.is_none(),
             "{change} closed before its held output was forwarded"
         );
         wait_for_end(&adapter).await;
-        let output = next(&mut adapter).await;
+        let output = next_non_overview(&mut adapter).await;
         assert_eq!(output["type"], "output");
         let data: TerminalBytes = serde_json::from_value(output["data"].clone()).unwrap();
         assert_eq!(data.0, b"final output");
-        let closed = next(&mut adapter).await;
+        let closed = next_non_overview(&mut adapter).await;
         assert_eq!(closed["type"], "closed");
         assert_eq!(
             closed["reason"],

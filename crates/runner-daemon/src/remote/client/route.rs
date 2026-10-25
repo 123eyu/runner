@@ -11,7 +11,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 pub(super) enum Command {
     Request(c::ClientMessage, oneshot::Sender<Result<serde_json::Value>>),
-    Input(u64, String, Vec<u8>, oneshot::Sender<Result<()>>),
+    Input(u64, String, Vec<u8>),
     Follow(u64, bool),
     Attach(RemoteTerminal, oneshot::Sender<Result<TerminalAttachment>>),
     Detach(String, u64),
@@ -48,8 +48,10 @@ impl Handle {
     ) -> Result<serde_json::Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (reply, receive) = oneshot::channel();
-        self.send(Command::Request(message(id), reply)).await?;
-        tokio::time::timeout(Duration::from_secs(35), receive)
+        let message = message(id);
+        let timeout = runner_core::protocol::socket::companion_request_timeout(&message);
+        self.send(Command::Request(message, reply)).await?;
+        tokio::time::timeout(timeout + Duration::from_secs(5), receive)
             .await
             .map_err(|_| "Remote request timed out")?
             .map_err(|_| self.failure())?
@@ -58,12 +60,22 @@ impl Handle {
         self.generation.load(Ordering::Acquire)
     }
     pub async fn input(&self, generation: u64, session: String, bytes: Vec<u8>) -> Result<()> {
-        let (reply, receive) = oneshot::channel();
+        if generation != self.generation() {
+            return Err("Remote route changed; input was discarded.".into());
+        }
         self.tx
-            .try_send(Command::Input(generation, session, bytes, reply))
+            .try_send(Command::Input(generation, session, bytes))
             .map_err(|_| "Remote input queue is full or closed; input was discarded.")?;
-        receive.await.map_err(|_| self.failure())?
+        Ok(())
     }
+}
+fn input_error(client: &Client, computer: &str, session: &str, message: &str) {
+    client.0.events.emit(
+        "session/input-error",
+        &serde_json::json!({
+            "session_id":remote::terminal_address(computer, session), "message":message,
+        }),
+    );
 }
 pub(super) fn spawn(
     client: Client,
@@ -336,6 +348,7 @@ impl Session {
             c::ClientMessage::Unfollow(request) => Some((request.mission.clone(), false)),
             _ => None,
         };
+        let timeout = runner_core::protocol::socket::companion_request_timeout(&message);
         match self.queue(message) {
             Ok(()) => {
                 self.pending.insert(
@@ -343,7 +356,7 @@ impl Session {
                     Pending {
                         subscription,
                         reply,
-                        deadline: Instant::now() + Duration::from_secs(30),
+                        deadline: Instant::now() + timeout,
                     },
                 );
             }
@@ -408,9 +421,13 @@ async fn run(
                         Command::Attach(_, reply) => {
                             let _ = reply.send(Err(error.message.clone()));
                         }
-                        Command::Input(_, _, _, reply) => {
-                            let _ = reply
-                                .send(Err("Remote route changed; input was discarded.".into()));
+                        Command::Input(_, session, _) => {
+                            input_error(
+                                &client,
+                                &computer.id,
+                                &session,
+                                "Remote route changed; input was discarded.",
+                            );
                         }
                         Command::Follow(owner, follow) => {
                             if follow {
@@ -483,10 +500,10 @@ async fn run(
                         last_use = Instant::now();
                         match command.ok_or("Remote channel closed")? {
                             Command::Request(message, reply) => { terminals.viewport(&message); session.request(message, reply); },
-                            Command::Input(generation, target, bytes, reply) => {
+                            Command::Input(generation, target, bytes) => {
                                 let result = if generation != handle.generation.load(Ordering::Acquire) { Err("Remote route changed; input was discarded.".into()) }
-                                else { session.queue(c::ClientMessage::Input(c::InputRequest { id: handle.next.fetch_add(1, Ordering::Relaxed), session: target, data: c::TerminalBytes(bytes) })) };
-                                let _ = reply.send(result);
+                                else { session.queue(c::ClientMessage::Input(c::InputRequest { id: handle.next.fetch_add(1, Ordering::Relaxed), session: target.clone(), data: c::TerminalBytes(bytes) })) };
+                                if let Err(error) = result { input_error(&client, &computer.id, &target, &error); }
                             }
                             Command::Follow(owner, follow) => {
                                 if follow {
@@ -545,8 +562,13 @@ async fn run(
         // Commands already queued against the old route must fail, particularly input.
         while let Ok(command) = commands.try_recv() {
             match command {
-                Command::Input(_, _, _, reply) => {
-                    let _ = reply.send(Err("Remote route dropped; input was discarded.".into()));
+                Command::Input(_, target, _) => {
+                    input_error(
+                        &client,
+                        &computer.id,
+                        &target,
+                        "Remote route dropped; input was discarded.",
+                    );
                 }
                 Command::Request(message, reply) => {
                     terminals.viewport(&message);
@@ -584,6 +606,17 @@ async fn run(
         let delay = Duration::from_secs((1u64 << attempt.min(5)).min(30));
         attempt = attempt.saturating_add(1);
         tokio::select! { _ = handle.cancel.cancelled() => break, _ = tokio::time::sleep(delay) => {} }
+    }
+    commands.close();
+    while let Ok(command) = commands.try_recv() {
+        if let Command::Input(_, target, _) = command {
+            input_error(
+                &client,
+                &computer.id,
+                &target,
+                "Remote route closed; input was discarded.",
+            );
+        }
     }
     terminals.close();
     client.0.events.emit(

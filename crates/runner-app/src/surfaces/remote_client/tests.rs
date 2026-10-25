@@ -60,6 +60,7 @@ pub(crate) struct Fake {
     computers: Mutex<Vec<Computer>>,
     overview: Mutex<Overview>,
     overview_calls: AtomicUsize,
+    follow_push: AtomicBool,
     events: Mutex<Vec<futures::channel::mpsc::UnboundedSender<ClientEvent>>>,
     follows: Mutex<Vec<(String, bool)>>,
     pairs: AtomicUsize,
@@ -74,6 +75,7 @@ pub(crate) struct Fake {
     frame_entries: Mutex<Vec<mpsc::Receiver<()>>>,
     snapshot: Mutex<Vec<u8>>,
     fail_attach: AtomicBool,
+    fail_input: AtomicBool,
     fail_take: AtomicBool,
     fail_directory: AtomicBool,
     overview_gates: Mutex<HashMap<String, mpsc::Receiver<()>>>,
@@ -220,11 +222,18 @@ impl Transport for Fake {
                 })
             }
             Request::remote_follow { computer, follow } => {
-                self.follows.lock().unwrap().push((computer, follow));
+                self.follows
+                    .lock()
+                    .unwrap()
+                    .push((computer.clone(), follow));
+                if follow && self.follow_push.load(Ordering::SeqCst) {
+                    self.emit("remote/overview", serde_json::json!({"computer":computer,"overview":self.overview.lock().unwrap().clone()}));
+                }
                 Response::remote_follow(Ok(()))
             }
             Request::remote_overview { computer } => {
                 self.overview_calls.fetch_add(1, Ordering::SeqCst);
+                let overview = self.overview.lock().unwrap().clone();
                 let gate = self.overview_gates.lock().unwrap().remove(&computer);
                 if let Some(gate) = gate {
                     if let Some(started) = self.overview_started.lock().unwrap().as_ref() {
@@ -232,9 +241,7 @@ impl Transport for Fake {
                     }
                     gate.recv().unwrap();
                 }
-                Response::remote_overview(Ok(runner_core::remote::RemoteOverview(
-                    self.overview.lock().unwrap().clone(),
-                )))
+                Response::remote_overview(Ok(runner_core::remote::RemoteOverview(overview)))
             }
             Request::remote_request { computer, request } => {
                 let value = serde_json::to_value(request).unwrap();
@@ -360,7 +367,11 @@ impl Transport for Fake {
             .lock()
             .unwrap()
             .push((address.into(), bytes.into()));
-        Ok(())
+        if self.fail_input.load(Ordering::SeqCst) {
+            Err(ClientError::msg("input was discarded"))
+        } else {
+            Ok(())
+        }
     }
     fn resize(&self, address: &str, _: u64, cols: u16, rows: u16) {
         self.sizes
@@ -473,6 +484,7 @@ pub(crate) fn fixture(
         computers: Mutex::new(computers()),
         overview: Mutex::new(overview()),
         overview_calls: AtomicUsize::new(0),
+        follow_push: AtomicBool::new(false),
         events: Mutex::default(),
         follows: Mutex::default(),
         pairs: AtomicUsize::new(0),
@@ -487,6 +499,7 @@ pub(crate) fn fixture(
         frame_entries: Mutex::default(),
         snapshot: Mutex::new(b"remote output".to_vec()),
         fail_attach: AtomicBool::new(false),
+        fail_input: AtomicBool::new(false),
         fail_take: AtomicBool::new(false),
         fail_directory: AtomicBool::new(false),
         overview_gates: Mutex::default(),
@@ -512,6 +525,44 @@ pub(crate) fn fixture(
         store.remote_status = Some(fake.status.lock().unwrap().clone());
     });
     (store, fake, clients)
+}
+
+#[test]
+fn remote_layout_round_trips_through_the_host_desktop_model() {
+    use runner_daemon::companion::core::{Core, DaemonCore};
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, _, _) = fixture(&mut cx, temp.path());
+    let core = Arc::new(store.read_with(&cx, |store, _| store.test_core.clone()));
+    let host = DaemonCore(Arc::downgrade(&core));
+    for sizes in [[0.4, 0.6], [40., 60.], [4., 6.]] {
+        let request = serde_json::from_value(serde_json::json!({
+            "type":"layout", "id":1,
+            "target":{"kind":"tab","id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+            "name":"Split", "shells":[],
+            "panes":{"id":"s1","split":"row","sizes":sizes,
+                "a":{"id":"p1","session":null},
+                "b":{"id":"s2","split":"column","sizes":[0.25,0.75],
+                    "a":{"id":"p2","session":null},
+                    "b":{"id":"p3","session":null}}}
+        }))
+        .unwrap();
+        host.action(request).unwrap();
+        let rows = runner_daemon::ops::node::node_list(&core).unwrap();
+        let row = rows
+            .iter()
+            .find(|row| row.id == "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+            .unwrap();
+        let layout = PaneLayout::from_node_row(row).unwrap();
+        let runner_app::pane_layout::PaneNode::Split(split) = layout.root else {
+            panic!("split")
+        };
+        assert_eq!(split.sizes, [40., 60.]);
+        let runner_app::pane_layout::PaneNode::Split(nested) = *split.b else {
+            panic!("nested split")
+        };
+        assert_eq!(nested.sizes, [25., 75.]);
+    }
 }
 pub(crate) fn add_window(
     cx: &mut TestAppContext,
@@ -2524,6 +2575,391 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
 }
 
 #[test]
+fn captured_load_reply_cannot_replace_newer_pushes_or_a_newer_request() {
+    for push in [
+        "remote/overview",
+        "remote/connection",
+        "remote/session-status",
+        "remote/feed",
+        "new-load",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (_, fake, clients) = fixture(&mut cx, temp.path());
+        let (release, blocked) = mpsc::channel();
+        fake.overview_gates
+            .lock()
+            .unwrap()
+            .insert("host".into(), blocked);
+        let (started, captured) = mpsc::channel();
+        *fake.overview_started.lock().unwrap() = Some(started);
+        let client = fake.client();
+        let (updates, mut responses) = futures::channel::mpsc::unbounded();
+        let worker = std::thread::spawn(move || model::load(&client, "host", &updates, &mut 0));
+        captured
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let begin = futures::executor::block_on(responses.next()).unwrap();
+        clients.update(&mut cx, |state, _| state.apply(begin));
+        let mut newer = overview();
+        newer.tabs[0].name = "Newer pushed tab".into();
+        let session = newer.sessions.keys().next().unwrap().clone();
+        clients.update(&mut cx, |state, _| {
+            state.overviews.insert("host".into(), overview());
+            state.connections.insert("host".into(), Connection::Reconnecting);
+            if matches!(push, "remote/connection" | "new-load") {
+                state.apply_event(ClientEvent { name:"remote/overview".into(), payload:serde_json::json!({"computer":"host","overview":newer}) });
+            }
+            let payload = match push {
+                "remote/overview" => serde_json::json!({"computer":"host","overview":newer}),
+                "remote/session-status" => serde_json::json!({"computer":"host","status":{"session":session,"status":"working","reason":null,"unread":true}}),
+                _ => serde_json::json!({"computer":"host","state":"reconnecting"}),
+            };
+            if push == "new-load" { state.apply(model::Update::LoadStarted("host".into(), 2)); }
+            else { state.apply_event(ClientEvent { name: push.into(), payload }); }
+        });
+        release.send(()).unwrap();
+        worker.join().unwrap();
+        futures::executor::block_on(async {
+            while let Some(update) = responses.next().await {
+                clients.update(&mut cx, |state, _| state.apply(update));
+            }
+        });
+        clients.read_with(&cx, |state, _| {
+            let pushed = matches!(push, "remote/overview" | "remote/connection" | "new-load");
+            assert_eq!(
+                state.overviews["host"].tabs[0].name,
+                if pushed {
+                    "Newer pushed tab".to_owned()
+                } else {
+                    overview().tabs[0].name.clone()
+                }
+            );
+            assert!(
+                state.connection("host")
+                    == if matches!(push, "remote/connection" | "new-load") {
+                        Connection::Reconnecting
+                    } else {
+                        Connection::Connected
+                    }
+            );
+            if push == "remote/session-status" {
+                assert!(state.overviews["host"].sessions[&session].status.unread);
+            }
+        });
+    }
+}
+
+#[test]
+fn input_error_events_render_for_current_remote_chat_mission_and_drawer_during_route_loss() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    for surface in ["chat", "mission", "chat-drawer", "mission-drawer"] {
+        for order in ["connected", "connection-first", "error-first"] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let (store, fake, _) = fixture(&mut cx, temp.path());
+            let mut data = overview();
+            if surface.starts_with("mission") {
+                data.tabs.clear();
+                data.missions[0]
+                    .members
+                    .push(runner_core::companion::Member {
+                        handle: "coder".into(),
+                        session: "s".into(),
+                        lead: true,
+                    });
+            }
+            let session = if surface.ends_with("drawer") {
+                let mut shell = data.sessions["s"].clone();
+                shell.kind = runner_core::companion::SessionKind::Shell;
+                data.sessions.insert("drawer-shell".into(), shell);
+                if surface.starts_with("mission") {
+                    data.missions[0].shells.push("drawer-shell".into());
+                } else {
+                    data.tabs[0].shells.push("drawer-shell".into());
+                }
+                "drawer-shell"
+            } else {
+                "s"
+            };
+            fake.set_overview(data);
+            let window = add_window(&mut cx, &store, temp.path(), surface);
+            window
+                .update(&mut cx, |root, window, cx| {
+                    root.choose_computer(computers()[1].clone(), false, window, cx)
+                })
+                .unwrap();
+            cx.run_until_parked();
+            if surface.starts_with("mission") {
+                window
+                    .update(&mut cx, |root, window, cx| {
+                        root.remote_window
+                            .as_ref()
+                            .unwrap()
+                            .mission_workspace
+                            .update(cx, |workspace, cx| {
+                                workspace.focus_status_session("remote-mission", "s", window, cx)
+                            });
+                        root.attach_remote_panes(cx);
+                    })
+                    .unwrap();
+                cx.run_until_parked();
+            }
+            if surface.ends_with("drawer") {
+                window
+                    .update(&mut cx, |root, window, cx| {
+                        root.toggle_terminal_drawer(window, cx)
+                    })
+                    .unwrap();
+                cx.run_until_parked();
+            }
+            window
+                .read_with(&cx, |root, _| {
+                    assert!(root
+                        .remote_window
+                        .as_ref()
+                        .unwrap()
+                        .terminals
+                        .contains_key(session))
+                })
+                .unwrap();
+            if order == "connection-first" {
+                fake.emit("remote/connection", serde_json::json!({"computer":"host","state":"reconnecting","error":"route lost"}));
+                cx.run_until_parked();
+            }
+            fake.emit("session/input-error", serde_json::json!({"session_id":runner_core::remote::terminal_address("host",session),"message":"Paste was discarded"}));
+            cx.run_until_parked();
+            if order == "error-first" {
+                fake.emit("remote/connection", serde_json::json!({"computer":"host","state":"disconnected","error":"route lost"}));
+                cx.run_until_parked();
+            }
+            window
+                .read_with(&cx, |root, _| {
+                    assert_eq!(
+                        root.remote_window.as_ref().unwrap().action_error.as_deref(),
+                        Some("Paste was discarded")
+                    )
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(window.into(), &cx);
+            assert!(
+                visual.debug_bounds("REMOTE_ACTION_ERROR").is_some(),
+                "{surface}/{order}"
+            );
+        }
+    }
+}
+
+#[test]
+fn remote_input_errors_and_late_write_callbacks_do_not_leak_to_other_targets() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, _) = fixture(&mut cx, temp.path());
+    let window = add_window(&mut cx, &store, temp.path(), "input-isolation");
+    window
+        .update(&mut cx, |root, window, cx| {
+            root.choose_computer(computers()[1].clone(), false, window, cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    for address in [
+        "s".to_owned(),
+        runner_core::remote::terminal_address("other", "s"),
+        runner_core::remote::terminal_address("host", "hidden"),
+    ] {
+        fake.emit(
+            "session/input-error",
+            serde_json::json!({"session_id":address,"message":"wrong target"}),
+        );
+        cx.run_until_parked();
+        window
+            .read_with(&cx, |root, _| {
+                assert!(root.remote_window.as_ref().unwrap().action_error.is_none())
+            })
+            .unwrap();
+    }
+    let old_input = window
+        .read_with(&cx, |root, _| {
+            root.remote_window.as_ref().unwrap().terminals["s"]
+                .input
+                .clone()
+        })
+        .unwrap();
+    fake.fail_input.store(true, Ordering::SeqCst);
+    window
+        .update(&mut cx, |_, window, cx| {
+            old_input.update(cx, |input, cx| {
+                input.replace_text_in_range(None, "paste", window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .read_with(&cx, |root, _| {
+            assert_eq!(
+                root.remote_window.as_ref().unwrap().action_error.as_deref(),
+                Some("input was discarded")
+            )
+        })
+        .unwrap();
+    window
+        .update(&mut cx, |root, window, cx| {
+            root.return_to_this_computer(window, cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    fake.emit("session/input-error", serde_json::json!({"session_id":runner_core::remote::terminal_address("host","s"),"message":"old target"}));
+    cx.run_until_parked();
+    window
+        .read_with(&cx, |root, _| {
+            assert!(root.remote_window.is_none());
+            assert!(root.chat_error.is_none());
+        })
+        .unwrap();
+    window
+        .update(&mut cx, |root, window, cx| {
+            root.choose_computer(computers()[1].clone(), false, window, cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |_, window, cx| {
+            old_input.update(cx, |input, cx| {
+                input.replace_text_in_range(None, "stale", window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .read_with(&cx, |root, _| {
+            assert!(root.remote_window.as_ref().unwrap().action_error.is_none())
+        })
+        .unwrap();
+}
+
+#[test]
+fn pair_then_open_connects_when_follow_pushes_without_a_new_connection_event() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, clients) = fixture(&mut cx, temp.path());
+    fake.computers.lock().unwrap()[1].paired = false;
+    fake.follow_push.store(true, Ordering::SeqCst);
+    clients.update(&mut cx, |state, cx| state.refresh(cx));
+    cx.run_until_parked();
+    let window = add_window(&mut cx, &store, temp.path(), "pair-open-push");
+    window
+        .update(&mut cx, |root, window, cx| {
+            let computer = fake.computers.lock().unwrap()[1].clone();
+            root.open_computer_pair(
+                computer,
+                pairing::Purpose::Open { new_window: false },
+                window,
+                cx,
+            );
+            let field = root.client_ui.pair.as_ref().unwrap().field.clone();
+            field.update(cx, |field, cx| {
+                field.replace_text_in_range(None, "001234", window, cx)
+            });
+            root.submit_computer_pin(window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(fake.pairs.load(Ordering::SeqCst), 1);
+    assert!(fake
+        .follows
+        .lock()
+        .unwrap()
+        .contains(&("host".into(), true)));
+    window
+        .read_with(&cx, |root, _| {
+            let remote = root.remote_window.as_ref().unwrap();
+            assert!(remote.connection == Connection::Connected);
+            assert!(remote.terminals.contains_key("s"));
+        })
+        .unwrap();
+}
+
+#[test]
+fn retry_on_a_busy_live_route_connects_despite_data_pushes_during_load() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, clients) = fixture(&mut cx, temp.path());
+    fake.follow_push.store(true, Ordering::SeqCst);
+    fake.overview
+        .lock()
+        .unwrap()
+        .sessions
+        .get_mut("s")
+        .unwrap()
+        .status
+        .status = Status::Working;
+    let window = add_window(&mut cx, &store, temp.path(), "retry-busy-push");
+    window
+        .update(&mut cx, |root, window, cx| {
+            root.choose_computer(computers()[1].clone(), false, window, cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let calls = fake.overview_calls.load(Ordering::SeqCst);
+    clients.update(&mut cx, |state, cx| {
+        state.connections.insert("host".into(), Connection::Opening);
+        state.send(Command::Retry("host".into()));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(fake.overview_calls.load(Ordering::SeqCst) > calls);
+    assert_eq!(fake.pairs.load(Ordering::SeqCst), 0);
+    clients.read_with(&cx, |state, _| {
+        assert!(state.connection("host") == Connection::Connected);
+        assert!(state.overviews["host"].sessions["s"].status.status == Status::Working);
+    });
+    window
+        .read_with(&cx, |root, _| {
+            assert!(root.remote_window.as_ref().unwrap().connection == Connection::Connected)
+        })
+        .unwrap();
+}
+
+#[test]
+fn duplicate_incoming_keys_keep_separate_device_rows_and_revoke_menus() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, _, _) = fixture(&mut cx, temp.path());
+    let computers = computers();
+    let trust = RemoteTrust {
+        devices: vec![
+            device("Studio", "first-key"),
+            device("Studio", "second-key"),
+        ],
+        ..Default::default()
+    };
+    let rows = model::computer_rows(&computers, &trust);
+    assert_eq!(rows.len(), computers.len() + 2);
+    assert!(rows[1].devices.is_empty());
+    let window = add_window(&mut cx, &store, temp.path(), "duplicate-devices");
+    window
+        .update(&mut cx, |root, _, cx| {
+            for (row, key) in rows[computers.len()..]
+                .iter()
+                .zip(["first-key", "second-key"])
+            {
+                assert!(row.computer.is_none());
+                assert_eq!(row.devices.len(), 1);
+                assert_eq!(row.devices[0].fingerprint, key);
+                assert!(root.computer_menu(row.computer, &row.devices, cx).is_some());
+            }
+            let menus = root.client_ui.menus.borrow();
+            assert!(menus.contains_key("first-key-first-key-false"));
+            assert!(menus.contains_key("second-key-second-key-false"));
+        })
+        .unwrap();
+}
+
+#[test]
 fn duplicate_pairing_labels_leave_each_device_unmatched_and_neither_computer_can_revoke_it() {
     for names in [
         ["Studio".to_owned(), "Studio".to_owned()],
@@ -2611,6 +3047,9 @@ fn slow_overview_and_directory_do_not_block_other_computers() {
         .unbounded_send(Command::Acquire("host".into()))
         .unwrap();
     assert_eq!(entered.recv_timeout(timeout).unwrap(), "host");
+    assert!(
+        matches!(results.recv_timeout(timeout).unwrap(), model::Update::LoadStarted(id, 1) if id == "host")
+    );
     commands.unbounded_send(Command::Refresh).unwrap();
     assert!(matches!(
         results.recv_timeout(timeout).unwrap(),
@@ -2638,7 +3077,9 @@ fn slow_overview_and_directory_do_not_block_other_computers() {
     let (mut connected, mut forgotten) = (0, false);
     while connected < 2 || !forgotten {
         match results.recv_timeout(timeout).unwrap() {
-            model::Update::Connection(id, Connection::Connected) if id == "other" => connected += 1,
+            model::Update::Connection(id, _, Connection::Connected) if id == "other" => {
+                connected += 1
+            }
             model::Update::Forgotten(id, true) if id == "forget" => forgotten = true,
             _ => {}
         }

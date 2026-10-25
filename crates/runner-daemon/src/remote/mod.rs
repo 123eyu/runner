@@ -547,8 +547,10 @@ async fn run(
                         Input::Failure(transport::Failure { retry: remote::close_action(code), message: format!("Remote connection closed ({code})."), code: "unknown".into() })
                     }
                     Some(Ok(Message::Ping(bytes))) => {
-                        if let Some(s) = &mut socket { let _ = s.send(Message::Pong(bytes)).await; }
-                        Input::Frame
+                        match send_frames(&mut socket, [Message::Pong(bytes)]).await {
+                            Ok(()) => Input::Frame,
+                            Err(failure) => Input::Failure(failure),
+                        }
                     }
                     Some(Ok(Message::Binary(bytes))) => {
                         if let (Some(routes), Some((id, frame))) = (&mut channels, runner_core::companion::channel::unwrap(&bytes)) {

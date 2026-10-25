@@ -304,6 +304,21 @@ impl NativeRoot {
             .get("session_id")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
+        if event.name == "session/input-error" {
+            if let Some(address) = session_id
+                .as_deref()
+                .filter(|id| runner_core::remote::terminal_target(id).is_some())
+            {
+                if let Some(message) = event
+                    .payload
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    self.report_remote_input_error(address, message.to_owned(), cx);
+                }
+                return;
+            }
+        }
         if event.name == "session/status"
             && event
                 .payload
