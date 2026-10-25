@@ -213,10 +213,9 @@ impl NativeRoot {
                     .child(div().w(rems(42. / 16.))),
             );
         for row in rows {
-            let name = row
-                .computer
-                .map(|c| c.name.clone())
-                .unwrap_or_else(|| row.devices[0].name.clone());
+            let name = row.computer.map(|c| c.name.clone()).unwrap_or_else(|| {
+                format!("{} · {}", row.devices[0].fingerprint, row.devices[0].name)
+            });
             let connected = row.devices.iter().any(|d| d.connected);
             let menu = self.computer_menu(row.computer, &row.devices, cx);
             let mut action = div().w(rems(42. / 16.)).flex_none();

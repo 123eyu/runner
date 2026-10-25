@@ -109,8 +109,9 @@ pub(crate) enum Command {
 pub(super) enum Update {
     Access(bool),
     Computers(Result<Vec<Computer>, ()>),
-    Overview(String, Overview),
-    Connection(String, Connection),
+    LoadStarted(String, u64),
+    Overview(String, u64, Overview),
+    Connection(String, u64, Connection),
     Event(ClientEvent),
     Forgotten(String, bool),
 }
@@ -118,6 +119,12 @@ pub(super) enum Update {
 pub(crate) struct Follow {
     computer: String,
     commands: mpsc::UnboundedSender<Command>,
+}
+
+struct LoadRevision {
+    generation: u64,
+    data: u64,
+    connection: u64,
 }
 impl Drop for Follow {
     fn drop(&mut self) {
@@ -131,6 +138,9 @@ pub(crate) struct ClientState {
     pub(crate) computers: Vec<Computer>,
     pub(crate) overviews: HashMap<String, Overview>,
     pub(crate) overview_revisions: HashMap<String, u64>,
+    data_revisions: HashMap<String, u64>,
+    connection_revisions: HashMap<String, u64>,
+    loads: HashMap<String, LoadRevision>,
     pub(crate) connections: HashMap<String, Connection>,
     pub(crate) changed_identities: HashSet<String>,
     pub(crate) directory_error: bool,
@@ -213,6 +223,9 @@ impl ClientState {
             computers: Vec::new(),
             overviews: HashMap::new(),
             overview_revisions: HashMap::new(),
+            data_revisions: HashMap::new(),
+            connection_revisions: HashMap::new(),
+            loads: HashMap::new(),
             connections: HashMap::new(),
             changed_identities: HashSet::new(),
             directory_error: false,
@@ -295,7 +308,7 @@ impl ClientState {
     pub(crate) fn connection(&self, computer: &str) -> Connection {
         self.connections.get(computer).copied().unwrap_or_default()
     }
-    fn apply(&mut self, update: Update) {
+    pub(super) fn apply(&mut self, update: Update) {
         match update {
             Update::Access(enabled) => self.signed_in = Some(enabled),
             Update::Computers(result) => {
@@ -318,6 +331,7 @@ impl ClientState {
                                 access.invalidate();
                             }
                             self.changed_identities.insert(computer.id.clone());
+                            self.loads.remove(&computer.id);
                             self.overviews.remove(&computer.id);
                             self.connections
                                 .insert(computer.id.clone(), Connection::Revoked);
@@ -327,13 +341,39 @@ impl ClientState {
                     self.computers = computers;
                 }
             }
-            Update::Overview(computer, overview) => {
+            Update::LoadStarted(computer, generation) => {
+                let data = self
+                    .data_revisions
+                    .get(&computer)
+                    .copied()
+                    .unwrap_or_default();
+                let connection = self
+                    .connection_revisions
+                    .get(&computer)
+                    .copied()
+                    .unwrap_or_default();
+                self.loads.insert(
+                    computer,
+                    LoadRevision {
+                        generation,
+                        data,
+                        connection,
+                    },
+                );
+            }
+            Update::Overview(computer, generation, overview) => {
+                if !self.load_data_is_current(&computer, generation) {
+                    return;
+                }
                 if self.connection(&computer) != Connection::Forgotten {
                     *self.overview_revisions.entry(computer.clone()).or_default() += 1;
                     self.overviews.insert(computer, overview);
                 }
             }
-            Update::Connection(computer, connection) => {
+            Update::Connection(computer, generation, connection) => {
+                if !self.load_connection_is_current(&computer, generation) {
+                    return;
+                }
                 if connection != Connection::Connected {
                     self.invalidate_capabilities(&computer);
                 }
@@ -348,6 +388,7 @@ impl ClientState {
             Update::Forgotten(computer, success) => {
                 self.action_failed = !success;
                 if success {
+                    self.loads.remove(&computer);
                     self.invalidate_capabilities(&computer);
                     self.connections
                         .insert(computer.clone(), Connection::Forgotten);
@@ -360,6 +401,28 @@ impl ClientState {
             }
         }
         self.sync_attention_follows();
+    }
+    fn load_data_is_current(&self, computer: &str, generation: u64) -> bool {
+        self.loads.get(computer).is_some_and(|load| {
+            load.generation == generation
+                && load.data
+                    == self
+                        .data_revisions
+                        .get(computer)
+                        .copied()
+                        .unwrap_or_default()
+        })
+    }
+    fn load_connection_is_current(&self, computer: &str, generation: u64) -> bool {
+        self.loads.get(computer).is_some_and(|load| {
+            load.generation == generation
+                && load.connection
+                    == self
+                        .connection_revisions
+                        .get(computer)
+                        .copied()
+                        .unwrap_or_default()
+        })
     }
     pub(crate) fn set_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         if self.enabled != enabled {
@@ -415,6 +478,7 @@ impl ClientState {
             event.name.as_str(),
             "daemon/disconnected" | "daemon/reconnected"
         ) {
+            self.loads.clear();
             for (_, access) in self.capabilities.drain() {
                 access.invalidate();
             }
@@ -437,6 +501,7 @@ impl ClientState {
                 self.signed_in = Some(signed_in);
                 self.enabled = signed_in;
                 if !signed_in {
+                    self.loads.clear();
                     for (_, access) in self.capabilities.drain() {
                         access.invalidate();
                     }
@@ -465,6 +530,7 @@ impl ClientState {
         match event.name.as_str() {
             "remote/overview" => {
                 if let Ok(overview) = serde_json::from_value(event.payload["overview"].clone()) {
+                    *self.data_revisions.entry(computer.clone()).or_default() += 1;
                     *self.overview_revisions.entry(computer.clone()).or_default() += 1;
                     self.overviews.insert(computer, overview);
                 }
@@ -473,6 +539,7 @@ impl ClientState {
                 if let Ok(status) =
                     serde_json::from_value::<StatusPush>(event.payload["status"].clone())
                 {
+                    *self.data_revisions.entry(computer.clone()).or_default() += 1;
                     if let Some(session) = self
                         .overviews
                         .get_mut(&computer)
@@ -483,6 +550,10 @@ impl ClientState {
                 }
             }
             "remote/connection" => {
+                *self
+                    .connection_revisions
+                    .entry(computer.clone())
+                    .or_default() += 1;
                 let state = match event.payload["state"].as_str() {
                     Some("connected") => Connection::Connected,
                     Some("reconnecting")
@@ -600,12 +671,13 @@ async fn computer_requests(
     directory: mpsc::UnboundedSender<()>,
 ) {
     let mut follows = 0;
+    let mut generation = 0;
     while let Some(command) = requests.next().await {
         match command {
             ComputerCommand::Acquire => {
                 follows += 1;
                 if follows == 1 {
-                    load(&client, &computer, &updates);
+                    load(&client, &computer, &updates, &mut generation);
                 }
             }
             ComputerCommand::Release => {
@@ -614,8 +686,10 @@ async fn computer_requests(
                     let _ = client.remote_follow(computer.clone(), false);
                 }
             }
-            ComputerCommand::Retry => load(&client, &computer, &updates),
-            ComputerCommand::Reconnected if follows > 0 => load(&client, &computer, &updates),
+            ComputerCommand::Retry => load(&client, &computer, &updates, &mut generation),
+            ComputerCommand::Reconnected if follows > 0 => {
+                load(&client, &computer, &updates, &mut generation)
+            }
             ComputerCommand::Reconnected => {}
             ComputerCommand::Forget => {
                 let success = client.remote_forget(computer.clone()).is_ok();
@@ -629,19 +703,32 @@ async fn computer_requests(
     }
 }
 
-fn load(client: &DaemonClient, computer: &str, updates: &mpsc::UnboundedSender<Update>) {
+pub(super) fn load(
+    client: &DaemonClient,
+    computer: &str,
+    updates: &mpsc::UnboundedSender<Update>,
+    generation: &mut u64,
+) {
+    *generation += 1;
+    let generation = *generation;
+    let _ = updates.unbounded_send(Update::LoadStarted(computer.into(), generation));
     let result = client
         .remote_follow(computer.into(), true)
         .and_then(|()| client.remote_overview(computer.into()));
     match result {
         Ok(overview) => {
-            let _ = updates.unbounded_send(Update::Overview(computer.into(), overview.0));
             let _ =
-                updates.unbounded_send(Update::Connection(computer.into(), Connection::Connected));
+                updates.unbounded_send(Update::Overview(computer.into(), generation, overview.0));
+            let _ = updates.unbounded_send(Update::Connection(
+                computer.into(),
+                generation,
+                Connection::Connected,
+            ));
         }
         Err(error) => {
             let _ = updates.unbounded_send(Update::Connection(
                 computer.into(),
+                generation,
                 Connection::failure(&error.message),
             ));
         }
@@ -696,11 +783,16 @@ pub(crate) fn incoming_devices<'a>(
     {
         return Vec::new();
     }
-    trust
+    let devices: Vec<_> = trust
         .devices
         .iter()
         .filter(|device| device.name == name)
-        .collect()
+        .collect();
+    if devices.len() == 1 {
+        devices
+    } else {
+        Vec::new()
+    }
 }
 
 pub(crate) fn computer_rows<'a>(
