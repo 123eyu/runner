@@ -34,3 +34,5 @@ At a docs sweep, prune completed briefs except these three examples. Keep a brie
 The 2026-10-22 sweep reduced ten briefs to these three. #823 remains both the large example and an active brief; the requirements in its open PR may have evolved beyond the original launch goal.
 
 The 2026-10-24 release sweep pruned the completed #929, #1006 and #1007 briefs. The three examples remain; #823 is still open, and the running #836 mission keeps its brief in its own worktree.
+
+The 0.18.0 release sweep pruned #836's 17 briefs, from Phase 1's `836-connect-host.md` to the landing review; the [program record](../archive/836-web-remote-control/README.md) links each at a fixed revision. The three examples remain, and #823 is still open.

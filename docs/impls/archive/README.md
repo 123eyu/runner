@@ -16,6 +16,7 @@ Each program's README is its entry point. Open a plan for its design/sequence or
 | [Status hooks](347-hook-status/README.md) | Native event correlation, authority and UI semantics, with dated investigations. |
 | [pi runtime](539-pi-runtime/README.md) | Native prompt, conversation and hook integration, plus its implementation history. |
 | [Role rename](604-role-rename/README.md) | Persisted/wire read compatibility during the runner → role migration. |
+| [Remote control](836-web-remote-control/README.md) | The `nightly-remote` umbrella's phase and mission sequence, the decisions binding every mission, and the dated log through the 0.18.0 landing. |
 | [Skills](local-skills/README.md) | Native config ownership and the view-before-control decision; deferred work remains in issues. |
 
 ## Distinct implementation and compatibility records

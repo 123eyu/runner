@@ -1,6 +1,6 @@
 # #836 remote live fixes
 
-Date: 2026-10-23. Branch: `fix/836-remote-live-fixes`, based on `nightly-remote` at `b5869c0d`. Scope and authorization: [mission brief](../impls/briefs/836-remote-live-fixes.md). Live checks belong to Jason; neither crew slot launches or operates either app, contacts the remote service or reads credentials.
+Date: 2026-10-23. Branch: `fix/836-remote-live-fixes`, based on `nightly-remote` at `b5869c0d`. Scope and authorization: [mission brief](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-remote-live-fixes.md). Live checks belong to Jason; neither crew slot launches or operates either app, contacts the remote service or reads credentials.
 
 ## Problem 1: transparent computer picker
 
@@ -14,7 +14,7 @@ Fix: give the complete picker a solid themed panel, border and rounded corners, 
 
 - Fake-driven GPUI regression `picker_encloses_rows_errors_and_hint_in_an_opaque_panel`: successful and failed directory calls, dark/light themes, English/Simplified Chinese, Glass/Solid and 100%/150% app zoom; assert the active theme, effective material (Glass only on macOS), panel fill, row/warning/hint containment, width, placement, Escape dismissal, trigger-toggle dismissal and outside-click dismissal. The test installs the appearance global with Reduce transparency off before adding its window. These cover the missing popup surface and its existing interaction boundary without launching an app or using the network.
 - Required workspace nextest, both Clippy configurations, formatting and whitespace gates from the brief. CLI help is unchanged, so `make guide-cli-check` is not applicable.
-- Live follow-up for Jason, scoped to [WS-MENU-01](regression/workspace.md): open the computer picker in Glass and Solid, check its full background around rows/warnings/hint in dark and light, including the directory-error state shown; dismiss with Escape, an outside click and the same trigger. The crew does not run live checks.
+- Live follow-up for Jason, scoped to [WS-MENU-01](../regression/workspace.md): open the computer picker in Glass and Solid, check its full background around rows/warnings/hint in dark and light, including the directory-error state shown; dismiss with Escape, an outside click and the same trigger. The crew does not run live checks.
 
 ### Results
 

@@ -1,10 +1,10 @@
 # 836 — plan
 
-The phases of [feature 836](../../features/836-web-remote-control.md) in detail: how each lands, what it touches, what reading the code changed, and how it is checked. The program's state and its missions are in [README.md](README.md), and the dated log is [impl_log.md](impl_log.md).
+The phases of [feature 836](../../../features/archive/836-web-remote-control.md) in detail: how each lands, what it touches, what reading the code changed, and how it is checked. The program's state and its missions are in [README.md](README.md), and the dated log is [impl_log.md](impl_log.md).
 
 ## Phase 1 — connect a host (mission 1, merged)
 
-Device-code enrollment from Settings → Remote access or `runner remote login`, the secrets in the OS secret store, the outbound connection to the service and its states, specified in the spec's Phase 1 and its Implementation section. Briefed as [`836-connect-host.md`](../briefs/836-connect-host.md) for a codex duo; merged into `nightly-remote` on 2026-10-18 as [#945](https://github.com/yicheng47/runner/pull/945), and squashed there into one commit on 2026-10-19. Its record is [`836-connect-host.md`](../../tests/836-connect-host.md), with the live checks still pending with Jason.
+Device-code enrollment from Settings → Remote access or `runner remote login`, the secrets in the OS secret store, the outbound connection to the service and its states, specified in the spec's Phase 1 and its Implementation section. Briefed as [`836-connect-host.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-connect-host.md) for a codex duo; merged into `nightly-remote` on 2026-10-18 as [#945](https://github.com/yicheng47/runner/pull/945), and squashed there into one commit on 2026-10-19. Its record is [`836-connect-host.md`](../../../tests/archive/836-connect-host.md), with the live checks still pending with Jason.
 
 ## Phase 2 — client trust and the companion protocol
 
@@ -55,7 +55,7 @@ The new-device notification belongs to Phase 3, since only a pairing raises it.
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m2-host-trust` on `feat/836-m2-host-trust`, with its brief as [`../briefs/836-m2-host-trust.md`](../briefs/), and a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason squash-merges. No database migration. A `remote-nightly` follows the merge when Jason wants an installed build.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m2-host-trust` on `feat/836-m2-host-trust`, with its brief as [`../briefs/836-m2-host-trust.md`](../../briefs/), and a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason squash-merges. No database migration. A `remote-nightly` follows the merge when Jason wants an installed build.
 
 ### m3 — companion protocol v1
 
@@ -116,9 +116,9 @@ Proposed on 2026-10-20 with the spec's Phase 3 section. Jason approved starting 
 | m7b — the client core | The channel's client side in the client computer's `runnerd`, its keys per paired computer, and the companion protocol's client; `ListAccountHosts` and `/relay/client` with the computer's credential; the CLI's view of other computers | m5; `runner_server`'s R2 |
 | m7c — the client app | The computer picker, the PIN dialog, another computer's window and terminals in the desktop's terminal view, and Remote access's computers list | m7a, m7b |
 
-**Revised on 2026-10-21 (Jason).** The client is a Runner desktop, not a browser, and the service only relays; the spec's [Clients are Runner apps](../../features/836-web-remote-control.md#clients-are-runner-apps) has why. m4 and m5 stand as built. m6 keeps its scope with the client's device name in its card and notification. m7 is new. A fix from the first live pass, [`fix/836-mirror-size`](https://github.com/yicheng47/runner/tree/fix/836-mirror-size), makes the desktop's terminal mirror follow the size `runnerd` applied, since the desktop ignored a browser's control while drawing; it lands before m6. The order is m6 and m7 in parallel, since m7 waits on the service and its own frames, then Phase 4.
+**Revised on 2026-10-21 (Jason).** The client is a Runner desktop, not a browser, and the service only relays; the spec's [Clients are Runner apps](../../../features/archive/836-web-remote-control.md#clients-are-runner-apps) has why. m4 and m5 stand as built. m6 keeps its scope with the client's device name in its card and notification. m7 is new. A fix from the first live pass, [`fix/836-mirror-size`](https://github.com/yicheng47/runner/tree/fix/836-mirror-size), makes the desktop's terminal mirror follow the size `runnerd` applied, since the desktop ignored a browser's control while drawing; it lands before m6. The order is m6 and m7 in parallel, since m7 waits on the service and its own frames, then Phase 4.
 
-**Revised on 2026-10-22 (Jason).** m7's frames are signed off: a computer picker rather than a sidebar section, one route per computer, chosen once, and the account in its own Settings pane, with an avatar menu of Account, Settings and Sign out, as the spec's [Runner as a client](../../features/836-web-remote-control.md#runner-as-a-client) describes. m7 builds Remote access's route choice with Tailscale marked Later, and the relay's pages; Tailscale's pages and finding computers on the tailnet come with Phase 4.
+**Revised on 2026-10-22 (Jason).** m7's frames are signed off: a computer picker rather than a sidebar section, one route per computer, chosen once, and the account in its own Settings pane, with an avatar menu of Account, Settings and Sign out, as the spec's [Runner as a client](../../../features/archive/836-web-remote-control.md#runner-as-a-client) describes. m7 builds Remote access's route choice with Tailscale marked Later, and the relay's pages; Tailscale's pages and finding computers on the tailnet come with Phase 4.
 
 ### m4 — the channel
 
@@ -158,7 +158,7 @@ There is no live check: until the service's R1 and R2 exist, nothing can open a 
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m4-channel` on `feat/836-m4-channel`, with its brief as [`../briefs/836-m4-channel.md`](../briefs/836-m4-channel.md), and a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m4-channel` on `feat/836-m4-channel`, with its brief as [`../briefs/836-m4-channel.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m4-channel.md), and a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration.
 
 m4 ends at the companion handshake so that the service's browser channel can be tested live against a real host before the adapter exists. The service's side runs alongside in `runner_server`: R1, `/relay/client` and the host's channel frames, and R2, the channel in TypeScript against m4's vectors, can start from the approved spec; R3 and R4, the host and terminal pages, are designed first. The first live terminal needs m4, m5, R1, R2 and a bare R4; m6 makes the desktop side right and can follow.
 
@@ -201,7 +201,7 @@ m4 merged as [#975](https://github.com/yicheng47/runner/pull/975): a paired brow
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m5-adapter` on `feat/836-m5-adapter`, with its brief as [`../briefs/836-m5-adapter.md`](../briefs/836-m5-adapter.md), run by coder and reviewer after Jason removed the qa slot on 2026-10-21; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration. Merged into `nightly-remote` on 2026-10-21 as [#976](https://github.com/yicheng47/runner/pull/976), after a follow-up mission fixed the two problems Jason's review found.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m5-adapter` on `feat/836-m5-adapter`, with its brief as [`../briefs/836-m5-adapter.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m5-adapter.md), run by coder and reviewer after Jason removed the qa slot on 2026-10-21; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration. Merged into `nightly-remote` on 2026-10-21 as [#976](https://github.com/yicheng47/runner/pull/976), after a follow-up mission fixed the two problems Jason's review found.
 
 ### m6 — the host desktop
 
@@ -236,7 +236,7 @@ m5 and [#986](https://github.com/yicheng47/runner/pull/986) left `runnerd` keepi
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m6-host-desktop` on `feat/836-m6-host-desktop`, with its brief as [`../briefs/836-m6-host-desktop.md`](../briefs/836-m6-host-desktop.md), run by a codex coder and reviewer; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration, no new crate.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m6-host-desktop` on `feat/836-m6-host-desktop`, with its brief as [`../briefs/836-m6-host-desktop.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m6-host-desktop.md), run by a codex coder and reviewer; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration, no new crate.
 
 ### m7a — Account
 
@@ -285,7 +285,7 @@ R2 merged in `runner_server` on 2026-10-22 as #21: one enrollment per computer, 
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m7a-account` on `feat/836-m7a-account`, with its brief as [`../briefs/836-m7a-account.md`](../briefs/836-m7a-account.md), run by a codex coder and reviewer; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration, no new crate.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m7a-account` on `feat/836-m7a-account`, with its brief as [`../briefs/836-m7a-account.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m7a-account.md), run by a codex coder and reviewer; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration, no new crate.
 
 ### m7b — the client core
 
@@ -335,7 +335,7 @@ The crew shapes the history; a likely split, each commit building and passing it
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m7b-client-core` on `feat/836-m7b-client-core`, with its brief as [`../briefs/836-m7b-client-core.md`](../briefs/836-m7b-client-core.md), run by a codex coder and reviewer; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. Live checks wait for Jason. No database migration, no new crate.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m7b-client-core` on `feat/836-m7b-client-core`, with its brief as [`../briefs/836-m7b-client-core.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m7b-client-core.md), run by a codex coder and reviewer; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. Live checks wait for Jason. No database migration, no new crate.
 
 ### m7c — the client app
 
@@ -375,11 +375,11 @@ The crew shapes the history; a likely split, each commit building and passing it
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m7c-client-app` on `feat/836-m7c-client-app`, with its brief as [`../briefs/836-m7c-client-app.md`](../briefs/836-m7c-client-app.md), run by a codex coder and reviewer, with Claude Code watching the mission and reviewing the PR for Jason; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration, no new crate.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m7c-client-app` on `feat/836-m7c-client-app`, with its brief as [`../briefs/836-m7c-client-app.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m7c-client-app.md), run by a codex coder and reviewer, with Claude Code watching the mission and reviewing the PR for Jason; a pull request against `nightly-remote`, driven green on macOS and Windows, which Jason merges. No database migration, no new crate.
 
 ### m8 — remote actions on the host
 
-m7c merged on 2026-10-23 as [#1005](https://github.com/yicheng47/runner/pull/1005), and Jason's live pass found that a remote window cannot start, stop or archive anything. He made the front page's actions, everything except Settings, part of the release that day; the spec's [Remote actions](../../features/836-web-remote-control.md#remote-actions) has the scope. m8 serves them from the host and carries them through the client core; m9 puts them in the app. No app UI.
+m7c merged on 2026-10-23 as [#1005](https://github.com/yicheng47/runner/pull/1005), and Jason's live pass found that a remote window cannot start, stop or archive anything. He made the front page's actions, everything except Settings, part of the release that day; the spec's [Remote actions](../../../features/archive/836-web-remote-control.md#remote-actions) has the scope. m8 serves them from the host and carries them through the client core; m9 puts them in the app. No app UI.
 
 #### Settled for m8
 
@@ -418,11 +418,11 @@ The crew shapes the history; a likely split, each commit building and passing it
 
 #### Landing
 
-A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m8-remote-actions` on `feat/836-m8-remote-actions`, with its brief as [`../briefs/836-m8-remote-actions.md`](../briefs/836-m8-remote-actions.md), run by a codex coder and reviewer, with Claude Code watching the mission and reviewing the PR; a pull request against `nightly-remote`, driven green on macOS and Windows. No database migration, no new crate.
+A worktree cut from `origin/nightly-remote`, `.worktrees/feat-836-m8-remote-actions` on `feat/836-m8-remote-actions`, with its brief as [`../briefs/836-m8-remote-actions.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m8-remote-actions.md), run by a codex coder and reviewer, with Claude Code watching the mission and reviewing the PR; a pull request against `nightly-remote`, driven green on macOS and Windows. No database migration, no new crate.
 
 ### m9 — the front page on another computer
 
-m8 merged on 2026-10-24 as part of the `nightly-remote` umbrella at `a7750819`. m9 adopts its existing requests in the app, without changing `runnerd`, the companion protocol or the client protocol. The governing brief is [`../briefs/836-m9-front-page.md`](../briefs/836-m9-front-page.md). The crew and Claude Code reviewed this plan, and Jason approved its frames on 2026-10-24.
+m8 merged on 2026-10-24 as part of the `nightly-remote` umbrella at `a7750819`. m9 adopts its existing requests in the app, without changing `runnerd`, the companion protocol or the client protocol. The governing brief is [`../briefs/836-m9-front-page.md`](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m9-front-page.md). The crew and Claude Code reviewed this plan, and Jason approved its frames on 2026-10-24.
 
 Jason authorized a narrow host/core naming exception during live testing (2026-10-24, Runner `01M5Q2DD5WKC98WYFT1MV4FWX5`): the host's existing `Session.title` projection and local labels share the same naming policy. Explicit tab/session names win; role-backed chats retain `@handle` over provider topics; runtime-only chats retain filtered provider titles, and shells keep their naming rules. There is no wire-format change, new request or migration; older hosts retain their current labels. Fake-driven regressions, the same gates and whole working-tree review are required, and all live fixes remain uncommitted/unpushed until Jason confirms live.
 

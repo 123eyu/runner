@@ -1,6 +1,6 @@
 # #836 remote control — release live checks
 
-Every live check still pending for Jason before the umbrella reaches `main`, gathered on 2026-10-24 from the program's 13 test records and ordered for one session with two computers. The plan's gate is that the relay route passes Jason's testing ([program record](../impls/836-web-remote-control/README.md)); this list is that testing. Each item names the record it comes from, which keeps the detail and the reason it was selected. Superseded checks are listed at the end and are not run.
+Every live check still pending for Jason before the umbrella reaches `main`, gathered on 2026-10-24 from the program's 13 test records and ordered for one session with two computers. The plan's gate is that the relay route passes Jason's testing ([program record](../../impls/archive/836-web-remote-control/README.md)); this list is that testing. Each item names the record it comes from, which keeps the detail and the reason it was selected. Superseded checks are listed at the end and are not run.
 
 ## Setup
 

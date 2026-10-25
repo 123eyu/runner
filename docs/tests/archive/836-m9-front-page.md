@@ -1,6 +1,6 @@
 # #836 m9 front-page validation
 
-Branch: `feat/836-m9-front-page`, based on `nightly-remote`. Scope and authorization: [mission brief](../impls/briefs/836-m9-front-page.md). PR 1 covers the shared target, chats, tabs, panes, drawer, sidebar, projects, host folder menu, computer-picker hint removal and accent attention dots. PR 2 follows only after PR 1 merges and covers Local only first, then the mission workspace and Start mission.
+Branch: `feat/836-m9-front-page`, based on `nightly-remote`. Scope and authorization: [mission brief](https://github.com/yicheng47/runner/blob/24ad357878274bd2bbd34dc97a5bef01b996e8e5/docs/impls/briefs/836-m9-front-page.md). PR 1 covers the shared target, chats, tabs, panes, drawer, sidebar, projects, host folder menu, computer-picker hint removal and accent attention dots. PR 2 follows only after PR 1 merges and covers Local only first, then the mission workspace and Start mission.
 
 ## PR 1 selected checks
 
