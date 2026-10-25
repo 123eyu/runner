@@ -28,6 +28,49 @@ struct Relay {
     hosts: StdMutex<Vec<Computer>>,
     listings: AtomicU32,
     opens: AtomicU32,
+    writer: Arc<WriteGate>,
+}
+#[derive(Default)]
+struct WriteGate {
+    blocked: AtomicBool,
+    entered: tokio::sync::Notify,
+    waker: futures_util::task::AtomicWaker,
+}
+struct GatedConnection(tokio::io::DuplexStream, Arc<WriteGate>);
+impl tokio::io::AsyncRead for GatedConnection {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buffer)
+    }
+}
+impl tokio::io::AsyncWrite for GatedConnection {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.1.waker.register(cx.waker());
+        if self.1.blocked.load(Ordering::Acquire) {
+            self.1.entered.notify_one();
+            return std::task::Poll::Pending;
+        }
+        std::pin::Pin::new(&mut self.0).poll_write(cx, bytes)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
 }
 impl Service for Relay {
     fn list<'a>(&'a self, _: &'a Context) -> BoxFuture<'a, Result<Vec<Computer>>> {
@@ -45,7 +88,8 @@ impl Service for Relay {
             self.opens.fetch_add(1, Ordering::Relaxed);
             let (client, host) = tokio::io::duplex(2 * 1024 * 1024);
             let client = WebSocketStream::from_raw_socket(
-                Box::new(client) as Box<dyn transport::Connection>,
+                Box::new(GatedConnection(client, self.writer.clone()))
+                    as Box<dyn transport::Connection>,
                 Role::Client,
                 None,
             )
@@ -136,6 +180,7 @@ impl Fixture {
             }]),
             listings: AtomicU32::new(0),
             opens: AtomicU32::new(0),
+            writer: Default::default(),
         });
         assert!(client.0.service.set(relay.clone()).is_ok());
         let core = Arc::new(TestCore::default());
@@ -1679,6 +1724,7 @@ async fn ipc_fixture(
 ) {
     let root = super::super::tests::socket_root();
     let mut core = crate::test_support::test_core_in(root.path().into());
+    core.events = fixture.client.0.events.clone();
     core.remote = super::super::RemoteHandle {
         client: Some(fixture.client.clone()),
         ..Default::default()
@@ -1686,6 +1732,78 @@ async fn ipc_fixture(
     let server = super::super::tests::SocketHarness::new(root.path(), core).await;
     let client = server.client(Duration::from_secs(5)).await;
     (root, server, client)
+}
+
+#[tokio::test]
+async fn queued_input_rejections_and_teardown_reach_the_scoped_ipc_error_event() {
+    for failure in ["bytes", "generation", "teardown"] {
+        let fixture = Fixture::new().await;
+        fixture.pair().await;
+        let (_root, _server, ipc) = ipc_fixture(&fixture).await;
+        let mut events = ipc.subscribe();
+        let route = fixture.client.route("2").await.unwrap();
+        match failure {
+            "bytes" => fixture
+                .client
+                .input(
+                    "2".into(),
+                    "session".into(),
+                    vec![b'x'; c::MAX_MESSAGE_SIZE],
+                )
+                .await
+                .unwrap(),
+            "generation" => route
+                .tx
+                .try_send(route::Command::Input(
+                    route.generation().wrapping_sub(1),
+                    "session".into(),
+                    b"discarded-generation".to_vec(),
+                ))
+                .unwrap(),
+            _ => {
+                let writer = fixture.relay.writer.clone();
+                writer.blocked.store(true, Ordering::Release);
+                let client = fixture.client.clone();
+                let waiting = tokio::spawn(async move { client.overview("2".into()).await });
+                writer.entered.notified().await;
+                route
+                    .input(
+                        route.generation(),
+                        "session".into(),
+                        b"discarded-teardown".to_vec(),
+                    )
+                    .await
+                    .unwrap();
+                route.cancel.cancel();
+                writer.blocked.store(false, Ordering::Release);
+                writer.waker.wake();
+                assert!(waiting.await.unwrap().is_err());
+            }
+        }
+        let event = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.name == "session/input-error" {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect(failure);
+        assert_eq!(
+            event.payload["session_id"],
+            remote::terminal_address("2", "session")
+        );
+        assert!(event.payload["message"]
+            .as_str()
+            .unwrap()
+            .contains(if failure == "bytes" {
+                "queue"
+            } else {
+                "discarded"
+            }));
+        assert!(fixture.core.fake.input.lock().unwrap().is_empty());
+    }
 }
 
 #[tokio::test]

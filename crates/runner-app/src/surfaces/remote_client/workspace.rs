@@ -17,7 +17,7 @@ pub(super) struct RemotePane {
     pub(super) terminal: Arc<TerminalMirror>,
     _view: TerminalView,
     interaction: Entity<TerminalInteraction>,
-    input: Entity<TerminalInput>,
+    pub(super) input: Entity<TerminalInput>,
     focus: FocusHandle,
     scrollbar: Entity<Scrollbar>,
     _subscription: Subscription,
@@ -104,6 +104,36 @@ impl RemoteWindow {
 }
 
 impl NativeRoot {
+    pub(crate) fn report_remote_input_error(
+        &mut self,
+        address: &str,
+        message: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((computer, session)) = runner_core::remote::terminal_target(address) else {
+            return;
+        };
+        let clients = state(&self.app_store, cx);
+        let Some(remote) = self.remote_window.as_mut().filter(|remote| {
+            remote.computer.id == computer && remote.terminals.contains_key(session)
+        }) else {
+            return;
+        };
+        let visible = clients
+            .read(cx)
+            .overviews
+            .get(computer)
+            .is_some_and(|overview| {
+                remote
+                    .visible_sessions(overview, cx)
+                    .iter()
+                    .any(|id| id == session)
+            });
+        if visible {
+            remote.action_error = Some(message);
+            cx.notify();
+        }
+    }
     pub(crate) fn remote_terminal_interactive(&self, id: &str, cx: &App) -> bool {
         self.remote_window.as_ref().is_some_and(|remote| {
             remote.connection == Connection::Connected
@@ -827,10 +857,29 @@ impl NativeRoot {
                                 theme::active_variant(),
                             ));
                             let input = cx.new(|_| TerminalInput::new(terminal.clone()));
-                            let subscription = cx.observe(&input, |_, input, cx| {
-                                input.update(cx, |input, _| {
-                                    let _ = input.take_write_result();
-                                });
+                            let input_address =
+                                runner_core::remote::terminal_address(&remote.computer.id, &id);
+                            let input_id = id.clone();
+                            let input_terminal = terminal.clone();
+                            let subscription = cx.observe(&input, move |root, input, cx| {
+                                if let Some(Err(error)) =
+                                    input.update(cx, |input, _| input.take_write_result())
+                                {
+                                    let current =
+                                        root.remote_window.as_ref().is_some_and(|remote| {
+                                            remote.epoch == epoch
+                                                && remote.attachment_generation
+                                                    == attachment_generation
+                                                && remote.terminals.get(&input_id).is_some_and(
+                                                    |pane| {
+                                                        Arc::ptr_eq(&pane.terminal, &input_terminal)
+                                                    },
+                                                )
+                                        });
+                                    if current {
+                                        root.report_remote_input_error(&input_address, error, cx);
+                                    }
+                                }
                                 cx.notify();
                             });
                             let pane = RemotePane {
@@ -944,11 +993,10 @@ impl NativeRoot {
             .flex()
             .flex_col()
             .child(body)
-            .children(
-                remote.action_error.clone().map(|error| {
-                    runner_app::ui::notice_banner(error, runner_app::ui::Tone::Danger)
-                }),
-            )
+            .children(remote.action_error.clone().map(|error| {
+                runner_app::ui::notice_banner(error, runner_app::ui::Tone::Danger)
+                    .debug_selector(|| "REMOTE_ACTION_ERROR".into())
+            }))
             .children(
                 retry_shell
                     .filter(|_| {

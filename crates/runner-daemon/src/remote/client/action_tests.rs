@@ -6,6 +6,59 @@ use serde_json::{json, Value};
 struct Runtime {
     spawned: tokio::sync::Notify,
     spawns: StdMutex<Vec<(SpawnSpec, Option<std::sync::mpsc::Sender<RuntimeOutput>>)>>,
+    inputs: StdMutex<Vec<(String, Vec<u8>)>>,
+    input_ready: tokio::sync::Notify,
+}
+
+#[tokio::test]
+async fn stalled_remote_socket_does_not_delay_local_input_on_the_same_ipc_connection() {
+    let host = Host::new().await;
+    let local = host.start().await;
+    host.wait_live(&local).await;
+    let root = super::super::super::tests::socket_root();
+    let mut core = host.core.as_ref().clone();
+    core.remote = super::super::super::RemoteHandle {
+        client: Some(host.fixture.client.clone()),
+        ..Default::default()
+    };
+    let server = super::super::super::tests::SocketHarness::new(root.path(), core).await;
+    let ipc = server.client(Duration::from_secs(2)).await;
+    let writer = host.fixture.relay.writer.clone();
+    writer.blocked.store(true, Ordering::Release);
+    let client = host.fixture.client.clone();
+    let pending = tokio::spawn(async move { client.overview("2".into()).await });
+    writer.entered.notified().await;
+    let remote = runner_core::remote::terminal_address("2", &local);
+    let caller = ipc.clone();
+    let session = local.clone();
+    tokio::task::spawn_blocking(move || {
+        caller.input(&remote, b"remote").unwrap();
+        caller.input(&session, b"local").unwrap();
+    })
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let ready = host.runtime.input_ready.notified();
+            if host
+                .runtime
+                .inputs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(id, bytes)| id == &local && bytes == b"local")
+            {
+                break;
+            }
+            ready.await;
+        }
+    })
+    .await
+    .expect("local input must not wait for the stalled remote writer");
+    writer.blocked.store(false, Ordering::Release);
+    writer.waker.wake();
+    pending.await.unwrap().unwrap();
+    crate::ops::session::session_stop(&host.core, &local).unwrap();
 }
 impl SessionRuntime for Runtime {
     fn spawn(&self, spec: SpawnSpec) -> RuntimeResult<(RuntimeSession, OutputStream)> {
@@ -26,7 +79,12 @@ impl SessionRuntime for Runtime {
         }
         Ok(())
     }
-    fn send_bytes(&self, _: &RuntimeSession, _: &[u8]) -> RuntimeResult<()> {
+    fn send_bytes(&self, session: &RuntimeSession, bytes: &[u8]) -> RuntimeResult<()> {
+        self.inputs
+            .lock()
+            .unwrap()
+            .push((session.session_id.clone(), bytes.to_vec()));
+        self.input_ready.notify_one();
         Ok(())
     }
     fn send_key(&self, _: &RuntimeSession, _: &str) -> RuntimeResult<()> {
