@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use runner_core::protocol::terminal::TerminalPalette;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,7 @@ use crate::error::Result;
 pub(super) const SEED_MARKER_KEY: &str = "default_crew_seeded";
 const LOGIN_SHELL_ENV_LKG_KEY: &str = "login_shell_env_lkg";
 const RUNTIME_OVERRIDES_KEY: &str = "runtime_overrides";
+const TERMINAL_PALETTE_KEY: &str = "terminal_palette";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginShellEnvLkg {
@@ -59,6 +61,22 @@ pub fn set_login_shell_env_lkg(pool: &DbPool, snapshot: &LoginShellEnvLkg) -> Re
         &conn,
         LOGIN_SHELL_ENV_LKG_KEY,
         &serde_json::to_string(snapshot)?,
+    )
+}
+
+pub fn terminal_palette(pool: &DbPool) -> Result<Option<TerminalPalette>> {
+    let conn = pool.get()?;
+    app_state_get(&conn, TERMINAL_PALETTE_KEY)?
+        .map(|value| serde_json::from_str(&value).map_err(Into::into))
+        .transpose()
+}
+
+pub fn set_terminal_palette(pool: &DbPool, palette: &TerminalPalette) -> Result<()> {
+    let conn = pool.get()?;
+    app_state_set(
+        &conn,
+        TERMINAL_PALETTE_KEY,
+        &serde_json::to_string(palette)?,
     )
 }
 

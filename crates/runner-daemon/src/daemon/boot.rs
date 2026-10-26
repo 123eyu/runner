@@ -84,6 +84,7 @@ pub fn boot(
         session_event_observer: Default::default(),
         app_version: runner_core::version::display_version(),
     };
+    session::manager::terminal::restore_palette(&core);
 
     if let Err(error) = core.sessions.start_runtime_watchers(
         &core.app_data_dir,

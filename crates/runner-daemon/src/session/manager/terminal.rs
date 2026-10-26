@@ -796,6 +796,9 @@ pub fn configure(core: &crate::AppCore, id: &str, scrollback: usize, shape: &str
     Ok(())
 }
 pub fn set_palette(core: &crate::AppCore, palette: TerminalPalette) -> Result<()> {
+    if let Err(error) = crate::db::set_terminal_palette(&core.db, &palette) {
+        log::warn!("persist terminal palette: {error}");
+    }
     let palette = runner_terminal::terminal::palette_from_wire(palette);
     *core.sessions.terminal_palette.lock().unwrap() = palette;
     for id in core.sessions.live_session_ids() {
@@ -804,6 +807,18 @@ pub fn set_palette(core: &crate::AppCore, palette: TerminalPalette) -> Result<()
         }
     }
     Ok(())
+}
+/// Sessions resumed at daemon start answer color queries before any app
+/// connects, so they start from the palette the app last sent.
+pub fn restore_palette(core: &crate::AppCore) {
+    match crate::db::terminal_palette(&core.db) {
+        Ok(Some(palette)) => {
+            *core.sessions.terminal_palette.lock().unwrap() =
+                runner_terminal::terminal::palette_from_wire(palette);
+        }
+        Ok(None) => {}
+        Err(error) => log::warn!("restore terminal palette: {error}"),
+    }
 }
 
 #[cfg(test)]

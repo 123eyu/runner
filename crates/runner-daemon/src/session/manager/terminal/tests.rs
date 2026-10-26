@@ -751,6 +751,36 @@ fn hidden_terminal_answers_each_query_once() {
     }
 }
 
+/// Sessions resumed at daemon start answer color queries before the app
+/// reconnects, so the palette the app last sent outlives the daemon; the
+/// app's first push still wins when it is the built-in default.
+#[test]
+fn terminal_palette_survives_a_daemon_restart() {
+    use runner_terminal::palette::{ROSE_PINE_DAWN, RUNNER};
+    let temp = tempfile::tempdir().unwrap();
+    let paths = crate::daemon::boot::NativePaths::new(
+        temp.path().join("app-data"),
+        temp.path().join("logs"),
+    );
+    let before = crate::daemon::boot::boot(&paths, Vec::new(), false).unwrap();
+    assert_eq!(*before.sessions.terminal_palette.lock().unwrap(), RUNNER);
+    TerminalBridge::new(before.clone(), Arc::new(|| {}))
+        .unwrap()
+        .set_palette(ROSE_PINE_DAWN);
+    drop(before);
+
+    let after = crate::daemon::boot::boot(&paths, Vec::new(), false).unwrap();
+    assert_eq!(
+        *after.sessions.terminal_palette.lock().unwrap(),
+        ROSE_PINE_DAWN
+    );
+
+    TerminalBridge::new(after.clone(), Arc::new(|| {}))
+        .unwrap()
+        .set_palette(RUNNER);
+    assert_eq!(*after.sessions.terminal_palette.lock().unwrap(), RUNNER);
+}
+
 /// #755: Runner answers the kitty keyboard query, follows the app's
 /// push and pop, and keeps doing so after `configure`. While the app has
 /// the protocol on, Shift+Enter and the chords whose legacy bytes a
