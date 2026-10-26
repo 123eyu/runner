@@ -24,7 +24,7 @@ use crate::error::Result;
 pub(crate) use self::app_state::{app_state_get, app_state_set};
 pub use self::app_state::{
     login_shell_env_lkg, runtime_overrides, set_login_shell_env_lkg, set_runtime_override,
-    LoginShellEnvLkg,
+    set_terminal_palette, terminal_palette, LoginShellEnvLkg,
 };
 
 pub type DbPool = Pool<SqliteConnectionManager>;

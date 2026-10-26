@@ -1506,7 +1506,7 @@ fn chunk_indicates_tui_ready(bytes: &[u8]) -> bool {
 pub struct TerminalBridge {
     client: DaemonClient,
     sessions: Mutex<HashMap<String, Arc<TerminalMirror>>>,
-    palette: Mutex<palette::TerminalPalette>,
+    palette: Mutex<Option<palette::TerminalPalette>>,
     waker: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
@@ -1522,7 +1522,7 @@ impl TerminalBridge {
         let bridge = Arc::new(Self {
             client,
             sessions: Mutex::default(),
-            palette: Mutex::new(palette::RUNNER),
+            palette: Mutex::default(),
             waker,
         });
         let observer: Arc<dyn runner_core::protocol::terminal::TerminalLifecycle> = bridge.clone();
@@ -1542,7 +1542,7 @@ impl TerminalBridge {
             session_id.to_owned(),
             Arc::new(move || wake(&id)),
         )?;
-        mirror.set_palette(*self.palette.lock().unwrap());
+        mirror.set_palette(self.palette.lock().unwrap().unwrap_or(palette::RUNNER));
         sessions.insert(session_id.to_owned(), Arc::clone(&mirror));
         Ok(mirror)
     }
@@ -1554,7 +1554,9 @@ impl TerminalBridge {
     }
     pub fn handle_event(&self, event: &ClientEvent) {
         if event.name == "daemon/reconnected" {
-            self.send_palette(*self.palette.lock().unwrap());
+            if let Some(palette) = *self.palette.lock().unwrap() {
+                self.send_palette(palette);
+            }
             let mirrors: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
             for mirror in mirrors {
                 if let Err(error) = mirror.reattach() {
@@ -1603,10 +1605,10 @@ impl TerminalBridge {
     pub fn set_palette(&self, palette: palette::TerminalPalette) {
         let sessions = self.sessions.lock().unwrap();
         let mut current = self.palette.lock().unwrap();
-        if *current == palette {
+        if *current == Some(palette) {
             return;
         }
-        *current = palette;
+        *current = Some(palette);
         self.send_palette(palette);
         for session in sessions.values() {
             session.set_palette(palette);
