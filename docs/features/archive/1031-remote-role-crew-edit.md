@@ -1,6 +1,8 @@
 # 1031 — Roles and crews over the companion protocol
 
-> Tracking issue: [#1031](https://github.com/yicheng47/runner/issues/1031). Related: [#912](https://github.com/yicheng47/runner/issues/912) (the iPhone app, its first client), [#836](https://github.com/yicheng47/runner/issues/836) (the companion protocol; see its [archived spec](archive/836-web-remote-control.md#remote-actions)).
+Archived after shipping in [0.18.1](https://github.com/yicheng47/runner/releases/tag/v0.18.1) through [PR #1033](https://github.com/yicheng47/runner/pull/1033). Retained for the companion feature-negotiation, whole-record update and environment-privacy contracts.
+
+> Tracking issue: [#1031](https://github.com/yicheng47/runner/issues/1031). Related: [#912](https://github.com/yicheng47/runner/issues/912) (the iPhone app, its first client), [#836](https://github.com/yicheng47/runner/issues/836) (the companion protocol; see its [archived spec](836-web-remote-control.md#remote-actions)).
 
 ## Motivation
 
@@ -61,7 +63,7 @@ No environment value appears in a result, a fixture or a log line. The adapter d
 
 ## Guide
 
-[Remote access](../guide/guides/remote-access.md)'s trust paragraph says editing roles and crews stays on the host. With this change a paired device can do it through the protocol, so the paragraph treats paired computers as trusted with roles and crews too, while the remote window's own description still says this Runner's remote window shows them read-only.
+[Remote access](../../guide/guides/remote-access.md)'s trust paragraph says editing roles and crews stays on the host. With this change a paired device can do it through the protocol, so the paragraph treats paired computers as trusted with roles and crews too, while the remote window's own description still says this Runner's remote window shows them read-only.
 
 ## Verification
 

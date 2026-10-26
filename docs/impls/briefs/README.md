@@ -10,7 +10,7 @@ These are real briefs, with their original dates, paths and task-specific permis
 |---|---|---|
 | Small | [Mission inbox guidance](mission-inbox-guidance.md) | One coder, one focused change, named authoritative files, bounded checks and an open-PR handoff. Merged in [#985](https://github.com/yicheng47/runner/pull/985). |
 | Medium | [#735 — Start a chat modal](735-start-chat-modal.md) | A designed UI feature: spec and PNG references, concrete states and request mappings, coder/reviewer handoffs and native-check gaps. Shipped in 0.12.5. |
-| Large | [#823 — Linux support](823-linux.md) | A cross-platform change: ordered deliverables across runtime, UI, packaging and CI, review risks, and a separate live-test record. Active in [#982](https://github.com/yicheng47/runner/pull/982). |
+| Large | [#823 — Linux support](823-linux.md) | A cross-platform change: ordered deliverables across runtime, UI, packaging and CI, review risks, and a separate live-test record. Active in [#1027](https://github.com/yicheng47/runner/pull/1027), which replaces #982. |
 
 Size describes the work, not a required agent count or brief length. Small fixes normally stay inline; launch a mission only when Jason requests or approves one. Large programs may need several independently reviewable missions rather than one long goal. Keep each launch goal under 8 KB and link to its spec or implementation plan for detail. The historical medium and large files exceed that launch limit: use them as supporting references and summarize the goal instead of passing the whole file unchanged.
 
@@ -36,3 +36,5 @@ The 2026-10-22 sweep reduced ten briefs to these three. #823 remains both the la
 The 2026-10-24 release sweep pruned the completed #929, #1006 and #1007 briefs. The three examples remain; #823 is still open, and the running #836 mission keeps its brief in its own worktree.
 
 The 0.18.0 release sweep pruned #836's 17 briefs, from Phase 1's `836-connect-host.md` to the landing review; the [program record](../archive/836-web-remote-control/README.md) links each at a fixed revision. The three examples remain, and #823 is still open.
+
+The 0.18.1 release sweep pruned the completed #1031 and terminal-redraw-test-settle briefs. Their validation records remain in [the test archive](../../tests/README.md), including the redraw brief’s initial investigation and unresolved observations. The three examples remain; #823 is still open.

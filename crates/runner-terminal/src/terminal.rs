@@ -1650,6 +1650,16 @@ pub type HostResult<T> = anyhow::Result<T>;
 
 #[cfg(any(test, feature = "test-support"))]
 impl TerminalMirror {
+    pub fn test_stop_frames(&self) {
+        if let Some(worker) = self.frame_worker.lock().unwrap().take() {
+            {
+                let state = worker.state.lock().unwrap();
+                state.stopped.store(true, Ordering::Release);
+                (state.cancel)();
+            }
+            worker.thread.join().unwrap();
+        }
+    }
     pub fn test_feed(&self, seq: u64, bytes: &[u8]) {
         self.feed_output(seq, bytes);
         self.wake_viewers();

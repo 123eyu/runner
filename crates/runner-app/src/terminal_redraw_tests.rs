@@ -1,10 +1,43 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui::{px, size, TestAppContext, VisualTestContext};
+use gpui::{px, size, Entity, TestAppContext, VisualTestContext};
 
 use crate::render_counts::RenderCounts;
 use crate::{AppRoute, NativeRoot, PaneLayout, SplitOrientation};
+
+fn settle(
+    cx: &mut TestAppContext,
+    store: &Entity<crate::app_store::AppStore>,
+    counts: &RenderCounts,
+) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut previous = (
+        store.read_with(cx, |store, _| store.revisions),
+        counts.0.borrow().clone(),
+    );
+    let mut stable = 0;
+    while std::time::Instant::now() < deadline {
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(10));
+        cx.run_until_parked();
+        let current = (
+            store.read_with(cx, |store, _| store.revisions),
+            counts.0.borrow().clone(),
+        );
+        if current == previous {
+            stable += 1;
+            if stable == 5 {
+                return;
+            }
+        } else {
+            stable = 0;
+            previous = current;
+        }
+        std::thread::yield_now();
+    }
+    panic!("redraw fixture did not settle: {previous:?}");
+}
 
 #[test]
 fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
@@ -24,7 +57,8 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
             core.sessions
                 .prepare_unlisted_terminal(id, (80, 24), &core.db, &events)
                 .unwrap();
-            store.bridge.attach(id).unwrap();
+            // Output is injected with test_feed; resize acknowledgments must not race it.
+            store.bridge.attach(id).unwrap().test_stop_frames();
         }
         let mut layout = PaneLayout::single(Some("busy-shell"), &[]);
         let idle_pane = layout.split("p1", SplitOrientation::Row).unwrap();
@@ -71,7 +105,7 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     cx.update(|cx| cx.set_global(counts.clone()));
     // Seed the counters with one real frame so a missing surface cannot pass as zero renders.
     host.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
-    cx.run_until_parked();
+    settle(&mut cx, &store, &counts);
     let initial = counts.0.borrow().clone();
     for key in [
         "sidebar",
@@ -115,6 +149,7 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     }
 
     assert!(terminal.viewer_count() > 0, "busy terminal has no viewer");
+    settle(&mut cx, &store, &counts);
     let wake_before = store.read_with(&cx, |store, _| store.revisions.terminal_wake);
     counts.0.borrow_mut().clear();
     let model = core.sessions.terminal_model("busy-shell").unwrap();
@@ -202,9 +237,7 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     );
     agent.refresh_metadata();
     agent.test_feed(1, b"\x1b]0;Stable topic\x07");
-    cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(50));
-    cx.run_until_parked();
+    settle(&mut cx, &store, &counts);
     let revisions_before = store.read_with(&cx, |store, _| store.revisions);
     counts.0.borrow_mut().clear();
     for (seq, glyph) in (2..).zip(['/', '-', '\\', '|', '/', '-', '\\']) {
@@ -254,9 +287,7 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     .unwrap();
     let shared = store.read_with(&cx, |store, _| store.bridge.session("busy-shell").unwrap());
     shared.test_feed(100, b"ready");
-    cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(50));
-    cx.run_until_parked();
+    settle(&mut cx, &store, &counts);
     counts.0.borrow_mut().clear();
     shared.test_feed(101, b"\r|");
     cx.run_until_parked();
