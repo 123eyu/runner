@@ -122,6 +122,10 @@ pub enum ActionRequest {
         id: u64,
         session: String,
     },
+    MarkViewed {
+        id: u64,
+        session: String,
+    },
     Resume {
         id: u64,
         session: String,
@@ -254,7 +258,7 @@ impl ActionRequest {
             "startShell" => {
                 fields!(project: Option<String> => "a string or null", cwd: Option<String> => "a string or null", cols: u16 => "an unsigned 16-bit integer", rows: u16 => "an unsigned 16-bit integer")
             }
-            "stop" | "close" => fields!(session: String => "a string"),
+            "stop" | "close" | "markViewed" => fields!(session: String => "a string"),
             "resume" | "restart" => {
                 fields!(session: String => "a string", cols: u16 => "an unsigned 16-bit integer", rows: u16 => "an unsigned 16-bit integer")
             }
@@ -304,6 +308,7 @@ impl ActionRequest {
         "startChat",
         "startShell",
         "stop",
+        "markViewed",
         "resume",
         "restart",
         "fork",
@@ -340,6 +345,7 @@ impl ActionRequest {
             Self::StartChat { id, .. } => *id,
             Self::StartShell { id, .. } => *id,
             Self::Stop { id, .. } => *id,
+            Self::MarkViewed { id, .. } => *id,
             Self::Resume { id, .. } => *id,
             Self::Restart { id, .. } => *id,
             Self::Fork { id, .. } => *id,
@@ -377,6 +383,7 @@ impl ActionRequest {
             Self::StartChat { id, .. } => *id = value,
             Self::StartShell { id, .. } => *id = value,
             Self::Stop { id, .. } => *id = value,
+            Self::MarkViewed { id, .. } => *id = value,
             Self::Resume { id, .. } => *id = value,
             Self::Restart { id, .. } => *id = value,
             Self::Fork { id, .. } => *id = value,

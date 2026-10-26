@@ -147,6 +147,10 @@ impl FrontPageClient {
         self.action("catalog", ActionRequest::Catalog { id: 0 })
     }
 
+    pub(crate) fn mark_viewed(&self, session: String) -> ClientResult<()> {
+        self.action("markViewed", ActionRequest::MarkViewed { id: 0, session })
+    }
+
     pub(crate) fn folders(&self, path: Option<String>) -> ClientResult<FolderPage> {
         self.action("folders", ActionRequest::Folders { id: 0, path })
     }

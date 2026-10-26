@@ -48,6 +48,7 @@ pub const FEATURES: &[&str] = &[
     "startChat",
     "startShell",
     "stop",
+    "markViewed",
     "resume",
     "restart",
     "fork",

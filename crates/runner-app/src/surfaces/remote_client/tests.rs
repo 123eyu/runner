@@ -175,6 +175,10 @@ impl Fake {
         self.local_requests.lock().unwrap().len()
     }
 
+    pub(crate) fn attach_count(&self) -> usize {
+        self.attaches.lock().unwrap().len()
+    }
+
     pub(crate) fn set_overview(&self, data: Overview) {
         *self.overview.lock().unwrap() = data.clone();
         self.emit(
@@ -1027,6 +1031,7 @@ fn remote_status_adapter_keeps_reasons_and_shared_rollup_priority() {
                 status: status.clone(),
                 reason: reason.clone(),
                 unread,
+                error_acknowledged: false,
             };
             let mapped = model::agent_status(&wire);
             let presentation = StatusPresentation::new(&mapped);
@@ -1072,6 +1077,7 @@ fn remote_status_adapter_keeps_reasons_and_shared_rollup_priority() {
                     status,
                     reason,
                     unread,
+                    error_acknowledged: false,
                 }),
             )
         })
@@ -1119,27 +1125,29 @@ fn remote_sidebar_reuses_local_status_indicators_and_tracks_pushes() {
             .unwrap();
         cx.run_until_parked();
         let mut visual = VisualTestContext::from_window(window.into(), &cx);
-        for (status, reason, unread, glyph) in [
-            ("needsYou", Some("approval"), true, Some("Approval")),
-            ("needsYou", Some("answer"), false, Some("Answer")),
-            ("needsYou", None, false, Some("NeedsYou")),
-            ("needsYou", Some("future"), false, Some("NeedsYou")),
-            ("future", None, false, None),
-            ("working", None, true, Some("Working")),
-            ("idle", None, true, Some("Unread")),
-            ("error", None, true, Some("Error")),
-            ("starting", None, false, None),
-            ("stopped", None, false, None),
-            ("idle", None, false, None),
+        for (status, reason, unread, acknowledged, glyph) in [
+            ("needsYou", Some("approval"), true, false, Some("Approval")),
+            ("needsYou", Some("answer"), false, false, Some("Answer")),
+            ("needsYou", None, false, false, Some("NeedsYou")),
+            ("needsYou", Some("future"), false, false, Some("NeedsYou")),
+            ("future", None, false, false, None),
+            ("working", None, true, false, Some("Working")),
+            ("idle", None, true, false, Some("Unread")),
+            ("error", None, true, false, Some("Error")),
+            ("error", None, false, true, None),
+            ("error", None, false, false, Some("Error")),
+            ("starting", None, false, false, None),
+            ("stopped", None, false, false, None),
+            ("idle", None, false, false, None),
         ] {
             data.sessions.get_mut("s").unwrap().status = serde_json::from_value(
-                serde_json::json!({"status": status, "reason": reason, "unread": unread}),
+                serde_json::json!({"status": status, "reason": reason, "unread": unread, "errorAcknowledged": acknowledged}),
             )
             .unwrap();
-            if status == "working" || reason == Some("answer") {
+            if status == "working" || reason == Some("answer") || acknowledged {
                 fake.emit(
                     "remote/session-status",
-                    serde_json::json!({"computer":"host","status":{"session":"s","status":status,"reason":reason,"unread":unread}}),
+                    serde_json::json!({"computer":"host","status":{"session":"s","status":status,"reason":reason,"unread":unread,"errorAcknowledged":acknowledged}}),
                 );
             } else {
                 fake.emit(
@@ -1194,6 +1202,79 @@ fn remote_sidebar_reuses_local_status_indicators_and_tracks_pushes() {
         assert!(fake.enrolls.load(Ordering::SeqCst) == 0);
         assert!(fake.input.lock().unwrap().is_empty());
         assert!(fake.takes.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn remote_error_acknowledgement_preserves_local_rollup_priority() {
+    use runner_app::ui::agent_status::StatusRollup;
+    use runner_core::protocol::{AgentStatus, Lifecycle};
+    for error_since in [Some(100), None] {
+        let local = AgentStatus {
+            lifecycle: Lifecycle::Error,
+            error_since,
+            ..Default::default()
+        };
+        let wire = runner_core::companion::SessionStatus::from(&local);
+        let remote = model::agent_status(&wire);
+        assert_eq!(remote.lifecycle, local.lifecycle);
+        assert_eq!(
+            StatusRollup::priority(&remote),
+            StatusRollup::priority(&local)
+        );
+    }
+}
+
+#[test]
+fn selecting_a_stopped_remote_chat_acknowledges_only_its_visible_attention() {
+    for supported in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (store, fake, _) = fixture(&mut cx, temp.path());
+        enable_front_page(&fake);
+        if supported {
+            fake.features.lock().unwrap().push("markViewed".into());
+        }
+        let mut data = overview();
+        data.sessions.get_mut("s").unwrap().status.status = Status::Error;
+        data.sessions
+            .insert("hidden".into(), data.sessions["s"].clone());
+        fake.set_overview(data.clone());
+        cx.run_until_parked();
+        let window = add_window(&mut cx, &store, temp.path(), "acknowledge-remote-error");
+        window.update(&mut cx, choose_host).unwrap();
+        cx.run_until_parked();
+        assert_eq!(fake.request_count("markViewed"), 0);
+        window
+            .update(&mut cx, |root, _, cx| {
+                root.select_remote_item(workspace::Item::Tab("remote-tab".into()), cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let requests = action_trace(&fake, "markViewed");
+        assert_eq!(requests.len(), usize::from(supported));
+        if supported {
+            assert_eq!(requests[0]["session"], "s");
+        }
+        assert!(fake.attaches.lock().unwrap().is_empty());
+        assert_eq!(fake.request_count("resume"), 0);
+        assert_eq!(fake.request_count("restart"), 0);
+
+        data.sessions
+            .get_mut("s")
+            .unwrap()
+            .status
+            .error_acknowledged = true;
+        data.sessions.get_mut("s").unwrap().status.unread = false;
+        fake.set_overview(data);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |root, _, cx| {
+                root.select_remote_item(workspace::Item::Tab("remote-tab".into()), cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(fake.request_count("markViewed"), requests.len());
     }
 }
 
