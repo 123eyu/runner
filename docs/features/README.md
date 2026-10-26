@@ -6,12 +6,11 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [1031 — Roles and crews over the companion protocol](./1031-remote-role-crew-edit.md) — requests that let a paired client read, create, edit and delete a host's roles, crews and slots, for the iPhone app; protocol and host only ([#1031](https://github.com/yicheng47/runner/issues/1031)).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
 - [559 — Command palette](./559-command-palette.md) — command mode over the existing keymap and quick-switcher overlay ([#559](https://github.com/yicheng47/runner/issues/559)).
 
-Linux support ([#823](https://github.com/yicheng47/runner/issues/823)) is active in [PR #982](https://github.com/yicheng47/runner/pull/982); its [brief](../impls/briefs/823-linux.md) remains in this checkout while the implementation and platform docs are on the PR branch.
+Linux support ([#823](https://github.com/yicheng47/runner/issues/823)) is active in [PR #1027](https://github.com/yicheng47/runner/pull/1027); its [brief](../impls/briefs/823-linux.md) remains in this checkout while the implementation and platform docs are on the PR branch.
 
 Future work, including [iOS follow-through](https://github.com/yicheng47/runner/issues/912), [shell/agent separation](https://github.com/yicheng47/runner/issues/795) and [pi MCP management](https://github.com/yicheng47/runner/issues/764), stays in its issue until development starts. Milestones and priorities are listed in the [roadmap](../roadmap.md), not duplicated in this index.
 

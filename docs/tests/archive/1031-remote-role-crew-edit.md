@@ -1,6 +1,8 @@
 # #1031 — Roles and crews over the companion protocol
 
-The candidate is the working-tree diff on `feat/1031-remote-role-crew-edit`, based on `3da540053f4364ea90f3437f3f41d12fd4c6f8c6`. Implementation and review run in `.worktrees/feat-1031-remote-role-crew-edit` with its own Cargo target directory. The [feature spec](../features/1031-remote-role-crew-edit.md) defines the contract.
+Shipped in [0.18.1](https://github.com/yicheng47/runner/releases/tag/v0.18.1) through [PR #1033](https://github.com/yicheng47/runner/pull/1033). The results below retain the original candidate and failures; archiving adds no new live-test pass.
+
+The candidate is the working-tree diff on `feat/1031-remote-role-crew-edit`, based on `3da540053f4364ea90f3437f3f41d12fd4c6f8c6`. Implementation and review run in `.worktrees/feat-1031-remote-role-crew-edit` with its own Cargo target directory. The [feature spec](../../features/archive/1031-remote-role-crew-edit.md) defines the contract.
 
 ## Selected checks
 
