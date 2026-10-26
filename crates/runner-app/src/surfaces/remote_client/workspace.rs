@@ -735,8 +735,48 @@ impl NativeRoot {
             remote.errors.clear();
         }
         self.sync_remote_state(cx);
+        self.mark_remote_stopped_sessions_viewed(cx);
         cx.notify();
     }
+
+    pub(crate) fn mark_remote_stopped_sessions_viewed(&mut self, cx: &mut Context<Self>) {
+        let clients = state(&self.app_store, cx);
+        let Some(remote) = self.remote_window.as_ref() else {
+            return;
+        };
+        if remote.connection != Connection::Connected
+            || !remote.front_page.supports(&["markViewed"])
+        {
+            return;
+        }
+        let Some(overview) = clients.read(cx).overviews.get(&remote.computer.id) else {
+            return;
+        };
+        let sessions = remote
+            .visible_sessions(overview, cx)
+            .into_iter()
+            .filter(|id| {
+                overview.sessions.get(id).is_some_and(|session| {
+                    let status = &session.status;
+                    matches!(status.status, Status::Stopped | Status::Error)
+                        && (status.unread
+                            || (status.status == Status::Error && !status.error_acknowledged))
+                })
+            })
+            .collect::<Vec<_>>();
+        for session in sessions {
+            self.remote_action(
+                format!("mark-viewed:{session}"),
+                &["markViewed"],
+                move |client| {
+                    client.mark_viewed(session)?;
+                    Ok(Default::default())
+                },
+                cx,
+            );
+        }
+    }
+
     pub(crate) fn attach_remote_panes(&mut self, cx: &mut Context<Self>) {
         let clients = state(&self.app_store, cx);
         let Some(remote) = self.remote_window.as_mut() else {

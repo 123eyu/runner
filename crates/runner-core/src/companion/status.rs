@@ -17,6 +17,8 @@ pub struct SessionStatus {
     pub status: Status,
     pub reason: Option<NeedsYouReason>,
     pub unread: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub error_acknowledged: bool,
 }
 
 impl From<&AgentStatus> for SessionStatus {
@@ -44,6 +46,7 @@ impl From<&AgentStatus> for SessionStatus {
             status,
             reason,
             unread: agent.unread_since.is_some(),
+            error_acknowledged: agent.lifecycle == Lifecycle::Error && agent.error_since.is_none(),
         }
     }
 }

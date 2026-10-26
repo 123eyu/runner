@@ -487,6 +487,7 @@ impl MissionWorkspace {
         cx.defer(move |cx| {
             let _ = shell.update(cx, |shell, cx| {
                 shell.attach_remote_panes(cx);
+                shell.mark_remote_stopped_sessions_viewed(cx);
                 cx.notify();
             });
         });

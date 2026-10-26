@@ -629,6 +629,10 @@ impl DaemonCore {
             Stop { session, .. } => ops::session::session_stop(core, &session)
                 .map(|_| Value::Null)
                 .map_err(failed),
+            MarkViewed { session, .. } => {
+                ops::node::mark_direct_sessions_viewed(core, &[session]).map_err(failed)?;
+                Ok(Value::Null)
+            }
             Close { session, .. } => ops::session::session_close(core, &session)
                 .map(|_| Value::Null)
                 .map_err(failed),

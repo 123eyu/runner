@@ -30,6 +30,7 @@ const CLIENT_FIXTURES: &[&str] = &[
     "start_chat",
     "start_shell",
     "stop",
+    "mark_viewed",
     "resume",
     "restart",
     "fork",
@@ -759,6 +760,33 @@ fn status_unread_is_independent_of_the_flattened_status() {
     assert!(!SessionStatus::from(&value).unread);
     value.unread_since = Some(1);
     assert!(SessionStatus::from(&value).unread);
+}
+
+#[test]
+fn status_preserves_error_acknowledgement_without_changing_lifecycle() {
+    let mut value = agent(Lifecycle::Error, Activity::Unavailable, None);
+    value.error_since = Some(100);
+    let pending = SessionStatus::from(&value);
+    assert!(!pending.error_acknowledged);
+    assert_eq!(pending.status, Status::Error);
+    value.error_since = None;
+    let acknowledged = SessionStatus::from(&value);
+    assert!(acknowledged.error_acknowledged);
+    assert_eq!(acknowledged.status, Status::Error);
+    let wire = serde_json::to_value(&acknowledged).unwrap();
+    assert_eq!(wire["errorAcknowledged"], true);
+    assert_eq!(
+        serde_json::from_value::<SessionStatus>(wire).unwrap(),
+        acknowledged
+    );
+}
+
+#[test]
+fn legacy_error_status_still_needs_attention() {
+    let wire = json!({"status":"error", "reason":null, "unread":false});
+    let status: SessionStatus = serde_json::from_value(wire.clone()).unwrap();
+    assert!(!status.error_acknowledged);
+    assert_eq!(serde_json::to_value(status).unwrap(), wire);
 }
 
 #[test]

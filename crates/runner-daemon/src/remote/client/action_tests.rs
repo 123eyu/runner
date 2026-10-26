@@ -720,6 +720,50 @@ async fn action_results_carry_the_negotiated_features_for_frontend_gating() {
 }
 
 #[tokio::test]
+async fn viewing_a_crashed_remote_chat_clears_attention_without_starting_it() {
+    let host = Host::new().await;
+    let mut row = repo::session::SessionRowDb::new_running("crashed".into());
+    row.status = crate::model::SessionStatus::Crashed;
+    row.agent_runtime = Some("codex".into());
+    row.agent_command = Some("codex".into());
+    row.agent_session_key = Some("conversation".into());
+    row.stopped_at = Some(chrono::Utc::now() - chrono::Duration::seconds(1));
+    {
+        let conn = host.core.db.get().unwrap();
+        repo::session::insert(&conn, &row).unwrap();
+        repo::session_attention::record_completion(&conn, &row.id, false, 100).unwrap();
+    }
+    host.layout(&ulid::Ulid::new().to_string(), Some(&row.id), None)
+        .await;
+    let mut events = host.fixture.client.0.events.subscribe();
+    host.fixture
+        .client
+        .follow("2".into(), 7, true)
+        .await
+        .unwrap();
+    let before = remote_event(&mut events, "remote/overview").await;
+    assert_eq!(before["overview"]["sessions"][&row.id]["status"], "error");
+    assert_eq!(before["overview"]["sessions"][&row.id]["unread"], true);
+
+    host.ok(json!({"type":"markViewed","session":row.id})).await;
+    let push = remote_event(&mut events, "remote/session-status").await;
+    assert_eq!(push["status"]["session"], row.id);
+    assert_eq!(push["status"]["status"], "error");
+    assert_eq!(push["status"]["errorAcknowledged"], true);
+    assert_eq!(push["status"]["unread"], false);
+    let after = host.ok(json!({"type":"overview"})).await;
+    assert_eq!(after["sessions"][&row.id]["errorAcknowledged"], true);
+    let saved = repo::session::get_row(&host.core.db.get().unwrap(), &row.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.status, row.status);
+    assert_eq!(saved.agent_session_key, row.agent_session_key);
+    assert_eq!(saved.stopped_at, row.stopped_at);
+    assert!(!host.core.sessions.session_live(&row.id));
+    assert!(host.runtime.spawns.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn remote_layouts_preserve_drawer_presentation_and_mission_shell_ownership() {
     let host = Host::new().await;
     let session = host.start().await;

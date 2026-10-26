@@ -142,6 +142,79 @@ fn remote_mission_uses_shared_sections_without_local_rows_or_private_metadata() 
 }
 
 #[test]
+fn selecting_a_crashed_remote_member_acknowledges_it_without_acknowledging_the_feed() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, _) = remote_test::fixture(&mut cx, temp.path());
+    fake.set_features(&[
+        "overview",
+        "feed",
+        "follow",
+        "unfollow",
+        "markViewed",
+        "resume",
+        "restart",
+    ]);
+    let mut data = overview();
+    data.sessions.get_mut("member").unwrap().status.status = runner_core::companion::Status::Error;
+    fake.set_overview(data);
+    cx.run_until_parked();
+    let window = remote_test::add_window(&mut cx, &store, temp.path(), "acknowledge-remote-member");
+    window.update(&mut cx, remote_test::choose_host).unwrap();
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.select_remote_item(RemoteItem::Mission("remote-mission".into()), cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let workspace = workspace(window, &cx);
+    workspace.read_with(&cx, |workspace, _| {
+        assert_eq!(workspace.active_tab, MissionTab::Feed);
+    });
+    assert_eq!(fake.request_count("markViewed"), 0);
+
+    window
+        .update(&mut cx, |_, window, cx| {
+            workspace.update(cx, |workspace, cx| {
+                workspace.select_mission_session("member", window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let requests = remote_test::action_trace(&fake, "markViewed");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["session"], "member");
+
+    fake.emit(
+        "remote/session-status",
+        serde_json::json!({"computer":"host","status":{"session":"member","status":"error","unread":false,"errorAcknowledged":true}}),
+    );
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |_, window, cx| {
+            workspace.update(cx, |workspace, cx| {
+                workspace.select_mission_feed(window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |_, window, cx| {
+            workspace.update(cx, |workspace, cx| {
+                workspace.select_mission_session("member", window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(fake.request_count("markViewed"), 1);
+    assert_eq!(fake.attach_count(), 0);
+    assert_eq!(fake.request_count("resume"), 0);
+    assert_eq!(fake.request_count("restart"), 0);
+}
+
+#[test]
 fn remote_feed_is_shared_pages_opaque_cursors_and_releases_only_after_last_window() {
     let _theme = crate::theme_snapshot::ThemeGuard::new();
     let (temp, mut cx, first, store, fake) = setup();
