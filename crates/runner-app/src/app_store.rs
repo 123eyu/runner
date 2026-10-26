@@ -281,6 +281,7 @@ pub(crate) enum RemoteWarning {
 pub(crate) struct AppStore {
     pub(crate) remote_clients: Entity<crate::surfaces::remote_client::model::ClientState>,
     pub(crate) remote_status: Option<runner_core::remote::RemoteStatus>,
+    pub(crate) enrollment_requests: Arc<crate::surfaces::settings::remote::EnrollmentRequests>,
     pub(crate) remote_trust: Option<runner_core::remote::RemoteTrust>,
     pub(crate) remote_warning: Option<RemoteWarning>,
     pub(crate) terminal_updates: Entity<TerminalUpdates>,
@@ -658,6 +659,7 @@ impl AppStore {
         let mut store = Self {
             remote_clients,
             remote_status: None,
+            enrollment_requests: Arc::default(),
             remote_trust: None,
             remote_warning: None,
             terminal_updates,

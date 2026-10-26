@@ -21,7 +21,7 @@ A signed-in status, including after `runner remote login`, overrides Local only 
 
 With Local only off, the round avatar in the sidebar footer shows your account’s initial when signed in and a person icon otherwise. Its menu opens Account, Settings and **Sign out…**. Signed out, it offers Settings and **Sign in…**, which opens Account, where you can start approval. Account shows its status card and **Sign out on this computer** when signed in.
 
-If Runner cannot reach the service, it tries for up to 30 seconds, then returns to Not signed in with an error. Check the service address and your network, then choose **Sign in** again.
+If Runner cannot reach the service, it tries for up to 30 seconds, then returns to Not signed in with an error. Check the service address and your network, then choose **Sign in** again. While sign-in is starting, **Cancel** immediately restores the button. You can retry in the same window or another Runner window; the abandoned attempt does not open a browser or clear the newer enrollment.
 
 ## Through Runner’s relay
 

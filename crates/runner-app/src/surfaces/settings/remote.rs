@@ -23,7 +23,6 @@ pub(crate) struct RemotePaneState {
     opening: bool,
     request_generation: u64,
     enrollment_start: Option<EnrollmentStart>,
-    enrollment_cleanup: Option<futures::future::Shared<gpui::Task<()>>>,
     error: Option<String>,
     pub(crate) confirm: bool,
     reset_identity: bool,
@@ -37,8 +36,29 @@ type EnrollmentTask =
     futures::future::Shared<gpui::Task<Result<RemoteStatus, runner_core::protocol::ClientError>>>;
 struct EnrollmentStart {
     abandoned: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    dispatched: std::sync::Arc<std::sync::atomic::AtomicBool>,
     task: EnrollmentTask,
+}
+#[derive(Default)]
+pub(crate) struct EnrollmentRequests {
+    active: futures::lock::Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+}
+impl EnrollmentRequests {
+    async fn start(
+        &self,
+        abandoned: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        request: impl std::future::Future<
+            Output = Result<RemoteStatus, runner_core::protocol::ClientError>,
+        >,
+    ) -> Result<RemoteStatus, runner_core::protocol::ClientError> {
+        let mut active = self.active.lock().await;
+        if abandoned.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(runner_core::protocol::ClientError::msg(
+                "Enrollment cancelled.",
+            ));
+        }
+        *active = Some(abandoned);
+        request.await
+    }
 }
 struct PinDialog {
     fields: [gpui::Entity<PinField>; 2],
@@ -55,7 +75,6 @@ impl RemotePaneState {
             opening: false,
             request_generation: 0,
             enrollment_start: None,
-            enrollment_cleanup: None,
             error: None,
             confirm: false,
             reset_identity: false,
@@ -312,29 +331,18 @@ impl NativeRoot {
         self.settings_page.remote.error = None;
         let client = self.core(cx).clone();
         let task = if open_browser {
-            let cleanup = self.settings_page.remote.enrollment_cleanup.clone();
+            let requests = self.app_store.read(cx).enrollment_requests.clone();
             let abandoned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let dispatched = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let cancelled = abandoned.clone();
-            let started = dispatched.clone();
             let task = cx
                 .background_spawn(async move {
-                    // A cancelled Start may still mutate the daemon until its cleanup finishes.
-                    if let Some(cleanup) = cleanup {
-                        cleanup.await;
-                    }
-                    if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
-                        return Err(runner_core::protocol::ClientError::msg(
-                            "Enrollment cancelled.",
-                        ));
-                    }
-                    started.store(true, std::sync::atomic::Ordering::SeqCst);
-                    request(client)
+                    requests
+                        .start(cancelled, async move { request(client) })
+                        .await
                 })
                 .shared();
             self.settings_page.remote.enrollment_start = Some(EnrollmentStart {
                 abandoned,
-                dispatched,
                 task: task.clone(),
             });
             task
@@ -1857,7 +1865,7 @@ mod tests {
     }
 
     #[test]
-    fn immediate_sign_in_waits_for_abandoned_start_cleanup_and_skips_undispatched_start() {
+    fn immediate_sign_in_preserves_new_attempt_and_skips_undispatched_start() {
         let _theme = crate::theme_snapshot::ThemeGuard::new();
         for dispatch_first in [false, true] {
             let temp = tempfile::tempdir().unwrap();
@@ -1898,14 +1906,15 @@ mod tests {
                 .unwrap();
             // Both cleanup and the second Start are queued before background work resumes.
             cx.run_until_parked();
-            assert_eq!(
-                *requests.calls.lock().unwrap(),
-                if dispatch_first {
-                    vec!["sign in", "sign out", "sign in"]
-                } else {
-                    vec!["sign in"]
-                }
-            );
+            let calls = requests.calls.lock().unwrap().clone();
+            if dispatch_first {
+                assert!(
+                    calls == ["sign in", "sign out", "sign in"] || calls == ["sign in", "sign in"],
+                    "cleanup may precede the newer Start or skip it after replacement: {calls:?}"
+                );
+            } else {
+                assert_eq!(calls, ["sign in"]);
+            }
             assert!(matches!(
                 requests.status.lock().unwrap().state,
                 RemoteState::Enrolling { .. }
@@ -1913,6 +1922,93 @@ mod tests {
             assert!(cx.opened_url().is_some());
             window
                 .read_with(&cx, |root, _| assert!(!root.settings_page.remote.busy))
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn cancelled_start_cannot_clear_a_second_windows_enrollment() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for fail in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            cx.run_until_parked();
+            store.update(&mut cx, |store, _| store.settings.local_only = false);
+            let first = switch_window(&mut cx, &store, temp.path(), "cancel-first");
+            let second = switch_window(&mut cx, &store, temp.path(), "retry-second");
+            let daemon = std::sync::Arc::new(RemoteRequests::default());
+            store.update(&mut cx, |store, _| {
+                store.client = DaemonClient::new(daemon.clone());
+            });
+            let (release, pending) = futures::channel::oneshot::channel();
+            let requests = store.read_with(&cx, |store, _| store.enrollment_requests.clone());
+            let abandoned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let cancelled = abandoned.clone();
+            let client = DaemonClient::new(daemon.clone());
+            let task = cx
+                .background_spawn(async move {
+                    requests
+                        .start(cancelled, async move {
+                            pending.await.unwrap();
+                            if fail {
+                                Err(runner_core::protocol::ClientError::msg(
+                                    "late startup error",
+                                ))
+                            } else {
+                                client.remote_enroll_start(None, false)
+                            }
+                        })
+                        .await
+                })
+                .shared();
+            first
+                .update(&mut cx, |root, _, _| {
+                    root.settings_page.remote.busy = true;
+                    root.settings_page.remote.opening = true;
+                    root.settings_page.remote.enrollment_start =
+                        Some(EnrollmentStart { abandoned, task });
+                })
+                .unwrap();
+            cx.run_until_parked();
+            first
+                .update(&mut cx, |root, _, cx| {
+                    root.remote_cancel_start(cx);
+                    assert!(!root.settings_page.remote.busy);
+                    assert!(!root.settings_page.remote.opening);
+                })
+                .unwrap();
+            second
+                .update(&mut cx, |root, _, cx| root.remote_connect(cx))
+                .unwrap();
+            cx.run_until_parked();
+            assert!(
+                daemon.calls.lock().unwrap().is_empty(),
+                "second window must wait for the pending daemon call"
+            );
+            assert!(cx.opened_url().is_none());
+            release.send(()).unwrap();
+            cx.run_until_parked();
+            let calls = daemon.calls.lock().unwrap();
+            assert_eq!(
+                calls.last(),
+                Some(&"sign in"),
+                "cleanup must not follow the newer enrollment"
+            );
+            assert_eq!(
+                calls.iter().filter(|call| **call == "sign in").count(),
+                if fail { 1 } else { 2 }
+            );
+            assert!(matches!(
+                daemon.status.lock().unwrap().state,
+                RemoteState::Enrolling { .. }
+            ));
+            assert!(cx.opened_url().is_some());
+            second
+                .read_with(&cx, |root, _| {
+                    assert!(!root.settings_page.remote.busy);
+                    assert!(root.settings_page.remote.error.is_none());
+                })
                 .unwrap();
         }
     }

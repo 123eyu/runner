@@ -361,16 +361,20 @@ impl NativeRoot {
                 .abandoned
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             let client = self.core(cx).clone();
-            let cleanup = cx
-                .background_spawn(async move {
-                    let _ = start.task.await;
-                    if start.dispatched.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = client.remote_logout();
-                    }
-                })
-                .shared();
-            cx.background_spawn(cleanup.clone()).detach();
-            self.settings_page.remote.enrollment_cleanup = Some(cleanup);
+            let requests = self.app_store.read(cx).enrollment_requests.clone();
+            cx.background_spawn(async move {
+                let _ = start.task.await;
+                let mut active = requests.active.lock().await;
+                // Another window may already have replaced this attempt.
+                if active
+                    .as_ref()
+                    .is_some_and(|attempt| std::sync::Arc::ptr_eq(attempt, &start.abandoned))
+                {
+                    let _ = client.remote_logout();
+                    *active = None;
+                }
+            })
+            .detach();
         }
         cx.notify();
     }
