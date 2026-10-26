@@ -73,6 +73,15 @@ jobs:
           rustup show active-toolchain
           rustup target add aarch64-apple-darwin
 
+      - name: Remove other Rust toolchains
+        shell: bash
+        run: |
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          for toolchain in $(rustup toolchain list --quiet); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+          rustup toolchain list
+
       - name: Hash build settings
         id: cache-key
         shell: bash
@@ -82,7 +91,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ steps.cache-key.outputs.hash }}
-          add-rust-environment-hash-key: false
           cache-on-failure: true
 
       - name: Install Metal toolchain
@@ -192,6 +200,15 @@ jobs:
           rustup show active-toolchain
           rustup target add x86_64-pc-windows-msvc
 
+      - name: Remove other Rust toolchains
+        shell: bash
+        run: |
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          for toolchain in $(rustup toolchain list --quiet); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+          rustup toolchain list
+
       - name: Hash build settings
         id: cache-key
         shell: bash
@@ -201,7 +218,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ steps.cache-key.outputs.hash }}
-          add-rust-environment-hash-key: false
           cache-on-failure: true
 
       - name: Connect to Certum SimplySign
