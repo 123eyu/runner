@@ -1662,6 +1662,18 @@ mod tests {
         terminal
     }
 
+    fn wait_for_rows(terminal: &TerminalMirror, rows: u16) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while terminal.size().1 != rows {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "terminal resize was not acknowledged: {:?}",
+                terminal.size()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
     #[derive(Clone)]
     struct WheelPane {
         terminal: Arc<TerminalMirror>,
@@ -1852,6 +1864,9 @@ mod tests {
             })
             .unwrap();
         visual.refresh().unwrap();
+        // A late shrink acknowledgment would add the lost rows to a nonzero display offset.
+        wait_for_rows(&left_terminal, 5);
+        wait_for_rows(&right_terminal, 5);
         let changed_bounds = visual.debug_bounds("WHEEL_RIGHT").unwrap();
         assert_eq!(changed_bounds.left(), right_bounds.left() + px(20.));
         let new_width = visual.update(|window, _| {

@@ -1011,8 +1011,9 @@ async fn follow_catches_an_append_during_cursor_work_without_another_event() {
     adapter.changed().await.unwrap();
     assert!(!adapter.feeds.contains_key("m"));
     release.send(()).unwrap();
-    assert_eq!(next(&mut adapter).await["id"], 1);
-    let pushed = next(&mut adapter).await;
+    // The append also schedules an overview broadcast, which may land before the follow reply.
+    assert_eq!(next_non_overview(&mut adapter).await["id"], 1);
+    let pushed = next_non_overview(&mut adapter).await;
     assert_eq!(pushed["type"], "feedAppended");
     assert_eq!(pushed["entries"][0]["id"], entry.id);
 }
