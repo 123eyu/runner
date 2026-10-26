@@ -126,6 +126,21 @@ fn mission_slot_actions_available(
     status == Some(MissionStatus::Running) && !archived && !secondary
 }
 
+fn draft_recovery_available(
+    activity: Option<&SessionActivityState>,
+    status: &runner_core::protocol::status::AgentStatus,
+) -> bool {
+    use runner_core::protocol::status::{Activity, ObservationSource};
+    if status.observation.needs_you() {
+        return false;
+    }
+    // A Return that starts no turn, such as confirming a Codex rollback, leaves
+    // the session busy; while hooks report status, they say whether a turn runs.
+    activity == Some(&SessionActivityState::Idle)
+        || (status.observation.source == ObservationSource::Hook
+            && status.observation.activity != Activity::Working)
+}
+
 fn mission_divider_label(event: &Event) -> String {
     let kind = event
         .signal_type

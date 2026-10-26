@@ -122,6 +122,11 @@ impl InputTracker {
                 InputKind::Edit | InputKind::Cancel => {
                     if let TrackerState::Drafting(composer) = &mut self.state {
                         composer.submitted_form = None;
+                        // A redraw such as a Codex rollback can leave a transcript row with the
+                        // prompt prefix at the tracked row; edits go to the live editor.
+                        if let Some(row) = cursor_prompt_row(term, &composer.prefix) {
+                            composer.row = row;
+                        }
                     }
                 }
                 InputKind::Navigate | InputKind::Submit => {}
@@ -1119,6 +1124,63 @@ mod tests {
                 .state,
             InputState::Idle
         );
+    }
+
+    #[test]
+    fn clearing_a_draft_after_a_rollback_redraw_releases_the_hold() {
+        for kind in [InputKind::Edit, InputKind::Cancel] {
+            let start = Instant::now();
+            let mut term = new_term(60, 12);
+            feed(
+                &mut term,
+                "\x1b[4;1H› \x1b[90mAsk Codex to do anything\x1b[39m\x1b[4;3H".as_bytes(),
+            );
+            let mut tracker = InputTracker::new(start);
+            tracker.initial_observation(start);
+            tracker.observe_input(
+                &InputEvent::Key {
+                    kind: InputKind::Content {
+                        text: "fix it".into(),
+                    },
+                },
+                start,
+                &term,
+            );
+            feed(&mut term, "\x1b[4;1H\x1b[K› fix it".as_bytes());
+            assert_eq!(
+                tracker
+                    .observe_output(start + Duration::from_millis(1), &term)
+                    .unwrap()
+                    .state,
+                InputState::Drafting
+            );
+
+            // Codex redraws the trimmed transcript; a user row now sits at the tracked row.
+            feed(
+                &mut term,
+                "\x1b[H\x1b[2J› first question\r\n\r\n• answer one\r\n› second question\r\n\r\n• answer two\x1b[10;1H› fix it".as_bytes(),
+            );
+            tracker.observe_output(start + Duration::from_millis(2), &term);
+            assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+
+            tracker.observe_input(&InputEvent::Key { kind: kind.clone() }, start, &term);
+            if kind == InputKind::Edit {
+                feed(&mut term, "\x1b[10;1H\x1b[K› fix".as_bytes());
+                tracker.observe_output(start + Duration::from_millis(3), &term);
+                assert_eq!(tracker.current_reported_state().state, InputState::Drafting);
+                tracker.observe_input(&InputEvent::Key { kind: kind.clone() }, start, &term);
+            }
+            feed(
+                &mut term,
+                "\x1b[10;1H\x1b[K› \x1b[90mAsk Codex to do anything\x1b[39m\x1b[10;3H".as_bytes(),
+            );
+            tracker.observe_output(start + Duration::from_millis(4), &term);
+            assert_eq!(
+                tracker.current_reported_state().state,
+                InputState::Idle,
+                "{kind:?}"
+            );
+        }
     }
 
     #[test]

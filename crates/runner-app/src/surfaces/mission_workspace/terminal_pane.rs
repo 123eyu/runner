@@ -171,8 +171,8 @@ impl MissionWorkspace {
             .then(|| self.delivery_blocked.get(&session_id).cloned())
             .flatten()
         {
-            let idle =
-                self.session_statuses().get(&session.handle) == Some(&SessionActivityState::Idle);
+            let recoverable =
+                draft_recovery_available(self.session_statuses().get(&session.handle), &status);
             let sidebar_width = if self.sidebar_collapsed {
                 0.
             } else {
@@ -190,7 +190,7 @@ impl MissionWorkspace {
             pane = pane.child(self.render_inbox_blocked_pill(
                 session_id.clone(),
                 blocked,
-                idle && !status.observation.needs_you(),
+                recoverable,
                 status.observation.needs_you(),
                 pane_width < 600. * self.settings(cx).app_zoom,
                 cx,
@@ -248,7 +248,7 @@ impl MissionWorkspace {
         &self,
         session_id: String,
         blocked: DeliveryBlocked,
-        idle: bool,
+        recoverable: bool,
         needs_you: bool,
         narrow: bool,
         cx: &mut Context<Self>,
@@ -303,7 +303,7 @@ impl MissionWorkspace {
                     )
                 })
             }))
-            .children(idle.then(|| {
+            .children(recoverable.then(|| {
                 div()
                     .id(SharedString::from(format!(
                         "clear-mission-draft-{session_id}"
