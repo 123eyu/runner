@@ -11,7 +11,7 @@ Snapshot as of 2026-10-26, checked against GitHub issues, milestones, merged pul
 
 ## Release plan
 
-Each milestone has one main feature and a bounded set of supporting fixes or optimizations. A milestone is a release track: supporting fixes can ship earlier as patches, and every issue does not automatically gate its first release. There are 61 open issues: 35 scheduled below and 26 in the backlog; none is labeled `release-blocker`.
+Each milestone has one main feature and a bounded set of supporting fixes or optimizations. A milestone is a release track: supporting fixes can ship earlier as patches, and every issue does not automatically gate its first release. There are 59 open issues: 35 scheduled below and 24 in the backlog; none is labeled `release-blocker`.
 
 0.17.0 shipped Claude Code accounts from the 0.16 work track. On 2026-10-21 the 0.16 milestone closed, its open follow-through moved to a new 0.17 milestone for 0.17.x, and every later milestone was renumbered up by one, so remote control is now 0.18. On 2026-10-25 the 0.17 milestone closed and its ten remaining issues moved to 0.18.
 
@@ -70,8 +70,6 @@ These features have no release commitment. Their issues own scope and priority; 
 | [#1018](https://github.com/yicheng47/runner/issues/1018) | P1 | A Codex rollback leaves inbox delivery held as Drafting with an empty composer. |
 | [#1023](https://github.com/yicheng47/runner/issues/1023) | P2 | Speed up CI through test deduplication and safe parallelism. |
 | [#1025](https://github.com/yicheng47/runner/issues/1025) | P2 | Rapid scrolling/redraws when switching remote Codex chats on a Windows host; the suspected same-size resize on each switch needs confirming on a Windows host. |
-| [#1026](https://github.com/yicheng47/runner/issues/1026) | P3 | Remote chat unread dots intermittently missing after a Codex turn; the suspected cause, #1013, was fixed in 0.18.1, so this waits for a recurrence. |
-| [#1029](https://github.com/yicheng47/runner/issues/1029) | P2 | Remote panes use the client palette; the fix shipped in 0.18.1 through #1035, but the issue remains open. |
 | [#1032](https://github.com/yicheng47/runner/issues/1032) | P3 | A VS Code extension; waiting for the reporter to say what it should show beyond the CLI. |
 | [#1041](https://github.com/yicheng47/runner/issues/1041) | P2 | Explain when the host has turned remote access off instead of showing an endless reconnecting warning. |
 
