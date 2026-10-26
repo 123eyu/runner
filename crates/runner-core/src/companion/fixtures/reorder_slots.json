@@ -1,0 +1,9 @@
+{
+  "type": "reorderSlots",
+  "id": 42,
+  "crew": "crew-1",
+  "order": [
+    "slot-2",
+    "slot-1"
+  ]
+}

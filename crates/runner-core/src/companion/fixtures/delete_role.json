@@ -1,0 +1,5 @@
+{
+  "type": "deleteRole",
+  "id": 42,
+  "role": "role-1"
+}

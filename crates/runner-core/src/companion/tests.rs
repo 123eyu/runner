@@ -9,6 +9,19 @@ use crate::protocol::{
 };
 
 const CLIENT_FIXTURES: &[&str] = &[
+    "role",
+    "crew",
+    "create_role",
+    "update_role",
+    "delete_role",
+    "create_crew",
+    "update_crew",
+    "delete_crew",
+    "add_slot",
+    "update_slot",
+    "remove_slot",
+    "reorder_slots",
+    "set_lead",
     "hello",
     "layout_split",
     "start_chat_role",
@@ -50,6 +63,8 @@ const CLIENT_FIXTURES: &[&str] = &[
     "unknown_control",
 ];
 const HOST_FIXTURES: &[&str] = &[
+    "result_role",
+    "result_crew",
     "welcome",
     "result_catalog",
     "result_folders",
@@ -862,4 +877,97 @@ fn catalog_and_folder_results_have_their_own_wire_types() {
     let mut invalid = fixture("layout_split");
     invalid["panes"]["sizes"] = json!([1]);
     assert!(ClientMessage::decode(&serde_json::to_vec(&invalid).unwrap()).is_err());
+}
+
+#[test]
+fn role_and_crew_wire_fields_and_privacy() {
+    let role: RoleRecord =
+        serde_json::from_value(fixture("result_role")["result"].clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(role).unwrap(),
+        fixture("result_role")["result"]
+    );
+    let crew: CrewRecord =
+        serde_json::from_value(fixture("result_crew")["result"].clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(crew).unwrap(),
+        fixture("result_crew")["result"]
+    );
+    let future: RolePermissionMode = serde_json::from_value(json!("futureMode")).unwrap();
+    assert_eq!(future.effective(), RolePermissionMode::Default);
+    assert_eq!(serde_json::to_value(future).unwrap(), json!("futureMode"));
+    for name in [
+        "role",
+        "crew",
+        "create_role",
+        "update_role",
+        "delete_role",
+        "create_crew",
+        "update_crew",
+        "delete_crew",
+        "add_slot",
+        "update_slot",
+        "remove_slot",
+        "reorder_slots",
+        "set_lead",
+    ] {
+        let body = fixture(name);
+        let message = ClientMessage::decode(&serde_json::to_vec(&body).unwrap()).unwrap();
+        let ClientMessage::Action(mut action) = message else {
+            panic!("{name}")
+        };
+        assert_eq!(action.id(), 42);
+        action.set_id(17);
+        assert_eq!(action.id(), 17);
+        for field in body
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|key| !matches!(key.as_str(), "id" | "type"))
+        {
+            let mut invalid = body.clone();
+            invalid[field] = json!({"private-body-canary": true});
+            let error = ClientMessage::decode(&serde_json::to_vec(&invalid).unwrap()).unwrap_err();
+            assert_eq!(error.code, ErrorCode::BadRequest, "{name}.{field}");
+            assert!(
+                error.message.contains(&format!("field {field} must be")),
+                "{}",
+                error.message
+            );
+            assert!(!error.message.contains("private-body-canary"));
+            let mut missing = body.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            if let Err(error) = ClientMessage::decode(&serde_json::to_vec(&missing).unwrap()) {
+                assert_eq!(error.code, ErrorCode::BadRequest);
+                assert!(
+                    error.message.contains(&format!("missing field {field}.")),
+                    "{}",
+                    error.message
+                );
+            } else {
+                // Nullable fields may be omitted; all other fields are required.
+                assert!(
+                    matches!(
+                        field.as_str(),
+                        "command"
+                            | "workingDir"
+                            | "systemPrompt"
+                            | "model"
+                            | "effort"
+                            | "speed"
+                            | "permissionMode"
+                            | "conventions"
+                    ) || (field == "runtime" && matches!(name, "add_slot" | "update_slot"))
+                );
+            }
+        }
+    }
+    let mut body = fixture("create_role");
+    body["systemPrompt"] = json!("private-body-canary");
+    let request = ClientMessage::decode(&serde_json::to_vec(&body).unwrap()).unwrap();
+    assert!(!format!("{request:?}").contains("private-body-canary"));
+    let ClientMessage::Action(action) = request else {
+        panic!("action expected")
+    };
+    assert!(!format!("{action:?}").contains("private-body-canary"));
 }

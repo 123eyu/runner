@@ -1,0 +1,6 @@
+{
+  "type": "createCrew",
+  "id": 42,
+  "name": "Duo",
+  "conventions": "Review before committing."
+}

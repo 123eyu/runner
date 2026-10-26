@@ -1,0 +1,23 @@
+{
+  "type": "result",
+  "id": 42,
+  "result": {
+    "id": "role-1",
+    "handle": "coder",
+    "name": "Coder",
+    "runtime": "codex",
+    "command": "codex",
+    "args": [
+      "--ask-for-approval",
+      "on-request",
+      "--sandbox",
+      "workspace-write"
+    ],
+    "workingDir": "C:\\work\\runner",
+    "systemPrompt": "Implement the requested change.",
+    "model": "gpt-6.1",
+    "effort": "high",
+    "speed": "fast",
+    "permissionMode": "auto"
+  }
+}

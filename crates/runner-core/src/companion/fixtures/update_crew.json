@@ -1,0 +1,7 @@
+{
+  "type": "updateCrew",
+  "id": 42,
+  "crew": "crew-1",
+  "name": "Duo",
+  "conventions": null
+}

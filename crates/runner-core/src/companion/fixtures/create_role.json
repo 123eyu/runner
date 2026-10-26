@@ -1,0 +1,18 @@
+{
+  "type": "createRole",
+  "id": 42,
+  "handle": "coder",
+  "name": "Coder",
+  "runtime": "codex",
+  "command": null,
+  "args": [
+    "--profile",
+    "work"
+  ],
+  "workingDir": "C:\\work\\runner",
+  "systemPrompt": "Implement the requested change.",
+  "model": "gpt-6.1",
+  "effort": "high",
+  "speed": "fast",
+  "permissionMode": "auto"
+}

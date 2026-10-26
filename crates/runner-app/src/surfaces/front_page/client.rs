@@ -135,7 +135,7 @@ impl FrontPageClient {
         }
         let result = self
             .daemon
-            .remote_request(computer.clone(), ClientMessage::Action(request))?;
+            .remote_request(computer.clone(), ClientMessage::Action(Box::new(request)))?;
         if !self.valid() {
             return Err(ClientError::msg("The selected computer changed."));
         }

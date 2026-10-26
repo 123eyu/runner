@@ -30,6 +30,19 @@ pub const FEATURES: &[&str] = &[
     "unfollow",
     "answer",
     "post",
+    "role",
+    "crew",
+    "createRole",
+    "updateRole",
+    "deleteRole",
+    "createCrew",
+    "updateCrew",
+    "deleteCrew",
+    "addSlot",
+    "updateSlot",
+    "removeSlot",
+    "reorderSlots",
+    "setLead",
     "catalog",
     "folders",
     "startChat",
@@ -589,6 +602,7 @@ impl Adapter {
     pub async fn request(&mut self, message: ClientMessage) -> Result<(), &'static str> {
         let message = match message {
             ClientMessage::Action(request) => {
+                let request = *request;
                 if self.actions.len() + usize::from(self.action_work.is_some()) + self.forks.len()
                     >= 8
                 {

@@ -1,0 +1,9 @@
+{
+  "type": "addSlot",
+  "id": 42,
+  "crew": "crew-1",
+  "role": "role-1",
+  "handle": "coder",
+  "runtime": null,
+  "model": null
+}

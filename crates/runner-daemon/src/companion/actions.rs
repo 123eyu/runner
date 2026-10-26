@@ -6,6 +6,131 @@ use serde_json::{json, Value};
 fn bad_request() -> Failure {
     Failure(ErrorCode::BadRequest, "The action has invalid fields.")
 }
+fn role(core: &AppCore, id: &str) -> Result<p::Role> {
+    repo::role::get(&*core.db.get().map_err(failed)?, id)
+        .map_err(failed)?
+        .ok_or(Failure(ErrorCode::NotFound, "No role has that id."))
+}
+fn crew(core: &AppCore, id: &str) -> Result<p::Crew> {
+    repo::crew::get(&*core.db.get().map_err(failed)?, id)
+        .map_err(failed)?
+        .ok_or(Failure(ErrorCode::NotFound, "No crew has that id."))
+}
+fn slot(core: &AppCore, id: &str) -> Result<p::Slot> {
+    repo::slot::get(&*core.db.get().map_err(failed)?, id)
+        .map_err(failed)?
+        .ok_or(Failure(ErrorCode::NotFound, "No slot has that id."))
+}
+fn name(value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        Err(bad_request())
+    } else {
+        Ok(())
+    }
+}
+fn handle(value: &str) -> Result<()> {
+    if value.is_empty() || runner_core::slot_handle::validate_slot_handle(value).is_some() {
+        Err(bad_request())
+    } else {
+        Ok(())
+    }
+}
+fn agent(value: &str) -> Result<p::Runtime> {
+    ops::role::validate_agent_runtime(value).map_err(|_| bad_request())
+}
+fn speed(value: Option<String>) -> Result<Option<p::CodexSpeed>> {
+    value
+        .map(|value| match value.as_str() {
+            "standard" => Ok(p::CodexSpeed::Standard),
+            "fast" => Ok(p::CodexSpeed::Fast),
+            _ => Err(bad_request()),
+        })
+        .transpose()
+}
+fn permission(value: Option<RolePermissionMode>) -> Result<Option<p::permissions::PermissionMode>> {
+    use p::permissions::PermissionMode as Mode;
+    value
+        .map(|value| match value {
+            RolePermissionMode::Default => Ok(Mode::Default),
+            RolePermissionMode::AcceptEdits => Ok(Mode::AcceptEdits),
+            RolePermissionMode::Auto => Ok(Mode::Auto),
+            RolePermissionMode::Bypass => Ok(Mode::Bypass),
+            RolePermissionMode::Unrecognized(_) => Err(bad_request()),
+        })
+        .transpose()
+}
+fn wire_speed(speed: Option<p::CodexSpeed>) -> Option<String> {
+    speed.map(|speed| {
+        match speed {
+            p::CodexSpeed::Standard => "standard",
+            p::CodexSpeed::Fast => "fast",
+        }
+        .into()
+    })
+}
+fn role_record(role: p::Role) -> RoleRecord {
+    use p::permissions::PermissionMode as Mode;
+    let permission_mode = p::role::role_permission_mode(&role).map(|mode| match mode {
+        Mode::Default => RolePermissionMode::Default,
+        Mode::AcceptEdits => RolePermissionMode::AcceptEdits,
+        Mode::Auto => RolePermissionMode::Auto,
+        Mode::Bypass => RolePermissionMode::Bypass,
+    });
+    RoleRecord {
+        id: role.id,
+        handle: role.handle,
+        name: role.display_name,
+        runtime: role.runtime,
+        command: role.command,
+        args: role.args,
+        working_dir: role.working_dir,
+        system_prompt: role.system_prompt,
+        model: role.model,
+        effort: role.effort,
+        speed: wire_speed(role.codex_speed),
+        permission_mode,
+    }
+}
+fn available_slot_handle(core: &AppCore, crew: &str, id: Option<&str>, value: &str) -> Result<()> {
+    handle(value)?;
+    if repo::slot::list_for_crew(&*core.db.get().map_err(failed)?, crew)
+        .map_err(failed)?
+        .iter()
+        .any(|slot| Some(slot.id.as_str()) != id && slot.slot_handle == value)
+    {
+        return Err(Failure(
+            ErrorCode::Failed,
+            "That slot handle is already in use. Choose another handle in the crew.",
+        ));
+    }
+    Ok(())
+}
+fn role_delete_allowed(core: &AppCore, id: &str) -> Result<()> {
+    let conn = core.db.get().map_err(failed)?;
+    if !repo::role::crew_names(&conn, id)
+        .map_err(failed)?
+        .is_empty()
+    {
+        return Err(Failure(ErrorCode::Failed, "This role is used by crews. Remove its slots from the crews in the catalog before deleting it."));
+    }
+    if !repo::role::unarchived_direct_session_ids(&conn, id)
+        .map_err(failed)?
+        .is_empty()
+    {
+        return Err(Failure(
+            ErrorCode::Failed,
+            "This role has unarchived chats. Archive them on the host before deleting it.",
+        ));
+    }
+    if !repo::role::unarchived_mission_names(&conn, id)
+        .map_err(failed)?
+        .is_empty()
+    {
+        return Err(Failure(ErrorCode::Failed, "This role is used by unarchived missions. Archive them on the host before deleting it."));
+    }
+    Ok(())
+}
+
 fn node_id(core: &AppCore, target: &ActionTarget) -> Result<String> {
     let conn = core.db.get().map_err(failed)?;
     let node = match target.kind {
@@ -167,6 +292,270 @@ impl DaemonCore {
         let core = core.as_ref();
         use ActionRequest::*;
         match request {
+            Role { role: id, .. } => {
+                serde_json::to_value(role_record(role(core, &id)?)).map_err(failed)
+            }
+            Crew { crew: id, .. } => {
+                let crew = crew(core, &id)?;
+                let slots = ops::slot::slot_list(core, &id)
+                    .map_err(failed)?
+                    .into_iter()
+                    .map(|item| {
+                        let slot = item.slot;
+                        SlotRecord {
+                            id: slot.id,
+                            handle: slot.slot_handle,
+                            role: slot.role_id,
+                            lead: slot.lead,
+                            runtime: slot.runtime_override,
+                            model: slot.model_override,
+                            effort: slot.effort_override,
+                            speed: wire_speed(slot.codex_speed_override),
+                        }
+                    })
+                    .collect();
+                serde_json::to_value(CrewRecord {
+                    id: crew.id,
+                    name: crew.name,
+                    conventions: crew.system_prompt_addendum,
+                    slots,
+                })
+                .map_err(failed)
+            }
+            CreateRole {
+                handle: value,
+                name: display_name,
+                runtime,
+                command,
+                args,
+                working_dir,
+                system_prompt,
+                model,
+                effort,
+                speed: value_speed,
+                permission_mode,
+                ..
+            } => {
+                handle(&value)?;
+                name(&display_name)?;
+                let runtime = agent(&runtime)?;
+                let codex_speed = speed(value_speed)?;
+                let permission_mode =
+                    permission(permission_mode)?.unwrap_or(p::permissions::PermissionMode::Default);
+                if repo::role::get_by_handle(&*core.db.get().map_err(failed)?, &value)
+                    .map_err(failed)?
+                    .is_some()
+                {
+                    return Err(Failure(
+                        ErrorCode::Failed,
+                        "That role handle is already in use. Choose another handle in the catalog.",
+                    ));
+                }
+                let role = ops::role::role_create(
+                    core,
+                    p::role::CreateRoleInput {
+                        handle: value,
+                        display_name,
+                        runtime,
+                        command: command.unwrap_or_else(|| {
+                            runtime
+                                .command()
+                                .expect("agent runtime has a command")
+                                .into()
+                        }),
+                        args,
+                        working_dir,
+                        system_prompt,
+                        env: Default::default(),
+                        model,
+                        effort,
+                        codex_speed,
+                        permission_mode,
+                    },
+                )
+                .map_err(failed)?;
+                core.events.emit("role/changed", &());
+                Ok(json!({"role":role.id}))
+            }
+            UpdateRole {
+                role: id,
+                name: display_name,
+                runtime,
+                command,
+                args,
+                working_dir,
+                system_prompt,
+                model,
+                effort,
+                speed: value_speed,
+                permission_mode,
+                ..
+            } => {
+                role(core, &id)?;
+                name(&display_name)?;
+                let runtime = agent(&runtime)?;
+                let codex_speed = speed(value_speed)?;
+                let permission_mode = permission(permission_mode)?;
+                ops::role::role_update(
+                    core,
+                    &id,
+                    p::role::UpdateRoleInput {
+                        display_name: Some(display_name),
+                        runtime: Some(runtime),
+                        command: Some(command.unwrap_or_else(|| {
+                            runtime
+                                .command()
+                                .expect("agent runtime has a command")
+                                .into()
+                        })),
+                        args: Some(args),
+                        working_dir: Some(working_dir),
+                        system_prompt: Some(system_prompt),
+                        env: None,
+                        model: Some(model),
+                        effort: Some(effort),
+                        codex_speed: Some(codex_speed),
+                        permission_mode,
+                    },
+                )
+                .map_err(failed)?;
+                core.events.emit("role/changed", &());
+                Ok(Value::Null)
+            }
+            DeleteRole { role: id, .. } => {
+                role(core, &id)?;
+                role_delete_allowed(core, &id)?;
+                ops::role::role_delete(core, &id).map_err(failed)?;
+                core.events.emit("role/changed", &());
+                Ok(Value::Null)
+            }
+            CreateCrew {
+                name: value,
+                conventions,
+                ..
+            } => {
+                name(&value)?;
+                let crew = ops::crew::crew_create(
+                    core,
+                    p::crew::CreateCrewInput {
+                        name: value,
+                        system_prompt_addendum: conventions,
+                    },
+                )
+                .map_err(failed)?;
+                core.events.emit("crew/changed", &());
+                Ok(json!({"crew":crew.id}))
+            }
+            UpdateCrew {
+                crew: id,
+                name: value,
+                conventions,
+                ..
+            } => {
+                crew(core, &id)?;
+                name(&value)?;
+                ops::crew::crew_update(
+                    core,
+                    &id,
+                    p::crew::UpdateCrewInput {
+                        name: Some(value),
+                        system_prompt_addendum: Some(conventions),
+                    },
+                )
+                .map_err(failed)?;
+                core.events.emit("crew/changed", &());
+                Ok(Value::Null)
+            }
+            DeleteCrew { crew: id, .. } => {
+                crew(core, &id)?;
+                ops::crew::crew_delete(core, &id).map_err(failed)?;
+                core.events.emit("crew/changed", &());
+                core.events.emit("slot/changed", &());
+                Ok(Value::Null)
+            }
+            AddSlot {
+                crew: crew_id,
+                role: role_id,
+                handle,
+                runtime,
+                model,
+                ..
+            } => {
+                crew(core, &crew_id)?;
+                role(core, &role_id)?;
+                available_slot_handle(core, &crew_id, None, &handle)?;
+                let runtime_override = runtime.as_deref().map(agent).transpose()?;
+                let slot = ops::slot::slot_create(
+                    core,
+                    p::slot::CreateSlotInput {
+                        crew_id,
+                        role_id,
+                        slot_handle: handle,
+                        runtime_override,
+                        model_override: model,
+                    },
+                )
+                .map_err(failed)?;
+                core.events.emit("slot/changed", &());
+                Ok(json!({"slot":slot.slot.id}))
+            }
+            UpdateSlot {
+                slot: id,
+                handle,
+                runtime,
+                model,
+                effort,
+                speed: value_speed,
+                ..
+            } => {
+                let slot = slot(core, &id)?;
+                available_slot_handle(core, &slot.crew_id, Some(&id), &handle)?;
+                let runtime_override = runtime.as_deref().map(agent).transpose()?;
+                let codex_speed_override = speed(value_speed)?;
+                ops::slot::slot_update(
+                    core,
+                    &id,
+                    p::slot::UpdateSlotInput {
+                        slot_handle: Some(handle),
+                        runtime_override: Some(runtime_override),
+                        model_override: Some(model),
+                        effort_override: Some(effort),
+                        codex_speed_override: Some(codex_speed_override),
+                    },
+                )
+                .map_err(failed)?;
+                core.events.emit("slot/changed", &());
+                Ok(Value::Null)
+            }
+            RemoveSlot { slot: id, .. } => {
+                slot(core, &id)?;
+                ops::slot::slot_delete(core, &id).map_err(failed)?;
+                core.events.emit("slot/changed", &());
+                Ok(Value::Null)
+            }
+            ReorderSlots {
+                crew: id, order, ..
+            } => {
+                crew(core, &id)?;
+                let current = repo::slot::ids_for_crew(&*core.db.get().map_err(failed)?, &id)
+                    .map_err(failed)?;
+                let mut expected = current;
+                expected.sort();
+                let mut actual = order.clone();
+                actual.sort();
+                if actual != expected {
+                    return Err(bad_request());
+                }
+                ops::slot::slot_reorder(core, &id, order).map_err(failed)?;
+                core.events.emit("slot/changed", &());
+                Ok(Value::Null)
+            }
+            SetLead { slot: id, .. } => {
+                slot(core, &id)?;
+                ops::slot::slot_set_lead(core, &id).map_err(failed)?;
+                core.events.emit("slot/changed", &());
+                Ok(Value::Null)
+            }
             Catalog { .. } => serde_json::to_value(catalog(core)?).map_err(failed),
             Folders { path, .. } => serde_json::to_value(folders(path)?).map_err(failed),
             StartChat {

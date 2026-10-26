@@ -261,24 +261,7 @@ pub(super) fn permission_modes(runtime: &str) -> &'static [PermissionMode] {
         .offered
 }
 
-/// The permission mode a role's args carry, or `None` for a runtime that has
-/// no modes. A row saved with a mode its runtime no longer offers — a Trae row
-/// with the old `--permission-mode auto` still infers as Auto (#599) — reads as
-/// the fallback, which is what saving then writes.
-pub(super) fn role_permission_mode(role: &Role) -> Option<PermissionMode> {
-    let modes = permission_modes(&role.runtime);
-    if modes.is_empty() {
-        return None;
-    }
-    let inferred = runner_core::protocol::runtime_metadata::for_key(&role.runtime)
-        .permissions()
-        .infer(&role.args);
-    Some(if modes.contains(&inferred) {
-        inferred
-    } else {
-        PermissionMode::Default
-    })
-}
+pub(super) use runner_core::protocol::role::role_permission_mode;
 
 pub(super) fn validate_role_handle(handle: &str) -> Option<&'static str> {
     if handle.is_empty() {

@@ -1,0 +1,31 @@
+{
+  "type": "result",
+  "id": 42,
+  "result": {
+    "id": "crew-1",
+    "name": "Duo",
+    "conventions": "Review before committing.",
+    "slots": [
+      {
+        "id": "slot-1",
+        "handle": "coder",
+        "role": "role-1",
+        "lead": true,
+        "runtime": null,
+        "model": null,
+        "effort": null,
+        "speed": null
+      },
+      {
+        "id": "slot-2",
+        "handle": "reviewer",
+        "role": "role-1",
+        "lead": false,
+        "runtime": "codex",
+        "model": "gpt-6.1",
+        "effort": "high",
+        "speed": "fast"
+      }
+    ]
+  }
+}
