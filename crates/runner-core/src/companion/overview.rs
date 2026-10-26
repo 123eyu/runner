@@ -18,6 +18,47 @@ pub struct Overview {
     pub sessions: BTreeMap<String, Session>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidebar: Option<Vec<SidebarNode>>,
+    /// The palette the host answers its agents' color queries with, so a
+    /// viewer draws their output against the background they styled it for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_palette: Option<TerminalPalette>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalPalette {
+    pub background: [u8; 3],
+    pub foreground: [u8; 3],
+    pub cursor: [u8; 3],
+    pub cursor_accent: [u8; 3],
+    pub selection: [u8; 3],
+    pub ansi: [[u8; 3]; 16],
+}
+
+impl From<crate::protocol::terminal::TerminalPalette> for TerminalPalette {
+    fn from(palette: crate::protocol::terminal::TerminalPalette) -> Self {
+        Self {
+            background: palette.background,
+            foreground: palette.foreground,
+            cursor: palette.cursor,
+            cursor_accent: palette.cursor_accent,
+            selection: palette.selection,
+            ansi: palette.ansi,
+        }
+    }
+}
+
+impl From<TerminalPalette> for crate::protocol::terminal::TerminalPalette {
+    fn from(palette: TerminalPalette) -> Self {
+        Self {
+            background: palette.background,
+            foreground: palette.foreground,
+            cursor: palette.cursor,
+            cursor_accent: palette.cursor_accent,
+            selection: palette.selection,
+            ansi: palette.ansi,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

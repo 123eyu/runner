@@ -32,6 +32,7 @@ impl Sample for crate::remote::RemoteOverview {
             missions: Vec::new(),
             sessions: BTreeMap::new(),
             sidebar: None,
+            terminal_palette: None,
         })
     }
 }

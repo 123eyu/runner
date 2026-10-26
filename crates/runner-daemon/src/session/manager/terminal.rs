@@ -800,13 +800,22 @@ pub fn set_palette(core: &crate::AppCore, palette: TerminalPalette) -> Result<()
         log::warn!("persist terminal palette: {error}");
     }
     let palette = runner_terminal::terminal::palette_from_wire(palette);
-    *core.sessions.terminal_palette.lock().unwrap() = palette;
+    let previous = std::mem::replace(
+        &mut *core.sessions.terminal_palette.lock().unwrap(),
+        palette,
+    );
     for id in core.sessions.live_session_ids() {
         if let Ok(model) = core.sessions.terminal_model(&id) {
             model.set_palette(palette);
         }
     }
+    if previous != palette {
+        core.events.emit("terminal/palette", &());
+    }
     Ok(())
+}
+pub fn palette(core: &crate::AppCore) -> TerminalPalette {
+    runner_terminal::terminal::palette_to_wire(*core.sessions.terminal_palette.lock().unwrap())
 }
 /// Sessions resumed at daemon start answer color queries before any app
 /// connects, so they start from the palette the app last sent.

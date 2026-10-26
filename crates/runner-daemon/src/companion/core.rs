@@ -397,6 +397,7 @@ fn overview(core: &AppCore) -> crate::error::Result<Overview> {
         missions: vec![],
         sessions: BTreeMap::new(),
         sidebar: None,
+        terminal_palette: Some(crate::session::manager::terminal::palette(core).into()),
     };
     let mut ids = Vec::new();
     for node in sidebar_order(&nodes) {
@@ -853,6 +854,28 @@ mod tests {
         assert!(backend.overview().is_err());
     }
 
+    #[test]
+    fn overview_carries_the_host_palette_and_announces_its_changes() {
+        let core = crate::test_support::test_core();
+        let wire = runner_terminal::terminal::palette_to_wire;
+        assert_eq!(
+            overview(&core).unwrap().terminal_palette,
+            Some(wire(runner_terminal::palette::RUNNER).into())
+        );
+        let mut events = core.events.subscribe();
+        let light = wire(runner_terminal::palette::ROSE_PINE_DAWN);
+        for _ in 0..2 {
+            crate::session::manager::terminal::set_palette(&core, light.clone()).unwrap();
+        }
+        assert_eq!(
+            overview(&core).unwrap().terminal_palette,
+            Some(light.into())
+        );
+        let announced = std::iter::from_fn(|| events.try_recv().ok())
+            .filter(|event| event.name == "terminal/palette")
+            .count();
+        assert_eq!(announced, 1);
+    }
     #[test]
     fn legacy_layouts_keep_their_directions_and_saved_fractions() {
         for (preset, direction, count) in [

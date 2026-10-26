@@ -366,6 +366,21 @@ async fn overview_coalesces_and_delivers_the_final_change_and_status() {
     assert_eq!(next(&mut adapter).await["tabs"][0]["name"], "last");
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_host_palette_change_pushes_the_overview() {
+    let fake = Arc::new(Fake::default());
+    let mut adapter = Adapter::new(fake.clone(), 1, String::new()).unwrap();
+    adapter
+        .request(request(serde_json::json!({"type":"overview","id":1})))
+        .await
+        .unwrap();
+    next(&mut adapter).await;
+    fake.events.emit("terminal/palette", &());
+    adapter.changed().await.unwrap();
+    adapter.changed().await.unwrap();
+    assert_eq!(next(&mut adapter).await["type"], "overview");
+}
+
 #[tokio::test]
 async fn an_old_status_worker_cannot_undo_a_newer_explicit_overview_snapshot() {
     let fake = Arc::new(Fake::default());

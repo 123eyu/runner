@@ -18,7 +18,7 @@ use runner_app::{Copy, Paste};
 use runner_core::protocol::{ClientEvent, DaemonClient, Runtime};
 use runner_terminal::terminal::{TerminalMirror, TerminalView};
 
-use crate::app_settings::{self, AppSettings};
+use crate::app_settings;
 use crate::app_store::AppStore;
 use crate::chat_icon::ChatIcon;
 use crate::surfaces::app_shell::terminal_style_for;
@@ -329,10 +329,7 @@ impl AgentUpdateDialog {
             &settings,
             theme::active_variant(),
         ));
-        terminal.configure(
-            app_settings::TERMINAL_SCROLLBACK_LINES,
-            cursor_shape(&settings),
-        );
+        app_settings::configure_terminal(&terminal, &settings);
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         self.terminal = Some(UpdateTerminal {
@@ -638,15 +635,6 @@ fn record_terminal_event(
     }
 }
 
-fn cursor_shape(settings: &AppSettings) -> alacritty_terminal::vte::ansi::CursorShape {
-    use alacritty_terminal::vte::ansi::CursorShape;
-    match settings.terminal_cursor_style {
-        app_settings::TerminalCursorStyle::Block => CursorShape::Block,
-        app_settings::TerminalCursorStyle::Underline => CursorShape::Underline,
-        app_settings::TerminalCursorStyle::Bar => CursorShape::Beam,
-    }
-}
-
 impl Render for AgentUpdateDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let style = terminal_style_for(&self.app_store.read(cx).settings);
@@ -908,7 +896,7 @@ mod tests {
                 None,
                 None,
                 path.join("settings.json"),
-                AppSettings::default(),
+                app_settings::AppSettings::default(),
                 None,
                 cx,
             )

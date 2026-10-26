@@ -1245,3 +1245,17 @@ fn existing_mission_shells_remain_navigable_with_independently_gated_exited_acti
     assert!(widths[3] > widths[1]);
     assert!(widths[3] > widths[2]);
 }
+
+#[test]
+fn remote_mission_panes_use_the_host_palette() {
+    let (_temp, cx, window, _, fake) = setup();
+    let mut data = overview();
+    data.terminal_palette = Some(
+        runner_terminal::terminal::palette_to_wire(runner_terminal::palette::ROSE_PINE_DAWN).into(),
+    );
+    fake.set_overview(data);
+    cx.run_until_parked();
+    let palette =
+        workspace(window, &cx).read_with(&cx, |workspace, cx| workspace.terminal_style(cx).palette);
+    assert_eq!(palette, runner_terminal::palette::ROSE_PINE_DAWN);
+}

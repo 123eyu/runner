@@ -683,6 +683,7 @@ mod computer_tests {
                             missions: vec![],
                             sessions: Default::default(),
                             sidebar: None,
+                            terminal_palette: None,
                         },
                     )))
                 }

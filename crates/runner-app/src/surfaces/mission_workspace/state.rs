@@ -827,8 +827,16 @@ impl MissionWorkspace {
     }
 
     pub(super) fn terminal_style(&self, cx: &App) -> crate::terminal::element::TerminalStyle {
+        let host = self
+            .remote
+            .as_ref()
+            .and_then(|remote| remote.overview.as_ref()?.terminal_palette.clone());
         crate::terminal::element::TerminalStyle {
-            palette: app_settings::terminal_palette(self.settings(cx), theme::active_variant()),
+            palette: host
+                .map(|palette| runner_terminal::terminal::palette_from_wire(palette.into()))
+                .unwrap_or_else(|| {
+                    app_settings::terminal_palette(self.settings(cx), theme::active_variant())
+                }),
             font: self.settings(cx).terminal_font_family.font(),
             font_size: self.settings(cx).terminal_font_size as f32 * self.settings(cx).app_zoom,
             app_zoom: self.settings(cx).app_zoom,
@@ -836,24 +844,12 @@ impl MissionWorkspace {
     }
 
     pub(crate) fn apply_terminal_settings(&self, cx: &App) {
-        let cursor = match self.settings(cx).terminal_cursor_style {
-            app_settings::TerminalCursorStyle::Block => {
-                alacritty_terminal::vte::ansi::CursorShape::Block
-            }
-            app_settings::TerminalCursorStyle::Underline => {
-                alacritty_terminal::vte::ansi::CursorShape::Underline
-            }
-            app_settings::TerminalCursorStyle::Bar => {
-                alacritty_terminal::vte::ansi::CursorShape::Beam
-            }
-        };
         for chat in self.attached.values() {
             chat.terminal.set_palette(app_settings::terminal_palette(
                 self.settings(cx),
                 theme::active_variant(),
             ));
-            chat.terminal
-                .configure(app_settings::TERMINAL_SCROLLBACK_LINES, cursor);
+            app_settings::configure_terminal(&chat.terminal, self.settings(cx));
         }
     }
 

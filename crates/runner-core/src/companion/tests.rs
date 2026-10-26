@@ -179,6 +179,20 @@ fn overview_sidebar_nodes_are_optional_and_preserve_order_metadata() {
 }
 
 #[test]
+fn overview_terminal_palette_is_optional() {
+    let HostMessage::Overview(old) = decode("overview_without_sidebar") else {
+        panic!("overview expected")
+    };
+    assert!(old.terminal_palette.is_none());
+    let HostMessage::Overview(current) = decode("overview_push") else {
+        panic!("overview expected")
+    };
+    let palette = current.terminal_palette.unwrap();
+    assert_eq!(palette.cursor_accent, [30, 30, 30]);
+    assert_eq!(palette.ansi[15], [255, 255, 255]);
+}
+
+#[test]
 fn golden_messages_round_trip_and_compatibility_files_decode_to_known_fields() {
     for name in CLIENT_FIXTURES {
         round_trip::<ClientMessage>(name);

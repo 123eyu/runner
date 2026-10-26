@@ -129,6 +129,19 @@ pub fn terminal_palette(settings: &AppSettings, variant: ThemeVariant) -> Termin
     }
 }
 
+pub fn configure_terminal(
+    terminal: &runner_terminal::terminal::TerminalMirror,
+    settings: &AppSettings,
+) {
+    use alacritty_terminal::vte::ansi::CursorShape;
+    let cursor = match settings.terminal_cursor_style {
+        TerminalCursorStyle::Block => CursorShape::Block,
+        TerminalCursorStyle::Underline => CursorShape::Underline,
+        TerminalCursorStyle::Bar => CursorShape::Beam,
+    };
+    terminal.configure(TERMINAL_SCROLLBACK_LINES, cursor);
+}
+
 /// The UI typeface is pinned to the bundled Inter (`assets/fonts/Inter-*.ttf`);
 /// a legacy `appFontFamily` key in `ui-settings.json` is ignored on load.
 pub fn app_font() -> Font {
