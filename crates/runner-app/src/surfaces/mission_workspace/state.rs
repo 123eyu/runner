@@ -836,24 +836,12 @@ impl MissionWorkspace {
     }
 
     pub(crate) fn apply_terminal_settings(&self, cx: &App) {
-        let cursor = match self.settings(cx).terminal_cursor_style {
-            app_settings::TerminalCursorStyle::Block => {
-                alacritty_terminal::vte::ansi::CursorShape::Block
-            }
-            app_settings::TerminalCursorStyle::Underline => {
-                alacritty_terminal::vte::ansi::CursorShape::Underline
-            }
-            app_settings::TerminalCursorStyle::Bar => {
-                alacritty_terminal::vte::ansi::CursorShape::Beam
-            }
-        };
         for chat in self.attached.values() {
             chat.terminal.set_palette(app_settings::terminal_palette(
                 self.settings(cx),
                 theme::active_variant(),
             ));
-            chat.terminal
-                .configure(app_settings::TERMINAL_SCROLLBACK_LINES, cursor);
+            app_settings::configure_terminal(&chat.terminal, self.settings(cx));
         }
     }
 

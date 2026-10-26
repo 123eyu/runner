@@ -165,6 +165,14 @@ impl NativeRoot {
             .map(|pane| pane.terminal.size())
             .or_else(|| remote.sizes.get(id).copied())
     }
+    pub(crate) fn configure_remote_terminals(&self, cx: &App) {
+        let Some(remote) = self.remote_window.as_ref() else {
+            return;
+        };
+        for pane in remote.terminals.values() {
+            app_settings::configure_terminal(&pane.terminal, self.settings(cx));
+        }
+    }
     pub(crate) fn focus_remote_terminal(&self, id: &str, window: &mut Window, cx: &mut App) {
         if let Some(pane) = self
             .remote_window
@@ -896,6 +904,10 @@ impl NativeRoot {
                                 &root.app_store.read(cx).settings,
                                 theme::active_variant(),
                             ));
+                            app_settings::configure_terminal(
+                                &terminal,
+                                &root.app_store.read(cx).settings,
+                            );
                             let input = cx.new(|_| TerminalInput::new(terminal.clone()));
                             let input_address =
                                 runner_core::remote::terminal_address(&remote.computer.id, &id);

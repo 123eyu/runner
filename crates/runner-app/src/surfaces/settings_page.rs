@@ -22,7 +22,7 @@ use super::*;
 use crate::app_settings::{
     normalize_zoom, nudge_zoom, DarkTerminalTheme, FileLinkEditor, LightTerminalTheme,
     TerminalCursorStyle, TerminalFontFamily, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN,
-    TERMINAL_SCROLLBACK_LINES, ZOOM_STEPS,
+    ZOOM_STEPS,
 };
 use crate::platform_ui::{SETTINGS_CONTENT_TOP, SETTINGS_DRAG_INSET};
 use crate::surfaces::app_shell::TITLEBAR_DRAG_HEIGHT;
@@ -1245,15 +1245,11 @@ impl NativeRoot {
     }
 
     pub(crate) fn apply_terminal_settings(&self, cx: &mut Context<Self>) {
-        let cursor = match self.settings(cx).terminal_cursor_style {
-            TerminalCursorStyle::Block => alacritty_terminal::vte::ansi::CursorShape::Block,
-            TerminalCursorStyle::Underline => alacritty_terminal::vte::ansi::CursorShape::Underline,
-            TerminalCursorStyle::Bar => alacritty_terminal::vte::ansi::CursorShape::Beam,
-        };
         self.apply_terminal_palette(cx);
         for chat in self.attached.values() {
-            chat.terminal.configure(TERMINAL_SCROLLBACK_LINES, cursor);
+            app_settings::configure_terminal(&chat.terminal, self.settings(cx));
         }
+        self.configure_remote_terminals(cx);
     }
 
     fn browse_settings_working_dir(&mut self, cx: &mut Context<Self>) {

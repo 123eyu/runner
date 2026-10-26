@@ -5460,3 +5460,53 @@ fn remote_libraries_fit_narrow_zoomed_windows_in_both_languages() {
         });
     }
 }
+
+#[test]
+fn remote_terminals_follow_the_viewer_cursor_and_selection_settings() {
+    use crate::app_settings::TerminalCursorStyle;
+    use alacritty_terminal::vte::ansi::CursorShape;
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, _, _) = fixture(&mut cx, temp.path());
+    let set_cursor = |cx: &mut TestAppContext, style| {
+        store.update(cx, |store, cx| {
+            store.update_settings(
+                |settings| {
+                    settings.terminal_cursor_style = style;
+                    true
+                },
+                false,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+    };
+    set_cursor(&mut cx, TerminalCursorStyle::Bar);
+    let window = add_window(&mut cx, &store, temp.path(), "remote-cursor");
+    window.update(&mut cx, choose_host).unwrap();
+    cx.run_until_parked();
+    let terminal = |cx: &TestAppContext| {
+        window
+            .read_with(cx, |root, _| {
+                let term = root.remote_window.as_ref().unwrap().terminals["s"]
+                    .terminal
+                    .term
+                    .lock();
+                (
+                    term.cursor_style().shape,
+                    term.semantic_escape_chars().to_owned(),
+                )
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        terminal(&cx),
+        (
+            CursorShape::Beam,
+            runner_terminal::terminal::XTERM_WORD_SEPARATORS.to_owned()
+        )
+    );
+    set_cursor(&mut cx, TerminalCursorStyle::Underline);
+    assert_eq!(terminal(&cx).0, CursorShape::Underline);
+}

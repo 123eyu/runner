@@ -1235,20 +1235,7 @@ impl NativeRoot {
             self.settings(cx),
             theme::active_variant(),
         ));
-        terminal.configure(
-            app_settings::TERMINAL_SCROLLBACK_LINES,
-            match self.settings(cx).terminal_cursor_style {
-                app_settings::TerminalCursorStyle::Block => {
-                    alacritty_terminal::vte::ansi::CursorShape::Block
-                }
-                app_settings::TerminalCursorStyle::Underline => {
-                    alacritty_terminal::vte::ansi::CursorShape::Underline
-                }
-                app_settings::TerminalCursorStyle::Bar => {
-                    alacritty_terminal::vte::ansi::CursorShape::Beam
-                }
-            },
-        );
+        app_settings::configure_terminal(&terminal, self.settings(cx));
         let terminal_scrollbar = cx.new(|_| Scrollbar::terminal(Arc::clone(&terminal)));
         let terminal_interaction = cx.new(|_| TerminalInteraction::new(Arc::clone(&terminal)));
         let terminal_focus = cx.focus_handle();
