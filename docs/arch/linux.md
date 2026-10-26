@@ -1,6 +1,6 @@
 # Linux development and packaging
 
-Linux support for ARM64 (`aarch64`) and x86_64 is being prepared in [#823](https://github.com/yicheng47/runner/issues/823). This branch adds source/build/package definitions; it does not publish downloads. See [validation](../tests/823-linux-support.md) for observed results and remaining gaps. A local Ubuntu 26.04 ARM64 build is evidence for that machine only.
+Linux support for ARM64 (`aarch64`) and x86_64 is being prepared in [#823](https://github.com/yicheng47/runner/issues/823). Signed tar/deb preview packages for both architectures are published on the temporary umbrella [linux-nightly prerelease](https://github.com/yicheng47/runner/releases/tag/linux-nightly), verified on 2026-10-26 at candidate `889e1c3`. This is separate from stable and main-nightly Linux availability and does not establish native acceptance. See [validation](../tests/823-linux-support.md) for observed results and remaining gaps. A local Ubuntu 26.04 ARM64 build is evidence for that machine only.
 
 ## Platform requirements
 
@@ -133,6 +133,9 @@ settings/dialog in `updates_linux.rs` and `update_dialog_linux.rs`. Windows keep
 its existing updater and views; macOS retains Sparkle. The application-facing
 updater entry points select the implementation at compile time.
 Stable updates compare semantic versions; nightlies compare UTC build stamps. The retired remote-nightly channel is not produced or selected. Each architecture/format needs its own signature; unsigned older releases cannot be installed by the updater.
+
+Before update selection and installation (including the privileged installer), the executable path must name the running `/proc/self/exe` inode and be a regular file. If an external tar installer or APT replaces or removes it, the old process reports an explicit restart requirement before selecting a package or scheduling relaunch. It does not strip Linux's ` (deleted)` suffix or trust a replacement pathname. Restart Runner to resume updates; ordinary updater-managed replacement retains the validated path captured before installation for relaunch.
+
 
 A user tar installation is recognized by its managed `lib/runner` directory.
 The verified archive is copied to private staging, safely unpacked with bounded

@@ -14,6 +14,21 @@ const MAX_PACKAGE_BYTES: u64 = 1024 * 1024 * 1024;
 const ARCH: &str = std::env::consts::ARCH;
 static RELAUNCH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+fn current_executable() -> Result<PathBuf> {
+    let executable = std::env::current_exe()?;
+    let running = fs::metadata("/proc/self/exe")?;
+    let installed = fs::symlink_metadata(&executable).context(
+        "Runner's executable was replaced or removed. Restart Runner before checking for or installing updates",
+    )?;
+    ensure!(
+        installed.is_file()
+            && installed.dev() == running.dev()
+            && installed.ino() == running.ino(),
+        "Runner's executable was replaced. Restart Runner before checking for or installing updates"
+    );
+    Ok(executable)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum InstallKind {
     Tar,
@@ -173,7 +188,7 @@ pub(super) fn available_update(
     release: &Release,
     stamp: Option<&str>,
 ) -> Result<Option<Candidate>> {
-    let executable = std::env::current_exe()?;
+    let executable = current_executable()?;
     // Source builds can check releases but have no managed installation to replace.
     let kind = InstallKind::detect(&executable).unwrap_or(InstallKind::Tar);
     select_update(
@@ -485,7 +500,7 @@ pub fn run_installer() -> Option<Result<()>> {
             unsafe { libc::geteuid() } == 0,
             "System update installation requires authorization"
         );
-        let executable = std::env::current_exe()?;
+        let executable = current_executable()?;
         let kind = InstallKind::detect(&executable)?;
         ensure!(kind != InstallKind::Tar, "Expected a system installation");
         let path = PathBuf::from(args.next().context("Missing update package")?);
@@ -522,7 +537,7 @@ fn install(path: &Path, log: &Path) -> Result<PathBuf> {
 
 fn install_inner(path: &Path, log: &Path) -> Result<PathBuf> {
     fs::create_dir_all(log.parent().context("Missing update log directory")?)?;
-    let executable = std::env::current_exe()?;
+    let executable = current_executable()?;
     let kind = InstallKind::detect(&executable)?;
     let signature = path.with_file_name(format!(
         "{}.sig",
@@ -624,6 +639,110 @@ mod tests {
 
     fn release(names: &[&str]) -> Release {
         serde_json::from_value(serde_json::json!({"assets": names.iter().map(|name| serde_json::json!({"name":name,"state":"uploaded","browser_download_url":format!("https://example.com/{name}"),"size":44})).collect::<Vec<_>>()})).unwrap()
+    }
+
+    #[test]
+    fn replaced_executable_probe() {
+        let Some(root) = std::env::var_os("RUNNER_TEST_REPLACED_EXECUTABLE") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let executable = current_executable().unwrap();
+        fs::write(root.join("ready"), b"ready").unwrap();
+        std::io::stdin().read_exact(&mut [0]).unwrap();
+        let reported = std::env::current_exe().unwrap();
+        assert!(reported
+            .as_os_str()
+            .to_string_lossy()
+            .ends_with(" (deleted)"));
+        assert!(current_executable()
+            .unwrap_err()
+            .to_string()
+            .contains("Restart Runner"));
+        // Detection must fail before its source-build fallback can select a tar package.
+        assert!(available_update(&release(&[]), None).is_err());
+        let log = root.join("logs/install.log");
+        assert!(install_inner(&root.join("unused-package"), &log)
+            .unwrap_err()
+            .to_string()
+            .contains("Restart Runner"));
+        assert!(!log.exists());
+        assert!(RELAUNCH.lock().unwrap().is_none());
+        relaunch().unwrap();
+        assert!(executable.is_file());
+    }
+
+    #[test]
+    fn external_tar_and_deb_replacement_require_restart_without_relaunch() {
+        for layout in ["lib/runner/Runner", "usr/lib/runner/Runner"] {
+            let root = tempfile::tempdir().unwrap();
+            let executable = root.path().join(layout);
+            fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            fs::write(
+                executable.parent().unwrap().join("install-layout-v1"),
+                "runner-linux-package-v1\n",
+            )
+            .unwrap();
+            fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+            let mut child = Command::new(&executable)
+                .args([
+                    "--exact",
+                    "updater::linux::install::tests::replaced_executable_probe",
+                    "--nocapture",
+                ])
+                .env("RUNNER_TEST_REPLACED_EXECUTABLE", root.path())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while !root.path().join("ready").exists() {
+                if let Some(status) = child.try_wait().unwrap() {
+                    let output = child.wait_with_output().unwrap();
+                    panic!(
+                        "probe exited before ready ({status}): {} {}",
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                if std::time::Instant::now() >= deadline {
+                    child.kill().unwrap();
+                    child.wait().unwrap();
+                    panic!("probe did not become ready");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            // Rename over the live inode, as a package manager does.
+            let replacement = root.path().join("replacement");
+            fs::copy("/bin/true", &replacement).unwrap();
+            fs::rename(&replacement, &executable).unwrap();
+            if layout.starts_with("usr/") {
+                // A real file with the kernel suffix must not be mistaken for the running inode.
+                fs::copy("/bin/true", executable.with_file_name("Runner (deleted)")).unwrap();
+            }
+            child.stdin.take().unwrap().write_all(b"x").unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while child.try_wait().unwrap().is_none() {
+                if std::time::Instant::now() >= deadline {
+                    child.kill().unwrap();
+                    child.wait().unwrap();
+                    panic!("replacement probe did not finish");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output
+                .stdout
+                .windows(b"1 passed".len())
+                .any(|part| part == b"1 passed"));
+        }
     }
 
     #[test]
