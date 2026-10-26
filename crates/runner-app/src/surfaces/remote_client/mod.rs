@@ -25,6 +25,7 @@ pub(crate) struct ClientUi {
     menus: std::cell::RefCell<HashMap<String, Entity<PopoverMenu>>>,
     pub(crate) pair_generation: u64,
     pub(crate) epoch: u64,
+    pub(crate) selections: HashMap<String, (Option<RemoteItem>, HashMap<String, PaneLayout>)>,
 }
 impl ClientUi {
     pub(crate) fn new(cx: &mut Context<NativeRoot>) -> Self {
@@ -36,6 +37,7 @@ impl ClientUi {
             menus: Default::default(),
             pair_generation: 0,
             epoch: 0,
+            selections: HashMap::new(),
         }
     }
 }

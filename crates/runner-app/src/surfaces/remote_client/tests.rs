@@ -3391,6 +3391,95 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
 }
 
 #[test]
+fn switching_back_to_a_computer_restores_its_selection_and_split_focus() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, clients) = fixture(&mut cx, temp.path());
+    enable_front_page(&fake);
+    let other = Computer {
+        id: "other".into(),
+        name: "Mini".into(),
+        online: true,
+        paired: true,
+        fingerprint: "other-key".into(),
+        ..Default::default()
+    };
+    fake.computers.lock().unwrap().push(other.clone());
+    clients.update(&mut cx, |clients, cx| clients.refresh(cx));
+    let mut data = sidebar_overview();
+    data.sessions
+        .insert("s2".into(), data.sessions["s"].clone());
+    data.tabs[1].panes = serde_json::from_value(serde_json::json!({
+        "split":"row", "sizes":[0.5, 0.5], "a":{"session":"s"}, "b":{"session":"s2"}
+    }))
+    .unwrap();
+    fake.set_overview(data.clone());
+    cx.run_until_parked();
+    let window = add_window(&mut cx, &store, temp.path(), "remember-remote-selection");
+    let visit = |cx: &mut TestAppContext, computer: Computer| {
+        window
+            .update(cx, |root, window, cx| {
+                root.choose_computer(computer, false, window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+    };
+    let active = |cx: &mut TestAppContext| {
+        window
+            .read_with(cx, |root, _| {
+                let remote = root.remote_window.as_ref().unwrap();
+                match &remote.active {
+                    Some(Item::Tab(id)) => (remote.computer.id.clone(), id.clone()),
+                    _ => panic!("expected a remote tab"),
+                }
+            })
+            .unwrap()
+    };
+
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(active(&mut cx), ("host".into(), "remote-tab".into()));
+    let focused = window
+        .update(&mut cx, |root, _, cx| {
+            root.select_remote_item(Item::Tab("project-tab".into()), cx);
+            let layout = root.front_page_layout_mut().unwrap();
+            let second = layout.root.leaves()[1].id.clone();
+            layout.focus_pane(&second);
+            second
+        })
+        .unwrap();
+
+    visit(&mut cx, other.clone());
+    assert_eq!(active(&mut cx), ("other".into(), "remote-tab".into()));
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.select_remote_item(Item::Tab("recent-tab".into()), cx)
+        })
+        .unwrap();
+
+    visit(&mut cx, computers()[0].clone());
+    assert!(window
+        .read_with(&cx, |root, _| root.remote_window.is_none())
+        .unwrap());
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(active(&mut cx), ("host".into(), "project-tab".into()));
+    window
+        .read_with(&cx, |root, _| {
+            let layout = root.front_page_layout().unwrap();
+            assert_eq!(layout.focused_pane_id, focused);
+            assert_eq!(layout.session_ids(), ["s", "s2"]);
+        })
+        .unwrap();
+    visit(&mut cx, other);
+    assert_eq!(active(&mut cx), ("other".into(), "recent-tab".into()));
+
+    data.tabs.retain(|tab| tab.id != "project-tab");
+    fake.set_overview(data);
+    cx.run_until_parked();
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(active(&mut cx), ("host".into(), "remote-tab".into()));
+}
+
+#[test]
 fn column_split_divides_panes_horizontally_without_insetting_the_second_header() {
     use runner_core::companion::{Pane, SplitDirection};
     let _theme = crate::theme_snapshot::ThemeGuard::new();
