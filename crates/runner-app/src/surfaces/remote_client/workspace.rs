@@ -228,6 +228,7 @@ impl NativeRoot {
                 .send(Command::Retry(computer.id));
             return;
         }
+        self.remember_remote_selection();
         if let Some(remote) = &self.remote_window {
             remote
                 .mission_workspace
@@ -296,6 +297,12 @@ impl NativeRoot {
                 workspace_cx,
             )
         });
+        let (active, layouts) = self
+            .client_ui
+            .selections
+            .remove(&computer.id)
+            .filter(|_| clients.read(cx).overviews.contains_key(&computer.id))
+            .unwrap_or_default();
         self.remote_window = Some(RemoteWindow {
             mission_workspace,
             sidebar,
@@ -304,8 +311,8 @@ impl NativeRoot {
             front_page,
             computer,
             _follow: Some(follow),
-            active: None,
-            layouts: HashMap::new(),
+            active,
+            layouts,
             overview_revision: 0,
             resize_draft: None,
             resizing_split: None,
@@ -375,6 +382,7 @@ impl NativeRoot {
         self.terminal_close_confirm = None;
         self.command_palette
             .update(cx, |palette, cx| palette.close_for_target_change(cx));
+        self.remember_remote_selection();
         if let Some(remote) = &self.remote_window {
             remote
                 .mission_workspace
@@ -385,6 +393,14 @@ impl NativeRoot {
         self.root_focus.focus(window, cx);
         self.sync_window_activation(window, cx);
         cx.notify();
+    }
+    pub(crate) fn remember_remote_selection(&mut self) {
+        if let Some(remote) = &self.remote_window {
+            self.client_ui.selections.insert(
+                remote.computer.id.clone(),
+                (remote.active.clone(), remote.layouts.clone()),
+            );
+        }
     }
     pub(crate) fn sync_remote_state(&mut self, cx: &mut Context<Self>) {
         self.sync_computer_pair(cx);
