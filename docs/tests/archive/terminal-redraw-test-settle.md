@@ -70,4 +70,3 @@ Two side observations, unconfirmed as causes:
 
 - In the drawer phase, `busy-shell` is shown in a pane and in the drawer at once, and its `Resized` frames alternate between `52x28` and `108x11` many times. The two views may be fighting over the terminal's size. That could explain the Windows failure at line 272, where `busy-shell` painted twice.
 - With 8 to 24 parallel copies, most runs time out after 5 seconds in `TerminalModel::flush_events` (`runner-terminal/src/terminal/model.rs`, the `recv_timeout(...).unwrap()`), which the test calls in its title phase. This has not failed in CI.
-
