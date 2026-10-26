@@ -827,8 +827,16 @@ impl MissionWorkspace {
     }
 
     pub(super) fn terminal_style(&self, cx: &App) -> crate::terminal::element::TerminalStyle {
+        let host = self
+            .remote
+            .as_ref()
+            .and_then(|remote| remote.overview.as_ref()?.terminal_palette.clone());
         crate::terminal::element::TerminalStyle {
-            palette: app_settings::terminal_palette(self.settings(cx), theme::active_variant()),
+            palette: host
+                .map(|palette| runner_terminal::terminal::palette_from_wire(palette.into()))
+                .unwrap_or_else(|| {
+                    app_settings::terminal_palette(self.settings(cx), theme::active_variant())
+                }),
             font: self.settings(cx).terminal_font_family.font(),
             font_size: self.settings(cx).terminal_font_size as f32 * self.settings(cx).app_zoom,
             app_zoom: self.settings(cx).app_zoom,

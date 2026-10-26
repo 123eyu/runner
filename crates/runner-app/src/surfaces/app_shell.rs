@@ -1865,7 +1865,11 @@ impl NativeRoot {
     }
 
     pub(crate) fn terminal_style(&self, cx: &App) -> crate::terminal::element::TerminalStyle {
-        terminal_style_for(self.settings(cx))
+        let mut style = terminal_style_for(self.settings(cx));
+        if let Some(palette) = self.remote_terminal_palette(cx) {
+            style.palette = palette;
+        }
+        style
     }
 
     pub(crate) fn render_collapsed_titlebar_spacer(&self) -> Option<AnyElement> {

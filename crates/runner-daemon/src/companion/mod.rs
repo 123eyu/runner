@@ -1073,6 +1073,7 @@ fn relevant(name: &str) -> bool {
         "crew/",
         "slot/",
         "event/appended",
+        "terminal/palette",
     ]
     .iter()
     .any(|prefix| name.starts_with(prefix))

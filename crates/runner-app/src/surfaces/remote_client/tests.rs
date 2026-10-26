@@ -5510,3 +5510,40 @@ fn remote_terminals_follow_the_viewer_cursor_and_selection_settings() {
     set_cursor(&mut cx, TerminalCursorStyle::Underline);
     assert_eq!(terminal(&cx).0, CursorShape::Underline);
 }
+
+#[test]
+fn remote_terminals_draw_with_the_host_palette_and_fall_back_to_the_viewer() {
+    use runner_terminal::palette::{CATPPUCCIN_MOCHA, RUNNER};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, _) = fixture(&mut cx, temp.path());
+    let window = add_window(&mut cx, &store, temp.path(), "remote-palette");
+    window.update(&mut cx, choose_host).unwrap();
+    cx.run_until_parked();
+    let drawn = |cx: &TestAppContext| {
+        VisualTestContext::from_window(window.into(), cx).run_until_parked();
+        window
+            .read_with(cx, |root, cx| {
+                (
+                    root.remote_window.as_ref().unwrap().terminals["s"]
+                        .terminal
+                        .palette(),
+                    root.terminal_style(cx).palette,
+                )
+            })
+            .unwrap()
+    };
+    let viewer = store.read_with(&cx, |store, _| {
+        crate::app_settings::terminal_palette(&store.settings, crate::theme::active_variant())
+    });
+    assert!(![CATPPUCCIN_MOCHA, RUNNER].contains(&viewer));
+    assert_eq!(drawn(&cx), (viewer, viewer));
+    for host in [CATPPUCCIN_MOCHA, RUNNER] {
+        let mut data = overview();
+        data.terminal_palette = Some(runner_terminal::terminal::palette_to_wire(host).into());
+        fake.set_overview(data);
+        cx.run_until_parked();
+        assert_eq!(drawn(&cx), (host, host));
+    }
+}

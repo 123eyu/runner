@@ -165,6 +165,19 @@ impl NativeRoot {
             .map(|pane| pane.terminal.size())
             .or_else(|| remote.sizes.get(id).copied())
     }
+    pub(crate) fn remote_terminal_palette(
+        &self,
+        cx: &App,
+    ) -> Option<runner_terminal::palette::TerminalPalette> {
+        let remote = self.remote_window.as_ref()?;
+        state(&self.app_store, cx)
+            .read(cx)
+            .overviews
+            .get(&remote.computer.id)?
+            .terminal_palette
+            .clone()
+            .map(|palette| runner_terminal::terminal::palette_from_wire(palette.into()))
+    }
     pub(crate) fn configure_remote_terminals(&self, cx: &App) {
         let Some(remote) = self.remote_window.as_ref() else {
             return;
@@ -867,6 +880,7 @@ impl NativeRoot {
             cx.spawn(async move |weak, cx| {
                 let result = task.await;
                 let _ = weak.update(cx, |root, cx| {
+                    let palette = root.terminal_style(cx).palette;
                     let Some(remote) = root.remote_window.as_mut().filter(|remote| {
                         remote.epoch == epoch
                             && remote.attachment_generation == attachment_generation
@@ -900,10 +914,7 @@ impl NativeRoot {
                     }
                     match result {
                         Ok(terminal) => {
-                            terminal.set_palette(app_settings::terminal_palette(
-                                &root.app_store.read(cx).settings,
-                                theme::active_variant(),
-                            ));
+                            terminal.set_palette(palette);
                             app_settings::configure_terminal(
                                 &terminal,
                                 &root.app_store.read(cx).settings,
@@ -1120,7 +1131,7 @@ impl NativeRoot {
             let owner = cx.weak_entity();
             let session = id.to_owned();
             let epoch = remote.epoch;
-            let style = crate::surfaces::app_shell::terminal_style_for(self.settings(cx));
+            let style = self.terminal_style(cx);
             let measure = gpui::canvas(
                 move |bounds, window, cx| {
                     let font = window.text_system().resolve_font(&style.font);
@@ -1192,7 +1203,7 @@ impl NativeRoot {
         };
         let connected = remote.connection == Connection::Connected;
         let controlled = pane.terminal.control().desktop();
-        let style = crate::surfaces::app_shell::terminal_style_for(self.settings(cx));
+        let style = self.terminal_style(cx);
         if pane.terminal.palette() != style.palette {
             pane.terminal.set_palette(style.palette);
         }

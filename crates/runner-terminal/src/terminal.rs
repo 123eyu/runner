@@ -1615,18 +1615,22 @@ impl TerminalBridge {
         }
     }
     fn send_palette(&self, palette: palette::TerminalPalette) {
-        let rgb = |color: alacritty_terminal::vte::ansi::Rgb| [color.r, color.g, color.b];
-        let _ = self.client.terminal_palette(TerminalPalette {
-            background: rgb(palette.background),
-            foreground: rgb(palette.foreground),
-            cursor: rgb(palette.cursor),
-            cursor_accent: rgb(palette.cursor_accent),
-            selection: rgb(palette.selection),
-            ansi: palette.ansi.map(rgb),
-        });
+        let _ = self.client.terminal_palette(palette_to_wire(palette));
     }
     pub fn live_session_count(&self) -> usize {
         self.sessions.lock().unwrap().len()
+    }
+}
+
+pub fn palette_to_wire(palette: palette::TerminalPalette) -> TerminalPalette {
+    let rgb = |color: alacritty_terminal::vte::ansi::Rgb| [color.r, color.g, color.b];
+    TerminalPalette {
+        background: rgb(palette.background),
+        foreground: rgb(palette.foreground),
+        cursor: rgb(palette.cursor),
+        cursor_accent: rgb(palette.cursor_accent),
+        selection: rgb(palette.selection),
+        ansi: palette.ansi.map(rgb),
     }
 }
 
