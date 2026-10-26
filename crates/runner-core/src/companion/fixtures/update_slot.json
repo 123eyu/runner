@@ -1,0 +1,10 @@
+{
+  "type": "updateSlot",
+  "id": 42,
+  "slot": "slot-1",
+  "handle": "builder",
+  "runtime": "codex",
+  "model": "gpt-6.1",
+  "effort": "high",
+  "speed": "standard"
+}

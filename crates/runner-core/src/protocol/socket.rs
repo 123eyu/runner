@@ -19,7 +19,7 @@ pub const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 pub fn companion_request_timeout(request: &crate::companion::ClientMessage) -> Duration {
     if matches!(
         request,
-        crate::companion::ClientMessage::Action(crate::companion::ActionRequest::Fork { .. })
+        crate::companion::ClientMessage::Action(action) if matches!(action.as_ref(), crate::companion::ActionRequest::Fork { .. })
     ) {
         FORK_REQUEST_TIMEOUT
     } else {

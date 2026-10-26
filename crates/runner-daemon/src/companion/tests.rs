@@ -301,6 +301,19 @@ async fn overview_matches_the_golden_and_unserved_requests_remain_unknown() {
         r#"{"type":"settings","id":1}"#,
         include_str!("../../../runner-core/src/companion/fixtures/answer.json"),
         include_str!("../../../runner-core/src/companion/fixtures/post.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/role.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/crew.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/create_role.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/update_role.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/delete_role.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/create_crew.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/update_crew.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/delete_crew.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/add_slot.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/update_slot.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/remove_slot.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/reorder_slots.json"),
+        include_str!("../../../runner-core/src/companion/fixtures/set_lead.json"),
     ]
     .iter()
     .enumerate()

@@ -1,0 +1,5 @@
+{
+  "type": "deleteCrew",
+  "id": 42,
+  "crew": "crew-1"
+}

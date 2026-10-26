@@ -24,7 +24,7 @@ pub enum ClientMessage {
     #[serde(untagged)]
     Unknown(UnknownRequest),
     #[serde(untagged)]
-    Action(super::ActionRequest),
+    Action(Box<super::ActionRequest>),
 }
 
 impl std::fmt::Debug for ClientMessage {

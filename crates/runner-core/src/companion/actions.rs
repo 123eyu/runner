@@ -7,6 +7,91 @@ use serde::{Deserialize, Serialize};
     rename_all_fields = "camelCase"
 )]
 pub enum ActionRequest {
+    Role {
+        id: u64,
+        role: String,
+    },
+    Crew {
+        id: u64,
+        crew: String,
+    },
+    CreateRole {
+        id: u64,
+        handle: String,
+        name: String,
+        runtime: String,
+        command: Option<String>,
+        args: Vec<String>,
+        working_dir: Option<String>,
+        system_prompt: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        speed: Option<String>,
+        permission_mode: Option<RolePermissionMode>,
+    },
+    UpdateRole {
+        id: u64,
+        role: String,
+        name: String,
+        runtime: String,
+        command: Option<String>,
+        args: Vec<String>,
+        working_dir: Option<String>,
+        system_prompt: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        speed: Option<String>,
+        permission_mode: Option<RolePermissionMode>,
+    },
+    DeleteRole {
+        id: u64,
+        role: String,
+    },
+    CreateCrew {
+        id: u64,
+        name: String,
+        conventions: Option<String>,
+    },
+    UpdateCrew {
+        id: u64,
+        crew: String,
+        name: String,
+        conventions: Option<String>,
+    },
+    DeleteCrew {
+        id: u64,
+        crew: String,
+    },
+    AddSlot {
+        id: u64,
+        crew: String,
+        role: String,
+        handle: String,
+        runtime: Option<String>,
+        model: Option<String>,
+    },
+    UpdateSlot {
+        id: u64,
+        slot: String,
+        handle: String,
+        runtime: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        speed: Option<String>,
+    },
+    RemoveSlot {
+        id: u64,
+        slot: String,
+    },
+    ReorderSlots {
+        id: u64,
+        crew: String,
+        order: Vec<String>,
+    },
+    SetLead {
+        id: u64,
+        slot: String,
+    },
     Catalog {
         id: u64,
     },
@@ -134,6 +219,33 @@ impl ActionRequest {
             }};
         }
         match kind {
+            "role" => fields!(role: String => "a string"),
+            "crew" => fields!(crew: String => "a string"),
+            "createRole" => {
+                fields!(handle: String => "a string", name: String => "a string", runtime: String => "a string", command: Option<String> => "a string or null", args: Vec<String> => "an array of strings", workingDir: Option<String> => "a string or null", systemPrompt: Option<String> => "a string or null", model: Option<String> => "a string or null", effort: Option<String> => "a string or null", speed: Option<String> => "a string or null", permissionMode: Option<RolePermissionMode> => "a string or null")
+            }
+            "updateRole" => {
+                fields!(role: String => "a string", name: String => "a string", runtime: String => "a string", command: Option<String> => "a string or null", args: Vec<String> => "an array of strings", workingDir: Option<String> => "a string or null", systemPrompt: Option<String> => "a string or null", model: Option<String> => "a string or null", effort: Option<String> => "a string or null", speed: Option<String> => "a string or null", permissionMode: Option<RolePermissionMode> => "a string or null")
+            }
+            "deleteRole" => fields!(role: String => "a string"),
+            "createCrew" => {
+                fields!(name: String => "a string", conventions: Option<String> => "a string or null")
+            }
+            "updateCrew" => {
+                fields!(crew: String => "a string", name: String => "a string", conventions: Option<String> => "a string or null")
+            }
+            "deleteCrew" => fields!(crew: String => "a string"),
+            "addSlot" => {
+                fields!(crew: String => "a string", role: String => "a string", handle: String => "a string", runtime: Option<String> => "a string or null", model: Option<String> => "a string or null")
+            }
+            "updateSlot" => {
+                fields!(slot: String => "a string", handle: String => "a string", runtime: Option<String> => "a string or null", model: Option<String> => "a string or null", effort: Option<String> => "a string or null", speed: Option<String> => "a string or null")
+            }
+            "removeSlot" => fields!(slot: String => "a string"),
+            "reorderSlots" => {
+                fields!(crew: String => "a string", order: Vec<String> => "an array of strings")
+            }
+            "setLead" => fields!(slot: String => "a string"),
             "catalog" => None,
             "folders" => fields!(path: Option<String> => "a string or null"),
             "startChat" => {
@@ -174,6 +286,19 @@ impl ActionRequest {
         }
     }
     pub const NAMES: &[&str] = &[
+        "role",
+        "crew",
+        "createRole",
+        "updateRole",
+        "deleteRole",
+        "createCrew",
+        "updateCrew",
+        "deleteCrew",
+        "addSlot",
+        "updateSlot",
+        "removeSlot",
+        "reorderSlots",
+        "setLead",
         "catalog",
         "folders",
         "startChat",
@@ -197,6 +322,19 @@ impl ActionRequest {
     ];
     pub fn id(&self) -> u64 {
         match self {
+            Self::Role { id, .. } => *id,
+            Self::Crew { id, .. } => *id,
+            Self::CreateRole { id, .. } => *id,
+            Self::UpdateRole { id, .. } => *id,
+            Self::DeleteRole { id, .. } => *id,
+            Self::CreateCrew { id, .. } => *id,
+            Self::UpdateCrew { id, .. } => *id,
+            Self::DeleteCrew { id, .. } => *id,
+            Self::AddSlot { id, .. } => *id,
+            Self::UpdateSlot { id, .. } => *id,
+            Self::RemoveSlot { id, .. } => *id,
+            Self::ReorderSlots { id, .. } => *id,
+            Self::SetLead { id, .. } => *id,
             Self::Catalog { id, .. } => *id,
             Self::Folders { id, .. } => *id,
             Self::StartChat { id, .. } => *id,
@@ -221,6 +359,19 @@ impl ActionRequest {
     }
     pub fn set_id(&mut self, value: u64) {
         match self {
+            Self::Role { id, .. } => *id = value,
+            Self::Crew { id, .. } => *id = value,
+            Self::CreateRole { id, .. } => *id = value,
+            Self::UpdateRole { id, .. } => *id = value,
+            Self::DeleteRole { id, .. } => *id = value,
+            Self::CreateCrew { id, .. } => *id = value,
+            Self::UpdateCrew { id, .. } => *id = value,
+            Self::DeleteCrew { id, .. } => *id = value,
+            Self::AddSlot { id, .. } => *id = value,
+            Self::UpdateSlot { id, .. } => *id = value,
+            Self::RemoveSlot { id, .. } => *id = value,
+            Self::ReorderSlots { id, .. } => *id = value,
+            Self::SetLead { id, .. } => *id = value,
             Self::Catalog { id, .. } => *id = value,
             Self::Folders { id, .. } => *id = value,
             Self::StartChat { id, .. } => *id = value,
@@ -392,4 +543,45 @@ pub struct CatalogProject {
     pub id: String,
     pub name: String,
     pub path: String,
+}
+
+super::wire_enum!(RolePermissionMode, Default, {
+    Default => "default", AcceptEdits => "acceptEdits", Auto => "auto", Bypass => "bypass",
+});
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleRecord {
+    pub id: String,
+    pub handle: String,
+    pub name: String,
+    pub runtime: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub working_dir: Option<String>,
+    pub system_prompt: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub speed: Option<String>,
+    pub permission_mode: Option<RolePermissionMode>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CrewRecord {
+    pub id: String,
+    pub name: String,
+    pub conventions: Option<String>,
+    pub slots: Vec<SlotRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SlotRecord {
+    pub id: String,
+    pub handle: String,
+    pub role: String,
+    pub lead: bool,
+    pub runtime: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub speed: Option<String>,
 }

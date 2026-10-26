@@ -1162,3 +1162,413 @@ async fn large_feed_pages_and_incremental_pushes_keep_the_shared_terminal_route_
     host.fixture.client.overview("2".into()).await.unwrap();
     assert_eq!(host.fixture.relay.opens.load(Ordering::Relaxed), 1);
 }
+
+fn role_request(kind: &str) -> Value {
+    json!({"type":kind,"role":"role","handle":"builder","name":"Builder","runtime":"codex","command":null,"args":["--profile","work"],"workingDir":"/tmp","systemPrompt":"Build carefully.","model":"model","effort":"high","speed":"fast","permissionMode":"auto"})
+}
+
+fn assert_change_events(
+    events: &mut tokio::sync::broadcast::Receiver<crate::events::AppEvent>,
+    expected: &[&str],
+) {
+    let mut actual = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if matches!(event.name, "role/changed" | "crew/changed" | "slot/changed") {
+            assert_eq!(event.payload, Value::Null);
+            actual.push(event.name);
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn role_and_crew_actions_round_trip_through_the_host_operations_and_emit_events() {
+    let host = Host::new().await;
+    let mut events = host.core.events.subscribe();
+    let created = host.ok(role_request("createRole")).await;
+    let role = created["role"].as_str().unwrap();
+    assert_change_events(&mut events, &["role/changed"]);
+    host.core
+        .db
+        .get()
+        .unwrap()
+        .execute(
+            "UPDATE roles SET env_json = ?1 WHERE id = ?2",
+            rusqlite::params![r#"{"API_KEY":"private-env-canary"}"#, role],
+        )
+        .unwrap();
+    let read = host.ok(json!({"type":"role","role":role})).await;
+    assert_eq!(
+        read,
+        json!({"id":role,"handle":"builder","name":"Builder","runtime":"codex","command":"codex","args":["--profile","work","--ask-for-approval","on-request","--sandbox","workspace-write"],"workingDir":"/tmp","systemPrompt":"Build carefully.","model":"model","effort":"high","speed":"fast","permissionMode":"auto"})
+    );
+    assert!(!read.to_string().contains("env"));
+    let mut update = role_request("updateRole");
+    update["role"] = json!(role);
+    update["command"] = json!("custom-codex");
+    update["handle"] = json!("cannot-rename-role");
+    update["env"] = json!({"API_KEY":"must-not-store"});
+    update["permissionMode"] = Value::Null;
+    for field in ["workingDir", "systemPrompt", "model", "effort", "speed"] {
+        update[field] = Value::Null;
+    }
+    assert_eq!(host.ok(update).await, Value::Null);
+    assert_change_events(&mut events, &["role/changed"]);
+    let read = host.ok(json!({"type":"role","role":role})).await;
+    assert_eq!(read["args"], json!(["--profile", "work"]));
+    assert_eq!(read["command"], "custom-codex");
+    assert_eq!(read["handle"], "builder");
+    assert_eq!(read["permissionMode"], "default");
+    for field in ["workingDir", "systemPrompt", "model", "effort", "speed"] {
+        assert!(read[field].is_null());
+    }
+    let stored = repo::role::get(&host.core.db.get().unwrap(), role)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.env["API_KEY"], "private-env-canary");
+    let crew = host
+        .ok(json!({"type":"createCrew","name":"Pair","conventions":"Review everything."}))
+        .await["crew"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_change_events(&mut events, &["crew/changed"]);
+    let first = host.ok(json!({"type":"addSlot","crew":crew,"role":role,"handle":"coder","runtime":null,"model":null})).await["slot"].as_str().unwrap().to_owned();
+    assert_change_events(&mut events, &["slot/changed"]);
+    let second = host.ok(json!({"type":"addSlot","crew":crew,"role":role,"handle":"reviewer","runtime":"codex","model":"slot-model"})).await["slot"].as_str().unwrap().to_owned();
+    assert_change_events(&mut events, &["slot/changed"]);
+    assert_eq!(host.ok(json!({"type":"updateSlot","slot":second,"handle":"critic","runtime":"codex","model":"slot-model","effort":"low","speed":"standard"})).await, Value::Null);
+    assert_change_events(&mut events, &["slot/changed"]);
+    let read = host.ok(json!({"type":"crew","crew":crew})).await;
+    assert_eq!(
+        read,
+        json!({"id":crew,"name":"Pair","conventions":"Review everything.","slots":[{"id":first,"handle":"coder","role":role,"lead":true,"runtime":null,"model":null,"effort":null,"speed":null},{"id":second,"handle":"critic","role":role,"lead":false,"runtime":"codex","model":"slot-model","effort":"low","speed":"standard"}]})
+    );
+    assert!(!read.to_string().contains("env"));
+    assert_eq!(
+        host.ok(json!({"type":"reorderSlots","crew":crew,"order":[second,first]}))
+            .await,
+        Value::Null
+    );
+    assert_change_events(&mut events, &["slot/changed"]);
+    assert_eq!(
+        host.ok(json!({"type":"setLead","slot":second})).await,
+        Value::Null
+    );
+    assert_change_events(&mut events, &["slot/changed"]);
+    let read = host.ok(json!({"type":"crew","crew":crew})).await;
+    assert_eq!(read["slots"][0]["id"], second);
+    assert_eq!(read["slots"][0]["lead"], true);
+    assert_eq!(read["slots"][1]["lead"], false);
+    assert_eq!(host.ok(json!({"type":"updateSlot","slot":second,"handle":"critic","runtime":null,"model":null,"effort":null,"speed":null})).await, Value::Null);
+    assert_change_events(&mut events, &["slot/changed"]);
+    let read = host.ok(json!({"type":"crew","crew":crew})).await;
+    for field in ["runtime", "model", "effort", "speed"] {
+        assert!(read["slots"][0][field].is_null());
+    }
+    assert_eq!(
+        host.ok(json!({"type":"removeSlot","slot":second})).await,
+        Value::Null
+    );
+    assert_change_events(&mut events, &["slot/changed"]);
+    let read = host.ok(json!({"type":"crew","crew":crew})).await;
+    assert_eq!(read["slots"].as_array().unwrap().len(), 1);
+    assert_eq!(read["slots"][0]["lead"], true);
+    assert_eq!(
+        host.ok(json!({"type":"updateCrew","crew":crew,"name":"Updated","conventions":null}))
+            .await,
+        Value::Null
+    );
+    assert_change_events(&mut events, &["crew/changed"]);
+    let read = host.ok(json!({"type":"crew","crew":crew})).await;
+    assert_eq!(read["name"], "Updated");
+    assert!(read["conventions"].is_null());
+    assert_eq!(
+        host.ok(json!({"type":"deleteCrew","crew":crew})).await,
+        Value::Null
+    );
+    assert_change_events(&mut events, &["crew/changed", "slot/changed"]);
+    assert!(repo::slot::get(&host.core.db.get().unwrap(), &first)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        host.ok(json!({"type":"deleteRole","role":role})).await,
+        Value::Null
+    );
+    assert_change_events(&mut events, &["role/changed"]);
+    assert!(repo::role::get(&host.core.db.get().unwrap(), role)
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn role_and_crew_actions_reject_invalid_fields_and_unknown_ids_without_leaking_diagnostics() {
+    use crate::companion::core::Core;
+    let host = Host::new().await;
+    let backend = DaemonCore(Arc::downgrade(&host.core));
+    let mut events = host.core.events.subscribe();
+    let reject = |mut value: Value, code: c::ErrorCode, message: &str| {
+        value["id"] = json!(7);
+        let request = serde_json::from_value(value).unwrap();
+        let error = Core::action(&backend, request).unwrap_err();
+        assert_eq!(error.0, code);
+        assert_eq!(error.1, message);
+        assert!(!error.1.contains("private-canary"));
+    };
+    for (kind, field) in [
+        ("role", "role"),
+        ("crew", "crew"),
+        ("updateRole", "role"),
+        ("deleteRole", "role"),
+        ("updateCrew", "crew"),
+        ("deleteCrew", "crew"),
+        ("addSlot", "crew"),
+        ("updateSlot", "slot"),
+        ("removeSlot", "slot"),
+        ("reorderSlots", "crew"),
+        ("setLead", "slot"),
+    ] {
+        let mut value = match kind {
+            "updateRole" => role_request(kind),
+            "updateCrew" => json!({"type":kind,"name":"Crew"}),
+            "addSlot" => json!({"type":kind,"role":"role","handle":"new"}),
+            "updateSlot" => json!({"type":kind,"handle":"new"}),
+            "reorderSlots" => json!({"type":kind,"order":[]}),
+            _ => json!({"type":kind}),
+        };
+        value[field] = json!("missing-private-canary");
+        let message = match field {
+            "role" => "No role has that id.",
+            "crew" => "No crew has that id.",
+            _ => "No slot has that id.",
+        };
+        reject(value, c::ErrorCode::NotFound, message);
+    }
+    reject(
+        json!({"type":"addSlot","crew":"crew","role":"missing-private-canary","handle":"new"}),
+        c::ErrorCode::NotFound,
+        "No role has that id.",
+    );
+    for kind in ["createRole", "updateRole"] {
+        for (field, invalid) in [
+            ("name", json!("  ")),
+            ("runtime", json!("unknown-private-canary")),
+            ("runtime", json!("shell")),
+            ("speed", json!("unknown-private-canary")),
+            ("permissionMode", json!("unknown-private-canary")),
+        ] {
+            let mut value = role_request(kind);
+            value[field] = invalid;
+            reject(
+                value,
+                c::ErrorCode::BadRequest,
+                "The action has invalid fields.",
+            );
+        }
+    }
+    for handle in [
+        "",
+        "UPPER",
+        "has space",
+        "-prefix",
+        "abcdefghijklmnopqrstuvwxyz1234567",
+    ] {
+        let mut value = role_request("createRole");
+        value["handle"] = json!(handle);
+        reject(
+            value,
+            c::ErrorCode::BadRequest,
+            "The action has invalid fields.",
+        );
+        for kind in ["addSlot", "updateSlot"] {
+            reject(
+                json!({"type":kind,"crew":"crew","role":"role","slot":"slot","handle":handle}),
+                c::ErrorCode::BadRequest,
+                "The action has invalid fields.",
+            );
+        }
+    }
+    for kind in ["createCrew", "updateCrew"] {
+        reject(
+            json!({"type":kind,"crew":"crew","name":"  "}),
+            c::ErrorCode::BadRequest,
+            "The action has invalid fields.",
+        );
+    }
+    for kind in ["addSlot", "updateSlot"] {
+        for runtime in ["shell", "unknown-private-canary"] {
+            reject(
+                json!({"type":kind,"crew":"crew","role":"role","slot":"slot","handle":"valid","runtime":runtime}),
+                c::ErrorCode::BadRequest,
+                "The action has invalid fields.",
+            );
+        }
+    }
+    reject(
+        json!({"type":"updateSlot","slot":"slot","handle":"valid","speed":"unknown-private-canary"}),
+        c::ErrorCode::BadRequest,
+        "The action has invalid fields.",
+    );
+    for order in [
+        json!([]),
+        json!(["slot", "slot"]),
+        json!(["missing-private-canary"]),
+    ] {
+        reject(
+            json!({"type":"reorderSlots","crew":"crew","order":order}),
+            c::ErrorCode::BadRequest,
+            "The action has invalid fields.",
+        );
+    }
+    let mut value = role_request("createRole");
+    value["handle"] = json!("coder");
+    reject(
+        value,
+        c::ErrorCode::Failed,
+        "That role handle is already in use. Choose another handle in the catalog.",
+    );
+    reject(
+        json!({"type":"addSlot","crew":"crew","role":"role","handle":"coder"}),
+        c::ErrorCode::Failed,
+        "That slot handle is already in use. Choose another handle in the crew.",
+    );
+    let other = host
+        .ok(json!({"type":"addSlot","crew":"crew","role":"role","handle":"other"}))
+        .await["slot"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_change_events(&mut events, &["slot/changed"]);
+    reject(
+        json!({"type":"updateSlot","slot":other,"handle":"coder","runtime":"claude-code"}),
+        c::ErrorCode::Failed,
+        "That slot handle is already in use. Choose another handle in the crew.",
+    );
+    let stored = repo::slot::get(&host.core.db.get().unwrap(), &other)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.slot_handle, "other");
+    assert_eq!(stored.runtime_override, None);
+    reject(json!({"type":"deleteRole","role":"role"}), c::ErrorCode::Failed, "This role is used by crews. Remove its slots from the crews in the catalog before deleting it.");
+    // An operation's other diagnostics, including supplied prompts, stay generic.
+    let mut value = role_request("createRole");
+    value["systemPrompt"] = json!("private-canary".repeat(2000));
+    reject(
+        value,
+        c::ErrorCode::Failed,
+        "The host could not complete the request.",
+    );
+    assert_change_events(&mut events, &[]);
+    host.ok(json!({"type":"deleteCrew","crew":"crew"})).await;
+    assert_change_events(&mut events, &["crew/changed", "slot/changed"]);
+    {
+        let conn = host.core.db.get().unwrap();
+        let mut chat = repo::session::SessionRowDb::new_running("chat-private-canary".into());
+        chat.role_id = Some("role".into());
+        repo::session::insert(&conn, &chat).unwrap();
+    }
+    reject(
+        json!({"type":"deleteRole","role":"role"}),
+        c::ErrorCode::Failed,
+        "This role has unarchived chats. Archive them on the host before deleting it.",
+    );
+    {
+        let conn = host.core.db.get().unwrap();
+        conn.execute(
+            "UPDATE sessions SET archived_at = ?1 WHERE id = 'chat-private-canary'",
+            [chrono::Utc::now().to_rfc3339()],
+        )
+        .unwrap();
+        let now = chrono::Utc::now();
+        repo::mission::insert(
+            &conn,
+            &repo::mission::MissionRow {
+                id: "mission-private-canary".into(),
+                crew_id: None,
+                project_id: None,
+                title: "private-canary".into(),
+                status: crate::model::MissionStatus::Running,
+                goal_override: None,
+                cwd: None,
+                started_at: now,
+                stopped_at: None,
+                pinned_at: None,
+                archived_at: None,
+            },
+        )
+        .unwrap();
+        let mut member = repo::session::SessionRowDb::new_running("member-private-canary".into());
+        member.role_id = Some("role".into());
+        member.mission_id = Some("mission-private-canary".into());
+        repo::session::insert(&conn, &member).unwrap();
+    }
+    reject(
+        json!({"type":"deleteRole","role":"role"}),
+        c::ErrorCode::Failed,
+        "This role is used by unarchived missions. Archive them on the host before deleting it.",
+    );
+    assert_change_events(&mut events, &[]);
+}
+
+#[tokio::test]
+async fn role_permission_modes_match_the_desktop_inference_and_preserve_sent_args_on_null_update() {
+    let host = Host::new().await;
+    for (runtime, args, mode) in [
+        (
+            "claude-code",
+            json!(["--permission-mode", "acceptEdits"]),
+            json!("acceptEdits"),
+        ),
+        (
+            "codex",
+            json!([
+                "--ask-for-approval",
+                "never",
+                "--sandbox",
+                "workspace-write"
+            ]),
+            json!("bypass"),
+        ),
+        (
+            "trae",
+            json!(["--permission-mode", "auto"]),
+            json!("default"),
+        ),
+        ("pi", json!([]), Value::Null),
+    ] {
+        let mut update = role_request("updateRole");
+        update["runtime"] = json!(runtime);
+        update["args"] = args.clone();
+        update["permissionMode"] = Value::Null;
+        host.ok(update).await;
+        let read = host.ok(json!({"type":"role","role":"role"})).await;
+        assert_eq!(read["permissionMode"], mode, "{runtime}");
+        assert_eq!(read["args"], args);
+        assert_eq!(
+            read["command"],
+            crate::model::Runtime::parse(runtime)
+                .unwrap()
+                .command()
+                .unwrap()
+        );
+    }
+    let mut update = role_request("updateRole");
+    update["permissionMode"] = json!("bypass");
+    host.ok(update).await;
+    assert_eq!(
+        host.ok(json!({"type":"role","role":"role"})).await["permissionMode"],
+        "bypass"
+    );
+    let mut create = role_request("createRole");
+    create["permissionMode"] = Value::Null;
+    create["args"] = json!([
+        "--ask-for-approval",
+        "never",
+        "--sandbox",
+        "workspace-write"
+    ]);
+    let id = host.ok(create).await["role"].as_str().unwrap().to_owned();
+    let read = host.ok(json!({"type":"role","role":id})).await;
+    assert_eq!(read["permissionMode"], "default");
+    assert_eq!(read["args"], json!([]));
+}

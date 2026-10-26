@@ -1,0 +1,18 @@
+{
+  "type": "updateRole",
+  "id": 42,
+  "role": "role-1",
+  "name": "Coder",
+  "runtime": "codex",
+  "command": null,
+  "args": [
+    "--profile",
+    "work"
+  ],
+  "workingDir": "C:\\work\\runner",
+  "systemPrompt": "Implement the requested change.",
+  "model": "gpt-6.1",
+  "effort": "high",
+  "speed": "fast",
+  "permissionMode": "auto"
+}
