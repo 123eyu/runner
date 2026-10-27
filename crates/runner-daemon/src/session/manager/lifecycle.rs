@@ -107,6 +107,9 @@ impl SessionManager {
                     delivery.next_served = 0;
                     delivery.cancelled_tickets.clear();
                     gate.ready.notify_all();
+                    if let Some(terminal) = &state.terminal {
+                        terminal.clear_program_status();
+                    }
                     state.model.apply(
                         SessionEvent::Detached { stopped: true },
                         crate::session::clock::state_now(),

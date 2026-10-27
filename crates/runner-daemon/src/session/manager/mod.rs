@@ -377,6 +377,8 @@ impl SessionEvents for CoreSessionEvents {
     }
     fn status(&self, ev: &SessionActivityEvent) {
         if ev.source != StatusSource::CodexAttention
+            && ev.source != StatusSource::ProgramStatus
+            && ev.status.observation.program_status.is_none()
             && ev.status.observation.outcome != Some(TurnOutcome::Interrupted)
             && ev.status.observation.outcome != Some(TurnOutcome::Failed)
         {
@@ -1710,6 +1712,9 @@ impl SessionManager {
         if let Some(session) = self.session_state(session_id) {
             let mut session = session.lock().unwrap();
             session.finish_companion_terminals();
+            if let Some(terminal) = &session.terminal {
+                terminal.clear_program_status();
+            }
             session.model.apply(
                 SessionEvent::Exited {
                     code: exit_code,
@@ -1803,10 +1808,16 @@ impl SessionManager {
                 return Default::default();
             }
             let is_live = session.handle.is_some() && !session.killed;
+            if bridge_failed && is_live {
+                if let Some(terminal) = &session.terminal {
+                    terminal.invalidate_program_status();
+                }
+            }
             match &mut event {
                 SessionEvent::Agent { live, .. }
                 | SessionEvent::BridgeFailed { live }
                 | SessionEvent::CodexAttention { live, .. } => *live = is_live,
+                SessionEvent::ProgramStatus { live, .. } => *live = is_live,
                 _ => {}
             }
             let turn_started = matches!(&event, SessionEvent::Agent { event, live: true } if agent_turn_started(event));

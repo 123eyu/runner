@@ -2910,3 +2910,106 @@ fn remote_tab_rename_placeholder_uses_the_remote_layout_even_with_colliding_loca
         }
     }
 }
+
+#[test]
+fn terminal_program_status_reaches_classic_and_active_sidebar_rollups() {
+    use runner_core::protocol::status::{
+        Activity, AgentObservation, AgentStatus, HumanInteraction, Lifecycle, ObservationSource,
+        ProgramStatusEvidence, WaitReason,
+    };
+    for mixed in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (pool, store) = seeded_store(&mut cx, temp.path());
+        let layout = if mixed {
+            two_pane_layout("chat", "terminal")
+        } else {
+            PaneLayout::single(Some("terminal"), &["terminal".into()])
+        };
+        let node = runner_daemon::repo::node::create_tab(
+            &pool.get().unwrap(),
+            None,
+            "",
+            0,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap();
+        store.update(&mut cx, |store, cx| {
+            store.refresh_nodes(cx).unwrap();
+            store.sessions = vec![
+                direct_session("chat", "codex", SessionStatus::Running),
+                direct_session("terminal", "shell", SessionStatus::Running),
+            ];
+            store.session_statuses.insert(
+                "chat".into(),
+                AgentStatus {
+                    lifecycle: Lifecycle::Running,
+                    observation: AgentObservation {
+                        activity: Activity::Working,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+        });
+        let members = store.read_with(&cx, |store, _| {
+            store
+                .sessions
+                .iter()
+                .filter(|session| mixed || session.session_id == "terminal")
+                .cloned()
+                .map(Into::into)
+                .collect::<Vec<SessionDisplay>>()
+        });
+        let tabs = cx.update(|cx| TabSet::from_rows(&store.read(cx).nodes));
+        let sidebar = cx.new(|cx| Sidebar::new(WeakEntity::new_invalid(), store.clone(), None, cx));
+        for (activity, blocked, reported) in [
+            (Activity::Working, false, true),
+            (Activity::Idle, true, true),
+            (Activity::Idle, false, true),
+            (Activity::Idle, false, false),
+        ] {
+            store.update(&mut cx, |store, _| {
+                store.session_statuses.insert(
+                    "terminal".into(),
+                    AgentStatus {
+                        lifecycle: Lifecycle::Running,
+                        observation: AgentObservation {
+                            activity,
+                            source: ObservationSource::Baseline,
+                            program_status: reported.then(ProgramStatusEvidence::default),
+                            interactions: if blocked {
+                                vec![HumanInteraction {
+                                    id: "program-status:1".into(),
+                                    reason: WaitReason::Approval,
+                                    owners: Vec::new(),
+                                    since: 1,
+                                }]
+                            } else {
+                                Vec::new()
+                            },
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                );
+            });
+            sidebar.update(&mut cx, |sidebar, cx| {
+                let rollup = sidebar.tab_status_rollup(&members, cx);
+                let terminal = rollup.entries.iter().find(|(id, _)| id == "terminal");
+                assert_eq!(terminal.is_some(), reported);
+                if let Some((_, status)) = terminal {
+                    assert_eq!(status.observation.activity, activity);
+                    assert_eq!(status.observation.needs_you(), blocked);
+                }
+                if blocked {
+                    assert_eq!(rollup.priority_value(), 4);
+                    assert_eq!(rollup.target(), Some("terminal"));
+                    let active = sidebar.resolved_active_rows_for_tabs(&tabs, cx);
+                    let row = active.iter().find(|row| matches!(row.shortcut_row(&store.read(cx).nodes).target, SidebarActivationTarget::Tab { ref tab_id, .. } if tab_id == &node.id)).unwrap();
+                    assert_eq!(row.shortcut_row(&store.read(cx).nodes).target, SidebarActivationTarget::Tab { tab_id: node.id.clone(), session_id: "terminal".into() });
+                }
+            });
+        }
+    }
+}

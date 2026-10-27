@@ -183,14 +183,18 @@ impl Sidebar {
         use runner_core::protocol::status::{AgentStatus, Lifecycle};
         let entries = members
             .iter()
-            .filter(|member| !Runtime::parse(&member.agent_runtime).is_some_and(Runtime::is_shell))
-            .map(|member| {
+            .filter_map(|member| {
                 let mut status =
                     self.session_status(&member.session_id, cx)
                         .unwrap_or(AgentStatus {
                             lifecycle: Lifecycle::Running,
                             ..Default::default()
                         });
+                if Runtime::parse(&member.agent_runtime).is_some_and(Runtime::is_shell)
+                    && status.observation.program_status.is_none()
+                {
+                    return None;
+                }
                 match member.status {
                     SessionStatus::Running => {}
                     SessionStatus::Stopped => status.lifecycle = Lifecycle::Stopped,
@@ -199,7 +203,7 @@ impl Sidebar {
                 if self.archiving_sessions.contains(&member.session_id) {
                     mark_archiving_status(&mut status);
                 }
-                (member.session_id.clone(), status)
+                Some((member.session_id.clone(), status))
             })
             .collect();
         runner_app::ui::agent_status::StatusRollup { entries }

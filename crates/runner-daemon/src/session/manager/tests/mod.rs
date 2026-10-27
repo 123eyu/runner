@@ -19,6 +19,7 @@ mod mission_roster;
 mod opencode;
 mod permissions;
 mod pi;
+mod program_status;
 mod replay;
 mod resume;
 mod runtime_direct;

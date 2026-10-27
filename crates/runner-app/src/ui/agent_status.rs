@@ -29,7 +29,7 @@ pub enum StatusKind {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusPresentation {
     pub kind: StatusKind,
     pub estimated: bool,
@@ -37,6 +37,8 @@ pub struct StatusPresentation {
     pub outcome: Option<TurnOutcome>,
     pub waiting_since: Option<i64>,
     pub detail: Option<WorkDetail>,
+    pub message: Option<SharedString>,
+    pub program_status: bool,
 }
 
 struct ShortStatusLabel {
@@ -83,15 +85,22 @@ impl StatusPresentation {
         Self {
             kind,
             estimated: observation.source == ObservationSource::Baseline
+                && observation.program_status.is_none()
                 && matches!(kind, StatusKind::Working | StatusKind::Idle),
             exit_code: status.exit_code,
             outcome: observation.outcome,
             waiting_since: observation.interactions.first().map(|wait| wait.since),
             detail: observation.detail,
+            message: observation
+                .program_status
+                .as_ref()
+                .and_then(|evidence| evidence.message.clone())
+                .map(Into::into),
+            program_status: observation.program_status.is_some(),
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self.kind {
             StatusKind::Starting => crate::i18n::text("ui.starting_status"),
             StatusKind::Resuming => crate::i18n::text("ui.resuming_status"),
@@ -107,64 +116,68 @@ impl StatusPresentation {
         }
     }
 
-    pub fn needs_you(self) -> bool {
+    pub fn needs_you(&self) -> bool {
         matches!(
             self.kind,
             StatusKind::Approval | StatusKind::Answer | StatusKind::NeedsYou
         )
     }
 
-    pub fn is_error(self) -> bool {
+    pub fn is_error(&self) -> bool {
         matches!(self.kind, StatusKind::Error | StatusKind::ResponseFailed)
     }
 
-    pub fn tooltip(self) -> String {
+    pub fn tooltip(&self) -> String {
         self.tooltip_at(Utc::now().timestamp_millis())
     }
 
-    fn tooltip_at(self, now: i64) -> String {
+    fn tooltip_at(&self, now: i64) -> String {
         if self.estimated {
             return crate::i18n::tf(
                 "format.estimated_from_terminal_activity",
                 &[("status", (self.label()).to_string())],
             );
         }
-        let tooltip = match self.kind {
-            StatusKind::Approval => {
-                crate::i18n::text("ui.waiting_for_you_to_approve_a_command_or_plan").into()
+        let tooltip = if let Some(message) = self.message.as_ref().filter(|_| self.needs_you()) {
+            format!("{} · {message}", self.label())
+        } else {
+            match self.kind {
+                StatusKind::Approval => {
+                    crate::i18n::text("ui.waiting_for_you_to_approve_a_command_or_plan").into()
+                }
+                StatusKind::Answer => crate::i18n::text("ui.waiting_for_your_answer").into(),
+                StatusKind::NeedsYou => {
+                    crate::i18n::text("ui.waiting_for_your_input_in_the_terminal").into()
+                }
+                StatusKind::Unavailable => {
+                    crate::i18n::text("ui.status_unavailable_agent_is_still_connected").into()
+                }
+                StatusKind::ResponseFailed => {
+                    crate::i18n::text("ui.response_failed_agent_is_still_connected").into()
+                }
+                StatusKind::Error => self.exit_code.map_or_else(
+                    || crate::i18n::text("ui.process_exited_unexpectedly").into(),
+                    |code| {
+                        crate::i18n::tf(
+                            "format.process_exited_code",
+                            &[("code", (code).to_string())],
+                        )
+                    },
+                ),
+                StatusKind::Idle if self.outcome == Some(TurnOutcome::Interrupted) => {
+                    crate::i18n::text("ui.idle_last_response_interrupted").into()
+                }
+                StatusKind::Working => self.detail.map_or_else(
+                    || crate::i18n::text("ui.working").into(),
+                    |detail| {
+                        crate::i18n::tf(
+                            "format.working",
+                            &[("detail", (work_detail_label(detail)).to_string())],
+                        )
+                    },
+                ),
+                _ => self.label().into(),
             }
-            StatusKind::Answer => crate::i18n::text("ui.waiting_for_your_answer").into(),
-            StatusKind::NeedsYou => {
-                crate::i18n::text("ui.waiting_for_your_input_in_the_terminal").into()
-            }
-            StatusKind::Unavailable => {
-                crate::i18n::text("ui.status_unavailable_agent_is_still_connected").into()
-            }
-            StatusKind::ResponseFailed => {
-                crate::i18n::text("ui.response_failed_agent_is_still_connected").into()
-            }
-            StatusKind::Error => self.exit_code.map_or_else(
-                || crate::i18n::text("ui.process_exited_unexpectedly").into(),
-                |code| {
-                    crate::i18n::tf(
-                        "format.process_exited_code",
-                        &[("code", (code).to_string())],
-                    )
-                },
-            ),
-            StatusKind::Idle if self.outcome == Some(TurnOutcome::Interrupted) => {
-                crate::i18n::text("ui.idle_last_response_interrupted").into()
-            }
-            StatusKind::Working => self.detail.map_or_else(
-                || crate::i18n::text("ui.working").into(),
-                |detail| {
-                    crate::i18n::tf(
-                        "format.working",
-                        &[("detail", (work_detail_label(detail)).to_string())],
-                    )
-                },
-            ),
-            _ => self.label().into(),
         };
         if matches!(
             self.kind,
@@ -177,8 +190,10 @@ impl StatusPresentation {
         tooltip
     }
 
-    fn short_label_at(self, now: i64) -> ShortStatusLabel {
-        let detail = if self.estimated {
+    fn short_label_at(&self, now: i64) -> ShortStatusLabel {
+        let detail = if self.needs_you() && self.message.is_some() {
+            self.message.as_ref().map(ToString::to_string)
+        } else if self.estimated {
             None
         } else if self.kind == StatusKind::Working {
             self.detail.map(|detail| work_detail_label(detail).into())
@@ -201,7 +216,7 @@ impl StatusPresentation {
         }
     }
 
-    pub fn shows_detail(self, width: f32) -> bool {
+    pub fn shows_detail(&self, width: f32) -> bool {
         let can_have_detail = self.kind == StatusKind::Working
             || self.needs_you()
             || (self.kind == StatusKind::Idle && self.outcome == Some(TurnOutcome::Interrupted));
@@ -209,7 +224,7 @@ impl StatusPresentation {
     }
 
     #[cfg(test)]
-    fn visible_short_label_at(self, width: f32, now: i64) -> Option<String> {
+    fn visible_short_label_at(&self, width: f32, now: i64) -> Option<String> {
         if !self.shows_label(width) {
             return None;
         }
@@ -220,7 +235,7 @@ impl StatusPresentation {
         Some(label.text())
     }
 
-    pub fn shows_label(self, width: f32) -> bool {
+    pub fn shows_label(&self, width: f32) -> bool {
         width
             >= if self.needs_you() || self.is_error() {
                 320.
@@ -448,7 +463,7 @@ fn render_status_indicator(
         .gap(rems(5. / 16.))
         .when(
             !header || !label || !matches!(status.kind, StatusKind::Stopped | StatusKind::Idle),
-            |row| row.child(status_glyph(status, (id.clone(), "glyph"))),
+            |row| row.child(status_glyph(status.clone(), (id.clone(), "glyph"))),
         )
         .when(label, |row| {
             row.child(
@@ -508,7 +523,7 @@ fn status_tooltip_with_unread(
             id,
             move || {
                 SharedString::from(status_tooltip_text_at(
-                    status,
+                    status.clone(),
                     unread,
                     Utc::now().timestamp_millis(),
                 ))
@@ -544,6 +559,8 @@ mod tests {
             outcome,
             waiting_since,
             detail: None,
+            message: None,
+            program_status: false,
         }
     }
 
@@ -556,6 +573,38 @@ mod tests {
         assert_eq!(format_elapsed(3_600_000), "1h 0m");
         assert_eq!(format_elapsed(4_320_000), "1h 12m");
         assert_eq!(format_elapsed(86_400_000), "24h 0m");
+    }
+
+    #[test]
+    fn program_status_is_exact_and_blocked_message_uses_the_existing_detail_label() {
+        let mut status = AgentStatus {
+            lifecycle: Lifecycle::Running,
+            observation: AgentObservation {
+                activity: Activity::Working,
+                source: ObservationSource::Baseline,
+                program_status: Some(runner_core::protocol::status::ProgramStatusEvidence {
+                    message: Some("Allow this command?".into()),
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let working = StatusPresentation::new(&status);
+        assert!(!working.estimated);
+        assert!(working.program_status);
+        status.observation.interactions.push(HumanInteraction {
+            id: "program-status:1".into(),
+            reason: WaitReason::Approval,
+            owners: Vec::new(),
+            since: 0,
+        });
+        let blocked = StatusPresentation::new(&status);
+        assert_eq!(
+            blocked.visible_short_label_at(480., 120_000).as_deref(),
+            Some("Approval needed · Allow this command?")
+        );
+        assert!(blocked.tooltip_at(120_000).contains("Allow this command?"));
+        assert!(blocked.tooltip_at(120_000).ends_with("2m"));
     }
 
     #[test]
@@ -661,7 +710,7 @@ mod tests {
         ] {
             let detailed = StatusPresentation {
                 detail: Some(detail),
-                ..plain
+                ..plain.clone()
             };
             assert_eq!(detailed.label(), "Working");
             assert_eq!(detailed.tooltip_at(0), format!("Working · {label}"));
@@ -743,6 +792,8 @@ mod tests {
             outcome: None,
             waiting_since: None,
             detail: None,
+            message: None,
+            program_status: false,
         };
         assert!(approval.shows_label(360.));
         assert!(!approval.shows_label(296.));
@@ -831,7 +882,8 @@ impl StatusRollup {
                 );
                 estimated += usize::from(
                     status.observation.activity == Activity::Working
-                        && status.observation.source == ObservationSource::Baseline,
+                        && status.observation.source == ObservationSource::Baseline
+                        && status.observation.program_status.is_none(),
                 );
                 counts[7] += usize::from(
                     status.observation.activity == Activity::Unavailable
@@ -1129,7 +1181,7 @@ mod remote_elapsed_tests {
         let remote = rollup_presentation(&status, false);
         assert_eq!(remote.waiting_since, None);
         for unread in [false, true] {
-            let tooltip = status_tooltip_text_at(remote, unread, 120_000);
+            let tooltip = status_tooltip_text_at(remote.clone(), unread, 120_000);
             assert!(tooltip.contains("approve"));
             assert!(!tooltip.contains("0s"));
             assert_eq!(tooltip.contains("unread"), unread);

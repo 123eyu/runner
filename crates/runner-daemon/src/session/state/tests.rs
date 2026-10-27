@@ -866,3 +866,137 @@ fn codex_native_attention_preserves_fallback_drafts_and_lifecycle_boundaries() {
         assert!(!model.status().observation.needs_you());
     }
 }
+
+fn program(
+    model: &mut SessionModel,
+    seq: u64,
+    state: Option<runner_terminal::program_status::State>,
+) -> Effects {
+    model.apply(
+        SessionEvent::ProgramStatus {
+            seq,
+            report: state.map(|state| runner_terminal::program_status::Report {
+                state,
+                id: String::new(),
+                kind: Some("permission".into()),
+                progress: None,
+                app: Some("test".into()),
+                title: None,
+                message: Some("Approve this?".into()),
+            }),
+            live: true,
+        },
+        now(),
+    )
+}
+
+#[test]
+fn program_status_maps_work_waits_and_outcomes_without_completion_attention() {
+    use runner_terminal::program_status::State as P;
+    let mut model = SessionModel::default();
+    for (seq, state, activity, outcome) in [
+        (1, P::Working, Activity::Working, None),
+        (2, P::Blocked, Activity::Idle, None),
+        (3, P::Idle, Activity::Idle, None),
+        (4, P::Done, Activity::Idle, Some(TurnOutcome::Completed)),
+        (5, P::Error, Activity::Idle, Some(TurnOutcome::Failed)),
+    ] {
+        let effects = program(&mut model, seq, Some(state));
+        assert_eq!(effects.publication.unwrap().1, StatusSource::ProgramStatus);
+        assert_eq!(model.status().observation.activity, activity);
+        assert_eq!(model.status().observation.outcome, outcome);
+        assert_eq!(model.status().observation.needs_you(), state == P::Blocked);
+        assert_eq!(model.status().unread_since, None);
+        assert!(!model.completion_armed());
+        assert_eq!(
+            model
+                .status()
+                .observation
+                .program_status
+                .as_ref()
+                .unwrap()
+                .message
+                .as_deref(),
+            Some("Approve this?")
+        );
+    }
+    model.apply(SessionEvent::ArmCompletion, now());
+    program(&mut model, 6, Some(P::Working));
+    program(&mut model, 7, None);
+    assert!(model.completion_armed());
+    assert!(model.status().observation.program_status.is_none());
+}
+
+#[test]
+fn program_status_wait_identity_survives_repeats_and_release_preserves_draft() {
+    use runner_terminal::program_status::State as P;
+    let mut model = SessionModel::default();
+    program(&mut model, 1, Some(P::Blocked));
+    let wait = model.status().observation.interactions[0].clone();
+    assert_eq!(wait.reason, WaitReason::Approval);
+    program(&mut model, 2, Some(P::Blocked));
+    assert_eq!(model.status().observation.interactions, vec![wait]);
+    model.apply(SessionEvent::TestPending(true), now());
+    let effects = program(&mut model, 3, Some(P::Working));
+    assert!(effects.input_cleared);
+    assert!(model.local_input_pending());
+    assert!(model.draft_hold(now().monotonic).is_some());
+}
+
+#[test]
+fn hooks_override_program_status_until_bridge_failure_and_a_fresh_report() {
+    use runner_terminal::program_status::State as P;
+    let mut model = SessionModel::default();
+    program(&mut model, 1, Some(P::Blocked));
+    model.apply(
+        SessionEvent::Agent {
+            event: agent::AgentEvent::TurnStarted,
+            live: true,
+        },
+        now(),
+    );
+    let hook = model.status().clone();
+    assert_eq!(hook.observation.source, ObservationSource::Hook);
+    assert!(program(&mut model, 2, Some(P::Idle)).publication.is_none());
+    assert_eq!(model.status(), &hook);
+    model.apply(SessionEvent::BridgeFailed { live: true }, now());
+    assert!(model.status().observation.program_status.is_none());
+    assert!(program(&mut model, 1, Some(P::Blocked))
+        .publication
+        .is_none());
+    program(&mut model, 3, Some(P::Idle));
+    assert!(model.status().observation.program_status.is_some());
+    let exact = model.status().clone();
+    assert!(transition(
+        &mut model,
+        SessionActivityState::Busy,
+        StatusSource::Forwarder
+    )
+    .publication
+    .is_none());
+    assert_eq!(model.status(), &exact);
+}
+
+#[test]
+fn process_exit_clears_program_status_and_rejects_late_reports() {
+    use runner_terminal::program_status::State as P;
+    let mut model = SessionModel::default();
+    program(&mut model, 1, Some(P::Blocked));
+    model.apply(
+        SessionEvent::Exited {
+            code: Some(0),
+            crashed: false,
+        },
+        now(),
+    );
+    assert!(model.status().observation.program_status.is_none());
+    assert!(!model.status().observation.needs_you());
+    assert!(program(&mut model, 2, Some(P::Working))
+        .publication
+        .is_none());
+    assert_eq!(model.status().lifecycle, Lifecycle::Stopped);
+    model.apply(SessionEvent::Attached, now());
+    assert!(program(&mut model, 1, Some(P::Working))
+        .publication
+        .is_some());
+}

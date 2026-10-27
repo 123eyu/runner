@@ -303,6 +303,7 @@ impl SessionManager {
             cols,
             rows,
             ModelOptions {
+                codex_native_attention: runtime == Some(Runtime::Codex),
                 agent,
                 shell: runtime.is_some_and(Runtime::is_shell),
                 initial_title: title,

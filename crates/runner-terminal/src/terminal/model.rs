@@ -15,6 +15,7 @@ pub struct ModelOptions {
     pub shell: bool,
     pub initial_title: String,
     pub cwd: Option<String>,
+    pub codex_native_attention: bool,
 }
 
 pub struct TerminalModel {
@@ -35,6 +36,9 @@ pub struct TerminalModel {
     fixture_recorder: Option<FixtureRecorder>,
     cwd_reports: Option<Mutex<CwdReports>>,
     live_cwd: Mutex<Option<PathBuf>>,
+    program_status: Mutex<crate::program_status::Parser>,
+    pending_program_status: Mutex<Option<(u64, Option<crate::program_status::Report>)>>,
+    codex_native_attention: bool,
 }
 
 impl TerminalModel {
@@ -119,6 +123,9 @@ impl TerminalModel {
             fixture_recorder,
             cwd_reports: options.shell.then(Mutex::default),
             live_cwd: Mutex::new(None),
+            program_status: Mutex::default(),
+            pending_program_status: Mutex::default(),
+            codex_native_attention: options.codex_native_attention,
         });
         let term_for_events = Arc::downgrade(&term);
         let worker = thread::Builder::new()
@@ -253,7 +260,21 @@ impl TerminalModel {
         if let Some(recorder) = &self.fixture_recorder {
             recorder.record_output(bytes);
         }
-        let scheme_sequences = scan_scheme_sequences(&mut self.scheme.tail.lock().unwrap(), bytes);
+        let mut queries = scan_scheme_sequences(&mut self.scheme.tail.lock().unwrap(), bytes)
+            .into_iter()
+            .map(|(end, sequence)| (end, Some(sequence)))
+            .collect::<Vec<_>>();
+        for (end, event) in self.program_status.lock().unwrap().scan(bytes) {
+            match event {
+                crate::program_status::Event::Query => queries.push((end, None)),
+                crate::program_status::Event::Changed(report) => {
+                    if !self.codex_native_attention {
+                        *self.pending_program_status.lock().unwrap() = Some((seq, report));
+                    }
+                }
+            }
+        }
+        queries.sort_by_key(|(end, _)| *end);
         if let Some(reports) = &self.cwd_reports {
             if let Some(cwd) = reports
                 .lock()
@@ -269,18 +290,25 @@ impl TerminalModel {
         let mut term = self.term.lock();
         let previous_mode = *term.mode();
         let mut fed = 0;
-        for (end, sequence) in scheme_sequences {
+        for (end, sequence) in queries {
             parse(&mut parser, &mut term, &bytes[fed..end]);
             fed = end;
             match sequence {
-                SchemeSequence::Subscribe => self.scheme.subscribed.store(true, Ordering::Relaxed),
-                SchemeSequence::Unsubscribe => {
+                Some(SchemeSequence::Subscribe) => {
+                    self.scheme.subscribed.store(true, Ordering::Relaxed)
+                }
+                Some(SchemeSequence::Unsubscribe) => {
                     self.scheme.subscribed.store(false, Ordering::Relaxed)
                 }
-                SchemeSequence::Query => {
+                Some(SchemeSequence::Query) => {
                     let _ = self.events.send(Event::PtyWrite(scheme_report(
                         self.palette.lock().unwrap().theme,
                     )));
+                }
+                None => {
+                    let _ = self
+                        .events
+                        .send(Event::PtyWrite(crate::program_status::PROBE_REPLY.into()));
                 }
             }
         }
@@ -307,6 +335,20 @@ impl TerminalModel {
 
     pub fn publish_initial(&self) {
         self.publish_input(Some(self.initial_observation));
+    }
+
+    pub fn take_program_status(&self) -> Option<(u64, Option<crate::program_status::Report>)> {
+        self.pending_program_status.lock().unwrap().take()
+    }
+
+    pub fn clear_program_status(&self) {
+        *self.program_status.lock().unwrap() = Default::default();
+        *self.pending_program_status.lock().unwrap() = None;
+    }
+
+    pub fn invalidate_program_status(&self) {
+        self.program_status.lock().unwrap().invalidate_records();
+        *self.pending_program_status.lock().unwrap() = None;
     }
 
     pub fn publish_input(&self, observation: Option<InputObservation>) {
@@ -507,6 +549,55 @@ mod delivery_tests {
         }
         fn is_local_host(&self, _: &str) -> bool {
             true
+        }
+    }
+
+    #[test]
+    fn program_probe_reply_precedes_da_in_the_same_or_next_chunk() {
+        #[derive(Default)]
+        struct Replies(Mutex<Vec<Vec<u8>>>);
+        impl TerminalHost for Replies {
+            fn write_input(&self, _: &str, _: &[u8]) -> Result<()> {
+                Ok(())
+            }
+            fn write_reply(&self, _: &str, bytes: &[u8]) -> Result<()> {
+                if !bytes.is_empty() {
+                    self.0.lock().unwrap().push(bytes.to_vec());
+                }
+                Ok(())
+            }
+            fn report_input_state(&self, _: &str, _: InputObservation) {}
+            fn set_live_title(&self, _: &str, _: &str) -> Result<()> {
+                Ok(())
+            }
+            fn resize(&self, _: &str, _: u16, _: u16) -> Result<()> {
+                Ok(())
+            }
+            fn is_local_host(&self, _: &str) -> bool {
+                true
+            }
+        }
+        for terminator in ["\x07", "\x1b\\"] {
+            let bytes = format!("\x1b]7501;?{terminator}\x1b[c");
+            for split in 0..=bytes.len() {
+                let host = Arc::new(Replies::default());
+                let model = TerminalModel::new(
+                    host.clone(),
+                    "probe".into(),
+                    80,
+                    4,
+                    ModelOptions::default(),
+                )
+                .unwrap();
+                model.feed_output(1, &bytes.as_bytes()[..split]);
+                model.feed_output(2, &bytes.as_bytes()[split..]);
+                model.flush_events();
+                let replies = host.0.lock().unwrap();
+                assert_eq!(replies.len(), 2, "split {split}");
+                assert_eq!(replies[0], crate::program_status::PROBE_REPLY.as_bytes());
+                assert!(replies[1].starts_with(b"\x1b[?"));
+                assert!(replies[1].ends_with(b"c"));
+            }
         }
     }
 

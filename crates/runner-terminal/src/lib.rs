@@ -7,6 +7,7 @@ pub mod fixtures;
 pub mod input_state;
 pub mod mappings;
 pub mod palette;
+pub mod program_status;
 pub mod replay;
 pub mod snapshot;
 pub mod terminal;

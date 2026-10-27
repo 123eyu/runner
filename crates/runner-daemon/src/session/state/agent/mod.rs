@@ -144,6 +144,7 @@ impl TurnState {
             outcome: self.outcome,
             interactions: self.interactions.clone(),
             detail: self.detail,
+            program_status: None,
         }
     }
 }
