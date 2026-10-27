@@ -34,6 +34,15 @@ jobs:
       - name: Install nextest
         run: curl -LsSf https://get.nexte.st/0.9.148/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 
+      - name: Remove other Rust toolchains
+        shell: bash
+        run: |
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          for toolchain in $(rustup toolchain list --quiet); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+          rustup toolchain list
+
       - name: Hash build settings
         id: cache-key
         shell: bash
@@ -43,7 +52,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ steps.cache-key.outputs.hash }}
-          add-rust-environment-hash-key: false
           cache-on-failure: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -95,6 +103,15 @@ jobs:
         shell: bash
         run: curl -LsSf https://get.nexte.st/0.9.148/windows-tar | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 
+      - name: Remove other Rust toolchains
+        shell: bash
+        run: |
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          for toolchain in $(rustup toolchain list --quiet); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+          rustup toolchain list
+
       - name: Hash build settings
         id: cache-key
         shell: bash
@@ -104,7 +121,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ steps.cache-key.outputs.hash }}
-          add-rust-environment-hash-key: false
           cache-on-failure: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
