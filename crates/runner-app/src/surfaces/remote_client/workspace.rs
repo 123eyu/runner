@@ -228,7 +228,7 @@ impl NativeRoot {
                 .send(Command::Retry(computer.id));
             return;
         }
-        self.remember_remote_selection();
+        self.remember_remote_selection(cx);
         if let Some(remote) = &self.remote_window {
             remote
                 .mission_workspace
@@ -280,10 +280,24 @@ impl NativeRoot {
         let access = clients.update(cx, |state, cx| state.front_page_access(&computer, cx));
         let front_page =
             crate::surfaces::front_page::FrontPageClient::remote(self.core(cx).clone(), access);
+        let selection = self
+            .client_ui
+            .selections
+            .remove(&computer.id)
+            .filter(|_| clients.read(cx).overviews.contains_key(&computer.id))
+            .unwrap_or_default();
         let shell = cx.weak_entity();
         let sidebar =
             cx.new(|sidebar_cx| Sidebar::new(shell, self.app_store.clone(), None, sidebar_cx));
         sidebar.update(cx, |sidebar, cx| {
+            sidebar.remote_settings = selection.sidebar_settings.map(|saved| AppSettings {
+                sidebar_active_only: saved.sidebar_active_only,
+                sidebar_collapsed_projects: saved.sidebar_collapsed_projects,
+                sidebar_collapsed_active_groups: saved.sidebar_collapsed_active_groups,
+                sidebar_projects_open: saved.sidebar_projects_open,
+                sidebar_chats_open: saved.sidebar_chats_open,
+                ..self.settings(cx).clone()
+            });
             sidebar.set_front_page_target(front_page.clone(), cx)
         });
         let shell = cx.weak_entity();
@@ -297,12 +311,6 @@ impl NativeRoot {
                 workspace_cx,
             )
         });
-        let (active, layouts) = self
-            .client_ui
-            .selections
-            .remove(&computer.id)
-            .filter(|_| clients.read(cx).overviews.contains_key(&computer.id))
-            .unwrap_or_default();
         self.remote_window = Some(RemoteWindow {
             mission_workspace,
             sidebar,
@@ -311,8 +319,8 @@ impl NativeRoot {
             front_page,
             computer,
             _follow: Some(follow),
-            active,
-            layouts,
+            active: selection.active,
+            layouts: selection.layouts,
             overview_revision: 0,
             resize_draft: None,
             resizing_split: None,
@@ -382,7 +390,7 @@ impl NativeRoot {
         self.terminal_close_confirm = None;
         self.command_palette
             .update(cx, |palette, cx| palette.close_for_target_change(cx));
-        self.remember_remote_selection();
+        self.remember_remote_selection(cx);
         if let Some(remote) = &self.remote_window {
             remote
                 .mission_workspace
@@ -394,11 +402,15 @@ impl NativeRoot {
         self.sync_window_activation(window, cx);
         cx.notify();
     }
-    pub(crate) fn remember_remote_selection(&mut self) {
+    pub(crate) fn remember_remote_selection(&mut self, cx: &App) {
         if let Some(remote) = &self.remote_window {
             self.client_ui.selections.insert(
                 remote.computer.id.clone(),
-                (remote.active.clone(), remote.layouts.clone()),
+                RemoteSelection {
+                    active: remote.active.clone(),
+                    layouts: remote.layouts.clone(),
+                    sidebar_settings: remote.sidebar.read(cx).remote_settings.clone(),
+                },
             );
         }
     }
