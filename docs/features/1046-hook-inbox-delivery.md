@@ -2,7 +2,7 @@
 
 > Tracking issue: [#1046](https://github.com/yicheng47/runner/issues/1046).
 > Status: revised 2026-10-30. Runner keeps composer delivery and makes three changes to it: notices are typed only into idle members, a draft hold expires ten minutes after the person's last keystroke, and an input-method composition that the app can no longer finish stops holding delivery. Native channels that avoid the composer are later work. Nothing is built.
-> Related: [#940](https://github.com/yicheng47/runner/issues/940), [#1018](https://github.com/yicheng47/runner/issues/1018) and [#1075](https://github.com/yicheng47/runner/issues/1075) (holds and leftover notices), [#753](https://github.com/yicheng47/runner/issues/753) (unsubmitted notices in a busy Codex), [#1012](https://github.com/yicheng47/runner/issues/1012) (closed), [#861](https://github.com/yicheng47/runner/issues/861) and [#1051](https://github.com/yicheng47/runner/issues/1051) (status), [748](./748-mission-watch-delivery.md).
+> Related: [#940](https://github.com/yicheng47/runner/issues/940), [#1018](https://github.com/yicheng47/runner/issues/1018) and [#1075](https://github.com/yicheng47/runner/issues/1075) (holds and leftover notices), [#753](https://github.com/yicheng47/runner/issues/753) (unsubmitted notices in a busy Codex), [#1012](https://github.com/yicheng47/runner/issues/1012) (closed), [#861](https://github.com/yicheng47/runner/issues/861) and [#1051](https://github.com/yicheng47/runner/issues/1051) (status), [748](./748-mission-link.md).
 
 ## Motivation
 

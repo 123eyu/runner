@@ -66,7 +66,7 @@ rg -n 'runner[_-]backend' -g '!*.pen' -g '!docs/features/**' -g '!docs/impls/arc
 - `docs/features/645-session-host.md`
 - `docs/features/701-desktop-notifications.md`
 - `docs/features/704-session-send.md`
-- `docs/features/748-mission-watch-delivery.md`
+- `docs/features/748-mission-link.md`
 - `docs/features/764-pi-mcp-management.md`
 - `docs/features/795-shell-agent-boundary.md`
 - `docs/features/797-hook-status-ipc.md`
