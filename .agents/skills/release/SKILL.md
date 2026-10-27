@@ -1,11 +1,11 @@
 ---
 name: release
-description: Cut a Runner production release — bump the workspace version, tag vX.Y.Z, let release.yml build the draft for both platforms, write bilingual release notes (English, with 中文 collapsed in a details block), hand the publish switch to the user, and sweep the shipped work's docs once the release is live
+description: Cut a Runner production release — bump the workspace version, tag vX.Y.Z, let release.yml build the draft for macOS, Windows and Linux, write bilingual release notes (English, with 中文 collapsed in a details block), hand the publish switch to the user, and sweep the shipped work's docs once the release is live
 ---
 
 # Release
 
-A production release is a `vX.Y.Z` tag on a `main` commit whose workspace version is exactly `X.Y.Z`. `release.yml` builds the signed, notarized macOS DMG with its one-item Sparkle appcast and the Windows x64 installer with its minisign signature, then attaches everything to a **draft** release. Publishing the draft is the user's switch: it moves `releases/latest` and the production Sparkle feed. Contract: `docs/arch/arch.md` §14; nightlies are a separate channel handled by the `nightly` skill.
+A production release is a `vX.Y.Z` tag on a `main` commit whose workspace version is exactly `X.Y.Z`. `release.yml` builds the signed, notarized macOS DMG with its one-item Sparkle appcast and the Windows x64 installer with its minisign signature, plus Linux ARM64/x86_64 tar/deb packages, then attaches everything to a **draft** release. Publishing the draft is the user's switch: it moves `releases/latest` and the production Sparkle feed. Contract: `docs/arch/arch.md` §14; nightlies are a separate channel handled by the `nightly` skill.
 
 An explicit request to `run` authorizes the bump commit, the push, the tag, and editing the draft's notes; after the user publishes, it also authorizes the sweep's docs commit and push. An explicit `sweep` request authorizes that commit and push on its own. Nothing in this skill publishes the draft, deletes a release, or moves an existing tag. Record only observed results.
 
@@ -22,21 +22,21 @@ An explicit request to `run` authorizes the bump commit, the push, the tag, and 
    - No release run is in flight: `gh run list --workflow release.yml --limit 3 --json status`.
 2. **Bump.** Set `version` under `[workspace.package]` in the root `Cargo.toml` to `<version>`. Every crate inherits it with `version.workspace = true` (since #635), so there is no per-crate edit. Run `cargo check --workspace` to refresh `Cargo.lock`, which updates each crate's entry, then `cargo test -p runner-app --test bundle_mac`. Commit `Cargo.toml` and `Cargo.lock` as `chore: bump version to <version>` and push `main`.
 3. **Tag.** `git tag -a v<version> -m "Runner <version>" && git push origin v<version>`. The push starts `release.yml`.
-4. **Watch.** Find the run with `gh run list --workflow release.yml --limit 1 --json databaseId,status,headSha` and `gh run watch <id> --exit-status`. Both build jobs and the publish job must succeed. On failure, `gh run view <id> --log-failed`, report the failing step, and stop; the tag stays, the draft may be partial.
+4. **Watch.** Find the run with `gh run list --workflow release.yml --limit 1 --json databaseId,status,headSha` and `gh run watch <id> --exit-status`. All platform build jobs (including both Linux matrix instances) and the publish job must succeed. On failure, `gh run view <id> --log-failed`, report the failing step, and stop; the tag stays, the draft may be partial.
 5. **Notes.** Follow `notes <version>` below and set them on the draft: `gh release edit v<version> --notes-file <file>`. Do not pass `--draft=false`.
-6. **Report.** The draft URL, both asset names, and the reminder that publishing is the user's action. A draft's `untagged-…` URL changes each time it is edited, so link the latest one. After the user publishes, confirm `gh release view v<version> --json isDraft` is `false` before anything that assumes the release is live, then verify `gh api repos/yicheng47/runner/releases/latest --jq .tag_name` is `v<version>` and that `releases/latest/download/appcast.xml` names the new DMG.
+6. **Report.** The draft URL, every platform asset name, and the reminder that publishing is the user's action. A draft's `untagged-…` URL changes each time it is edited, so link the latest one. After the user publishes, confirm `gh release view v<version> --json isDraft` is `false` before anything that assumes the release is live, then verify `gh api repos/yicheng47/runner/releases/latest --jq .tag_name` is `v<version>` and that `releases/latest/download/appcast.xml` names the new DMG.
 7. **Sweep.** Once the release is live, follow `sweep <version>` below.
 
 ## `notes <version>`
 
-Release notes are **bilingual**: the full English text first, then the same content in 中文 inside a `<details>` block so the page reads as English-only until a reader expands it (GitHub has no tabs; a collapsed block is the nearest thing, and both in-app updaters open the release page in a browser where it renders). 0.8.3 used a horizontal rule instead; every release since 0.8.4 ships the collapsed form. A draft with only the workflow's one-line stub is not ready to publish.
+Release notes are **bilingual**: the full English text first, then the same content in 中文 inside a `<details>` block so the page reads as English-only until a reader expands it (GitHub has no tabs; a collapsed block is the nearest thing, and the in-app updaters open the release page in a browser where it renders). 0.8.3 used a horizontal rule instead; every release since 0.8.4 ships the collapsed form. A draft with only the workflow's one-line stub is not ready to publish.
 
 Source the content from `git log v<previous>..v<version> --no-merges --format='- %s (%h)'` and the closed issues those commits reference. Write for users, not for the repo: what changed for them, in their words, one bullet per change with the issue number at the end. Skip internal work (tests, CI, docs, refactors) unless it changes what users see.
 
 Structure, both languages:
 
 ```
-Runner <version> is a <bug-fix | feature> release for macOS and Windows on top of <previous>.
+Runner <version> is a <bug-fix | feature> release for macOS, Windows and Linux on top of <previous>.
 
 ## New                      (omit if empty)
 - **Short bold lead.** One or two sentences. (#123)
@@ -51,14 +51,16 @@ Runner <version> is a <bug-fix | feature> release for macOS and Windows on top o
 - **macOS, Apple Silicon:** download `Runner-<version>-arm64.dmg`, or update through Sparkle. The app is signed and notarized.
 - **Windows x64, Windows 10 version 1809 or later:** download `Runner-Setup-<version>.<stamp>-x64.exe`. The installer, app, and CLI sidecars are Authenticode-signed by Open Source Developer Yicheng Wang. You can also update through Settings → Updates → Update, then choose Install and restart. Settings, chats, and missions are retained.
 
-Windows ARM64, Intel Macs, and Linux are not supported.
+- **Linux ARM64/x86_64:** use `Runner-<version>-linux-<aarch64|x86_64>.tar.gz` or `.deb`; install/update through the same package installer. The opt-in user service is disabled on install, and uninstall retains user data. Each Linux package carries a matching minisign signature verified by the in-app updater.
+
+Windows ARM64 and Intel Macs are not supported. Linux ARM64/x86_64 downloads use tar/deb packages; signed in-app updates support managed tar installations and system-authorized APT installation. State the actual build baseline and native validation gaps, and do not claim local artifacts have already been published.
 
 **Full changelog:** https://github.com/yicheng47/runner/compare/v<previous>...v<version>
 
 <details>
 <summary>中文</summary>
 
-Runner <version> 是 macOS 和 Windows 上基于 <previous> 的<修复版本 | 功能版本>。
+Runner <version> 是 macOS、Windows 和 Linux 上基于 <previous> 的<修复版本 | 功能版本>。
 
 ## 新功能
 ...
@@ -69,7 +71,7 @@ Runner <version> 是 macOS 和 Windows 上基于 <previous> 的<修复版本 | �
 ## 下载与升级
 ...
 
-Windows ARM64、Intel Mac 和 Linux 暂不支持。
+Windows ARM64 和 Intel Mac 暂不支持。Linux ARM64/x86_64 提供 tar/deb 包及对应 minisign 签名，支持应用内验证更新：用户 tar 安装原子替换，deb 包经授权由 APT 安装；说明实际构建基线与原生验证缺口，不把本地包写成已发布。
 
 **完整变更记录：** https://github.com/yicheng47/runner/compare/v<previous>...v<version>
 

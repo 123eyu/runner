@@ -10,6 +10,7 @@ pub trait SecretStore: Send + Sync {
 }
 
 pub struct OsStore {
+    #[cfg(any(target_os = "macos", windows, test))]
     namespace: String,
     #[cfg(unix)]
     file: Option<FileStore>,
@@ -27,9 +28,10 @@ impl OsStore {
         };
         store
     }
-    fn named(_root: &Path, namespace: &str) -> Self {
+    fn named(_root: &Path, _namespace: &str) -> Self {
         Self {
-            namespace: namespace.into(),
+            #[cfg(any(target_os = "macos", windows, test))]
+            namespace: _namespace.into(),
             #[cfg(unix)]
             file: if cfg!(target_os = "macos") {
                 None
@@ -158,6 +160,32 @@ struct FileStore {
 }
 #[cfg(unix)]
 impl FileStore {
+    fn validate_root(&self) -> StoreResult<bool> {
+        use std::os::unix::fs::MetadataExt;
+        let directory = match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(&self.root)
+        {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(_) => return Err("Secret directory metadata failed"),
+        };
+        let meta = directory
+            .metadata()
+            .map_err(|_| "Secret directory metadata failed")?;
+        if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o002 != 0 {
+            return Err("Secret directory must be owned by this user and not writable by others");
+        }
+        if meta.mode() & 0o020 != 0 {
+            // Daemon boot may have created this user-owned root under umask 002.
+            directory
+                .set_permissions(std::fs::Permissions::from_mode(meta.mode() & !0o022))
+                .map_err(|_| "Secret directory permission repair failed")?;
+        }
+        Ok(true)
+    }
+
     fn path(&self, name: &str) -> PathBuf {
         use sha2::{Digest, Sha256};
         let filename = match name {
@@ -175,10 +203,13 @@ impl FileStore {
 impl SecretStore for FileStore {
     fn get(&self, origin: &str) -> StoreResult<Option<Vec<u8>>> {
         use std::os::unix::fs::MetadataExt;
+        if !self.validate_root()? {
+            return Ok(None);
+        }
         let path = self.path(origin);
         let mut file = match std::fs::OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(path)
         {
             Ok(file) => file,
@@ -186,7 +217,7 @@ impl SecretStore for FileStore {
             Err(_) => return Err("Secret file read failed"),
         };
         let meta = file.metadata().map_err(|_| "Secret file metadata failed")?;
-        if meta.mode() & 0o077 != 0 || meta.uid() != unsafe { libc::geteuid() } {
+        if !meta.is_file() || meta.mode() & 0o077 != 0 || meta.uid() != unsafe { libc::geteuid() } {
             return Err("Secret file must be owned by this user with mode 0600");
         }
         use std::io::Read;
@@ -197,7 +228,13 @@ impl SecretStore for FileStore {
     }
     fn put(&self, origin: &str, value: &[u8]) -> StoreResult<()> {
         use std::io::Write;
-        std::fs::create_dir_all(&self.root).map_err(|_| "Secret directory creation failed")?;
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&self.root)
+            .map_err(|_| "Secret directory creation failed")?;
+        self.validate_root()?;
         let mut file = tempfile::Builder::new()
             .permissions(std::fs::Permissions::from_mode(0o600))
             .tempfile_in(&self.root)
@@ -212,6 +249,9 @@ impl SecretStore for FileStore {
         Ok(())
     }
     fn delete(&self, origin: &str) -> StoreResult<()> {
+        if !self.validate_root()? {
+            return Ok(());
+        }
         match std::fs::remove_file(self.path(origin)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -715,6 +755,167 @@ mod client_key_tests {
 #[cfg(all(test, unix))]
 mod file_tests {
     use super::*;
+    #[test]
+    fn fifo_secret_in_group_writable_root_is_rejected_without_blocking() {
+        const CHILD_ROOT: &str = "RUNNER_TEST_FIFO_SECRET_ROOT";
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            let store = FileStore { root: root.into() };
+            assert_eq!(
+                store.get(IDENTITY_NAME).unwrap_err(),
+                "Secret file must be owned by this user with mode 0600"
+            );
+            return;
+        }
+        use std::os::unix::ffi::OsStrExt;
+        let root = tempfile::tempdir().unwrap();
+        let fifo = std::ffi::CString::new(
+            root.path()
+                .join("remote-identity.json")
+                .as_os_str()
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o775)).unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "remote::store::file_tests::fifo_secret_in_group_writable_root_is_rejected_without_blocking", "--nocapture"])
+            .env(CHILD_ROOT, root.path())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while child.try_wait().unwrap().is_none() {
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("FIFO secret blocked startup; child killed and reaped");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::metadata(root.path()).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+
+    #[test]
+    fn group_writable_data_root_can_create_private_secrets() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o775)).unwrap();
+        let store = FileStore {
+            root: root.path().into(),
+        };
+        assert!(store.get(IDENTITY_NAME).unwrap().is_none());
+        let identity = Identity::generate().unwrap();
+        identity.save(&store).unwrap();
+        assert_eq!(
+            Identity::load(&store).unwrap().unwrap().key.0,
+            identity.key.0
+        );
+        assert_eq!(
+            std::fs::metadata(store.path(IDENTITY_NAME))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn group_writable_data_root_restores_existing_identity_and_enrollment() {
+        let root = tempfile::tempdir().unwrap();
+        let store = FileStore {
+            root: root.path().into(),
+        };
+        let identity = Identity::generate().unwrap();
+        identity.save(&store).unwrap();
+        let origin = "https://restore-test.invalid";
+        let credential = format!("rhc_{}", "x".repeat(43));
+        store
+            .put(
+                origin,
+                &serde_json::to_vec(&Secrets {
+                    v: 2,
+                    key: None,
+                    credential: runner_core::remote::Secret(credential.clone()),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o775)).unwrap();
+        let (restored, enrollment) = restore(&store, Some(origin)).unwrap();
+        assert_eq!(restored.unwrap().key.0, identity.key.0);
+        assert_eq!(enrollment.unwrap().credential.0, credential);
+        assert_eq!(
+            std::fs::metadata(root.path()).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+
+    #[test]
+    fn file_store_rejects_writable_or_symlinked_roots_without_changing_existing_modes() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("private");
+        let store = FileStore { root: path.clone() };
+        assert!(store.get(IDENTITY_NAME).unwrap().is_none());
+        store.put(IDENTITY_NAME, b"fixture").unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(store.get(IDENTITY_NAME).is_err());
+        assert!(store.put(IDENTITY_NAME, b"replacement").is_err());
+        assert!(store.delete(IDENTITY_NAME).is_err());
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o777
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let linked = root.path().join("linked");
+        std::os::unix::fs::symlink(&path, &linked).unwrap();
+        let linked_store = FileStore { root: linked };
+        assert!(linked_store.get(IDENTITY_NAME).is_err());
+        assert!(linked_store.put(IDENTITY_NAME, b"replacement").is_err());
+        assert_eq!(store.get(IDENTITY_NAME).unwrap().unwrap(), b"fixture");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_release_launchers_share_identity_across_restarts_but_not_development() {
+        let base = tempfile::tempdir().unwrap();
+        let release = base
+            .path()
+            .join(runner_core::app_paths::app_identifier(false));
+        let development = base
+            .path()
+            .join(runner_core::app_paths::app_identifier(true));
+        let app = OsStore::new(&release, false);
+        let identity = Identity::generate().unwrap();
+        identity.save(&app).unwrap();
+        let service = OsStore::new(&release, false);
+        let cli = OsStore::new(&release, false);
+        assert_eq!(
+            Identity::load(&service).unwrap().unwrap().key.0,
+            identity.key.0
+        );
+        assert_eq!(Identity::load(&cli).unwrap().unwrap().key.0, identity.key.0);
+        let dev = OsStore::new(&development, true);
+        assert!(Identity::load(&dev).unwrap().is_none());
+        let dev_identity = Identity::generate().unwrap();
+        dev_identity.save(&dev).unwrap();
+        assert_ne!(dev_identity.key.0, identity.key.0);
+        assert_eq!(Identity::load(&app).unwrap().unwrap().key.0, identity.key.0);
+    }
+
     #[test]
     fn file_items_are_independent_private_and_reject_unsafe_files() {
         let root = tempfile::tempdir().unwrap();

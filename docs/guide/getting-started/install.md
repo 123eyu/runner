@@ -11,9 +11,11 @@ Download the latest stable build from [Runner downloads](https://runnersh.dev/do
 | macOS | Signed and notarized `.dmg` | macOS 12 or later, Apple Silicon Mac |
 | Windows | Signed `Runner-Setup-…-x64.exe` | Windows 10 version 1809 or later, x64 |
 
-Intel Macs, Windows ARM64 and Linux are not supported.
+Intel Macs and Windows ARM64 are not supported. Linux ARM64/x86_64 support is in development. Signed tar/deb nightlies for both architectures are published on the [nightly prerelease](https://github.com/yicheng47/runner/releases/tag/nightly); stable Linux packages arrive with the next release, and native acceptance remains pending. See [Linux build/install instructions](https://github.com/yicheng47/runner/blob/main/docs/arch/linux.md) on `main` for prerequisites, local packages and current validation gaps.
 
 On macOS, open the disk image, drag Runner into Applications, and launch it. On Windows, run the installer and launch Runner from the Start menu. A fresh Windows release may show a SmartScreen warning; after verifying that you downloaded the official installer, **More info → Run anyway** continues installation.
+
+On Linux, local package installation registers Runner's application-menu entry and icon. Launch Runner from that entry; running windows use the same desktop identity so the dock can display the Runner name and icon.
 
 ## Set up an agent
 
@@ -32,6 +34,7 @@ The dot on the Usage popover's **Agent settings** gear indicates an agent CLI up
 Open **Settings → General → Command line**. This command is optional for a first chat, but useful when working from a shell or asking another agent to operate Runner.
 
 - **macOS:** Runner automatically installs a link in `~/.local/bin`, or a writable `/usr/local/bin`, when the directory is already on the login `PATH`. If it is not installed, click **Install**. The settings page shows the target and whether an administrator password is needed.
+- **Linux local packages:** The installer provides `runner`, `runnerd` and `runner-app` before the GUI is opened. Add `~/.local/bin` to PATH for a tarball install; system packages use `/usr/bin`. Settings recognizes these as package-managed commands; remove them with the package installer. The optional systemd user service is disabled until you enable it.
 - **Windows:** Runner adds its command directory to your user `PATH`. Open a new terminal so it picks up the change.
 
 Check the command in that terminal:
@@ -45,6 +48,8 @@ The **Runner skill for agents** switch in the same settings section installs a s
 
 ## Updates
 
-Runner updates in place and preserves settings, chats and missions. macOS uses Sparkle; Windows offers updates through **Settings → Updates** and the update icon beside the Runner name in the sidebar. An update restarts running agents so they can resume their saved conversations with the new version.
+Runner updates in place and preserves settings, chats and missions. macOS uses Sparkle; Windows and Linux offer updates through **Settings → Updates** and the update icon beside the Runner name in the sidebar. An update restarts running agents so they can resume their saved conversations with the new version.
+
+Linux builds use production or nightly package identities, with separate stable and nightly feeds. On Linux, **Settings → Updates** downloads and verifies the package for your architecture and installation format. **Install and restart** replaces a managed user tar installation atomically, or requests system authorization to install a deb with APT. System installation requires polkit (`pkexec`). If an external installer or APT has replaced the executable while Runner is open, restart Runner before checking for or installing another update; the old process shows a restart error and stays open. Cancelling authorization or an installation failure leaves Runner open and shows an error; **Settings → Diagnostics** lists the installer log. User data is retained. Historical unsigned releases offer the download page instead of automatic installation. Over SSH, start `runnerd` explicitly with `systemctl --user start runnerd` before using the CLI. [Linux service lifetime and WSL setup](https://github.com/yicheng47/runner/blob/main/docs/arch/linux.md#optional-systemd-user-service) explain persistence and shutdown.
 
 Next: [start your first chat](first-chat.md).
