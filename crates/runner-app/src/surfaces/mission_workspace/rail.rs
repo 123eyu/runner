@@ -269,7 +269,7 @@ impl MissionWorkspace {
                             })
                         })
                     }))
-                    .when(!session.lead && self.remote.is_none(), |controls| {
+                    .when(self.remote.is_none(), |controls| {
                         controls.child(
                             IconButton::new(
                                 SharedString::from(format!("remove-role-{session_id}")),
@@ -291,18 +291,6 @@ impl MissionWorkspace {
             let mut header_gap = rems(8. / 16.);
             let mut header_margin = px(0.);
             if controls.is_some() {
-                let mut badge_style = window.text_style();
-                badge_style.font_weight = FontWeight::BOLD;
-                let badge_width = window
-                    .text_system()
-                    .shape_line(
-                        crate::i18n::text("heading.lead").into(),
-                        theme::text_micro().to_pixels(window.rem_size()),
-                        &[badge_style.to_run(crate::i18n::text("heading.lead").len())],
-                        None,
-                    )
-                    .width
-                    .ceil();
                 let mut handle_style = window.text_style();
                 handle_style.font_family = theme::UI_MONOSPACE_FONT.into();
                 handle_style.font_weight = FontWeight::SEMIBOLD;
@@ -329,11 +317,7 @@ impl MissionWorkspace {
                     .width
                     .ceil();
                 let needed_width = full_width.min(prefix_width);
-                let extra = if session.lead {
-                    rems(25. / 16.).to_pixels(window.rem_size()) + badge_width
-                } else {
-                    rems(33. / 16.).to_pixels(window.rem_size())
-                };
+                let extra = rems(33. / 16.).to_pixels(window.rem_size());
                 let fixed_width = rems((40. + 24. + 52. + 12. + 24.) / 16.)
                     .to_pixels(window.rem_size())
                     + px(2.)
@@ -343,9 +327,8 @@ impl MissionWorkspace {
                 let available_width = rail_width - fixed_width;
                 if available_width < needed_width {
                     header_gap = rems(2. / 16.);
-                    let compact_width = available_width
-                        + rems(if session.lead { 18. / 16. } else { 12. / 16. })
-                            .to_pixels(window.rem_size());
+                    let compact_width =
+                        available_width + rems(12. / 16.).to_pixels(window.rem_size());
                     if compact_width < needed_width {
                         // Borrow only the header's padding when even compact gaps cannot fit @<character>….
                         header_margin = -((needed_width - compact_width) / 2.).ceil();
@@ -461,15 +444,7 @@ impl MissionWorkspace {
                                                 .child(handle_title),
                                         )
                                         .expand(),
-                                    )
-                                    .children(session.lead.then(|| {
-                                        div()
-                                            .debug_selector(|| {
-                                                format!("MISSION_CARD_LEAD {session_id}")
-                                            })
-                                            .flex_none()
-                                            .child(runner_app::ui::lead_badge())
-                                    })),
+                                    ),
                             )
                             .children(controls),
                     )

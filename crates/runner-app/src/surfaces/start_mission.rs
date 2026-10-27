@@ -11,7 +11,7 @@ use runner_core::protocol::model::SlotWithRole;
 use runner_core::protocol::project::ProjectRow;
 use runner_core::protocol::project::ProjectScope;
 
-use crate::surfaces::crews::{crew_picture, lead_badge, slot_setup, slot_setup_line};
+use crate::surfaces::crews::{crew_picture, slot_setup, slot_setup_line};
 use crate::surfaces::front_page::folder_picker::FolderPicker;
 use crate::surfaces::front_page::{FrontPageClient, FrontPageTarget};
 use crate::*;
@@ -48,7 +48,6 @@ struct RemoteMissionForm {
 
 struct StartMissionSlotDisplay {
     handle: String,
-    lead: bool,
     role_name: String,
     setup: Option<crate::surfaces::crews::SlotSetup>,
 }
@@ -83,21 +82,6 @@ impl StartMissionModalState {
             .find(|crew| crew.id == self.crew_id)
     }
 
-    fn lead_handle(&self) -> Option<&str> {
-        if self.remote.is_some() {
-            return self
-                .host_crew()?
-                .slots
-                .iter()
-                .find(|slot| slot.lead)
-                .map(|slot| slot.handle.as_str());
-        }
-        self.roster
-            .iter()
-            .find(|member| member.slot.lead)
-            .map(|member| member.slot.slot_handle.as_str())
-    }
-
     fn slot_display(&self) -> Vec<StartMissionSlotDisplay> {
         if let Some(remote) = &self.remote {
             let Some(catalog) = &remote.catalog else {
@@ -109,7 +93,6 @@ impl StartMissionModalState {
                 .flat_map(|crew| &crew.slots)
                 .map(|slot| StartMissionSlotDisplay {
                     handle: slot.handle.clone(),
-                    lead: slot.lead,
                     role_name: catalog
                         .roles
                         .iter()
@@ -124,7 +107,6 @@ impl StartMissionModalState {
             .iter()
             .map(|member| StartMissionSlotDisplay {
                 handle: member.slot.slot_handle.clone(),
-                lead: member.slot.lead,
                 role_name: member.role.display_name.clone(),
                 setup: Some(slot_setup(member)),
             })
@@ -516,7 +498,6 @@ impl NativeRoot {
             selected.is_some_and(|crew| crew.role_count > 0)
         };
         let can_submit = modal.can_submit(cx);
-        let lead = modal.lead_handle();
         let root = cx.entity();
         let close_root = root.clone();
         let browse_root = root.clone();
@@ -595,12 +576,7 @@ impl NativeRoot {
             .child(
                 Field::new("start-mission-goal-field", crate::i18n::text("ui.goal"), modal.goal.clone()).tag(crate::i18n::text("word.optional"))
                     .emphasized(true)
-                    .subtitle(
-                        lead.map(|lead| {
-                            crate::i18n::tf("format.delivered_to_lead_on_mission_start", &[("handle", lead.to_owned())])
-                        })
-                        .unwrap_or_else(|| if modal.remote.is_none() && modal.crew_id.is_empty() { crate::i18n::text("ui.shared_with_every_role_that_joins_give_each_one_its_own_task_when_you_add_it").into() } else { crate::i18n::text("ui.delivered_to_the_crew_lead_on_mission_start").into() }),
-                    ),
+                    .subtitle(crate::i18n::text("ui.shared_with_every_member")),
             )
             .child(
                 Field::new(
@@ -921,13 +897,7 @@ fn remote_mission_crew_options(catalog: &runner_core::companion::Catalog) -> Vec
                 .collect::<Vec<_>>();
             SelectOption::new(crew.id.clone(), crew.name.clone())
                 .disabled(crew.slots.is_empty())
-                .description(crew_summary_message(
-                    crew.slots.len(),
-                    crew.slots
-                        .iter()
-                        .find(|slot| slot.lead)
-                        .map(|slot| slot.handle.as_str()),
-                ))
+                .description(crew_summary_message(crew.slots.len()))
                 .leading(SelectLeading::new(
                     format!("host-crew:{}:{handles:?}", crew.id),
                     move |size| crew_picture(&handles, size),
@@ -1005,7 +975,6 @@ fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
                                         )
                                         .child(format!("@{}", member.handle)),
                                 )
-                                .children(member.lead.then(lead_badge))
                                 .child(
                                     div()
                                         .min_w(px(0.))
@@ -1024,10 +993,8 @@ fn start_mission_crew_card(modal: &StartMissionModalState) -> gpui::Div {
         }))
 }
 
-fn crew_summary_message(count: usize, lead: Option<&str>) -> i18n::Text {
-    if let Some(lead) = lead {
-        i18n::message_count("count.slots_lead", count, &[("lead", lead.to_owned())])
-    } else if count == 0 {
+fn crew_summary_message(count: usize) -> i18n::Text {
+    if count == 0 {
         i18n::message("ui.no_slots_yet")
     } else {
         i18n::message_count("count.slots", count, &[])
@@ -1067,13 +1034,7 @@ fn start_mission_crew_options(crews: &[CrewListItem]) -> Vec<SelectOption> {
             let key = format!("crew:{}:{handles:?}", crew.crew.id);
             SelectOption::new(crew.crew.id.clone(), crew.crew.name.clone())
                 .separator_before(index == 0)
-                .description(crew_summary_message(
-                    crew.role_count as usize,
-                    crew.members
-                        .iter()
-                        .find(|member| member.lead)
-                        .map(|member| member.slot_handle.as_str()),
-                ))
+                .description(crew_summary_message(crew.role_count as usize))
                 .leading(SelectLeading::new(key, move |size| {
                     crew_picture(&handles, size)
                 }))
@@ -1169,7 +1130,7 @@ mod keyboard_tests {
                 slot_handle: member.slot.slot_handle.clone(), role_handle: member.role.handle.clone(), runtime: "codex".into(), lead: member.slot.lead,
             }).collect();
             let options = start_mission_crew_options(&modal.crews);
-            assert_eq!(options[1].description.as_deref(), Some("5 slots · lead @worker-0"));
+            assert_eq!(options[1].description.as_deref(), Some("5 slots"));
             assert!(options[1].leading.is_some());
             modal.crew_select.update(cx, |select, cx| select.set_options(options, cx));
             cx.notify();
@@ -1523,7 +1484,6 @@ mod remote_tests {
                     assert!(modal.crews.is_empty());
                     assert!(modal.roster.is_empty());
                     assert_eq!(modal.crew_id, "host-crew");
-                    assert_eq!(modal.lead_handle(), Some("lead"));
                     assert!(modal.cwd.read(cx).text().is_empty());
                     assert!(modal.slot_display().iter().all(|slot| slot.setup.is_none()));
                     assert!(modal.can_submit(cx));

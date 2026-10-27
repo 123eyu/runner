@@ -168,9 +168,12 @@ fn pi_direct_spawn_and_relocated_agent_dir_resume_use_recorded_prompt_file_and_n
 }
 
 #[test]
-fn pi_lead_and_worker_split_prompt_channels_and_approve_only_the_slot() {
-    let worker_body =
-        router::prompt::compose_worker_first_turn(Some("WORKER_BRIEF"), Some("TEAM_RULES"), None);
+fn pi_members_share_goal_and_approve_only_the_slot() {
+    let member_body = router::prompt::compose_member_first_turn(
+        Some("ROLE_BRIEF"),
+        Some("TEAM_RULES"),
+        Some("SHARED_GOAL"),
+    );
 
     for lead in [true, false] {
         let pool = pool_with_schema();
@@ -178,7 +181,7 @@ fn pi_lead_and_worker_split_prompt_channels_and_approve_only_the_slot() {
         crate::runtimes::pi::pi_status::install_extension(app_data.path()).unwrap();
         let mut role = role("pi-custom", &["--role-flag"]);
         role.runtime = "pi".into();
-        role.system_prompt = Some(if lead { "LEAD_BRIEF" } else { "WORKER_BRIEF" }.into());
+        role.system_prompt = Some("ROLE_BRIEF".into());
         let (mission, mut slot) = seed_mission_rows(&pool, &role);
         slot.lead = lead;
         pool.get()
@@ -190,41 +193,7 @@ fn pi_lead_and_worker_split_prompt_channels_and_approve_only_the_slot() {
             .unwrap();
         let fake = fake_runtime();
         let mgr = mgr_with_fake(None, Arc::clone(&fake));
-        let prompt_channels = if lead {
-            let roster = [
-                router::prompt::RosterEntry {
-                    handle: "lead",
-                    display_name: "Lead",
-                    lead: true,
-                },
-                router::prompt::RosterEntry {
-                    handle: "worker",
-                    display_name: "Worker",
-                    lead: false,
-                },
-            ];
-            crate::runtimes::adapter(Runtime::Pi)
-                .prompt_channels()
-                .lead(&router::prompt::LaunchPromptInput {
-                    lead: router::prompt::LeadView {
-                        handle: "lead",
-                        display_name: "Lead",
-                        system_prompt: Some("LEAD_BRIEF"),
-                    },
-                    crew_name: "crew",
-                    mission_goal: "@ship - safely",
-                    roster: &roster,
-                    allowed_signals: &[],
-                    crew_addendum: None,
-                })
-        } else {
-            crate::runtimes::adapter(Runtime::Pi)
-                .prompt_channels()
-                .split(
-                    router::prompt::SessionPromptKind::Worker,
-                    Some(worker_body.clone()),
-                )
-        };
+        let prompt_channels = (None, Some(member_body.clone()));
         let spawned = mgr
             .spawn_with_prompt_channels(
                 &mission,
@@ -273,32 +242,17 @@ fn pi_lead_and_worker_split_prompt_channels_and_approve_only_the_slot() {
         assert!(!spec
             .env
             .contains_key(crate::runtimes::pi::pi_status::REKEY_PATH_ENV));
-        let prompt_path = crate::session::system_prompt::path(app_data.path(), &spawned.id);
-        assert!(has_arg_pair(
-            &spec.args,
-            "--append-system-prompt",
-            prompt_path.to_str().unwrap()
-        ));
-        if lead {
-            assert_eq!(
-                std::fs::read_to_string(&prompt_path).unwrap(),
-                prompt_channels.0.unwrap()
-            );
-            assert_eq!(
-                &spec.args[spec.args.len() - 2..],
-                ["--", prompt_channels.1.as_deref().unwrap()]
-            );
-        } else {
-            assert_eq!(std::fs::read_to_string(&prompt_path).unwrap(), worker_body);
-            assert!(!spec.args.iter().any(|arg| arg == "--"));
-            assert!(!spec.args.iter().any(|arg| arg == "WORKER_BRIEF"));
-        }
+        assert!(!spec.args.iter().any(|arg| arg == "--append-system-prompt"));
+        assert_eq!(
+            &spec.args[spec.args.len() - 2..],
+            ["--", member_body.as_str()]
+        );
         mgr.kill(&spawned.id).unwrap();
     }
 }
 
 #[test]
-fn pi_missing_lead_conversation_keeps_id_and_resends_only_the_goal_turn() {
+fn pi_missing_legacy_conversation_keeps_id_and_resends_member_prompt() {
     let (pool, app_data, id) = slot_respawn_fixture("pi", true);
     let key = crate::repo::session::get_row(&pool.get().unwrap(), &id)
         .unwrap()
@@ -323,19 +277,18 @@ fn pi_missing_lead_conversation_keeps_id_and_resends_only_the_goal_turn() {
     assert!(spec.args.iter().any(|arg| arg == "--approve"));
     assert_eq!(spec.args[spec.args.len() - 2], "--");
     assert_eq!(
-        spec.args.last().map(String::as_str),
-        Some("== Mission ==\nGoal: LATEST_GOAL\n\n")
+        spec.args.last(),
+        Some(&router::prompt::compose_member_first_turn(
+            Some("SLOT_BRIEF"),
+            Some("TEAM_RULES"),
+            Some("LATEST_GOAL"),
+        ))
     );
     let persisted = crate::repo::session::get_row(&pool.get().unwrap(), &id)
         .unwrap()
         .unwrap();
     assert_eq!(persisted.agent_session_key.as_deref(), Some(key.as_str()));
-    let prompt =
-        std::fs::read_to_string(crate::session::system_prompt::path(app_data.path(), &id)).unwrap();
-    assert!(prompt.contains("SLOT_BRIEF"));
-    assert!(prompt.contains("TEAM_RULES"));
-    assert!(prompt.contains("== Coordination =="));
-    assert!(!prompt.contains("== Mission =="));
+    assert!(!spec.args.iter().any(|arg| arg == "--append-system-prompt"));
     mgr.kill(&id).unwrap();
 }
 
@@ -364,7 +317,8 @@ fn pi_launch_resume_recreates_an_untouched_worker_with_the_same_id() {
 
     let spec = fake.last_spawn_spec().unwrap();
     assert!(has_arg_pair(&spec.args, "--session-id", &key));
-    assert!(!spec.args.iter().any(|arg| arg == "--"));
+    assert_eq!(spec.args[spec.args.len() - 2], "--");
+    assert!(spec.args.last().unwrap().contains("LATEST_GOAL"));
     assert_eq!(
         crate::repo::session::get_row(&pool.get().unwrap(), &id)
             .unwrap()
@@ -405,7 +359,7 @@ fn pi_launch_resume_refuses_a_row_without_an_assigned_key() {
 }
 
 #[test]
-fn pi_restart_running_worker_rewrites_prompt_after_old_forwarder_exits() {
+fn pi_restart_running_member_sends_current_brief_after_old_forwarder_exits() {
     let (pool, app_data, id) = slot_respawn_fixture("pi", false);
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
@@ -435,16 +389,16 @@ fn pi_restart_running_worker_rewrites_prompt_after_old_forwarder_exits() {
     )
     .unwrap();
 
-    let prompt_path = crate::session::system_prompt::path(app_data.path(), &id);
+    let spec = fake.last_spawn_spec().unwrap();
     assert_eq!(
-        std::fs::read_to_string(&prompt_path).unwrap(),
-        router::prompt::compose_worker_first_turn(Some("UPDATED_BRIEF"), Some("TEAM_RULES"), None)
+        spec.args.last(),
+        Some(&router::prompt::compose_member_first_turn(
+            Some("UPDATED_BRIEF"),
+            Some("TEAM_RULES"),
+            Some("LATEST_GOAL"),
+        ))
     );
-    assert!(has_arg_pair(
-        &fake.last_spawn_spec().unwrap().args,
-        "--append-system-prompt",
-        prompt_path.to_str().unwrap()
-    ));
+    assert!(!spec.args.iter().any(|arg| arg == "--append-system-prompt"));
     assert_eq!(fake.spawn_count(), 2);
     mgr.kill(&id).unwrap();
 }
@@ -509,4 +463,68 @@ fn pi_direct_fork_uses_native_args_and_gets_its_own_prompt_file() {
     assert_ne!(forked.id, source_id);
     assert!(!crate::session::system_prompt::path(app_data.path(), &source_id).exists());
     mgr.kill(&forked.id).unwrap();
+}
+
+#[test]
+fn pi_existing_mission_resumes_restore_member_context_without_a_new_turn() {
+    for legacy_lead in [false, true] {
+        for on_launch in [false, true] {
+            let (pool, data, id) = slot_respawn_fixture("pi", legacy_lead);
+            let row = crate::repo::session::get_row(&pool.get().unwrap(), &id)
+                .unwrap()
+                .unwrap();
+            let key = row.agent_session_key.unwrap();
+            let sessions = data.path().join("pi-sessions");
+            std::fs::create_dir_all(&sessions).unwrap();
+            std::fs::write(sessions.join(format!("existing_{key}.jsonl")), "").unwrap();
+            let mut role =
+                crate::repo::role::get(&pool.get().unwrap(), row.role_id.as_deref().unwrap())
+                    .unwrap()
+                    .unwrap();
+            role.env.insert(
+                "PI_CODING_AGENT_SESSION_DIR".into(),
+                sessions.to_string_lossy().into_owned(),
+            );
+            update_role_row(&pool.get().unwrap(), &role);
+            let fake = fake_runtime();
+            let mgr = mgr_with_fake(None, fake.clone());
+            let resumed = if on_launch {
+                mgr.resume_on_launch(&id, None, None, data.path(), pool.clone(), capture())
+            } else {
+                mgr.resume(&id, None, None, data.path(), pool.clone(), capture())
+            }
+            .unwrap();
+            assert_eq!(resumed.id, id);
+            let spec = fake.last_spawn_spec().unwrap();
+            assert!(has_arg_pair(&spec.args, "--session-id", &key));
+            let prompt_path = crate::session::system_prompt::path(data.path(), &id);
+            assert!(has_arg_pair(
+                &spec.args,
+                "--append-system-prompt",
+                prompt_path.to_str().unwrap()
+            ));
+            assert_eq!(
+                std::fs::read_to_string(&prompt_path).unwrap(),
+                router::prompt::compose_member_first_turn(
+                    Some("SLOT_BRIEF"),
+                    Some("TEAM_RULES"),
+                    Some("LATEST_GOAL"),
+                )
+            );
+            assert!(!spec.args.iter().any(|arg| arg == "--"));
+            assert!(fake.bytes_writes().is_empty());
+            assert!(fake.keys().is_empty());
+            assert_eq!(
+                crate::repo::session::get_row(&pool.get().unwrap(), &id)
+                    .unwrap()
+                    .unwrap()
+                    .agent_session_key
+                    .as_deref(),
+                Some(key.as_str())
+            );
+            mgr.kill(&id).unwrap();
+            wait_for_session_exit(&mgr, &pool, &id);
+            assert!(!prompt_path.exists());
+        }
+    }
 }

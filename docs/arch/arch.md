@@ -102,7 +102,7 @@ The key insight: **a Role is config; a Session is its runtime instance** — sam
 ┌─ Configuration (persistent) ─────────┐    ┌─ Runtime (mission-scoped) ──────────────┐
 │                                      │    │                                         │
 │   Role   ──── Slot (per-crew handle, │    │   Session ─► PTY process                │
-│      ▲             lead flag,        ┼────┼─►  (one per roster member;              │
+│      ▲             display order,    ┼────┼─►  (one per roster member;              │
 │      │             runtime/model/    │    │      independent slot lifecycle)       │
 │      │             effort overrides) │    │                                         │
 │      │             ▲                 │    │     ▲                                   │
@@ -142,15 +142,15 @@ A named, persistent group of **slots**. Carries the optional team-conventions ad
 
 Crews are composed of **slots**, not roles directly. A slot is the indirection that lets the same role participate in many crews:
 
-- **`slot_handle`** — the slot's in-crew handle (`@impl`, `@lead`). Required, unique within the crew. This is what crewmates address each other by — `runner msg post --to impl`.
+- **`slot_handle`** — the slot's in-crew handle (`@impl`, `@reviewer`). Required, unique within the crew. This is what crewmates address each other by — `runner msg post --to impl`.
 - **`role_id`** — which role fills the slot.
 - **`position`** — display order within the crew.
-- **`lead`** — exactly one slot per crew carries `lead = 1`, enforced by a unique partial index (§10.1).
+- **`lead`** — a retained storage field ignored by current code. New slots and roster files write `false`; old flags load without a schema migration. Companion payloads keep the field, always `false`.
 - **`runtime_override`, `model_override`, `effort_override`** — per-slot deviations from the template, so one crew can run the same persona on two runtimes.
 
-**Why slot vs role.** Users curate a small library of roles and re-use them across crews and direct chats. Tying the in-crew handle and lead flag to the role would force duplicating configs every time a role shows up in a new crew.
+**Why slot vs role.** Users curate a small library of roles and re-use them across crews and direct chats. Tying the in-crew handle and overrides to the role would force duplicating configs every time a role shows up in a new crew.
 
-**A crew's lead is the default HITL gateway.** Workers send questions to the lead with `runner msg post --to <lead>`. The lead answers or escalates with `ask_human`, optionally naming the worker in `on_behalf_of`; the answer returns to the asker. Members of a mission without a lead ask the person directly. The retired `ask_lead` signal still parses and renders in old logs but is refused on send and has no router side effect.
+**Every member can ask the person directly.** `runner ask "<question>"` and its `--human` alias emit `ask_human`; the answer returns to the asker. `on_behalf_of` remains accepted for compatibility. The retired `ask_lead` signal still parses and renders in old logs but is refused on send and has no router side effect.
 
 ### 3.4 Mission — *one live run of its own roster*
 
@@ -170,15 +170,15 @@ Lifecycle:
 
 **Mission cwd is authoritative.** Each mission carries its own `cwd` column. Spawned slots inherit `mission.cwd` regardless of what the role's `working_dir` says — that field is only used in direct chats. Starting from a project copies the project's cwd into the row.
 
-The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, lead flags, order, role ids and overrides. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Crew provenance is optional; status readers return no crew when the template was deleted. Roles remain linked by id; Resume replays the recorded launch definition, and Restart uses the current role and roster overrides. A role cannot be deleted while an unarchived mission has a session for it.
+The mission owns `roster.json` beside its event log. Version 2 copies the crew's name, team conventions and slots at start, including slot ids, handles, order, role ids and overrides; legacy lead flags load but are ignored. Startup, router and bus rebuilds, message validation, session resume, the app and the CLI read this file; later crew edits never change its runtime roster or prompt copies. Crew provenance is optional; status readers return no crew when the template was deleted. Roles remain linked by id; Resume replays the recorded launch definition, and Restart uses the current role and roster overrides. A role cannot be deleted while an unarchived mission has a session for it.
 
-A start without a crew writes an empty version 2 roster, mounts the bus and router with no members, and remains running. Each added role is a worker; when there is no lead its first turn includes the shared goal and the team preamble. `missions.crew_id` is nullable provenance without a foreign key: deleting a crew removes its slots, keeps every mission, and retains the original crew id for locating the files. A crew start still requires exactly one lead.
+A start without a crew writes an empty version 2 roster, mounts the bus and router with no members, and remains running. Each added role is a member; its first turn includes the shared goal and the team preamble. `missions.crew_id` is nullable provenance without a foreign key: deleting a crew removes its slots, keeps every mission, and retains the original crew id for locating the files. A crew start requires at least one slot.
 
 While a mission runs, the person can add a configured worker or remove a worker from the rail or CLI. One mutex per mission serializes these operations. Both refuse any pending mission spawn; add registers cancellation immediately after its checks. Added slots persist their overrides in the roster and record a launch definition as at cold start. Removal stops the session and drops its roster slot without archiving or deleting its historical session row; session lists and Resume all keep only roster slots. A worker's exit or failed spawn leaves the rest of the mission running.
 
 The bus replays the log from offset zero and learns broadcast membership from human `role_joined` and `role_removed` signals. Its initial team is the file's handles minus mid-mission joins; a newcomer's unread count starts at its join. Directed messages always project to their addressee, including before a join. `runner msg read` still scans the entire log and includes earlier broadcasts. The router's mutable roster is changed directly by the operations; broadcasts and Restart prompts read that current roster.
 
-Before mounting routers at daemon startup, Runner converts every legacy version 1 roster, including archived missions. It preserves the file's handles, order and lead flags, matches current session-slot handles first and then unmatched session slots by first-start order, and uses the session's configuration when its slot was deleted. A handle without a session uses the crew's matching slot; one with neither is dropped with a warning. Version 2 files are left alone. A missing file or one that is not valid JSON falls back to the crew's current slots only when that crew still exists, writes version 2 and logs a warning. Without a crew, the original load error is returned. Other read errors, unsupported versions and invalid roster shapes return an error without rewriting the file; one mission's conversion failure does not block startup.
+Before mounting routers at daemon startup, Runner converts every legacy version 1 roster, including archived missions. It preserves the file's handles and order, ignores legacy lead flags, matches current session-slot handles first and then unmatched session slots by first-start order, and uses the session's configuration when its slot was deleted. A handle without a session uses the crew's matching slot; one with neither is dropped with a warning. Version 2 files are left alone. A missing file or one that is not valid JSON falls back to the crew's current slots only when that crew still exists, writes version 2 and logs a warning. Without a crew, the original load error is returned. Other read errors, unsupported versions and invalid roster shapes return an error without rewriting the file; one mission's conversion failure does not block startup.
 
 Concurrent missions on the same crew are allowed — a crew is a reusable template, and per-mission state (sessions, the bus, the runner-CLI shim path, the roster sidecar) is fully namespaced by `mission_id`.
 
@@ -377,15 +377,15 @@ The hook prints `ESC ] 7 ; file://<percent-encoded $PWD> ST` at each prompt, wit
 
 On the terminal side, The terminal model and mirror scan the raw output of `shell`-runtime sessions for OSC 7 before `vte` parses it, since `vte` drops the sequence. The scan carries a cut-off introducer or report across chunks and ends a report at BEL or ST. It keeps the last report whose host is this machine and whose path is absolute as the session's live cwd. `live_cwd()` offers that cwd only while it is a directory. A terminal split and New terminal start from it (§3.6), and relative file links try it before the spawn cwd. The terminal drawer is unchanged: its source is the tab's chat.
 
-The composed prompt is split into the runtime's system-prompt and first-turn channels in `router/prompt.rs`, then delivered by the adapter in `runtimes/<name>/`. Claude Code, Codex, TRAE and Copilot preserve their existing byte-identical first turns: a positional argument where accepted, `-i <body>` for Copilot and Antigravity, or a verified paste after a Windows batch wrapper is ready; genuine resumes suppress that first turn. Pi instead receives `--append-system-prompt <app data>/session-prompts/<Runner session id>.md` on every fresh spawn and resume. Runner rewrites that file from the recorded role text on Resume, or the current role on spawn and Restart, together with the crew and roster rows, removes it when the session ends, and sweeps leftovers at startup. A Pi direct chat and worker have no first turn; only the lead's `== Mission ==` section follows `--` as its first turn.
+The composed prompt is delivered by the adapter in `runtimes/<name>/`: a positional argument where accepted, `-i <body>` for Copilot and Antigravity, `-- <body>` for Pi, or a verified paste after a Windows batch wrapper is ready. Every mission member receives the same prompt shape. Genuine conversation resumes suppress the first turn. Pi mission resumes reapply the same member context through the system-prompt file so older crew conversations retain their instructions. Pi direct chats use `--append-system-prompt <app data>/session-prompts/<Runner session id>.md`; Runner refreshes that file from the recorded role on Resume or the current role on spawn and Restart, removes it when the session ends, and sweeps leftovers at startup.
 
-Every fresh mission-slot spawn carries the cold-start composed prompt: `compose_launch_prompt` for the lead (brief, crew conventions, roster, and latest mission goal), or `compose_worker_first_turn` for a worker (coordination preamble, crew conventions, and brief). This includes Restart and a manual Resume that falls back to fresh because a Claude, Copilot, Pi or Antigravity conversation file is missing or Codex/TRAE/Antigravity has no captured key. A genuine conversation resume sends no first turn; Pi still refreshes its system-prompt file from the recorded role text. Fresh Codex/TRAE respawns receive a new capture marker; Windows batch wrappers queue the same body through the existing first-turn delivery fallback.
+Every fresh mission-slot spawn carries `compose_member_first_turn`: the team coordination preamble, latest mission goal, crew conventions and role brief. This includes Restart and a manual Resume that falls back to fresh because a conversation file or captured key is missing. A genuine conversation resume sends no first turn; Pi reapplies the member prompt through `--append-system-prompt`. Fresh Codex/TRAE respawns receive a new capture marker; Windows batch wrappers queue the same body through the existing first-turn delivery fallback.
 
 Each mission session is independent: one session's exit or failed spawn never stops another. A clean exit marks only that session stopped; a crash or failed spawn marks only that session crashed and emits `session/exit`. Live siblings continue running, queued slots continue spawning, and the mission stays `running`. Stop all, mission stop and Archive still kill every session and cancel queued spawns; role deletion still kills every session for that role. Mission start's synchronous registration phase remains all-or-nothing.
 
 A mission slot has three lifecycle actions ([542](../guide/concepts/missions.md#stop-resume-and-archive)): **Stop** synchronously kills and reaps only its PTY, leaving the mission and sibling slots running; **Resume** respawns its existing row and asks the agent CLI to restore its conversation; **Restart** kills a running PTY and respawns the same row as a fresh conversation with its cold-start first turn. Restart replaces the agent key while retaining the Runner session id, router mapping, tabs, and mission event history. Resume and Restart share a per-session claim so concurrent requests cannot spawn twice or kill an in-flight respawn. Both accept current pane dimensions ahead of the persisted size, including when a stopped pane was resized. A mission slot only resumes or restarts while its mission is running and unarchived.
 
-Restart records a human `slot_restarted` signal followed by a `runner` message asking the lead to re-send the slot's task and context. If the lead is restarted, each other slot receives the note instead. The existing message router nudges the recipients' inboxes. A notification append failure leaves the successful restart intact and emits a session warning so the human knows to re-send context. Rail controls act immediately; the stopped-slot pane offers **Resume slot** and **Restart slot** while siblings are live. When all slots are stopped, the mission-wide **Resume** and **Archive** card remains. Only header **Stop all slots** asks for confirmation and names the running slot count ("Stop all N running slots?", or "Stop the running slot?" for one).
+Restart records a human `slot_restarted` signal followed by a `runner` message to every other member asking them to re-send the slot's task and context. The existing message router nudges the recipients' inboxes. A notification append failure leaves the successful restart intact and emits a session warning so the human knows to re-send context. Rail controls act immediately; the stopped-slot pane offers **Resume slot** and **Restart slot** while siblings are live. When all slots are stopped, the mission-wide **Resume** and **Archive** card remains. Only header **Stop all slots** asks for confirmation and names the running slot count ("Stop all N running slots?", or "Stop the running slot?" for one).
 
 ### 5.4 Native wiring and human takeover
 
@@ -409,7 +409,7 @@ OS and update quits never ask and leave the daemon running. On OS SIGTERM or Win
 
 Copilot assigns a UUID before spawning and persists it as `agent_session_key`, then passes `--session-id <uuid>` for both fresh starts and resumes. The conversation probe checks `$COPILOT_HOME` (otherwise `~/.copilot`), `session-state/<uuid>/events.jsonl`; a missing transcript starts fresh with the same id and includes the cold-start first turn. Before every Copilot spawn, Runner seeds the exact cwd in `config.json` `trustedFolders`, keeping the leading `//` header and unrelated values; `--yolo` alone does not bypass folder trust. Default and Accept edits role permission modes respectively write no permission flag and `--allow-tool=write`; Auto is not offered. Chats strip all Copilot permission flags.
 
-Pi also assigns and persists a UUID before the first process spawn, then passes `--session-id <uuid>` on fresh and resumed sessions. Its conversation probe mirrors the child's effective environment: the role overrides Runner's inherited process environment, `PI_CODING_AGENT_SESSION_DIR` selects one flat directory, `PI_CODING_AGENT_DIR` selects `sessions/<slug>/` beneath the agent directory, and the fallback is `~/.pi/agent/sessions/<slug>/`; every layout names files `<ISO timestamp with colons and periods replaced by hyphens>_<uuid>.jsonl`. `sessionDir` in `settings.json` and a role's own `--session-dir` argument are not honoured. A missing file starts fresh under the same id, with only a lead receiving its goal again. The refreshed `--append-system-prompt` file applies current role edits even to a genuine resume.
+Pi also assigns and persists a UUID before the first process spawn, then passes `--session-id <uuid>` on fresh and resumed sessions. Its conversation probe mirrors the child's effective environment: the role overrides Runner's inherited process environment, `PI_CODING_AGENT_SESSION_DIR` selects one flat directory, `PI_CODING_AGENT_DIR` selects `sessions/<slug>/` beneath the agent directory, and the fallback is `~/.pi/agent/sessions/<slug>/`; every layout names files `<ISO timestamp with colons and periods replaced by hyphens>_<uuid>.jsonl`. `sessionDir` in `settings.json` and a role's own `--session-dir` argument are not honoured. A missing file starts fresh under the same id, with every mission member receiving its goal again. Direct chats refresh the `--append-system-prompt` file even on a genuine resume.
 
 Antigravity CLI assigns its own conversation id, and only when the first message is sent, so a fresh spawn carries no key. `session/agy_capture.rs` tails the session's `--log-file` for agy's `Created conversation <uuid>` line and writes that id into `agent_session_key`, guarded by the row's start time and running status; a blank chat keeps tailing until its first message or the end of the session. A resume passes `--conversation <key>` after the role's args. The probe checks `~/.gemini/antigravity-cli/conversations/<key>.db`, a global store, so the cwd does not matter; when it is missing the resume starts fresh with the cold-start first turn and captures a new key, and when agy itself falls back to a new conversation, that conversation's line replaces the key. The log is cleared before every spawn, removed with its row, and swept at startup for rows that no longer exist. Before every spawn, `session/agy_trust.rs` adds the exact cwd to `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`, rewriting only that member so every other byte of agy's file stays as agy wrote it. Accept edits writes `--mode accept-edits`, Bypass `--dangerously-skip-permissions`, and Auto is not offered; the strip covers both flags in every spelling Go's `flag` package accepts (`-x`, `--x`, `-x=v`, `--x=v`).
 
@@ -452,11 +452,11 @@ The adapter contract is [#347, hook-based agent status](../features/archive/347-
 
 ## 6. System prompt composition
 
-Every spawned session receives a composed prompt — different shape for workers, the lead, and direct chats. The composition and its split across system-prompt and first-turn channels are mechanical: pure functions over slot + crew + mission inputs, no LLM in the loop. Source of truth lives in `crates/runner-daemon/src/router/prompt.rs`; delivery mechanics in `runtimes/<name>/`.
+Every spawned session receives a composed prompt — one shape for mission members and a separate persona-only shape for direct chats. The composition and its split across system-prompt and first-turn channels are mechanical: pure functions over slot + crew + mission inputs, no LLM in the loop. Source of truth lives in `crates/runner-daemon/src/router/prompt.rs`; delivery mechanics in `runtimes/<name>/`.
 
 ### 6.1 The three layers
 
-1. **Layer 1 — platform preamble** (code-owned). For workers: a fixed block describing the `runner` CLI verbs and the inbox convention. For the lead: the launch prompt composed before session registration (§6.3).
+1. **Layer 1 — platform preamble** (code-owned). For every mission member: a fixed block describing the `runner` CLI verbs, current-team lookup, own-part handoffs and the inbox convention, followed by the shared goal (§6.3).
 2. **Layer 2 — crew team conventions** (`crews.system_prompt_addendum`, optional). Spliced under `== Team conventions ==`.
 3. **Layer 3 — role prompt** (`roles.system_prompt`). Spliced under `== Your brief ==`.
 
@@ -464,15 +464,14 @@ Every spawned session receives a composed prompt — different shape for workers
 
 | Session kind | Layer 1 | Layer 2 | Layer 3 | Delivery |
 |---|:---:|:---:|:---:|---|
-| Mission worker | preamble | if set | persona | established runtimes: first turn; Pi: system-prompt file, no first turn |
-| Mission lead | coordination + mission goal | if set | persona | established runtimes: first turn; Pi: all except `== Mission ==` in the system-prompt file, mission section as first turn |
+| Mission member | preamble + mission goal | if set | persona | fresh: first turn for every runtime, including Pi; genuine Pi resume: same context in system-prompt file, no first turn |
 | Direct chat | — | — | persona | established runtimes: first turn; Pi: system-prompt file, no first turn |
 
-Direct chats see *only* Layer 3 — the worker preamble's verbs and the team conventions don't make sense off-bus.
+Direct chats see *only* Layer 3 — the team preamble’s verbs and the team conventions don't make sense off-bus.
 
-### 6.3 The lead's launch prompt
+### 6.3 The member prompt
 
-Before registering mission sessions, MissionManager composes the lead's launch-prompt body — identity, the mission goal (`missions.goal_override`, empty when unset), the roster, the addendum, the known signal types from `runner_core::model::KnownSignalType`, and a reminder of the lead's job. The prompt is passed into the runtime adapter at spawn, so the opening `mission_goal` event remains a durable feed record but has no stdin-injection side effect. Pi's split makes the mission section the lead's only first turn; the rest is refreshed in its system-prompt file on later spawns.
+Start, add-role and fresh respawn share `member_prompt_channels`. Every member receives the team preamble, latest mission goal, team conventions and its own brief. The preamble says to run `runner mission show` before messaging and to act only on the member’s own part, finishing its turn while waiting for a handoff. No roster is embedded because membership can change. The opening `mission_goal` event remains a durable feed record with no stdin-injection side effect.
 
 ## 7. Coordination bus
 
@@ -515,7 +514,7 @@ On router boot: open the mission's file, fold `human_question` / `human_response
 
 ## 8. Signal router
 
-The router is a flat dispatcher, not a policy engine. There is no per-crew `{when, do}` rule list. The lead owns coordination judgment; the router owns parent-process plumbing that a child PTY cannot do itself.
+The router is a flat dispatcher, not a policy engine. There is no per-crew `{when, do}` rule list. Role prompts and team conventions define coordination; the router owns parent-process plumbing that a child PTY cannot do itself.
 
 Stdin pushes are deliberately silent: the router writes bytes into the target PTY but does not synthesize `stdin_injected` audit events. The event log records the signal or message that caused the push, plus `human_question` / `human_response` for HITL cards and `mission_warning` when a delivery cannot happen.
 
@@ -569,11 +568,11 @@ Add records `role_joined` before publishing `roster.json`, then updates the rout
 
 Causality is carried in-payload rather than on the envelope. The canonical `question_id` is the `human_question` event's own `id`, assigned at flock-guarded append time.
 
-### 8.3 Lead-mediated asks (the canonical pattern)
+### 8.3 Asking the person
 
-1. **Worker asks the lead.** Worker sends `runner msg post --to <lead>`; the router nudges the lead to read its inbox.
-2. **Lead decides.** Answer from own context via a directed message (pull-based, plus the nudge), or escalate with `ask_human` and `payload.on_behalf_of: "<handle>"`; the UI shows the attribution chain (*@impl → @architect → you*).
-3. **Human responds.** The router appends the answer as a durable message to the asker; the lead reads it with `runner msg read` and forwards it to the worker as a directed message.
+1. **Member asks the person.** `runner ask "Decision needed" --choices "Proceed,Pause"` emits `ask_human`; `--human` remains an alias and choices are optional.
+2. **Human responds.** The person answers the feed card or uses `mission answer` with the question id.
+3. **Member receives the answer.** The router appends a durable message to the asker and nudges its inbox.
 
 ### 8.4 Read-mostly mission feed
 
@@ -614,9 +613,9 @@ Readiness belongs to the session manager. One dispatcher driver per mission hand
 
 Each attempt types a notification and presses Enter after `SUBMIT_DELAY` (80 ms on macOS, 300 ms on Windows for #753), then releases the input gate. For 1.5 seconds it watches for a real runtime `TurnStarted` or for the probe's captured input rows to clear. Only then is the outcome Confirmed and synthetic busy published. If the exact typed text remains in the same rows, one additional Enter is allowed under an atomic generation/local-input/approval check. Text still present after a second window gives Unsubmitted and pauses the subscriber with “Message not submitted — press Return”; clearing the input resumes it. An unfound or ambiguous probe, or local input during confirmation, gives Unverified, is logged with its runtime, and leaves the backlog for redelivery. Draft and approval holds show “Inbox waiting (N)”. Approval and bridge releases and successful raw Enter/Ctrl-C writes emit `ReadinessChanged`; they do not count as input-clear evidence. The terminal composer tracks injected notifications and generated submissions without advancing the local-input revision; generated submissions keep their bookkeeping internal, so a later output-observed clear can provide `InputCleared` evidence. After a height change makes the original probe unknown, input-clear evidence can release the pause only after readiness is Ready. A probe that still positively sees the notification always retains the pause.
 
-Fresh starts and reopens share `mount_mission_router`; only the session registration and replay mode differ. Router reconstruction and cold sidebar counts use the same `pending_asks` fold, including cards whose original ask is missing. Start, add-role and respawn share `member_prompt_channels`, including the no-lead mission goal rule.
+Fresh starts and reopens share `mount_mission_router`; only the session registration and replay mode differ. Router reconstruction and cold sidebar counts use the same `pending_asks` fold, including cards whose original ask is missing. Start, add-role and respawn share `member_prompt_channels`, including the shared mission goal.
 
-Person signals carry `delivery: "inbox"`; their derived messages carry `source_event`. Reopen repairs a marked signal whose message was not appended before the daemon stopped. Legacy unmarked signals stay projection-only on replay. Answer messages include `question_id` and `Answer to "<prompt, first 80 characters>": <choice>`; the feed hides the derived answer because the card records the choice. Untargeted human messages broadcast without a lead fallback.
+Person signals carry `delivery: "inbox"`; their derived messages carry `source_event`. Reopen repairs a marked signal whose message was not appended before the daemon stopped. Legacy unmarked signals stay projection-only on replay. Answer messages include `question_id` and `Answer to "<prompt, first 80 characters>": <choice>`; the feed hides the derived answer because the card records the choice. Untargeted human messages broadcast to every member.
 
 ## 9. The `runner` CLI
 
@@ -645,7 +644,7 @@ runner crew update <crew> [--name <name>] [--conventions-file <path | ->]
 runner crew delete <crew>
 runner crew add <crew> <role> [--as <handle>] [--runtime <runtime>] [--model <model>] [--effort <effort>] [--speed inherit|standard|fast]
 runner crew set <crew> <handle> [--as <new handle>] [--runtime <runtime>] [--model <model>] [--effort <effort>] [--speed inherit|standard|fast]
-runner crew remove <crew> <handle> | lead <crew> <handle> | order <crew> <handle> <handle>...
+runner crew remove <crew> <handle> | order <crew> <handle> <handle>...
 
 # missions, chats, and sessions
 runner mission list [--crew <crew>] | show [<mission>]
@@ -663,11 +662,11 @@ runner session list | show <session> | stop <session> | archive <session> | resu
 runner msg post [--mission <mission>] [--as <handle>] [--to <handle>] <text>
 runner msg read [--since <ulid>] [--from <handle>]
 runner signal <type> [--mission <mission>] [--as <handle>] [--payload <json>]
-runner ask <question> [--context <text>] [--mission <mission>] [--as <handle>]
-runner ask --human <prompt> --choices <a,b,...> [--mission <mission>] [--as <handle>]
+runner ask <question> [--choices <a,b,...>] [--mission <mission>] [--as <handle>]
+runner ask --human <prompt> [--choices <a,b,...>] [--mission <mission>] [--as <handle>]
 ```
 
-Every command accepts `--json` for JSON output and `-q` for result ids. stdout carries data; stderr carries diagnostics. Exit 0 is success, 1 means the tool refused the operation, 2 is usage or reference resolution, 3 means the app is not running, and 5 means the connection to the socket was denied although the socket exists, which is a command sandbox such as Codex's default one: the caller runs the command again outside the sandbox. 4 is reserved for [#916](https://github.com/yicheng47/runner/issues/916)'s `wait` timing out. `spawn`, `ps`, `wait`, `stop <handle>`, and `done` are reserved for [#916](https://github.com/yicheng47/runner/issues/916), the lead's verbs; `runner help` still labels them `RESERVED FOR #562`.
+Every command accepts `--json` for JSON output and `-q` for result ids. stdout carries data; stderr carries diagnostics. Exit 0 is success, 1 means the tool refused the operation, 2 is usage or reference resolution, 3 means the app is not running, and 5 means the connection to the socket was denied although the socket exists, which is a command sandbox such as Codex's default one: the caller runs the command again outside the sandbox. 4 is reserved for [#916](https://github.com/yicheng47/runner/issues/916)'s `wait` timing out. `spawn`, `ps`, `wait`, `stop <handle>`, and `done` are reserved for [#916](https://github.com/yicheng47/runner/issues/916), verbs granted per role or slot; `runner help` still labels them `RESERVED FOR #562`.
 
 ### 9.2 References and defaults
 
@@ -762,7 +761,6 @@ slots (
   added_at TEXT NOT NULL,
   UNIQUE (crew_id, slot_handle), UNIQUE (crew_id, position)
 );
-CREATE UNIQUE INDEX one_lead_per_crew ON slots(crew_id) WHERE lead = 1;
 
 projects (
   id TEXT PRIMARY KEY,
@@ -866,9 +864,9 @@ Foreign keys never cascade-delete: the delete actions are `RESTRICT` or `SET NUL
 | Project | `ops::project::project_delete_impl` | its tabs, archiving chats and deleting terminals | `sessions.project_id`, `missions.project_id` | a session in one of its tabs is missing, bound to a mission, or still running; then, its node still has a child once the tabs are gone. The socket tool also refuses running members unless forced |
 | Node | `repo::node::delete` | — | — | it has children, with SQLite's own `FOREIGN KEY constraint failed` |
 
-Dependents go through their own entity's delete: deleting a mission through `ops::mission::delete_rows` removes its sessions and attention rows through `ops::session::delete_rows`. Crew deletion removes only its slots and preserves mission history. Both take a list of ids and issue one statement per table, however many rows go. A mission's sessions are deleted, not unbound: a mission-scoped row with no mission would surface as a direct chat, so the `ON DELETE SET NULL` on `sessions.mission_id` never fires. Role delete refuses instead of taking the role's slots with it: a slot is part of its crew, so a crew only loses a member through slot delete, which promotes a new lead and repacks positions. The sessions a role delete does take are its archived chats and the sessions of missions whose slot for it was removed since. The node refusal is the one guard in the repository layer, because the sidebar tree is a single table that references itself.
+Dependents go through their own entity's delete: deleting a mission through `ops::mission::delete_rows` removes its sessions and attention rows through `ops::session::delete_rows`. Crew deletion removes only its slots and preserves mission history. Both take a list of ids and issue one statement per table, however many rows go. A mission's sessions are deleted, not unbound: a mission-scoped row with no mission would surface as a direct chat, so the `ON DELETE SET NULL` on `sessions.mission_id` never fires. Role delete refuses instead of taking the role's slots with it: a slot is part of its crew, so a crew only loses a member through slot delete, which repacks positions. The sessions a role delete does take are its archived chats and the sessions of missions whose slot for it was removed since. The node refusal is the one guard in the repository layer, because the sidebar tree is a single table that references itself.
 
-A refused delete rolls back its transaction, including any dependents it had already removed. Work committed before that transaction stays committed: a project delete archives its member missions one by one first, so a delete refused later can leave them archived, as it always could. `ops/` also owns what is product rather than integrity: a new lead and dense positions after a slot delete, and removing a mission's directories after commit. Live processes stop before the transaction opens. Role delete kills the role's sessions, in both `ops::role::role_delete` and the socket tool. Mission delete closes its drawer shells. Project delete archives its missions and kills its running chats before its final transaction. References with no foreign key behind them, `sessions.slot_id`, `nodes.ref_id` and the session ids inside `nodes.layout`, are handled where they always were: `repo::node::remove_session`, `delete_mission_node` and the `ensure_active_sessions` repair.
+A refused delete rolls back its transaction, including any dependents it had already removed. Work committed before that transaction stays committed: a project delete archives its member missions one by one first, so a delete refused later can leave them archived, as it always could. `ops/` also owns what is product rather than integrity: dense positions after a slot delete, and removing a mission's directories after commit. Live processes stop before the transaction opens. Role delete kills the role's sessions, in both `ops::role::role_delete` and the socket tool. Mission delete closes its drawer shells. Project delete archives its missions and kills its running chats before its final transaction. References with no foreign key behind them, `sessions.slot_id`, `nodes.ref_id` and the session ids inside `nodes.layout`, are handled where they always were: `repo::node::remove_session`, `delete_mission_node` and the `ensure_active_sessions` repair.
 
 ## 11. Process and thread model
 

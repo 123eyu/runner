@@ -194,24 +194,24 @@ $ runner crew list
 exit 0
 NAME   ID            SLOTS
 Empty  crew-empty    -
-Peer   crew-fixture  coder* (codex), reviewer (codex)
+Peer   crew-fixture  coder (codex), reviewer (codex)
 
 $ runner crew list --json
 exit 0
-[{"id":"crew-empty","name":"Empty","system_prompt_addendum":null,"created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z","role_count":0,"members":[]},{"id":"crew-fixture","name":"Peer","system_prompt_addendum":"Fixture crew conventions","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z","role_count":2,"members":[{"slot_handle":"coder","role_handle":"coder","runtime":"codex","lead":true},{"slot_handle":"reviewer","role_handle":"reviewer","runtime":"codex","lead":false}]}]
+[{"id":"crew-empty","name":"Empty","system_prompt_addendum":null,"created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z","role_count":0,"members":[]},{"id":"crew-fixture","name":"Peer","system_prompt_addendum":"Fixture crew conventions","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z","role_count":2,"members":[{"slot_handle":"coder","role_handle":"coder","runtime":"codex","lead":false},{"slot_handle":"reviewer","role_handle":"reviewer","runtime":"codex","lead":false}]}]
 
 $ runner crew show Peer
 exit 0
 NAME  Peer
 ID    crew-fixture
 
-HANDLE    LEAD  ROLE      RUNTIME  MODEL          EFFORT  SPEED
-coder     yes   coder     codex    fixture-model  high    fast (role)
-reviewer  no    reviewer  codex    fixture-model  high    fast (role)
+HANDLE    ROLE      RUNTIME  MODEL          EFFORT  SPEED
+coder     coder     codex    fixture-model  high    fast (role)
+reviewer  reviewer  codex    fixture-model  high    fast (role)
 
 $ runner crew show Peer --json
 exit 0
-{"crew":{"id":"crew-fixture","name":"Peer","system_prompt_addendum":"Fixture crew conventions","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"},"slots":[{"id":"slot-coder","crew_id":"crew-fixture","role_id":"role-coder","slot_handle":"coder","position":0,"lead":true,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-coder","handle":"coder","display_name":"Coder","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}},{"id":"slot-reviewer","crew_id":"crew-fixture","role_id":"role-reviewer","slot_handle":"reviewer","position":1,"lead":false,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-reviewer","handle":"reviewer","display_name":"Reviewer","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}}]}
+{"crew":{"id":"crew-fixture","name":"Peer","system_prompt_addendum":"Fixture crew conventions","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"},"slots":[{"id":"slot-coder","crew_id":"crew-fixture","role_id":"role-coder","slot_handle":"coder","position":0,"lead":false,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-coder","handle":"coder","display_name":"Coder","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}},{"id":"slot-reviewer","crew_id":"crew-fixture","role_id":"role-reviewer","slot_handle":"reviewer","position":1,"lead":false,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-reviewer","handle":"reviewer","display_name":"Reviewer","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}}]}
 
 $ runner crew create New
 exit 0
@@ -264,12 +264,22 @@ exit 0
 {"deleted":true,"slot_id":"slot-reviewer"}
 
 $ runner crew lead Peer reviewer
-exit 0
-Updated crew slots slot-reviewer
+exit 2
+[stderr]
+error: unrecognized subcommand 'lead'
+
+Usage: runner crew [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
 
 $ runner crew lead Peer reviewer --json
-exit 0
-{"id":"slot-reviewer","crew_id":"crew-fixture","role_id":"role-reviewer","slot_handle":"reviewer","position":1,"lead":true,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-reviewer","handle":"reviewer","display_name":"Reviewer","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}}
+exit 2
+[stderr]
+error: unrecognized subcommand 'lead'
+
+Usage: runner crew [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
 
 $ runner crew order Peer reviewer coder
 exit 0
@@ -277,7 +287,7 @@ Updated crew slots slot-reviewer, slot-coder
 
 $ runner crew order Peer reviewer coder --json
 exit 0
-[{"id":"slot-reviewer","crew_id":"crew-fixture","role_id":"role-reviewer","slot_handle":"reviewer","position":0,"lead":false,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-reviewer","handle":"reviewer","display_name":"Reviewer","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}},{"id":"slot-coder","crew_id":"crew-fixture","role_id":"role-coder","slot_handle":"coder","position":1,"lead":true,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-coder","handle":"coder","display_name":"Coder","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}}]
+[{"id":"slot-reviewer","crew_id":"crew-fixture","role_id":"role-reviewer","slot_handle":"reviewer","position":0,"lead":false,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-reviewer","handle":"reviewer","display_name":"Reviewer","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}},{"id":"slot-coder","crew_id":"crew-fixture","role_id":"role-coder","slot_handle":"coder","position":1,"lead":false,"runtime_override":null,"model_override":null,"effort_override":null,"codex_speed_override":null,"added_at":"2026-09-18T10:20:30Z","role":{"id":"role-coder","handle":"coder","display_name":"Coder","runtime":"codex","command":"missing-fixture-agent","args":[],"working_dir":null,"system_prompt":"Fixture prompt","env":{},"model":"fixture-model","effort":"high","codex_speed":"fast","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"}}]
 
 $ runner mission list --crew Peer
 exit 0
@@ -299,15 +309,15 @@ PROJECT  project-fixture
 CWD      <ROOT>
 STARTED  2026-09-18T10:20:30Z
 
-HANDLE  LEAD  RUNTIME  STATUS   STATE  SESSION ID
-coder   yes   codex    stopped  idle   session-mission
+HANDLE  ROLE   RUNTIME  STATUS   STATE  SESSION ID
+coder   coder  codex    stopped  idle   session-mission
 
 QUESTION ID                 ASKER  PROMPT  CHOICES
 01K5ZCJNP00000000000000002  coder  Ship?   yes, no
 
 $ runner mission show mission-fixture --json
 exit 0
-{"mission":{"id":"mission-fixture","crew_id":"crew-fixture","project_id":"project-fixture","title":"Fixture mission","status":"completed","goal_override":"Fixture goal","cwd":"<ROOT>","started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","pinned_at":null,"archived_at":null},"crew":{"id":"crew-fixture","name":"Peer","system_prompt_addendum":"Fixture crew conventions","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"},"sessions":[{"id":"session-mission","mission_id":"mission-fixture","role_id":"role-coder","slot_id":"slot-coder","cwd":"<ROOT>","status":"stopped","pid":null,"started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","live_title":null,"handle":"coder","runtime":"codex","lead":true,"agent_session_key":null}],"latest_session_status_by_handle":{"coder":{"state":"idle","event_id":"01K5ZCJNP00000000000000003","ts":"2026-09-18T10:20:30Z","source":"fixture"}},"pending_asks":[{"question_id":"01K5ZCJNP00000000000000002","asker":"coder","prompt":"Ship?","choices":["yes","no"],"on_behalf_of":"coder","event_id":"01K5ZCJNP00000000000000002","ts":"2026-09-18T10:20:30Z"}],"pending_ask_count":1,"live_session_count":0,"stopped_session_count":1,"crashed_session_count":0,"recent_warnings":[],"last_event_id":"01K5ZCJNP00000000000000003","last_event_offset":692,"skipped_event_count":0}
+{"mission":{"id":"mission-fixture","crew_id":"crew-fixture","project_id":"project-fixture","title":"Fixture mission","status":"completed","goal_override":"Fixture goal","cwd":"<ROOT>","started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","pinned_at":null,"archived_at":null},"crew":{"id":"crew-fixture","name":"Peer","system_prompt_addendum":"Fixture crew conventions","created_at":"2026-09-18T10:20:30Z","updated_at":"2026-09-18T10:20:30Z"},"sessions":[{"id":"session-mission","mission_id":"mission-fixture","role_id":"role-coder","slot_id":"slot-coder","cwd":"<ROOT>","status":"stopped","pid":null,"started_at":"2026-09-18T10:20:30Z","stopped_at":"2026-09-18T10:20:30Z","live_title":null,"handle":"coder","role_handle":"coder","runtime":"codex","lead":false,"agent_session_key":null}],"latest_session_status_by_handle":{"coder":{"state":"idle","event_id":"01K5ZCJNP00000000000000003","ts":"2026-09-18T10:20:30Z","source":"fixture"}},"pending_asks":[{"question_id":"01K5ZCJNP00000000000000002","asker":"coder","prompt":"Ship?","choices":["yes","no"],"on_behalf_of":"coder","event_id":"01K5ZCJNP00000000000000002","ts":"2026-09-18T10:20:30Z"}],"pending_ask_count":1,"live_session_count":0,"stopped_session_count":1,"crashed_session_count":0,"recent_warnings":[],"last_event_id":"01K5ZCJNP00000000000000003","last_event_offset":692,"skipped_event_count":0}
 
 $ runner mission start --crew Peer --goal ship --cwd not-a-directory
 exit 0
@@ -390,12 +400,12 @@ mission “Fixture mission” is not running
 $ runner mission remove-role mission-running coder
 exit 1
 [stderr]
-@coder is the lead and cannot be removed
+@coder has no session in this mission
 
 $ runner mission remove-role mission-running coder --json
 exit 1
 [stderr]
-@coder is the lead and cannot be removed
+@coder has no session in this mission
 
 $ runner mission add-role mission-running reviewer --as coder
 exit 2
@@ -681,22 +691,22 @@ runner msg read is available only inside a mission; use runner mission feed <mis
 $ runner signal ask_lead --mission mission-fixture --as coder --payload '{"question":"Review?"}'
 exit 2
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 $ runner signal ask_lead --mission mission-fixture --as coder --payload '{"question":"Review?"}' --json
 exit 2
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
-$ runner ask 'Review?' --context 'Checks pass' --mission mission-fixture --as coder
-exit 2
+$ runner ask 'Review?' --mission mission-fixture --as coder
+exit 1
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+mission mission-fixture is not running (status = Completed); cannot post signals
 
-$ runner ask 'Review?' --context 'Checks pass' --mission mission-fixture --as coder --json
-exit 2
+$ runner ask 'Review?' --mission mission-fixture --as coder --json
+exit 1
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+mission mission-fixture is not running (status = Completed); cannot post signals
 
 $ runner ask --human 'Ship?' --choices 'yes,no' --mission mission-fixture --as coder
 exit 1
@@ -740,22 +750,20 @@ exit 0
 $ runner signal ask_lead --mission mission-running --as coder --payload '{"question":"Review?"}'
 exit 2
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 $ runner signal ask_lead --mission mission-running --as coder --payload '{"question":"Review?"}' --json
 exit 2
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 $ runner ask 'Review?' --mission mission-running --as coder
-exit 2
-[stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+exit 0
+Posted question <ULID_1>
 
 $ runner ask 'Review?' --mission mission-running --as coder --json
-exit 2
-[stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+exit 0
+{"id":"<ULID_1>","ts":"<TIMESTAMP>","crew_id":"crew-fixture","mission_id":"mission-running","kind":"signal","from":"coder","to":null,"type":"ask_human","payload":{"prompt":"Review?","choices":[]}}
 
 $ runner ask --human 'Ship?' --choices 'yes,no' --mission mission-running --as coder
 exit 0
@@ -836,12 +844,12 @@ exit 1
 $ runner signal ask_lead --mission mission-fixture --as ghost
 exit 2
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 $ runner signal ask_lead --mission mission-fixture --as ghost --json
 exit 2
 [stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 $ runner mission feed mission-fixture --since 0 --limit 1
 exit 0
@@ -964,25 +972,21 @@ exit 0
 $ runner signal ask_lead --payload '{"question":"Review?"}'
 exit 2
 [stderr]
-runner signal: ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+runner signal: message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 # context: inside mission
 $ runner signal ask_lead --payload '{"question":"Review?"}' --json
 exit 2
 [stderr]
-runner signal: ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+runner signal: message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`
 
 # context: inside mission
 $ runner ask 'Review?'
-exit 2
-[stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+exit 0
 
 # context: inside mission
 $ runner ask 'Review?' --json
-exit 2
-[stderr]
-ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`
+exit 0
 
 # context: inside mission
 $ runner ask --human 'Ship?' --choices 'yes,no'
@@ -1048,7 +1052,7 @@ USAGE
   runner daemon status|stop
   runner project list|show|create|rename|delete
   runner role list|show|create|update|delete
-  runner crew list|show|create|update|delete|add|set|remove|lead|order
+  runner crew list|show|create|update|delete|add|set|remove|order
   runner mission list|show|start|stop|resume|archive|unarchive|rename|pin|unpin|move|feed|answer
   runner chat start
   runner session list|show|stop|archive|resume|restart
@@ -1105,8 +1109,7 @@ REFERENCES
   A mission or chat started inside a project's directory belongs to it; --project overrides.
 
 MESSAGING INSIDE YOUR MISSION
-  Inside a mission, Runner pushes inbox notifications to every participant: leads, workers
-  and members of a team with no lead. When waiting for a teammate and no independent work
+  Inside a mission, Runner pushes inbox notifications to every member. When waiting for a teammate and no independent work
   remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages.
   Iterate with teammates across turns. External monitoring instructions do not apply to
   receiving messages in your own mission.
@@ -1135,8 +1138,8 @@ EXTERNAL OPERATOR FLOW (A DIFFERENT MISSION)
   runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
-  # Use the HANDLE from the LEAD row in mission show, or any member when there is no lead.
-  runner msg post --mission "$mission" --to <lead_handle> "message"
+  # Use a HANDLE from mission show to address a member.
+  runner msg post --mission "$mission" --to <handle> "message"
   runner mission stop "$mission"
   runner mission archive "$mission"
 
@@ -1244,7 +1247,7 @@ Commands:
   session  Inspect and manage sessions
   msg      Post to or read a mission log
   signal   Emit a typed signal
-  ask      Ask the person with --human
+  ask      Ask the person at the app
   call     Call any registered socket tool
   help     Print the command reference
 
@@ -1494,7 +1497,6 @@ Commands:
   add     Add a role to a crew
   set     Update one crew slot by handle
   remove  Remove a slot from a crew
-  lead    Make a slot the crew lead
   order   Reorder every crew slot by handle
 
 Options:
@@ -1933,19 +1935,13 @@ Options:
 
 # context: not running
 $ runner crew lead --help
-exit 0
-Make a slot the crew lead
+exit 2
+[stderr]
+error: unrecognized subcommand 'lead'
 
-Usage: runner crew lead [OPTIONS] <CREW> <HANDLE>
+Usage: runner crew [OPTIONS] <COMMAND>
 
-Arguments:
-  <CREW>    
-  <HANDLE>  
-
-Options:
-      --json  Print the tool result as exact JSON
-  -q          Print only result IDs
-  -h, --help  Print help
+For more information, try '--help'.
 
 # context: not running
 $ runner crew order --help
@@ -2334,19 +2330,18 @@ Options:
 # context: not running
 $ runner ask --help
 exit 0
-Ask the person with --human
+Ask the person at the app
 
 Usage: runner ask [OPTIONS] [QUESTION]
 
 Arguments:
-  [QUESTION]  Question for the mission lead
+  [QUESTION]  Ask the person at the app
 
 Options:
-      --context <CONTEXT>  Legacy context flag; direct lead questions use msg post --to
-      --json               Print the tool result as exact JSON
       --human <HUMAN>      Ask the person at the app
+      --json               Print the tool result as exact JSON
+      --choices <CHOICES>  Comma-separated choices for the person
   -q                       Print only result IDs
-      --choices <CHOICES>  Comma-separated choices for --human
       --mission <MISSION>  Mission ID or unique prefix; required outside a mission
       --as <FROM>          Attribute the question to this roster handle
   -h, --help               Print help

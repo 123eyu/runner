@@ -458,7 +458,7 @@ fn overview(core: &AppCore) -> crate::error::Result<Overview> {
                         Member {
                             handle: row.handle.clone(),
                             session: row.session.id.clone(),
-                            lead: row.lead,
+                            lead: false,
                         }
                     })
                     .collect();
@@ -992,7 +992,7 @@ mod tests {
             vec![Member {
                 handle: "coder".into(),
                 session: "agent".into(),
-                lead: true
+                lead: false
             }]
         );
         assert_eq!(

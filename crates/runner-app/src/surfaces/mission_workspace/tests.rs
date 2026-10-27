@@ -726,6 +726,7 @@ fn sidebar_and_mission_fills_follow_carbon_and_runner_light() {
         },
         handle: "archived".into(),
         runtime: "codex".into(),
+        role_handle: String::new(),
         lead: false,
         agent_session_key: None,
     };
@@ -1239,6 +1240,7 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
                         stopped_at: None,
                     },
                     handle: (*handle).into(),
+                    role_handle: String::new(),
                     lead: false,
                     runtime: "codex".into(),
                     live_title: None,
@@ -1311,10 +1313,13 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
     assert!(visual
         .debug_bounds("MISSION_MESSAGE_TARGET coder")
         .is_none());
-    host.update(&mut visual, |root, _, cx| {
+    host.update(&mut visual, |root, window, cx| {
         root.mission_workspace.update(cx, |workspace, cx| {
             workspace.sessions[0].lead = true;
             workspace.roster[0].slot.lead = true;
+            workspace.request_remove_role("slot-coder", window, cx);
+            assert_eq!(workspace.remove_confirm.as_deref(), Some("slot-coder"));
+            workspace.remove_confirm = None;
             cx.notify();
         });
     })
@@ -1322,10 +1327,18 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
     cx.run_until_parked();
     assert!(visual
         .debug_bounds("MISSION_CARD_LEAD slot-coder")
-        .is_some());
+        .is_none());
     assert!(visual
         .debug_bounds("MISSION_MESSAGE_TARGET coder")
-        .is_some());
+        .is_none());
+    host.read_with(&cx, |root, cx| {
+        let workspace = root.mission_workspace.read(cx);
+        assert_eq!(
+            workspace.composer_input.read(cx).placeholder(),
+            "Message everyone — @handle to address one"
+        );
+    })
+    .unwrap();
 }
 
 struct MissionRailLayoutTest {
@@ -1373,6 +1386,7 @@ fn mission_rail_scrolls_long_roster_and_goal_above_corner_padding() {
                         stopped_at: None,
                     },
                     handle: format!("worker-{index}"),
+                    role_handle: String::new(),
                     lead: index == 0,
                     runtime: "shell".into(),
                     live_title: None,
@@ -1454,11 +1468,6 @@ impl gpui::Render for MissionRailLayoutTest {
                 .child(handle_text("RAIL_SHORT_HANDLE", "@qa"))
                 .child(handle_text("RAIL_SHORT_LEAD_HANDLE", "@dev"))
                 .child(handle_text("RAIL_SHORTEST_LEAD_HANDLE", "@a"))
-                .child(
-                    div()
-                        .debug_selector(|| "RAIL_FULL_LEAD".into())
-                        .child(runner_app::ui::lead_badge()),
-                )
                 .child(
                     div()
                         .debug_selector(|| "RAIL_KEY_PREFIX".into())
@@ -1574,6 +1583,7 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
                         stopped_at: None,
                     },
                     handle: handle.into(),
+                    role_handle: "role".into(),
                     lead,
                     runtime: "codex".into(),
                     live_title: None,
@@ -1599,12 +1609,6 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
         cx.run_until_parked();
         let full = visual.debug_bounds("RAIL_FULL_HANDLE").unwrap();
         let prefix = visual.debug_bounds("RAIL_VISIBLE_PREFIX").unwrap();
-        let badge = visual.debug_bounds("MISSION_CARD_LEAD lead").unwrap();
-        let full_badge = visual.debug_bounds("RAIL_FULL_LEAD").unwrap();
-        assert_eq!(
-            badge.size, full_badge.size,
-            "badge shrank at rail width {width}"
-        );
         for (card_selector, handle_selector, controls_selector) in [
             (
                 "MISSION_CARD lead",
@@ -1638,11 +1642,7 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
             );
             assert_eq!(
                 controls.size.width,
-                px(if handle_selector == "MISSION_CARD_HANDLE lead" {
-                    52.
-                } else {
-                    80.
-                }),
+                px(80.),
                 "controls shrank at rail width {width}"
             );
             if handle_selector == "MISSION_CARD_HANDLE lead" {
@@ -1655,14 +1655,6 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
                     avatar.size.width,
                     px(25.),
                     "avatar shrank at rail width {width}"
-                );
-                assert!(
-                    handle.right() <= badge.left(),
-                    "handle overlaps LEAD at rail width {width}"
-                );
-                assert!(
-                    badge.right() <= controls.left(),
-                    "LEAD overlaps controls at rail width {width}"
                 );
             }
         }
@@ -1744,13 +1736,13 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
             cx.run_until_parked();
             let handle = visual.debug_bounds("MISSION_CARD_HANDLE lead").unwrap();
             let avatar = visual.debug_bounds("MISSION_CARD_AVATAR lead").unwrap();
-            let badge = visual.debug_bounds("MISSION_CARD_LEAD lead").unwrap();
+            assert!(visual.debug_bounds("MISSION_CARD_LEAD lead").is_none());
             assert_eq!(
                 handle.size.width,
                 visual.debug_bounds(reference).unwrap().size.width,
                 "short lead handle changed at rail width {width}, status {status:?}"
             );
-            let expected_gap = if status == MissionStatus::Running && width < 220. {
+            let expected_gap = if status == MissionStatus::Running && width < 208. {
                 2.
             } else {
                 8.
@@ -1759,11 +1751,6 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
                 handle.left() - avatar.right(),
                 px(expected_gap),
                 "short lead avatar gap changed at rail width {width}, status {status:?}"
-            );
-            assert_eq!(
-                badge.left() - handle.right(),
-                px(expected_gap),
-                "short lead badge gap changed at rail width {width}, status {status:?}"
             );
             assert_eq!(
                 visual.debug_bounds("MISSION_CARD_CONTROLS lead").is_some(),
@@ -1877,22 +1864,10 @@ fn slot_control_titles_follow_effective_bindings() {
 }
 
 #[test]
-fn restart_confirmation_without_a_lead_names_other_members() {
+fn restart_confirmation_names_other_members() {
     assert_eq!(
-        restart_confirm_body("worker", None, false),
+        restart_confirm_body("worker"),
         "Its conversation so far is discarded. @worker comes back with its brief, the same first turn a cold start gives it, and the other members get a note that it starts over."
-    );
-}
-
-#[test]
-fn restart_confirmation_preserves_crew_lead_and_worker_copy() {
-    assert_eq!(
-        restart_confirm_body("captain", Some("captain"), true),
-        "Its conversation so far is discarded. @captain comes back with the launch prompt, the same first turn a cold start gives it, and the other slots get a note that it starts over."
-    );
-    assert_eq!(
-        restart_confirm_body("worker", Some("captain"), false),
-        "Its conversation so far is discarded. @worker comes back with its brief, the same first turn a cold start gives it, and @captain gets a note that it must re-send anything @worker needs."
     );
 }
 

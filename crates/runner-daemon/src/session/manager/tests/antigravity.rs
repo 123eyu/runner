@@ -389,7 +389,11 @@ fn antigravity_slot_resume_uses_the_conversation_or_starts_fresh_with_its_turn()
         &args[args.len() - 2..],
         [
             "-i".to_owned(),
-            router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None),
+            router::prompt::compose_member_first_turn(
+                Some("SLOT_BRIEF"),
+                Some("TEAM_RULES"),
+                Some("LATEST_GOAL")
+            ),
         ]
     );
     assert_eq!(session_key(&pool, &id), None);

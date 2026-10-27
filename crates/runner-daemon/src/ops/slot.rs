@@ -10,12 +10,6 @@ use crate::model::CodexSpeed;
 // different slot_handles.
 //
 // Invariants enforced here:
-//   - A crew with ≥1 slot has exactly one `lead = 1` row. We enforce
-//     this in `create` / `set_lead` (clear-others-then-set inside a
-//     transaction) — no schema-level partial unique index.
-//   - First slot added to a crew is auto-lead.
-//   - Removing the lead while other slots remain auto-promotes the
-//     slot at the lowest `position`.
 //   - `position` is dense within a crew (0, 1, 2, ...) and enforced
 //     unique by the schema.
 //   - `slot_handle` is unique within a crew (schema-enforced).
@@ -124,7 +118,7 @@ pub fn list_crews_for_role(conn: &Connection, role_id: &str) -> Result<Vec<CrewM
             crew_name,
             slot_id: slot.id,
             slot_handle: slot.slot_handle,
-            lead: slot.lead,
+            lead: false,
             position: slot.position,
             added_at: slot.added_at,
         })
@@ -160,9 +154,7 @@ pub fn create(
     let added_at = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
-    let count = repo::slot::count_for_crew(&tx, crew_id)?;
     let next_position = repo::slot::next_position(&tx, crew_id)?;
-    let is_first = count == 0;
 
     repo::slot::insert(
         &tx,
@@ -172,7 +164,7 @@ pub fn create(
             role_id: role_id.to_string(),
             slot_handle: slot_handle.to_string(),
             position: next_position,
-            lead: is_first,
+            lead: false,
             runtime_override,
             model_override,
             effort_override: None,
@@ -198,7 +190,7 @@ pub fn create(
 /// Edit a slot's handle and/or agent overrides. Engine changes clear
 /// stale model and effort values unless the caller supplies replacements
 /// in the same patch. Slot id, crew membership, role template ref,
-/// position, and lead flag are unchanged.
+/// position are unchanged.
 pub fn update(
     conn: &mut Connection,
     slot_id: &str,
@@ -298,12 +290,10 @@ pub fn update(
         .ok_or_else(|| Error::msg("slot_update: row vanished mid-call"))
 }
 
-/// Remove a slot. Promotes the lowest-position surviving slot to lead
-/// if we just removed the lead, and repacks positions.
+/// Remove a slot and repack the surviving positions.
 pub fn delete(conn: &mut Connection, slot_id: &str) -> Result<()> {
     let existing = get_slot_internal(conn, slot_id)?;
     let crew_id = existing.crew_id.clone();
-    let was_lead = existing.lead;
 
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
@@ -312,48 +302,10 @@ pub fn delete(conn: &mut Connection, slot_id: &str) -> Result<()> {
         return Err(Error::msg(format!("slot not found: {slot_id}")));
     }
 
-    if was_lead {
-        if let Some(new_lead) = repo::slot::ids_for_crew(&tx, &crew_id)?.into_iter().next() {
-            repo::slot::promote_to_lead(&tx, &new_lead)?;
-        }
-    }
-
     repack_positions(&tx, &crew_id)?;
 
     tx.commit()?;
     Ok(())
-}
-
-/// Atomically transfer leadership within a crew. No-op if the target
-/// slot is already lead. Errors if the slot doesn't exist.
-pub fn set_lead(conn: &mut Connection, slot_id: &str) -> Result<SlotWithRole> {
-    let existing = get_slot_internal(conn, slot_id)?;
-    let crew_id = existing.crew_id.clone();
-
-    if existing.lead {
-        return list(conn, &crew_id)?
-            .into_iter()
-            .find(|s| s.slot.id == slot_id)
-            .ok_or_else(|| Error::msg("slot_set_lead: slot vanished mid-call"));
-    }
-
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-
-    // Clear the old lead first so no schema-level uniqueness check
-    // ever sees two lead=1 rows in the same crew (we removed the
-    // partial unique index, but the invariant lives here).
-    repo::slot::clear_crew_lead(&tx, &crew_id)?;
-    let affected = repo::slot::promote_to_lead(&tx, slot_id)?;
-    if affected != 1 {
-        return Err(Error::msg(format!("slot not found: {slot_id}")));
-    }
-
-    tx.commit()?;
-
-    list(conn, &crew_id)?
-        .into_iter()
-        .find(|s| s.slot.id == slot_id)
-        .ok_or_else(|| Error::msg("slot_set_lead: slot vanished mid-call"))
 }
 
 /// Reorder a crew's slots. `ordered_slot_ids` must be a permutation
@@ -444,11 +396,6 @@ pub fn slot_delete(state: &AppCore, slot_id: &str) -> Result<()> {
     delete(&mut conn, slot_id)
 }
 
-pub fn slot_set_lead(state: &AppCore, slot_id: &str) -> Result<SlotWithRole> {
-    let mut conn = state.db.get()?;
-    set_lead(&mut conn, slot_id)
-}
-
 pub fn slot_reorder(
     state: &AppCore,
     crew_id: &str,
@@ -512,13 +459,13 @@ mod tests {
     }
 
     #[test]
-    fn first_slot_added_becomes_lead() {
+    fn first_slot_has_no_lead_flag() {
         let pool = pool();
         let mut conn = pool.get().unwrap();
         let c = seed_crew(&conn, "Alpha");
         let r = seed_role(&conn, "lead-template");
         let added = create(&mut conn, &c, &r, "lead-slot", None, None).unwrap();
-        assert!(added.slot.lead);
+        assert!(!added.slot.lead);
         assert_eq!(added.slot.position, 0);
         assert_eq!(added.slot.slot_handle, "lead-slot");
     }
@@ -603,8 +550,8 @@ mod tests {
         assert_eq!(in_c1.len(), 1);
         assert_eq!(in_c2.len(), 1);
         assert_eq!(in_c1[0].slot.role_id, in_c2[0].slot.role_id);
-        assert!(in_c1[0].slot.lead);
-        assert!(in_c2[0].slot.lead);
+        assert!(!in_c1[0].slot.lead);
+        assert!(!in_c2[0].slot.lead);
     }
 
     #[test]
@@ -620,65 +567,6 @@ mod tests {
     }
 
     #[test]
-    fn set_lead_reassigns_atomically() {
-        let pool = pool();
-        let mut conn = pool.get().unwrap();
-        let c = seed_crew(&conn, "A");
-        let r1 = seed_role(&conn, "one");
-        let r2 = seed_role(&conn, "two");
-        let s1 = create(&mut conn, &c, &r1, "one", None, None).unwrap();
-        let s2 = create(&mut conn, &c, &r2, "two", None, None).unwrap();
-
-        let promoted = set_lead(&mut conn, &s2.slot.id).unwrap();
-        assert!(promoted.slot.lead);
-
-        let roster = list(&conn, &c).unwrap();
-        let leads = roster.iter().filter(|m| m.slot.lead).count();
-        assert_eq!(leads, 1, "exactly one lead per crew");
-        assert!(
-            !roster
-                .iter()
-                .find(|m| m.slot.id == s1.slot.id)
-                .unwrap()
-                .slot
-                .lead
-        );
-        assert!(
-            roster
-                .iter()
-                .find(|m| m.slot.id == s2.slot.id)
-                .unwrap()
-                .slot
-                .lead
-        );
-    }
-
-    #[test]
-    fn remove_lead_auto_promotes_lowest_position() {
-        let pool = pool();
-        let mut conn = pool.get().unwrap();
-        let c = seed_crew(&conn, "A");
-        let r1 = seed_role(&conn, "alpha");
-        let r2 = seed_role(&conn, "beta");
-        let r3 = seed_role(&conn, "gamma");
-        let s1 = create(&mut conn, &c, &r1, "alpha", None, None).unwrap();
-        create(&mut conn, &c, &r2, "beta", None, None).unwrap();
-        let s3 = create(&mut conn, &c, &r3, "gamma", None, None).unwrap();
-        set_lead(&mut conn, &s3.slot.id).unwrap();
-
-        delete(&mut conn, &s3.slot.id).unwrap();
-        let roster = list(&conn, &c).unwrap();
-        assert!(
-            roster
-                .iter()
-                .find(|m| m.slot.id == s1.slot.id)
-                .unwrap()
-                .slot
-                .lead
-        );
-    }
-
-    #[test]
     fn removing_last_member_leaves_empty_crew() {
         let pool = pool();
         let mut conn = pool.get().unwrap();
@@ -690,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn reorder_rewrites_positions_and_preserves_lead() {
+    fn reorder_rewrites_positions() {
         let pool = pool();
         let mut conn = pool.get().unwrap();
         let c = seed_crew(&conn, "A");
@@ -714,9 +602,9 @@ mod tests {
         assert_eq!(roster[2].slot.id, s2.slot.id);
         assert_eq!(roster[2].slot.position, 2);
 
-        // s1 was the original lead — position changes, but lead doesn't.
+        // Reordering does not assign a lead.
         assert!(
-            roster
+            !roster
                 .iter()
                 .find(|m| m.slot.id == s1.slot.id)
                 .unwrap()

@@ -187,9 +187,8 @@ fn render_crew_list(value: &Value) -> Vec<String> {
                         .iter()
                         .map(|member| {
                             let handle = text(member.get("slot_handle"));
-                            let lead = member.get("lead").and_then(Value::as_bool) == Some(true);
                             let runtime = text(member.get("runtime"));
-                            format!("{handle}{} ({runtime})", if lead { "*" } else { "" })
+                            format!("{handle} ({runtime})")
                         })
                         .collect::<Vec<_>>()
                         .join(", ")
@@ -252,11 +251,6 @@ fn render_crew_show(value: &Value) -> Vec<String> {
                     };
                     vec![
                         cell(slot.get("slot_handle")),
-                        if slot.get("lead").and_then(Value::as_bool) == Some(true) {
-                            "yes".to_owned()
-                        } else {
-                            "no".to_owned()
-                        },
                         cell(role.get("handle")),
                         runtime,
                         model,
@@ -270,9 +264,7 @@ fn render_crew_show(value: &Value) -> Vec<String> {
     if !rows.is_empty() {
         lines.push(String::new());
         lines.extend(table(
-            &[
-                "HANDLE", "LEAD", "ROLE", "RUNTIME", "MODEL", "EFFORT", "SPEED",
-            ],
+            &["HANDLE", "ROLE", "RUNTIME", "MODEL", "EFFORT", "SPEED"],
             rows,
         ));
     }
@@ -384,11 +376,7 @@ fn render_mission_show(value: &Value) -> Vec<String> {
                         .and_then(|status| status.get("state"));
                     vec![
                         cell(session.get("handle")),
-                        if session.get("lead").and_then(Value::as_bool) == Some(true) {
-                            "yes".to_owned()
-                        } else {
-                            "no".to_owned()
-                        },
+                        cell(session.get("role_handle")),
                         cell(session.get("runtime")),
                         cell(session.get("status")),
                         cell(state),
@@ -401,7 +389,7 @@ fn render_mission_show(value: &Value) -> Vec<String> {
     if !sessions.is_empty() {
         lines.push(String::new());
         lines.extend(table(
-            &["HANDLE", "LEAD", "RUNTIME", "STATUS", "STATE", "SESSION ID"],
+            &["HANDLE", "ROLE", "RUNTIME", "STATUS", "STATE", "SESSION ID"],
             sessions,
         ));
     }
@@ -960,7 +948,7 @@ mod tests {
             render_default(View::CrewList, &json!([crew.clone()])),
             [
                 "NAME  ID       SLOTS",
-                "Peer  crew-id  coder* (codex), reviewer (claude-code)",
+                "Peer  crew-id  coder (codex), reviewer (claude-code)",
             ]
         );
         assert_eq!(
@@ -981,8 +969,8 @@ mod tests {
                 "NAME  Peer",
                 "ID    crew-id",
                 "",
-                "HANDLE  LEAD  ROLE   RUNTIME  MODEL  EFFORT  SPEED",
-                "coder   yes   coder  codex    gpt    high    inherit (Codex config)",
+                "HANDLE  ROLE   RUNTIME  MODEL  EFFORT  SPEED",
+                "coder   coder  codex    gpt    high    inherit (Codex config)",
             ]
         );
     }
@@ -1041,7 +1029,7 @@ mod tests {
             "mission": {"id": "mission-id", "title": "CLI", "status": "running", "crew_id": "crew-id", "project_id": null, "cwd": "/repo", "started_at": "2026-09-18T10:20:30Z"},
             "crew": {"name": "Peer"},
             "live_session_count": 1,
-            "sessions": [{"id": "session-id", "handle": "coder", "lead": true, "runtime": "codex", "status": "running"}],
+            "sessions": [{"id": "session-id", "handle": "coder", "role_handle": "implementer", "lead": true, "runtime": "codex", "status": "running"}],
             "latest_session_status_by_handle": {"coder": {"state": "busy"}},
             "pending_asks": [{"question_id": "question-id", "asker": "coder", "prompt": "Ship\nnow?", "choices": ["yes", "no"]}],
             "recent_warnings": [{"ts": "2026-09-18T10:21:31Z", "from": "router", "message": "retry\nlater", "payload": {"nested": true}}]
@@ -1057,8 +1045,8 @@ mod tests {
                 "CWD      /repo",
                 "STARTED  2026-09-18T10:20:30Z",
                 "",
-                "HANDLE  LEAD  RUNTIME  STATUS   STATE  SESSION ID",
-                "coder   yes   codex    running  busy   session-id",
+                "HANDLE  ROLE         RUNTIME  STATUS   STATE  SESSION ID",
+                "coder   implementer  codex    running  busy   session-id",
                 "",
                 "QUESTION ID  ASKER  PROMPT     CHOICES",
                 "question-id  coder  Ship now?  yes, no",

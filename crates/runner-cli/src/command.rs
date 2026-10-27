@@ -103,7 +103,7 @@ enum Command {
         #[arg(long = "as")]
         from: Option<String>,
     },
-    /// Ask the person with --human.
+    /// Ask the person at the app.
     Ask(AskArgs),
     /// Call any registered socket tool.
     Call {
@@ -299,8 +299,6 @@ enum CrewCommand {
     },
     /// Remove a slot from a crew.
     Remove { crew: String, handle: String },
-    /// Make a slot the crew lead.
-    Lead { crew: String, handle: String },
     /// Reorder every crew slot by handle.
     Order {
         crew: String,
@@ -494,15 +492,12 @@ enum MsgCommand {
 
 #[derive(Args, Debug)]
 struct AskArgs {
-    /// Question for the mission lead.
+    /// Ask the person at the app.
     question: Option<String>,
-    /// Legacy context flag; direct lead questions use msg post --to.
-    #[arg(long)]
-    context: Option<String>,
     /// Ask the person at the app.
     #[arg(long, conflicts_with = "question")]
     human: Option<String>,
-    /// Comma-separated choices for --human.
+    /// Comma-separated choices for the person.
     #[arg(long)]
     choices: Option<String>,
     /// Mission ID or unique prefix; required outside a mission.
@@ -656,7 +651,6 @@ fn output_view(command: &Command) -> output::View {
             CrewCommand::Add { .. }
             | CrewCommand::Set { .. }
             | CrewCommand::Remove { .. }
-            | CrewCommand::Lead { .. }
             | CrewCommand::Order { .. } => View::Confirmation("Updated crew slots"),
         },
         Command::Mission { command } => match command {
@@ -1434,11 +1428,6 @@ async fn run_crew(client: &impl Caller, command: &CrewCommand) -> Result<ToolRes
             let slot = resolve_slot(client, &crew.id, handle).await?;
             call(client, "slot_delete", json!({"slot_id": slot.id})).await
         }
-        CrewCommand::Lead { crew, handle } => {
-            let crew = resolve_named(client, "crew", "crew_list", crew).await?;
-            let slot = resolve_slot(client, &crew.id, handle).await?;
-            call(client, "slot_set_lead", json!({"slot_id": slot.id})).await
-        }
         CrewCommand::Order { crew, handles } => {
             let crew = resolve_named(client, "crew", "crew_list", crew).await?;
             let slots = list(client, "slot_list", json!({"crew_id": crew.id})).await?;
@@ -2122,33 +2111,23 @@ async fn run_ask(
 }
 
 fn ask_signal(args: &AskArgs) -> Result<(&'static str, Value), CliError> {
-    match (&args.question, &args.human) {
-        (Some(_), None) => Err(CliError::usage(runner_core::model::ASK_LEAD_REMOVED_HINT)),
-        (None, Some(prompt)) => {
-            if args.context.is_some() {
-                return Err(CliError::usage(
-                    "runner ask: --context is for a lead question, not --human",
-                ));
-            }
-            let choices = args
-                .choices
-                .as_deref()
-                .ok_or_else(|| CliError::usage("runner ask --human requires --choices"))?
+    let prompt = args
+        .question
+        .as_ref()
+        .or(args.human.as_ref())
+        .ok_or_else(|| CliError::usage("runner ask requires <question> or --human <prompt>"))?;
+    let choices = args
+        .choices
+        .as_deref()
+        .map(|choices| {
+            choices
                 .split(',')
                 .map(str::trim)
                 .filter(|choice| !choice.is_empty())
-                .collect::<Vec<_>>();
-            if choices.is_empty() {
-                return Err(CliError::usage(
-                    "runner ask --human requires at least one choice",
-                ));
-            }
-            Ok(("ask_human", json!({"prompt": prompt, "choices": choices})))
-        }
-        _ => Err(CliError::usage(
-            "runner ask requires either <question> or --human <prompt>",
-        )),
-    }
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Ok(("ask_human", json!({"prompt": prompt, "choices": choices})))
 }
 
 fn mission_post_args(mission_id: &str, text: &str, to: &[String], from: Option<&str>) -> Value {
@@ -3676,22 +3655,20 @@ mod tests {
     }
 
     #[test]
-    fn ask_builds_both_payload_shapes() {
+    fn ask_shorthand_and_human_alias_ask_the_person() {
         let lead = AskArgs {
             question: Some("Ship?".into()),
-            context: Some("Tests pass".into()),
             human: None,
             choices: None,
             mission: None,
             from: None,
         };
-        assert!(ask_signal(&lead)
-            .unwrap_err()
-            .message
-            .contains(runner_core::model::ASK_LEAD_REMOVED_HINT));
+        assert_eq!(
+            ask_signal(&lead).unwrap(),
+            ("ask_human", json!({"prompt":"Ship?", "choices":[]}))
+        );
         let human = AskArgs {
             question: None,
-            context: None,
             human: Some("Ship?".into()),
             choices: Some("yes, no".into()),
             mission: None,
@@ -4056,11 +4033,6 @@ mod tests {
                 json!({"slot_id": "slot-impl"}),
             ),
             (
-                vec!["crew", "lead", "Peer", "lead"],
-                vec!["crew_list", "slot_list", "slot_set_lead"],
-                json!({"slot_id": "slot-lead"}),
-            ),
-            (
                 vec!["crew", "order", "Peer", "lead", "impl"],
                 vec!["crew_list", "slot_list", "slot_reorder"],
                 json!({
@@ -4359,7 +4331,6 @@ mod tests {
             "slot_create",
             "slot_update",
             "slot_delete",
-            "slot_set_lead",
             "slot_reorder",
             "project_list",
             "project_get",
@@ -4419,7 +4390,6 @@ mod tests {
             &["crew", "add", "Peer", "coder", "--as", "impl"],
             &["crew", "set", "Peer", "impl", "--effort", "high"],
             &["crew", "remove", "Peer", "impl"],
-            &["crew", "lead", "Peer", "impl"],
             &["crew", "order", "Peer", "lead", "impl"],
             &["mission", "list", "--crew", "Peer"],
             &["mission", "show", "01M"],

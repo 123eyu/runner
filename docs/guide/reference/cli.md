@@ -45,7 +45,6 @@ Every public `runner` command and option below comes from the CLI shipped with t
 - [runner crew add](#runner-crew-add)
 - [runner crew set](#runner-crew-set)
 - [runner crew remove](#runner-crew-remove)
-- [runner crew lead](#runner-crew-lead)
 - [runner crew order](#runner-crew-order)
 - [runner mission](#runner-mission)
 - [runner mission list](#runner-mission-list)
@@ -90,7 +89,7 @@ USAGE
   runner daemon status|stop
   runner project list|show|create|rename|delete
   runner role list|show|create|update|delete
-  runner crew list|show|create|update|delete|add|set|remove|lead|order
+  runner crew list|show|create|update|delete|add|set|remove|order
   runner mission list|show|start|stop|resume|archive|unarchive|rename|pin|unpin|move|feed|answer
   runner chat start
   runner session list|show|stop|archive|resume|restart
@@ -147,8 +146,7 @@ REFERENCES
   A mission or chat started inside a project's directory belongs to it; --project overrides.
 
 MESSAGING INSIDE YOUR MISSION
-  Inside a mission, Runner pushes inbox notifications to every participant: leads, workers
-  and members of a team with no lead. When waiting for a teammate and no independent work
+  Inside a mission, Runner pushes inbox notifications to every member. When waiting for a teammate and no independent work
   remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages.
   Iterate with teammates across turns. External monitoring instructions do not apply to
   receiving messages in your own mission.
@@ -177,8 +175,8 @@ EXTERNAL OPERATOR FLOW (A DIFFERENT MISSION)
   runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
-  # Use the HANDLE from the LEAD row in mission show, or any member when there is no lead.
-  runner msg post --mission "$mission" --to <lead_handle> "message"
+  # Use a HANDLE from mission show to address a member.
+  runner msg post --mission "$mission" --to <handle> "message"
   runner mission stop "$mission"
   runner mission archive "$mission"
 
@@ -242,7 +240,7 @@ Commands:
   session  Inspect and manage sessions
   msg      Post to or read a mission log
   signal   Emit a typed signal
-  ask      Ask the person with --human
+  ask      Ask the person at the app
   call     Call any registered socket tool
   help     Print the command reference
 
@@ -722,7 +720,6 @@ Commands:
   add     Add a role to a crew
   set     Update one crew slot by handle
   remove  Remove a slot from a crew
-  lead    Make a slot the crew lead
   order   Reorder every crew slot by handle
 
 Options:
@@ -861,23 +858,6 @@ Options:
 Remove a slot from a crew
 
 Usage: runner crew remove [OPTIONS] <CREW> <HANDLE>
-
-Arguments:
-  <CREW>
-  <HANDLE>
-
-Options:
-      --json  Print the tool result as exact JSON
-  -q          Print only result IDs
-  -h, --help  Print help
-```
-
-## runner crew lead
-
-```text
-Make a slot the crew lead
-
-Usage: runner crew lead [OPTIONS] <CREW> <HANDLE>
 
 Arguments:
   <CREW>
@@ -1425,19 +1405,18 @@ Options:
 ## runner ask
 
 ```text
-Ask the person with --human
+Ask the person at the app
 
 Usage: runner ask [OPTIONS] [QUESTION]
 
 Arguments:
-  [QUESTION]  Question for the mission lead
+  [QUESTION]  Ask the person at the app
 
 Options:
-      --context <CONTEXT>  Legacy context flag; direct lead questions use msg post --to
-      --json               Print the tool result as exact JSON
       --human <HUMAN>      Ask the person at the app
+      --json               Print the tool result as exact JSON
+      --choices <CHOICES>  Comma-separated choices for the person
   -q                       Print only result IDs
-      --choices <CHOICES>  Comma-separated choices for --human
       --mission <MISSION>  Mission ID or unique prefix; required outside a mission
       --as <FROM>          Attribute the question to this roster handle
   -h, --help               Print help

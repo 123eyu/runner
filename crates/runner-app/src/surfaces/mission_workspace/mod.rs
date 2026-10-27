@@ -237,26 +237,11 @@ fn slot_control_title(action: SessionControlKind, overrides: &keymap::KeymapOver
         )
 }
 
-fn restart_confirm_body(handle: &str, lead_handle: Option<&str>, is_lead: bool) -> String {
-    if is_lead {
-        crate::i18n::tf(
-            "format.its_conversation_so_far_is_discarded_comes_back_with_the_launch_prompt_the_sam",
-            &[("handle", (handle).to_string())],
-        )
-    } else if let Some(lead_handle) = lead_handle {
-        crate::i18n::tf(
-            "format.its_conversation_so_far_is_discarded_comes_back_with_its_brief_the_same_first",
-            &[
-                ("handle", (handle).to_string()),
-                ("lead_handle", (lead_handle).to_string()),
-            ],
-        )
-    } else {
-        crate::i18n::tf(
-            "format.restart_slot_conversation",
-            &[("handle", (handle).to_string())],
-        )
-    }
+fn restart_confirm_body(handle: &str) -> String {
+    crate::i18n::tf(
+        "format.restart_slot_conversation",
+        &[("handle", handle.to_owned())],
+    )
 }
 
 fn stop_all_title(running_count: usize) -> String {

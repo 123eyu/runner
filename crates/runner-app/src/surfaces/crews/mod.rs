@@ -1,5 +1,5 @@
 pub(crate) use logic::{crew_picture, slot_setup, SlotSetup};
-pub(crate) use slots::{lead_badge, slot_setup_line};
+pub(crate) use slots::slot_setup_line;
 mod add_slot;
 mod create;
 mod editor;
@@ -221,13 +221,7 @@ impl CrewListRow {
     }
     fn summary(&self) -> String {
         match self {
-            Self::Local(item) => logic::crew_summary(
-                item.members.len(),
-                item.members
-                    .iter()
-                    .find(|slot| slot.lead)
-                    .map(|slot| slot.slot_handle.as_str()),
-            ),
+            Self::Local(item) => logic::crew_summary(item.members.len()),
             Self::Remote {
                 crew, role_handles, ..
             } => crew
@@ -235,16 +229,11 @@ impl CrewListRow {
                 .iter()
                 .zip(role_handles)
                 .map(|(slot, role_handle)| {
-                    let lead = if slot.lead {
-                        format!(" · {}", crate::i18n::text("ui.lead"))
-                    } else {
-                        String::new()
-                    };
                     let role = role_handle
                         .as_ref()
                         .map(|handle| format!(": @{handle}"))
                         .unwrap_or_default();
-                    format!("@{}{}{}", slot.handle, role, lead)
+                    format!("@{}{}", slot.handle, role)
                 })
                 .collect::<Vec<_>>()
                 .join("; "),

@@ -325,9 +325,9 @@ fn list_cells_count_runtimes_in_slot_order_and_summarize_the_crew() {
             ("pi".to_owned(), 1)
         ]
     );
-    assert_eq!(crew_summary(5, Some("lead")), "5 slots · lead @lead");
-    assert_eq!(crew_summary(1, Some("coder")), "1 slot · lead @coder");
-    assert_eq!(crew_summary(0, None), "No slots yet");
+    assert_eq!(crew_summary(5), "5 slots");
+    assert_eq!(crew_summary(1), "1 slot");
+    assert_eq!(crew_summary(0), "No slots yet");
 }
 
 #[test]
@@ -910,7 +910,7 @@ fn non_codex_slot_override_hides_speed() {
 }
 
 #[test]
-fn set_as_lead_and_remove_act_on_the_popups_slot() {
+fn popup_has_no_lead_action_and_remove_targets_its_slot() {
     use gpui::Bounds;
 
     let mut page = crew_page_harness("crew-slot-actions");
@@ -921,17 +921,7 @@ fn set_as_lead_and_remove_act_on_the_popups_slot() {
     page.update(|root, window, cx| root.toggle_slot_popup(open, Bounds::default(), window, cx));
     // The row measures itself as it draws; one more frame puts the popup beside it.
     page.update(|_, _, cx| cx.notify());
-    page.click("CREW_SLOT_SET_LEAD");
-    assert_eq!(page.popup_slot(), None);
-    let slots = page.slots(&crew);
-    assert!(
-        slots[1].slot.lead && !slots[0].slot.lead,
-        "the reviewer leads now"
-    );
-
-    let open = reviewer.clone();
-    page.update(|root, window, cx| root.toggle_slot_popup(open, Bounds::default(), window, cx));
-    page.update(|_, _, cx| cx.notify());
+    assert!(page.visual.debug_bounds("CREW_SLOT_SET_LEAD").is_none());
     page.click("CREW_SLOT_REMOVE");
     assert_eq!(page.popup_slot(), None);
     assert_eq!(
@@ -959,7 +949,7 @@ fn reorder_still_saves_through_slot_reorder() {
         .map(|slot| slot.slot.slot_handle)
         .collect::<Vec<_>>();
     assert_eq!(order, ["coder", "reviewer", "lead"]);
-    assert!(page.slots(&crew)[2].slot.lead, "the lead keeps its flag");
+    assert!(page.slots(&crew).iter().all(|slot| !slot.slot.lead));
 }
 
 #[test]

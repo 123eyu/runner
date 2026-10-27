@@ -570,7 +570,7 @@ fn registry_mount_and_unmount_joins_the_driver() {
 #[test]
 fn slot_restart_records_the_signal_before_notices_to_the_right_members() {
     for (has_lead, handle, recipients) in [
-        (true, "worker", vec!["lead"]),
+        (true, "worker", vec!["lead", "reviewer"]),
         (true, "lead", vec!["worker", "reviewer"]),
         (false, "worker", vec!["lead", "reviewer"]),
     ] {

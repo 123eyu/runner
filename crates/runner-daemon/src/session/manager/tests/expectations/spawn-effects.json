@@ -276,7 +276,7 @@
   },
   {
     "runtime": "codex",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -309,7 +309,7 @@
   },
   {
     "runtime": "codex",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -342,7 +342,7 @@
   },
   {
     "runtime": "codex",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -375,7 +375,7 @@
   },
   {
     "runtime": "codex",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -408,7 +408,7 @@
   },
   {
     "runtime": "codex",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -441,7 +441,7 @@
   },
   {
     "runtime": "codex",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -709,7 +709,7 @@
   },
   {
     "runtime": "claude-code",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -740,7 +740,7 @@
   },
   {
     "runtime": "claude-code",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -771,7 +771,7 @@
   },
   {
     "runtime": "claude-code",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -802,7 +802,7 @@
   },
   {
     "runtime": "claude-code",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -833,7 +833,7 @@
   },
   {
     "runtime": "claude-code",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -864,7 +864,7 @@
   },
   {
     "runtime": "claude-code",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -1124,7 +1124,7 @@
   },
   {
     "runtime": "antigravity",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -1154,7 +1154,7 @@
   },
   {
     "runtime": "antigravity",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -1184,7 +1184,7 @@
   },
   {
     "runtime": "antigravity",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -1214,7 +1214,7 @@
   },
   {
     "runtime": "antigravity",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -1244,7 +1244,7 @@
   },
   {
     "runtime": "antigravity",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -1274,7 +1274,7 @@
   },
   {
     "runtime": "antigravity",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -1533,7 +1533,7 @@
   },
   {
     "runtime": "pi",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -1547,8 +1547,8 @@
         "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
         "RUNNER_HANDLE": "tester",
         "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
-        "RUNNER_HOOK_GENERATION": "<ID3>",
-        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
         "RUNNER_MISSION_ID": "<ID4>",
         "TERM": "xterm-256color"
       },
@@ -1563,7 +1563,7 @@
   },
   {
     "runtime": "pi",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -1577,8 +1577,8 @@
         "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
         "RUNNER_HANDLE": "tester",
         "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
-        "RUNNER_HOOK_GENERATION": "<ID3>",
-        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
         "RUNNER_MISSION_ID": "<ID4>",
         "TERM": "xterm-256color"
       },
@@ -1593,7 +1593,7 @@
   },
   {
     "runtime": "pi",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -1607,8 +1607,8 @@
         "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
         "RUNNER_HANDLE": "tester",
         "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
-        "RUNNER_HOOK_GENERATION": "<ID3>",
-        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
         "RUNNER_MISSION_ID": "<ID4>",
         "TERM": "xterm-256color"
       },
@@ -1623,7 +1623,7 @@
   },
   {
     "runtime": "pi",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -1637,8 +1637,8 @@
         "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
         "RUNNER_HANDLE": "tester",
         "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
-        "RUNNER_HOOK_GENERATION": "<ID3>",
-        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
         "RUNNER_MISSION_ID": "<ID4>",
         "TERM": "xterm-256color"
       },
@@ -1653,7 +1653,7 @@
   },
   {
     "runtime": "pi",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -1667,8 +1667,8 @@
         "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
         "RUNNER_HANDLE": "tester",
         "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
-        "RUNNER_HOOK_GENERATION": "<ID3>",
-        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
         "RUNNER_MISSION_ID": "<ID4>",
         "TERM": "xterm-256color"
       },
@@ -1683,7 +1683,7 @@
   },
   {
     "runtime": "pi",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -1697,8 +1697,8 @@
         "RUNNER_EVENT_LOG": "<TMP>/events.ndjson",
         "RUNNER_HANDLE": "tester",
         "RUNNER_HOOK_EXECUTABLE": "<TMP>/bin/runner",
-        "RUNNER_HOOK_GENERATION": "<ID3>",
-        "RUNNER_HOOK_SESSION": "<ID2>",
+        "RUNNER_HOOK_GENERATION": "<ID2>",
+        "RUNNER_HOOK_SESSION": "<ID3>",
         "RUNNER_MISSION_ID": "<ID4>",
         "TERM": "xterm-256color"
       },
@@ -1933,7 +1933,7 @@
   },
   {
     "runtime": "copilot",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -1962,7 +1962,7 @@
   },
   {
     "runtime": "copilot",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -1991,7 +1991,7 @@
   },
   {
     "runtime": "copilot",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -2020,7 +2020,7 @@
   },
   {
     "runtime": "copilot",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -2049,7 +2049,7 @@
   },
   {
     "runtime": "copilot",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -2078,7 +2078,7 @@
   },
   {
     "runtime": "copilot",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -2305,7 +2305,7 @@
   },
   {
     "runtime": "trae",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -2335,7 +2335,7 @@
   },
   {
     "runtime": "trae",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -2365,7 +2365,7 @@
   },
   {
     "runtime": "trae",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -2395,7 +2395,7 @@
   },
   {
     "runtime": "trae",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -2425,7 +2425,7 @@
   },
   {
     "runtime": "trae",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -2455,7 +2455,7 @@
   },
   {
     "runtime": "trae",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -2681,7 +2681,7 @@
   },
   {
     "runtime": "cursor",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -2710,7 +2710,7 @@
   },
   {
     "runtime": "cursor",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -2739,7 +2739,7 @@
   },
   {
     "runtime": "cursor",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -2768,7 +2768,7 @@
   },
   {
     "runtime": "cursor",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -2797,7 +2797,7 @@
   },
   {
     "runtime": "cursor",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -2826,7 +2826,7 @@
   },
   {
     "runtime": "cursor",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -3051,7 +3051,7 @@
   },
   {
     "runtime": "grok",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -3080,7 +3080,7 @@
   },
   {
     "runtime": "grok",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -3109,7 +3109,7 @@
   },
   {
     "runtime": "grok",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -3138,7 +3138,7 @@
   },
   {
     "runtime": "grok",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -3167,7 +3167,7 @@
   },
   {
     "runtime": "grok",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -3196,7 +3196,7 @@
   },
   {
     "runtime": "grok",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -3453,7 +3453,7 @@
   },
   {
     "runtime": "opencode",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -3486,7 +3486,7 @@
   },
   {
     "runtime": "opencode",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -3519,7 +3519,7 @@
   },
   {
     "runtime": "opencode",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -3552,7 +3552,7 @@
   },
   {
     "runtime": "opencode",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -3585,7 +3585,7 @@
   },
   {
     "runtime": "opencode",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -3618,7 +3618,7 @@
   },
   {
     "runtime": "opencode",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -3815,7 +3815,7 @@
   },
   {
     "runtime": "shell",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -3841,7 +3841,7 @@
   },
   {
     "runtime": "shell",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -3867,7 +3867,7 @@
   },
   {
     "runtime": "shell",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -3893,7 +3893,7 @@
   },
   {
     "runtime": "shell",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -3919,7 +3919,7 @@
   },
   {
     "runtime": "shell",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -3945,7 +3945,7 @@
   },
   {
     "runtime": "shell",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -4143,7 +4143,7 @@
   },
   {
     "runtime": "unknown-runtime",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -4169,7 +4169,7 @@
   },
   {
     "runtime": "unknown-runtime",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "bypass",
     "spawn": {
       "env": {
@@ -4195,7 +4195,7 @@
   },
   {
     "runtime": "unknown-runtime",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -4221,7 +4221,7 @@
   },
   {
     "runtime": "unknown-runtime",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "auto",
     "spawn": {
       "env": {
@@ -4247,7 +4247,7 @@
   },
   {
     "runtime": "unknown-runtime",
-    "shape": "mission-worker",
+    "shape": "mission-member",
     "mode": "role-default",
     "spawn": {
       "env": {
@@ -4273,7 +4273,7 @@
   },
   {
     "runtime": "unknown-runtime",
-    "shape": "mission-lead",
+    "shape": "mission-legacy-flag",
     "mode": "role-default",
     "spawn": {
       "env": {

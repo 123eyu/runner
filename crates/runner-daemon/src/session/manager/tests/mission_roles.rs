@@ -81,7 +81,7 @@ fn added_slot_records_overrides_resumes_restarts_and_removal_stops_it() {
         .unwrap()
         .args
         .iter()
-        .any(|arg| arg.contains("ORIGINAL_BRIEF") && arg.contains("team can change")));
+        .any(|arg| arg.contains("ORIGINAL_BRIEF") && arg.contains("runner mission show")));
     let roster = crate::ops::mission::mission_roster(&core, "m").unwrap();
     let slot = &roster
         .iter()
@@ -303,7 +303,6 @@ fn empty_mission_mounts_adds_workers_and_remounts_without_a_crew() {
     let id = &out.mission.id;
     assert!(out.mission.crew_id.is_none());
     assert_eq!(fake.spawn_count(), 0);
-    assert!(core.routers.get(id).unwrap().lead_handle().is_none());
     assert!(core.buses.get(id).is_some());
     let dir = runner_core::event_log::mission_dir(data.path(), None, id);
     assert_eq!(dir, data.path().join("missions").join(id));
@@ -333,7 +332,6 @@ fn empty_mission_mounts_adds_workers_and_remounts_without_a_crew() {
         &core, id,
     ))
     .unwrap();
-    assert!(core.routers.get(id).unwrap().lead_handle().is_none());
     for role in ["one", "two"] {
         crate::test_support::insert_test_role(
             &core.db.get().unwrap(),
@@ -403,7 +401,6 @@ fn empty_mission_mounts_adds_workers_and_remounts_without_a_crew() {
         &core, id,
     ))
     .unwrap();
-    assert!(core.routers.get(id).unwrap().lead_handle().is_none());
     assert_eq!(
         crate::ops::mission::mission_roster(&core, id)
             .unwrap()
@@ -465,10 +462,105 @@ fn deleting_a_crew_keeps_its_mission_roster_status_and_add_role() {
         &core, "m",
     ))
     .unwrap();
-    assert_eq!(core.routers.get("m").unwrap().lead_handle(), Some("lead"));
     for id in core.sessions.live_session_ids() {
         core.sessions.kill(&id).unwrap();
     }
     core.buses.unmount("m");
     core.routers.unregister("m");
+}
+
+#[test]
+fn one_and_three_slot_crews_share_the_goal_and_allow_removing_every_member() {
+    for count in [1, 3] {
+        for legacy_lead in [false, true] {
+            let data = tempfile::tempdir().unwrap();
+            let fake = fake_runtime();
+            let mut core = crate::test_support::test_core_in(data.path().into());
+            core.sessions = mgr_with_fake(None, fake.clone());
+            {
+                let conn = core.db.get().unwrap();
+                conn.execute("INSERT INTO crews (id,name,system_prompt_addendum,created_at,updated_at) VALUES ('c','Team','TEAM_RULES','2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')", []).unwrap();
+                for i in 0..count {
+                    let handle = format!("member-{i}");
+                    crate::test_support::insert_test_role(
+                        &conn,
+                        &handle,
+                        &handle,
+                        "codex",
+                        "fixture-codex",
+                    );
+                    conn.execute(
+                        "UPDATE roles SET system_prompt = ?1 WHERE id = ?2",
+                        params![format!("BRIEF_{i}"), handle],
+                    )
+                    .unwrap();
+                    crate::test_support::insert_test_slot(
+                        &conn,
+                        &handle,
+                        "c",
+                        &handle,
+                        &handle,
+                        i,
+                        legacy_lead,
+                    );
+                }
+            }
+            let out = crate::daemon::block_on(crate::ops::mission::mission_start_impl_with_size(
+                &core,
+                runner_core::protocol::MissionStart {
+                    crew_id: Some("c".into()),
+                    scope: runner_core::protocol::ProjectScope::Root,
+                    title: "Shared goal".into(),
+                    goal_override: Some("SHARED_GOAL".into()),
+                    cwd: Some(data.path().to_string_lossy().into_owned()),
+                },
+                None,
+            ))
+            .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while core.sessions.has_pending_mission_spawns(&out.mission.id)
+                && Instant::now() < deadline
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(!core.sessions.has_pending_mission_spawns(&out.mission.id));
+            assert_eq!(fake.spawn_count(), count as usize);
+            for spawn in fake.spawns.lock().unwrap().iter() {
+                let i = spawn.spec.env["RUNNER_HANDLE"]
+                    .strip_prefix("member-")
+                    .unwrap();
+                let body = spawn.spec.args.last().unwrap();
+                for part in [
+                    "SHARED_GOAL",
+                    "TEAM_RULES",
+                    &format!("BRIEF_{i}"),
+                    "runner mission show",
+                    "Act only on your own part",
+                ] {
+                    assert!(body.contains(part), "missing {part}: {body}");
+                }
+                assert!(!body
+                    .split(|c: char| !c.is_alphanumeric())
+                    .any(|word| word.eq_ignore_ascii_case("lead")));
+            }
+            let rows = crate::ops::session::session_list(&core, &out.mission.id).unwrap();
+            assert!(rows
+                .iter()
+                .all(|row| row.role_handle == row.handle && !row.lead));
+            for i in 0..count {
+                crate::ops::mission::roles::remove_role(
+                    &core,
+                    &out.mission.id,
+                    &format!("member-{i}"),
+                )
+                .unwrap();
+            }
+            assert!(core.sessions.live_session_ids().is_empty());
+            assert!(crate::ops::mission::mission_roster(&core, &out.mission.id)
+                .unwrap()
+                .is_empty());
+            core.buses.unmount(&out.mission.id);
+            core.routers.unregister(&out.mission.id);
+        }
+    }
 }

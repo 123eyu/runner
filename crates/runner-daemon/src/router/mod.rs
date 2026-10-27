@@ -163,18 +163,12 @@ pub trait SessionDeliveryListener: Send + Sync + 'static {
 pub use crate::session::runtime::SessionActivityState;
 
 pub(crate) struct LaunchInputs {
-    lead: Option<LeadRow>,
     roster: Mutex<Vec<RosterRow>>,
-}
-
-pub(crate) struct LeadRow {
-    handle: String,
 }
 
 #[derive(Clone)]
 pub(crate) struct RosterRow {
     handle: String,
-    lead: bool,
 }
 
 // Windows Codex suppresses Enter after rapid input. Let its paste-burst
@@ -254,7 +248,7 @@ pub struct Router {
 }
 
 impl Router {
-    /// Build a router from the crew's roster and lead. `roster` is the same
+    /// Build a router from the mission's roster. `roster` is the same
     /// slice `mission_start` already loaded for the spawn loop.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -289,7 +283,6 @@ impl Router {
     pub fn add_roster_member(&self, member: &SlotWithRole) {
         self.launch.roster.lock().unwrap().push(RosterRow {
             handle: member.slot.slot_handle.clone(),
-            lead: member.slot.lead,
         });
     }
 
@@ -377,10 +370,6 @@ impl Router {
         state.pending_asks = pending_asks(&entries);
         state.cursor = cursor;
         Ok(())
-    }
-
-    pub fn lead_handle(&self) -> Option<&str> {
-        self.launch.lead.as_ref().map(|lead| lead.handle.as_str())
     }
 
     /// Single dispatcher entry point. Bus calls this for every appended
@@ -540,18 +529,9 @@ impl Router {
         ))?;
         let text = format!("@{handle} was restarted by the human and starts over with only its brief. Nothing it was told in this mission survives; re-send the task, branch, and anything else it needs.");
         let rows = self.launch.roster();
-        let restarting_lead = rows
-            .iter()
-            .any(|slot| slot.handle() == handle && slot.is_lead());
         let recipients: Vec<String> = rows
             .iter()
-            .filter(|slot| {
-                if restarting_lead || self.lead_handle().is_none() {
-                    slot.handle() != handle
-                } else {
-                    slot.is_lead()
-                }
-            })
+            .filter(|slot| slot.handle() != handle)
             .map(|slot| slot.handle().to_owned())
             .collect();
         for recipient in recipients {
@@ -675,18 +655,11 @@ impl SessionDeliveryListener for Router {
 impl LaunchInputs {
     fn new(roster: &[SlotWithRole]) -> Self {
         Self {
-            lead: roster
-                .iter()
-                .find(|member| member.slot.lead)
-                .map(|member| LeadRow {
-                    handle: member.slot.slot_handle.clone(),
-                }),
             roster: Mutex::new(
                 roster
                     .iter()
                     .map(|member| RosterRow {
                         handle: member.slot.slot_handle.clone(),
-                        lead: member.slot.lead,
                     })
                     .collect(),
             ),
@@ -726,9 +699,6 @@ impl LaunchInputs {
 impl RosterRow {
     pub(crate) fn handle(&self) -> &str {
         &self.handle
-    }
-    pub(crate) fn is_lead(&self) -> bool {
-        self.lead
     }
 }
 

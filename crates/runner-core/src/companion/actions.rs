@@ -88,10 +88,6 @@ pub enum ActionRequest {
         crew: String,
         order: Vec<String>,
     },
-    SetLead {
-        id: u64,
-        slot: String,
-    },
     Catalog {
         id: u64,
     },
@@ -249,7 +245,6 @@ impl ActionRequest {
             "reorderSlots" => {
                 fields!(crew: String => "a string", order: Vec<String> => "an array of strings")
             }
-            "setLead" => fields!(slot: String => "a string"),
             "catalog" => None,
             "folders" => fields!(path: Option<String> => "a string or null"),
             "startChat" => {
@@ -302,7 +297,6 @@ impl ActionRequest {
         "updateSlot",
         "removeSlot",
         "reorderSlots",
-        "setLead",
         "catalog",
         "folders",
         "startChat",
@@ -339,7 +333,6 @@ impl ActionRequest {
             Self::UpdateSlot { id, .. } => *id,
             Self::RemoveSlot { id, .. } => *id,
             Self::ReorderSlots { id, .. } => *id,
-            Self::SetLead { id, .. } => *id,
             Self::Catalog { id, .. } => *id,
             Self::Folders { id, .. } => *id,
             Self::StartChat { id, .. } => *id,
@@ -377,7 +370,6 @@ impl ActionRequest {
             Self::UpdateSlot { id, .. } => *id = value,
             Self::RemoveSlot { id, .. } => *id = value,
             Self::ReorderSlots { id, .. } => *id = value,
-            Self::SetLead { id, .. } => *id = value,
             Self::Catalog { id, .. } => *id = value,
             Self::Folders { id, .. } => *id = value,
             Self::StartChat { id, .. } => *id = value,

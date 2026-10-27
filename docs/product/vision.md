@@ -16,9 +16,9 @@ There is a second ceiling underneath the coordination one, and it is the person.
 
 ## 2. The vision
 
-Runner is a **working environment for terminal agents**: the place several coding agents share while they work on one task. It provides roles, reusable crews, mission rosters, directed messages, pushed inbox notifications and a path to the human, while staying neutral about the provider. A saved crew has one lead; a mission can also start empty with no lead. Any provider, one workflow.
+Runner is a **working environment for terminal agents**: the place several coding agents share while they work on one task. It provides roles, reusable crews, mission rosters, directed messages, pushed inbox notifications and a path to the human, while staying neutral about the provider. A mission shares its goal with every member and can start from a saved crew or empty. Any provider, one workflow.
 
-That neutrality is the product, and it is cheap to honor, because everything an agent needs in order to take part is something every CLI agent already has: a shell, a PTY, and a binary on PATH. Runner supplies the place (a mission), the identity (a handle in a roster), the channel (an append-only bus), and the escalation path (the lead, then the human). It does not wrap an editor around an agent — the agent brings its own tools. Planned file and diff review stays read-only, with comments returned to the agent that made the change. Runner is what sits *between* agents.
+That neutrality is the product, and it is cheap to honor, because everything an agent needs in order to take part is something every CLI agent already has: a shell, a PTY, and a binary on PATH. Runner supplies the place (a mission), the identity (a handle in a roster), the channel (an append-only bus), and the escalation path (a question to the person). It does not wrap an editor around an agent — the agent brings its own tools. Planned file and diff review stays read-only, with comments returned to the agent that made the change. Runner is what sits *between* agents.
 
 An agent can be the caller too: it starts a mission through the same CLI the person uses, while the person follows the real sessions in the app. The [agent-environment direction](agent-environment.md) explains why this matters and which delegation verbs remain planned.
 
@@ -28,7 +28,7 @@ A local desktop app where one person can:
 2. Define each **role** with a runtime and a brief (its system prompt).
 3. **Launch a mission** from a saved crew or start it empty, add configured roles, and watch its members' live terminals and shared feed.
 4. Let crew members **coordinate** through two channels: **signals** (typed, router-visible) and **messages** (prose, between crew members or addressed to the human).
-5. Get pulled in through the **lead**, or directly in a mission without one, when a decision needs a human.
+5. Get pulled in directly when a decision needs a human.
 
 The same app also supports **direct chats** — one-on-one sessions with a single agent outside any mission — for quick "I just want to ask `@architect` something" loops without standing up a whole crew.
 
@@ -37,14 +37,13 @@ The same app also supports **direct chats** — one-on-one sessions with a singl
 These are the words the product surfaces to the user; they also map 1:1 to the architecture model (`arch.md` §3).
 
 - **Role** — a configured CLI agent (binary + args + role brief). Top-level config; reusable across crews.
-- **Crew** — a named set of *slots*, each filled by a role, with exactly one lead.
-- **Slot** — a position inside a crew, filled by a role. The slot carries the per-crew handle (`@impl`, `@reviewer`, …) and the lead flag. Two slots in different crews can both be filled by the same role.
+- **Crew** — a named set of *slots*, each filled by a role, with shared team conventions.
+- **Slot** — a position inside a crew, filled by a role. The slot carries the per-crew handle (`@impl`, `@reviewer`, …) and its overrides. Two slots in different crews can both be filled by the same role.
 - **Mission** — a task with its own roster, working directory, goal and coordination bus. A crew seeds its roster or it starts empty; adding, removing or stopping one member does not stop the others.
 - **Session** — the live PTY process for one slot inside a mission, one role-backed direct chat, or one runtime-only direct chat.
 - **Signal** — a typed notification crew members emit for the router to handle. Verb grammar (`ask_human`, `mission_goal`, `session_status`).
 - **Message** — prose posted to the mission, broadcast or addressed to one or more members with `--to` or leading `@handle` mentions.
 - **Inbox** — the broadcasts and directed messages addressed to a member. Runner pushes a notification when delivery is safe; the recipient reads its contents with `runner msg read` and finishes its turn when waiting for another member.
-- **Lead** — the crew's coordinator and default human-input gateway. A mission without a lead shares its goal with joining workers, who can ask the person directly.
 - **Direct chat** — an off-bus, one-on-one PTY session with a single agent. No mission, no router, no inbox.
 
 ## 4. Product surfaces
@@ -54,7 +53,7 @@ The user-facing surfaces, described by the value they deliver, not by their impl
 ### 4.1 Crew and role library
 
 - Create, edit, delete roles (handle, display name, runtime, command + args, working dir, system prompt, env).
-- Compose crews from those roles by adding slots. Exactly one slot per crew is the lead. The same role can sit in many crews simultaneously.
+- Compose crews from those roles by adding slots. Every member receives the mission goal. The same role can sit in many crews simultaneously.
 - Optional per-crew **team conventions** addendum (`crew.system_prompt_addendum`) — Layer 2 of the prompt stack, spliced between the platform-injected coordination preamble (Layer 1) and the role's system prompt (Layer 3). Lets a crew share house rules without editing every role. See [arch §6](../arch/arch.md#6-system-prompt-composition).
 
 ### 4.2 Missions
@@ -82,7 +81,7 @@ The user-facing surfaces, described by the value they deliver, not by their impl
 ### 4.5 Human-in-the-loop
 
 - Questions appear as cards in the mission feed with their prompt, choices and optional `on_behalf_of` attribution. Pending questions remain visible until answered.
-- Choosing an answer records the response and delivers a durable message to the asker through the same inbox path. A lead can then relay it to a worker.
+- Choosing an answer records the response and delivers a durable message to the asker through the same inbox path.
 - Sidebar and workspace indicators show attention in the app. Background native notifications are shipped: chat events default on, the four mission switches default off, and clicking a notification opens its target.
 
 ### 4.6 Mission workspace UI
@@ -116,12 +115,12 @@ The user-facing surfaces, described by the value they deliver, not by their impl
 The concrete user flow the product must support end-to-end:
 
 1. User creates a crew called *Feature Ship*.
-2. User adds a coder lead and a reviewer, using whichever supported providers suit the task, with role prompts and shared team conventions.
-3. User starts the mission with a cwd and goal. Both PTYs spawn; the composed opening prompt gives the lead its task.
+2. User adds a coder and a reviewer, using whichever supported providers suit the task, with role prompts and shared team conventions.
+3. User starts the mission with a cwd and goal. Both PTYs spawn; each member’s opening prompt includes the shared goal and its own brief.
 4. Coder implements and runs the selected checks, then posts `runner msg post --to reviewer "Ready for review; inspect the working-tree diff and recorded checks."`
 5. Reviewer receives an inbox notification, runs `runner msg read`, reviews and sends specific findings directly to the coder. While waiting with no independent work, each participant finishes its turn.
 6. They iterate through messages until review is clean. Decisions and durable conclusions go into the repo and the handoff.
-7. A worker needing a human decision messages the lead. The lead answers or uses `runner ask --human "Decision needed" --choices "Proceed,Pause"`. The person answers the feed card; the reply reaches the asker's inbox. In a no-lead mission, workers ask the person directly.
+7. A member needing a human decision uses `runner ask "Decision needed" --choices "Proceed,Pause"`. The person answers the feed card; the reply reaches the asker’s inbox.
 8. The crew finishes the authorized work and reports its result. Commits, pushes, PRs and merges follow the task's explicit permissions; Runner does not grant them.
 9. The person stops the mission to pause it or archives it when done. Its feed remains available; restoring it allows a later resume.
 
@@ -140,7 +139,7 @@ These are intentionally out of scope — they belong to a different product or a
 - Multi-human collaboration on the same mission.
 - Thread/fact primitives for mission coordination.
 - A general-purpose secrets vault for role environments. Remote-access credentials have their own OS secret-store contract in the remote design.
-- LLM-based signal routing (the router is a flat dispatcher by design — the lead owns coordination judgment).
+- LLM-based signal routing (the router is a flat dispatcher by design — role prompts and team conventions define coordination).
 - Additional platforms before their own validation. macOS and Windows ship today; Linux ARM64/x86_64 source/package support is in development, with native and WSL validation tracked separately in [#823](https://github.com/yicheng47/runner/issues/823).
 
 ## 7. Open product questions
@@ -148,7 +147,7 @@ These are intentionally out of scope — they belong to a different product or a
 The issues own unresolved scope; these are the product decisions still needed:
 
 1. How should a starting chat stay connected to the missions it launches? [#748](https://github.com/yicheng47/runner/issues/748) needs a new design; Runner typing updates into a normal chat was rejected on 2026-10-17. External watches and a participant's own inbox are separate existing workflows.
-2. How should optional mission leads and the coordinator's `spawn`, `ps`, `wait`, `stop` and `done` verbs work together? Empty missions already work; [#873](https://github.com/yicheng47/runner/issues/873) and [#916](https://github.com/yicheng47/runner/issues/916) own the follow-through.
+2. How should `spawn`, `ps`, `wait`, `stop` and `done` be granted per role or slot? Empty missions and shared goals work; [#916](https://github.com/yicheng47/runner/issues/916) owns these verbs.
 3. What is the read-only file and diff review surface? [#634](https://github.com/yicheng47/runner/issues/634) requires design before implementation; editing and git writes stay with the agent's tools.
 
 ## 8. Risks

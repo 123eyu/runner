@@ -1164,10 +1164,23 @@ async fn a_browser_without_credit_does_not_block_other_channels() {
     }
     let (mut second, _) = relay.pair_finish(2, "012345").await;
     assert_eq!(relay.hello(2, &mut second).await["type"], "welcome");
+    // Keep a response pending even when credit ended exactly at a message boundary.
+    relay.feed(
+        1,
+        &raw_frame(
+            &mut browser,
+            &[&[1], br#"{"type":"x","id":1}"#.as_slice()].concat(),
+        ),
+    );
     let mut credit = vec![2];
     credit.extend_from_slice(&(spent as u32).to_be_bytes());
     relay.feed(1, &raw_frame(&mut browser, &credit));
-    let record = raw_record(&mut relay, 1, &mut browser).await;
+    let record = loop {
+        let record = raw_record(&mut relay, 1, &mut browser).await;
+        if record[0] != 2 {
+            break record;
+        }
+    };
     assert_eq!(record[0], 1);
     assert!(record.len() > 1);
 }

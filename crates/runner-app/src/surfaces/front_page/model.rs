@@ -586,7 +586,6 @@ impl From<&runner_core::protocol::model::Mission> for WorkspaceMission {
 pub(crate) struct MissionMemberDisplay {
     pub(crate) session: MissionMemberSession,
     pub(crate) handle: String,
-    pub(crate) lead: bool,
     pub(crate) runtime: String,
     pub(crate) live_title: Option<String>,
     pub(crate) agent_session_key: Option<String>,
@@ -608,7 +607,6 @@ impl From<&runner_core::protocol::session::SessionRow> for MissionMemberDisplay 
                 cwd: row.session.cwd.clone(),
             },
             handle: row.handle.clone(),
-            lead: row.lead,
             runtime: row.runtime.clone(),
             live_title: row.live_title.clone(),
             agent_session_key: row.agent_session_key.clone(),

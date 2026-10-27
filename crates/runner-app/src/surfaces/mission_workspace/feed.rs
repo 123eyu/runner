@@ -826,10 +826,7 @@ impl MissionWorkspace {
         let goal = first.kind == EventKind::Signal
             && first.signal_type.as_ref().map(|kind| kind.as_str()) == Some("mission_goal");
         let target = if goal {
-            self.roster
-                .iter()
-                .find(|member| member.slot.lead)
-                .map(|member| member.slot.slot_handle.clone())
+            None
         } else {
             message_target(first, &self.askers_by_question)
         };

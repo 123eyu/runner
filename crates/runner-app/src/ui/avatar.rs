@@ -1,8 +1,5 @@
 use gpui::prelude::*;
-use gpui::{
-    div, rems, rgb, AnyElement, App, FontWeight, Hsla, IntoElement, RenderOnce, SharedString,
-    Window,
-};
+use gpui::{div, rems, rgb, App, Hsla, IntoElement, RenderOnce, SharedString, Window};
 
 use crate::theme;
 
@@ -148,19 +145,6 @@ impl RenderOnce for RoleAvatar {
                     })
             }))
     }
-}
-
-pub fn lead_badge() -> AnyElement {
-    div()
-        .rounded(rems(4. / 16.))
-        .bg(theme::with_alpha(theme::warning(), 0.2))
-        .px(rems(6. / 16.))
-        .py(rems(1. / 16.))
-        .font_weight(FontWeight::BOLD)
-        .text_size(theme::text_micro())
-        .text_color(theme::warning())
-        .child(crate::i18n::text("heading.lead"))
-        .into_any_element()
 }
 
 #[cfg(test)]

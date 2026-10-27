@@ -2102,8 +2102,8 @@ pub(crate) fn runtime_direct_role(
 // post-spawn auto-paste of "continue" on resume has also been removed
 // — Resume now just respawns the PTY without injecting any stdin.
 
-// `WORKER_COORDINATION_PREAMBLE` and the per-runtime first-turn
-// composition helpers (`compose_worker_first_turn`,
+// `TEAM_COORDINATION_PREAMBLE` and the per-runtime first-turn
+// composition helpers (`compose_member_first_turn`,
 // `compose_direct_first_turn`) live in `router::prompt`; the spawn
 // paths here only decide how to hand that composed text to the CLI.
 

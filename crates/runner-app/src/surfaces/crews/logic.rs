@@ -368,19 +368,12 @@ pub(crate) fn crew_picture(handles: &[SharedString], tile: f32) -> AnyElement {
         .into_any_element()
 }
 
-/// `5 slots · lead @lead`.
-pub(crate) fn crew_summary(slots: usize, lead: Option<&str>) -> String {
-    let count = match slots {
-        0 => return crate::i18n::text("ui.no_slots_yet").to_owned(),
+/// The number of slots in a crew.
+pub(crate) fn crew_summary(slots: usize) -> String {
+    match slots {
+        0 => crate::i18n::text("ui.no_slots_yet").to_owned(),
         1 => crate::i18n::text("ui.1_slot").to_owned(),
         count => crate::i18n::tf("format.slots", &[("count", (count).to_string())]),
-    };
-    match lead {
-        Some(lead) => crate::i18n::tf(
-            "format.lead",
-            &[("count", (count).to_string()), ("lead", (lead).to_string())],
-        ),
-        None => count,
     }
 }
 

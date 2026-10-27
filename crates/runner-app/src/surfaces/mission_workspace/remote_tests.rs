@@ -72,6 +72,10 @@ fn remote_mission_uses_shared_sections_without_local_rows_or_private_metadata() 
         assert_eq!(workspace.members()[0].session.id, "member");
         assert_eq!(workspace.mission_composer_roster()[0].handle, "coder");
         assert!(workspace.settings(cx).last_mission_terminal_ids.is_empty());
+        assert_eq!(
+            workspace.composer_input.read(cx).placeholder(),
+            "Message everyone — @handle to address one"
+        );
     });
     let mut visual = VisualTestContext::from_window(window.into(), &cx);
     for selector in [
@@ -119,7 +123,7 @@ fn remote_mission_uses_shared_sections_without_local_rows_or_private_metadata() 
             MissionTab::Session("replacement".into())
         );
         assert_eq!(workspace.open_tabs, ["replacement"]);
-        assert!(workspace.members()[0].lead);
+        assert_eq!(workspace.members()[0].handle, "coder");
     });
     window
         .update(&mut cx, |root, _, cx| {

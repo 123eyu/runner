@@ -1,12 +1,12 @@
 # Missions
 
-A mission holds agents working on one goal, their terminals, and a shared record of messages and questions. Start from a saved crew, or create an empty mission and add workers as needed.
+A mission holds agents working on one goal, their terminals, and a shared record of messages and questions. Start from a saved crew, or create an empty mission and add members as needed.
 
 ## Goal and membership
 
-For a crew mission, Runner starts a session per slot and delivers the goal to the lead. Members receive their role instructions, team conventions and coordination instructions. The mission captures its own roster, so the crew remains a reusable template.
+For a crew mission, Runner starts a session per slot and delivers the goal to every member, together with their role instructions, team conventions and coordination instructions. Members act on their own part and wait for any required handoff. The mission captures its own roster, so the crew remains a reusable template.
 
-With **No crew**, the mission starts without sessions or a lead. Add a role from the mission and give it a task. Each joins as a worker and receives the shared mission context. The person controlling the mission can add or remove workers while it runs; a crew lead cannot be removed. Removing a worker stops its session but keeps the mission's history.
+With **No crew**, the mission starts without sessions. Add a role from the mission and give it a task. Each joins as a member and receives the shared mission context. The person controlling the mission can add or remove any member while it runs. Removing a member stops its session but keeps the mission's history.
 
 The mission's working directory is shared by its members when supplied. Runner does not make branches, worktrees or copies of your repository. Set up any isolation you need before launch and describe it in the goal.
 

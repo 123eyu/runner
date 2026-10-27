@@ -41,11 +41,10 @@ use crate::ops::project::ProjectScope;
 // bookkeeping layer — no PTYs yet.
 //
 // `mission_start` is the point where config crystallizes into runtime:
-// validate the crew has ≥1 role and exactly one lead, create the mission
+// validate the crew has ≥1 slot, create the mission
 // row, create the mission directory, and emit the two opening events —
 // `mission_start` (system announces the run) and `mission_goal` (the
-// human's intent, which the orchestrator routes to the lead via the
-// built-in rule in C8).
+// human's intent, shared in every member's first turn).
 
 use std::path::Path;
 
@@ -117,9 +116,9 @@ pub fn get(conn: &Connection, id: &str) -> Result<Mission> {
 }
 
 /// Cap on the effective mission goal byte length. The launch prompt
-/// composer pastes this into the lead's first-user-turn body
+/// composer pastes this into every member's first-user-turn body
 /// alongside `system_prompt` (≤ `MAX_SYSTEM_PROMPT_BYTES`) and the
-/// roster + coordination block; together they have to fit under
+/// conventions + coordination block; together they have to fit under
 /// `router::runtime::FIRST_TURN_ARGV_MAX_BYTES`. 8 KB is roomy for
 /// a real mission goal (typical goals are a few sentences) while
 /// leaving generous headroom for the rest of the composed body.
@@ -190,12 +189,6 @@ pub fn start(
         if slots.is_empty() {
             return Err(Error::msg(format!(
                 "crew {} has no slots; cannot start mission",
-                crew.name
-            )));
-        }
-        if slots.iter().filter(|m| m.slot.lead).count() != 1 {
-            return Err(Error::msg(format!(
-                "crew {} must have exactly one lead slot; cannot start mission",
                 crew.name
             )));
         }
@@ -624,9 +617,9 @@ pub async fn mission_start_impl_with_size(
             crate::router::prompt::member_prompt_channels(
                 adapter,
                 member,
-                &roster,
                 &loaded.file,
                 &log_arc,
+                false,
             )
         })
         .collect();
@@ -658,9 +651,6 @@ pub async fn mission_start_impl_with_size(
     // so the Start-mission RPC returns in ~milliseconds instead of
     // ~1.5s × (claude_workers). See issue #171.
     //
-    // Iteration is plain position order — the modal no longer blocks
-    // on the gate, so there's no user-visible benefit to promoting
-    // the lead ahead of position-zero workers.
     for (idx, member) in roster.iter().enumerate() {
         let (system_prompt, first_turn) = prompt_channels.get(idx).cloned().unwrap_or_default();
         let register_res = state.sessions.register_mission_session(
@@ -720,9 +710,7 @@ pub async fn mission_start_impl_with_size(
     // `sessions` row from `register_mission_session`, so the
     // workspace mounts immediately and renders starting pills; each
     // pill clears when its PTY emits the TUI-ready signal (see
-    // `chunkIndicatesTuiReady`). Spawns run sequentially inside the
-    // task so the claude-code launch gate's lead-first ordering is
-    // preserved.
+    // `chunkIndicatesTuiReady`). Spawns run sequentially in roster order.
     //
     // Per-mission cancel flag lets Stop / Archive abort
     // queued slots before their PTYs fork; without it, a slot
@@ -2379,7 +2367,7 @@ mod tests {
     }
 
     #[test]
-    fn a_resumed_lead_keeps_empty_mission_goal() {
+    fn a_resumed_member_keeps_empty_mission_goal() {
         let pool = pool();
         let mut conn = pool.get().unwrap();
         let crew_id = seed_crew(&conn, "A");
@@ -2400,8 +2388,6 @@ mod tests {
         )
         .unwrap();
 
-        // A resume recomposes the lead's prompt from the log, the path
-        // `spawn` takes for a respawned lead.
         let crew = crew::get(&conn, &crew_id).unwrap();
         let roster = slot::list(&conn, &crew_id).unwrap();
         let log = EventLog::open(&event_log::mission_dir(
@@ -2413,16 +2399,16 @@ mod tests {
         let (system_prompt, first_turn) = crate::router::prompt::member_prompt_channels(
             crate::runtimes::for_key(Runtime::ClaudeCode.key()),
             &roster[0],
-            &roster,
             &roster::snapshot(Some(&crew), &roster),
             &log,
+            false,
         );
         let prompt = format!(
             "{}{}",
             system_prompt.unwrap_or_default(),
             first_turn.unwrap_or_default()
         );
-        assert!(prompt.contains("no goal set"), "{prompt}");
+        assert!(!prompt.contains("== Mission goal =="), "{prompt}");
     }
 
     #[test]

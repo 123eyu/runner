@@ -300,7 +300,6 @@ pub fn call_daemon(
         "role_get_by_handle" => {
             response(client.role_get_by_handle(&argument::<String>(&args, "handle")?))
         }
-        "slot_set_lead" => response(client.slot_set_lead(&argument::<String>(&args, "slot_id")?)),
         "slot_reorder" => response(client.slot_reorder(
             &argument::<String>(&args, "crew_id")?,
             argument(&args, "ordered_slot_ids")?,

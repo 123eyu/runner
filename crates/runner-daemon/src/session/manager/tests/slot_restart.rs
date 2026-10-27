@@ -113,8 +113,11 @@ fn worker_restart_reuses_row_replaces_claude_key_and_delivers_first_turn_once() 
         .restart(&id, None, None, app_data.path(), pool.clone(), capture())
         .unwrap();
     let spec = fake.last_spawn_spec().unwrap();
-    let body =
-        router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None);
+    let body = router::prompt::compose_member_first_turn(
+        Some("SLOT_BRIEF"),
+        Some("TEAM_RULES"),
+        Some("LATEST_GOAL"),
+    );
     assert_eq!(spec.args.last(), Some(&body));
     assert!(!spec.args.iter().any(|arg| arg == "--resume"));
     assert_eq!(out.id, id);
@@ -141,7 +144,7 @@ fn worker_restart_reuses_row_replaces_claude_key_and_delivers_first_turn_once() 
 }
 
 #[test]
-fn lead_restart_and_missing_conversation_resume_deliver_launch_prompt() {
+fn legacy_slot_restart_and_missing_conversation_resume_deliver_member_prompt() {
     for fresh in [true, false] {
         let (pool, app_data, id) = slot_respawn_fixture("claude-code", true);
         let fake = fake_runtime();
@@ -157,13 +160,7 @@ fn lead_restart_and_missing_conversation_resume_deliver_launch_prompt() {
         }
         let spec = fake.last_spawn_spec().unwrap();
         let body = spec.args.last().unwrap();
-        for text in [
-            "SLOT_BRIEF",
-            "TEAM_RULES",
-            "LATEST_GOAL",
-            "runner msg read",
-            "`slot`",
-        ] {
+        for text in ["SLOT_BRIEF", "TEAM_RULES", "LATEST_GOAL", "runner msg read"] {
             assert!(body.contains(text), "missing {text}: {body}");
         }
         assert!(!spec.args.iter().any(|arg| arg == "--resume"));
@@ -193,8 +190,11 @@ fn missing_worker_conversation_resume_delivers_cold_start_first_turn() {
             router::DeliveryReservation::Starting
         );
         let spec = fake.last_spawn_spec().unwrap();
-        let body =
-            router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None);
+        let body = router::prompt::compose_member_first_turn(
+            Some("SLOT_BRIEF"),
+            Some("TEAM_RULES"),
+            Some("LATEST_GOAL"),
+        );
         assert!(
             spec.args.last().unwrap().starts_with(&body),
             "{runtime}: {:?}",

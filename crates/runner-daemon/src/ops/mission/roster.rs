@@ -102,7 +102,7 @@ pub fn load(conn: &Connection, app_data_dir: &Path, mission: &Mission) -> Result
                 role_id: entry.role_id.clone(),
                 slot_handle: entry.handle.clone(),
                 position: entry.position,
-                lead: entry.lead,
+                lead: false,
                 runtime_override: entry.runtime_override.clone(),
                 model_override: entry.model_override.clone(),
                 effort_override: entry.effort_override.clone(),
@@ -120,7 +120,8 @@ pub fn convert_all(conn: &Connection, app_data_dir: &Path) -> Result<()> {
         #[derive(serde::Deserialize)]
         struct LegacyEntry {
             handle: String,
-            lead: bool,
+            #[serde(rename = "lead")]
+            _lead: bool,
         }
 
         let dir = event_log::mission_dir(app_data_dir, mission.crew_id.as_deref(), &mission.id);
@@ -225,7 +226,7 @@ pub fn convert_all(conn: &Connection, app_data_dir: &Path) -> Result<()> {
                 continue;
             };
             slot.handle = entry.handle;
-            slot.lead = entry.lead;
+            slot.lead = false;
             slot.position = position as i64;
             slots.push(slot);
         }
@@ -461,11 +462,7 @@ mod tests {
                 );
                 assert_eq!(
                     result.slots.iter().map(|s| s.lead).collect::<Vec<_>>(),
-                    if case == "reordered" {
-                        vec![false, true, false]
-                    } else {
-                        vec![true, false, false]
-                    }
+                    vec![false, false, false]
                 );
                 assert_eq!(
                     result
@@ -749,7 +746,6 @@ mod tests {
             data.path().join("logs"),
         );
         let core = crate::daemon::boot::boot(&paths, Vec::new(), false).unwrap();
-        assert_eq!(core.routers.get("m").unwrap().lead_handle(), Some("lead"));
         assert!(core.routers.get("archived").is_none());
         for id in ["m", "archived"] {
             let file: MissionRoster = serde_json::from_slice(
@@ -793,7 +789,8 @@ mod tests {
                         .unwrap();
                 }
                 "lead" => {
-                    slot::set_lead(&mut conn, "s2").unwrap();
+                    conn.execute("UPDATE slots SET lead = (id = 's2')", [])
+                        .unwrap();
                 }
                 "override" => {
                     conn.execute("UPDATE slots SET runtime_override='codex', model_override='different' WHERE id='s0'", []).unwrap();
@@ -811,7 +808,6 @@ mod tests {
                 .unwrap();
             let router = state.routers.get("m").unwrap();
             let mut events = state.events.subscribe();
-            assert_eq!(router.lead_handle(), Some("lead"), "{edit}");
             assert_eq!(
                 router
                     .launch()
@@ -828,12 +824,12 @@ mod tests {
             let (_, body) = crate::router::prompt::member_prompt_channels(
                 crate::runtimes::for_key("claude-code"),
                 &loaded.slots[0],
-                &loaded.slots,
                 &loaded.file,
                 &log,
+                false,
             );
             let body = body.unwrap();
-            assert!(body.contains("Original crew") && body.contains("ORIGINAL_RULES"));
+            assert!(body.contains("ORIGINAL_RULES"));
             assert!(!body.contains("new-worker") && !body.contains("EDITED_RULES"));
             assert_eq!(
                 mission::mission_roster(&state, "m").unwrap()[0]

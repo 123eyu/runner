@@ -78,11 +78,6 @@ impl NativeRoot {
                     .child(crate::i18n::text(
                         "ui.add_roles_as_slots_once_the_crew_exists",
                     ))
-                    .child(
-                        div()
-                            .text_color(theme::faint())
-                            .child(crate::i18n::text("ui.the_first_slot_leads")),
-                    )
                     .into_any_element()
             } else {
                 self.render_slot_list(slots, slot_text_width(column), cx)
@@ -112,9 +107,7 @@ impl NativeRoot {
                 .py_5()
                 .text_size(theme::text_ui())
                 .text_color(theme::faint())
-                .child(crate::i18n::text(
-                    "ui.no_slots_yet_the_first_slot_you_add_leads_the_crew",
-                ))
+                .child(crate::i18n::text("ui.no_slots_yet"))
                 .into_any_element();
         }
         let total = slots.len();
@@ -302,37 +295,6 @@ impl NativeRoot {
         }
     }
 
-    pub(super) fn set_crew_lead(&mut self, slot_id: String, cx: &mut Context<Self>) {
-        let crew_id = self.crew_surfaces.editor.crew_id.clone();
-        let core = self.core(cx).clone();
-        let task = cx.background_spawn(async move {
-            let result = core
-                .slot_set_lead(&slot_id)
-                .map_err(|error| error.to_string());
-            (crew_id, result)
-        });
-        cx.spawn(async move |weak, cx| {
-            let (crew_id, result) = task.await;
-            let _ = weak.update(cx, |this, cx| {
-                if !matches!(
-                    &this.route,
-                    AppRoute::CrewEditor(active) if active == &crew_id
-                ) {
-                    return;
-                }
-                match result {
-                    Ok(_) => {
-                        this.load_crew_editor(crew_id, cx);
-                        this.load_crew_page(cx);
-                    }
-                    Err(error) => this.crew_surfaces.editor.error = Some(error),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     pub(crate) fn clear_crew_slot_drag(&mut self, cx: &mut Context<Self>) {
         let editor = &mut self.crew_surfaces.editor;
         if editor.dragged_slot_id.is_none() && editor.drop_target.is_none() {
@@ -419,11 +381,7 @@ impl NativeRoot {
         let root = cx.entity();
         let confirm_root = root.clone();
         let cancel_root = root;
-        let body = if confirm.slot.slot.lead {
-            crate::i18n::text("ui.as_the_lead_leadership_will_pass_to_the_next_slot_by_position")
-        } else {
-            ""
-        };
+        let body = "";
         ConfirmDialog::new(
             crate::i18n::tf(
                 "format.remove_slot_from_this_crew",
@@ -449,24 +407,6 @@ impl NativeRoot {
     }
 }
 
-/// The LEAD badge beside a slot handle.
-pub(crate) fn lead_badge() -> AnyElement {
-    div()
-        .flex_none()
-        .rounded(rems(3. / 16.))
-        .border_1()
-        .border_color(theme::border_strong())
-        .px(rems(4. / 16.))
-        .font_family(theme::UI_MONOSPACE_FONT)
-        .text_size(theme::text_micro())
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::faint())
-        .child(crate::i18n::text("heading.lead"))
-        .into_any_element()
-}
-
-/// A slot's effective runtime with its mark, then its model, effort, and Speed, each
-/// with a dot when the slot overrides it.
 pub(crate) fn slot_setup_line(setup: &SlotSetup) -> gpui::Div {
     let icon = ChatIcon::for_runtime(&setup.runtime);
     let separator = || div().flex_none().text_color(theme::faint()).child("·");
@@ -544,21 +484,16 @@ fn slot_text(slot: &SlotWithRole, setup: &SlotSetup, width: f32) -> AnyElement {
         .flex_col()
         .gap(rems(2. / 16.))
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(rems(6. / 16.))
-                .child(
-                    div()
-                        .min_w(px(0.))
-                        .truncate()
-                        .font_family(theme::UI_MONOSPACE_FONT)
-                        .text_size(theme::text_body())
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::text())
-                        .child(format!("@{}", slot.slot.slot_handle)),
-                )
-                .children(slot.slot.lead.then(lead_badge)),
+            div().flex().items_center().gap(rems(6. / 16.)).child(
+                div()
+                    .min_w(px(0.))
+                    .truncate()
+                    .font_family(theme::UI_MONOSPACE_FONT)
+                    .text_size(theme::text_body())
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::text())
+                    .child(format!("@{}", slot.slot.slot_handle)),
+            ),
         )
         .child(slot_setup_line(setup))
         .child(

@@ -1,72 +1,14 @@
-// Composed session prompts, split across each runtime's prompt channels.
-//
-// Pure function over the inputs: no I/O, no DB access, no globals — easy to
-// unit-test against fixture rosters and goal strings.
-//
-// The four sections (brief, mission, crewmates, coordination) mirror the
-// example in arch §6. The runtime adapter sends the composed body at spawn;
-// pi splits the mission section into the lead's only first turn and writes
-// the other sections to its per-session system-prompt file.
-
-use runner_core::model::SignalType;
-
-#[cfg(test)]
-use crate::model::Runtime;
-
+// Mission coordination and role briefs, composed without I/O.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionPromptKind {
     Direct,
-    Worker,
-    Lead,
+    Member,
 }
 
-/// View of the lead slot the launch prompt needs. `handle` is the
-/// slot's in-crew handle (slot_handle); `display_name` and
-/// `system_prompt` come from the underlying runner template.
-/// Decoupled from `Runner` so the composer doesn't know how the
-/// fields are joined.
-pub struct LeadView<'a> {
-    pub handle: &'a str,
-    pub display_name: &'a str,
-    pub system_prompt: Option<&'a str>,
-}
-
-/// One crewmate in the lead's roster section.
-pub struct RosterEntry<'a> {
-    pub handle: &'a str,
-    pub display_name: &'a str,
-    pub lead: bool,
-}
-
-/// All inputs for the launch prompt. Borrowed so the caller can compose
-/// without copying the runner row.
-pub struct LaunchPromptInput<'a> {
-    pub lead: LeadView<'a>,
-    pub crew_name: &'a str,
-    pub mission_goal: &'a str,
-    pub roster: &'a [RosterEntry<'a>],
-    pub allowed_signals: &'a [SignalType],
-    /// Layer-2 team conventions text (`crew.system_prompt_addendum`).
-    /// Spliced under a `== Team conventions ==` section between the
-    /// "You are X, the lead of crew Y" intro and the `== Your
-    /// brief ==` section. Empty / whitespace-only → no splice. See #54.
-    pub crew_addendum: Option<&'a str>,
-}
-
-/// First-user-turn body for a non-lead mission worker. Combines the
-/// platform-injected coordination preamble (Layer 1 — verbs the
-/// worker needs to participate in the bus), the optional crew-level
-/// addendum spliced under a `== Team conventions ==` section (Layer
-/// 2), and the worker's per-role system_prompt as a `== Your brief
-/// ==` section (Layer 3 — persona). Returns the full composed body,
-/// never empty (preamble is always present).
-///
-/// Delivered as the trailing positional `[PROMPT]` argv at spawn time
-/// when the runtime accepts it (see `router::runtime::first_turn_argv`).
-pub fn compose_worker_first_turn(
+pub fn compose_member_first_turn(
     system_prompt: Option<&str>,
     crew_addendum: Option<&str>,
-    leadless_goal: Option<&str>,
+    mission_goal: Option<&str>,
 ) -> String {
     let addendum = crew_addendum
         .map(str::trim)
@@ -77,12 +19,8 @@ pub fn compose_worker_first_turn(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let mut out = String::new();
-    out.push_str(if leadless_goal.is_some() {
-        TEAM_COORDINATION_PREAMBLE
-    } else {
-        WORKER_COORDINATION_PREAMBLE
-    });
-    if let Some(goal) = leadless_goal.map(str::trim).filter(|goal| !goal.is_empty()) {
+    out.push_str(TEAM_COORDINATION_PREAMBLE);
+    if let Some(goal) = mission_goal.map(str::trim).filter(|goal| !goal.is_empty()) {
         out.push_str("\n\n== Mission goal ==\n");
         out.push_str(goal);
     }
@@ -99,7 +37,7 @@ pub fn compose_worker_first_turn(
 
 /// First-user-turn body for a direct chat. Just the runner's
 /// `system_prompt` (persona / role) — no coordination preamble.
-/// Direct chats are off-bus, so the worker preamble's verbs
+/// Direct chats are off-bus, so the team preamble's verbs
 /// (`runner msg post` etc.) don't resolve to anything useful and
 /// would mislead the agent.
 ///
@@ -112,10 +50,7 @@ pub fn compose_direct_first_turn(system_prompt: Option<&str>) -> Option<String> 
         .map(str::to_string)
 }
 
-/// Platform-injected preamble for non-lead worker spawns. Covers the
-/// bus conventions a worker needs to interact with the crew, leaving
-/// the user-authored `system_prompt` free to focus on persona / role.
-pub(crate) const WORKER_COORDINATION_PREAMBLE: &str = r#"You are a worker in a crew coordinated by the bundled `runner` CLI. The CLI is on your PATH and talks to the rest of the crew via a shared event bus. Use these verbs to participate; do not invent your own conventions.
+pub(crate) const TEAM_COORDINATION_PREAMBLE: &str = r#"You are a member of a team coordinated by the bundled `runner` CLI. The CLI is on your PATH and talks to the rest of the team via a shared event bus. Use these verbs to participate; do not invent your own conventions.
 
 == Coordination ==
 - Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
@@ -123,599 +58,110 @@ pub(crate) const WORKER_COORDINATION_PREAMBLE: &str = r#"You are a worker in a c
 - Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.
 - Address one or several members with `runner msg post --to coder --to reviewer "<text>"` or leading mentions: `runner msg post "@coder @reviewer <text>"`. Explicit `--to` wins; mid-text mentions do not address.
 - Reply to the sender. Broadcast with `runner msg post "<text>"` only when everyone must act. Do not post receipt-only replies or standby messages; consuming your inbox with `runner msg read` is still required.
-- Questions for the lead go to it with `runner msg post --to <lead>`; `runner mission show` names it.
-- The team can change while the mission runs; your inbox announces every join and leave, and `runner mission show` lists the current team.
+- Escalate to the human (with structured choices) via `runner signal ask_human --payload '{"prompt":"…","choices":["yes","no"]}'`.
+- Run `runner mission show` to see the current team and their handles before messaging; your inbox announces every join and leave.
+- Act only on your own part of the goal; when your part waits on a teammate's handoff, finish your turn.
 - Busy/idle is inferred from your terminal activity."#;
-
-pub(crate) const TEAM_COORDINATION_PREAMBLE: &str = r#"You are a member of a team coordinated by the bundled `runner` CLI. The CLI is on your PATH and talks to the rest of the team via a shared event bus. This mission has no lead. Use these verbs to participate; do not invent your own conventions.
-
-== Coordination ==
-- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
-- Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.
-- Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.
-- Address one or several members with `runner msg post --to coder --to reviewer "<text>"` or leading mentions: `runner msg post "@coder @reviewer <text>"`. Explicit `--to` wins; mid-text mentions do not address.
-- Reply to the sender. Broadcast with `runner msg post "<text>"` only when everyone must act. Do not post receipt-only replies or standby messages; consuming your inbox with `runner msg read` is still required.
-- Escalate to the human (with structured choices) via `runner signal ask_human --payload '{"prompt":"…","choices":["yes","no"],"on_behalf_of":"<asker>"}'`.
-- The team can change while the mission runs; your inbox announces every join and leave, and `runner mission show` lists the current team.
-- Busy/idle is inferred from your terminal activity."#;
-
-pub(crate) struct LaunchPromptSections {
-    pub(crate) before_mission: String,
-    pub(crate) mission: String,
-    pub(crate) after_mission: String,
-}
-
-pub(crate) fn compose_launch_prompt_sections(
-    input: &LaunchPromptInput<'_>,
-) -> LaunchPromptSections {
-    let mut before_mission = String::new();
-
-    before_mission.push_str(&format!(
-        "You are `{}` ({}), the lead of crew \"{}\".\n\n",
-        input.lead.handle, input.lead.display_name, input.crew_name,
-    ));
-
-    if let Some(addendum) = input.crew_addendum {
-        let addendum = addendum.trim();
-        if !addendum.is_empty() {
-            before_mission.push_str("== Team conventions ==\n");
-            before_mission.push_str(addendum);
-            before_mission.push_str("\n\n");
-        }
-    }
-
-    if let Some(brief) = input.lead.system_prompt {
-        let brief = brief.trim();
-        if !brief.is_empty() {
-            before_mission.push_str("== Your brief ==\n");
-            before_mission.push_str(brief);
-            before_mission.push_str("\n\n");
-        }
-    }
-
-    let mut mission = String::from("== Mission ==\n");
-    if input.mission_goal.trim().is_empty() {
-        mission.push_str(
-            "Goal: (no goal set; await the operator's instructions in your terminal).\n\n",
-        );
-    } else {
-        mission.push_str(&format!("Goal: {}\n\n", input.mission_goal.trim()));
-    }
-
-    let mut after_mission = String::new();
-    let crewmates: Vec<&RosterEntry> = input
-        .roster
-        .iter()
-        .filter(|r| r.handle != input.lead.handle)
-        .collect();
-    if !crewmates.is_empty() {
-        after_mission.push_str("== Your crewmates ==\n");
-        for r in crewmates {
-            after_mission.push_str(&format!(
-                "- `{}` ({}){}\n",
-                r.handle,
-                r.display_name,
-                if r.lead { " — lead" } else { "" },
-            ));
-        }
-        after_mission.push('\n');
-    }
-
-    after_mission.push_str("== Coordination ==\n");
-    after_mission
-        .push_str("- You are the human's counterpart. Workers message you with questions.\n");
-    after_mission.push_str(
-        "- Reply to a worker with `runner msg post --to <handle> \"…\"`; broadcasts omit `--to`.\n",
-    );
-    after_mission.push_str(
-        "- The operator watches the terminals and types directly into a runner's pane.\n",
-    );
-    after_mission.push_str("- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.\n");
-    after_mission.push_str("- Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.\n");
-    after_mission.push_str("- Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.\n");
-    after_mission.push_str("- Address one or several members with repeated `--to` (`runner msg post --to coder --to reviewer \"<text>\"`) or leading mentions (`runner msg post \"@coder @reviewer <text>\"`). Explicit recipients win; mid-text mentions do not address.\n");
-    after_mission.push_str("- Reply to the sender. Broadcast only when everyone must act. Do not post receipt-only replies or standby messages; consuming your inbox with `runner msg read` is still required.\n");
-    after_mission.push_str(
-        "- Escalate to the human (with structured choices) via `runner signal ask_human --payload '{\"prompt\":\"…\",\"choices\":[\"yes\",\"no\"],\"on_behalf_of\":\"<asker>\"}'`.\n",
-    );
-    after_mission.push_str("- The team can change while the mission runs; your inbox announces every join and leave, and `runner mission show` lists the current team.\n");
-    after_mission.push_str("- Busy/idle is inferred from your terminal activity.\n");
-    if !input.allowed_signals.is_empty() {
-        let names: Vec<&str> = input
-            .allowed_signals
-            .iter()
-            .map(SignalType::as_str)
-            .collect();
-        after_mission.push_str(&format!("- Allowed signal types: {}.\n", names.join(", ")));
-    }
-
-    after_mission.push('\n');
-    LaunchPromptSections {
-        before_mission,
-        mission,
-        after_mission,
-    }
-}
-
-pub fn compose_launch_prompt(input: &LaunchPromptInput<'_>) -> String {
-    let sections = compose_launch_prompt_sections(input);
-    let mut out = sections.before_mission;
-    out.push_str(&sections.mission);
-    out.push_str(&sections.after_mission);
-    out
-}
 
 pub(crate) fn member_prompt_channels(
     adapter: &dyn crate::runtimes::RuntimeAdapter,
     member: &crate::model::SlotWithRole,
-    roster: &[crate::model::SlotWithRole],
     crew: &runner_core::mission_roster::MissionRoster,
     log: &runner_core::event_log::EventLog,
+    resuming: bool,
 ) -> (Option<String>, Option<String>) {
     let goal = super::LaunchInputs::latest_mission_goal_text(log);
-    if member.slot.lead {
-        let entries = roster
-            .iter()
-            .map(|member| RosterEntry {
-                handle: &member.slot.slot_handle,
-                display_name: &member.role.display_name,
-                lead: member.slot.lead,
-            })
-            .collect::<Vec<_>>();
-        adapter.prompt_channels().lead(&LaunchPromptInput {
-            lead: LeadView {
-                handle: &member.slot.slot_handle,
-                display_name: &member.role.display_name,
-                system_prompt: member.role.system_prompt.as_deref(),
-            },
-            crew_name: &crew.crew_name,
-            mission_goal: &goal,
-            roster: &entries,
-            allowed_signals: &crate::ops::mission::all_known_signals(),
-            crew_addendum: crew.crew_addendum.as_deref(),
-        })
-    } else {
-        adapter.prompt_channels().worker(
-            member.role.system_prompt.as_deref(),
-            crew.crew_addendum.as_deref(),
-            (!roster.iter().any(|member| member.slot.lead)).then_some(goal.as_str()),
-        )
-    }
+    adapter.prompt_channels().member(
+        member.role.system_prompt.as_deref(),
+        crew.crew_addendum.as_deref(),
+        Some(&goal),
+        resuming,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn lead<'a>(handle: &'a str, system_prompt: Option<&'a str>) -> LeadView<'a> {
-        LeadView {
-            handle,
-            display_name: "Lead",
-            system_prompt,
-        }
-    }
-
-    fn launch_fixture() -> String {
-        let roster = [
-            RosterEntry {
-                handle: "lead",
-                display_name: "Lead",
-                lead: true,
-            },
-            RosterEntry {
-                handle: "worker",
-                display_name: "Worker",
-                lead: false,
-            },
-        ];
-        let signals = [SignalType::new("mission_goal")];
-        compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", Some("LEAD_BRIEF")),
-            crew_name: "Alpha",
-            mission_goal: "@ship - safely",
-            roster: &roster,
-            allowed_signals: &signals,
-            crew_addendum: Some("TEAM_TEXT"),
-        })
-    }
+    use crate::model::Runtime;
 
     #[test]
-    fn every_coordination_text_explains_pushed_inbox_messaging_and_history() {
-        for text in [
-            compose_worker_first_turn(Some("brief"), None, None),
-            compose_worker_first_turn(Some("brief"), None, Some("goal")),
-            launch_fixture(),
-        ] {
-            for rule in [
-                "Inside a mission, Runner pushes inbox notifications",
-                "When waiting for a teammate and no independent work remains, finish your turn",
-                "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
-                "Iterate with teammates across turns",
-                "External monitoring instructions do not apply to receiving messages in your own mission",
-                "shows and marks new inbox messages read",
-                "already tracks unread messages",
-                "msg read --all",
-                "--since",
-                "--from",
-                "never mark messages read",
-                "--to coder --to reviewer",
-                "mid-text mentions do not address",
-                "Reply to the sender",
-                "only when everyone must act",
-                "run unfiltered `runner msg read`",
-                "Do not post receipt-only replies or standby messages",
-            ] {
-                assert!(text.contains(rule), "missing {rule}: {text}");
-            }
-        }
-    }
-
-    #[test]
-    fn established_runtimes_keep_composed_bodies_byte_identical() {
-        let direct = compose_direct_first_turn(Some("  persona  "));
-        let worker = Some(compose_worker_first_turn(Some("brief"), Some("team"), None));
-        let lead = Some(launch_fixture());
-        for runtime in [
-            Runtime::ClaudeCode,
-            Runtime::Codex,
-            Runtime::Trae,
-            Runtime::Copilot,
-            Runtime::Antigravity,
-        ] {
-            for (kind, body) in [
-                (SessionPromptKind::Direct, direct.clone()),
-                (SessionPromptKind::Worker, worker.clone()),
-                (SessionPromptKind::Lead, lead.clone()),
-            ] {
-                assert_eq!(
-                    crate::runtimes::adapter(runtime)
-                        .prompt_channels()
-                        .split(kind, body.clone()),
-                    (None, body)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn compose_launch_prompt_matches_established_literal_contract() {
-        let roster = [
-            RosterEntry {
-                handle: "coder",
-                display_name: "Coder",
-                lead: true,
-            },
-            RosterEntry {
-                handle: "reviewer",
-                display_name: "Reviewer",
-                lead: false,
-            },
-            RosterEntry {
-                handle: "tester",
-                display_name: "Tester",
-                lead: false,
-            },
-        ];
-        let signals = [
-            SignalType::new("mission_goal"),
-            SignalType::new("ask_human"),
-        ];
-        let prompt = compose_launch_prompt(&LaunchPromptInput {
-            lead: LeadView {
-                handle: "coder",
-                display_name: "Coder",
-                system_prompt: Some("Ship code."),
-            },
-            crew_name: "Codex peer",
-            mission_goal: "Implement feature",
-            roster: &roster,
-            allowed_signals: &signals,
-            crew_addendum: Some("Review first."),
-        });
-
-        assert_eq!(
-            prompt,
-            r#"You are `coder` (Coder), the lead of crew "Codex peer".
-
-== Team conventions ==
-Review first.
-
-== Your brief ==
-Ship code.
-
-== Mission ==
-Goal: Implement feature
-
-== Your crewmates ==
-- `reviewer` (Reviewer)
-- `tester` (Tester)
-
-== Coordination ==
-- You are the human's counterpart. Workers message you with questions.
-- Reply to a worker with `runner msg post --to <handle> "…"`; broadcasts omit `--to`.
-- The operator watches the terminals and types directly into a runner's pane.
-- Inside a mission, Runner pushes inbox notifications. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
-- Run `runner msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest of others' traffic. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox.
-- Use `runner msg read --all` for crew history since joining after a resume or whenever earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `runner msg read`.
-- Address one or several members with repeated `--to` (`runner msg post --to coder --to reviewer "<text>"`) or leading mentions (`runner msg post "@coder @reviewer <text>"`). Explicit recipients win; mid-text mentions do not address.
-- Reply to the sender. Broadcast only when everyone must act. Do not post receipt-only replies or standby messages; consuming your inbox with `runner msg read` is still required.
-- Escalate to the human (with structured choices) via `runner signal ask_human --payload '{"prompt":"…","choices":["yes","no"],"on_behalf_of":"<asker>"}'`.
-- The team can change while the mission runs; your inbox announces every join and leave, and `runner mission show` lists the current team.
-- Busy/idle is inferred from your terminal activity.
-- Allowed signal types: mission_goal, ask_human.
-
-"#
-        );
-    }
-
-    #[test]
-    fn pi_uses_system_prompt_for_direct_and_worker_sessions() {
-        for (kind, body) in [
-            (SessionPromptKind::Direct, "persona"),
-            (SessionPromptKind::Worker, "coordination and brief"),
-        ] {
-            assert_eq!(
-                crate::runtimes::adapter(Runtime::Pi)
-                    .prompt_channels()
-                    .split(kind, Some(body.into())),
-                (Some(body.into()), None),
-            );
-        }
-    }
-
-    #[test]
-    fn pi_lead_keeps_only_the_mission_as_first_turn() {
-        let roster = [
-            RosterEntry {
-                handle: "lead",
-                display_name: "Lead",
-                lead: true,
-            },
-            RosterEntry {
-                handle: "worker",
-                display_name: "Worker",
-                lead: false,
-            },
-        ];
-        let signals = [SignalType::new("mission_goal")];
-        let input = LaunchPromptInput {
-            lead: lead("lead", Some("LEAD_BRIEF\n== Mission ==\nstill the brief")),
-            crew_name: "Alpha",
-            mission_goal: "@ship - safely\n== Coordination ==\nstill the goal",
-            roster: &roster,
-            allowed_signals: &signals,
-            crew_addendum: Some("TEAM_TEXT"),
-        };
-        let composed = compose_launch_prompt(&input);
-        let (system_prompt, first_turn) = crate::runtimes::adapter(Runtime::Pi)
-            .prompt_channels()
-            .lead(&input);
-        let system_prompt = system_prompt.unwrap();
-        let first_turn = first_turn.unwrap();
-        assert_eq!(
-            first_turn,
-            "== Mission ==\nGoal: @ship - safely\n== Coordination ==\nstill the goal\n\n"
-        );
-        assert!(system_prompt.contains("LEAD_BRIEF\n== Mission ==\nstill the brief"));
-        assert!(system_prompt.contains("TEAM_TEXT"));
-        assert!(system_prompt.contains("== Your crewmates =="));
-        assert!(system_prompt.contains("== Coordination =="));
-        let insertion = system_prompt.find("== Your crewmates ==").unwrap();
-        let mut recomposed = system_prompt;
-        recomposed.insert_str(insertion, &first_turn);
-        assert_eq!(composed, recomposed);
-    }
-
-    #[test]
-    fn includes_brief_when_present_and_omits_when_blank() {
-        let allowed = [SignalType::new("mission_goal")];
-        let prompt = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", Some("Drive coordination.")),
-            crew_name: "Alpha",
-            mission_goal: "ship v0",
-            roster: &[],
-            allowed_signals: &allowed,
-            crew_addendum: None,
-        });
-        assert!(prompt.contains("== Your brief =="));
-        assert!(prompt.contains("Drive coordination."));
-        assert!(prompt.contains("Goal: ship v0"));
-        assert!(prompt.contains("Allowed signal types: mission_goal"));
-
-        let prompt2 = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", None),
-            crew_name: "Alpha",
-            mission_goal: "ship v0",
-            roster: &[],
-            allowed_signals: &allowed,
-            crew_addendum: None,
-        });
-        assert!(!prompt2.contains("== Your brief =="));
-    }
-
-    #[test]
-    fn empty_goal_renders_placeholder() {
-        let prompt = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", None),
-            crew_name: "A",
-            mission_goal: "",
-            roster: &[],
-            allowed_signals: &[],
-            crew_addendum: None,
-        });
-        assert!(prompt
-            .contains("Goal: (no goal set; await the operator's instructions in your terminal)."));
-    }
-
-    #[test]
-    fn composed_prompts_omit_reply_to_human_protocol() {
-        let worker = compose_worker_first_turn(None, None, None);
-        let lead = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", None),
-            crew_name: "A",
-            mission_goal: "g",
-            roster: &[],
-            allowed_signals: &[],
-            crew_addendum: None,
-        });
-
-        for prompt in [&worker, &lead] {
-            assert!(!prompt.contains("--to human"), "got: {prompt}");
-            assert!(!prompt.contains("`human`"), "got: {prompt}");
-            assert!(!prompt.contains("[human_said]"), "got: {prompt}");
-        }
-        assert!(!worker.contains("human"), "got: {worker}");
-        assert!(lead.contains(
-            "The operator watches the terminals and types directly into a runner's pane."
-        ));
-    }
-
-    #[test]
-    fn roster_section_excludes_self_and_lists_crewmates() {
-        let prompt = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", None),
-            crew_name: "A",
-            mission_goal: "g",
-            roster: &[
-                RosterEntry {
-                    handle: "lead",
-                    display_name: "Lead",
-                    lead: true,
-                },
-                RosterEntry {
-                    handle: "impl",
-                    display_name: "Impl",
-                    lead: false,
-                },
-            ],
-            allowed_signals: &[],
-            crew_addendum: None,
-        });
-        assert!(prompt.contains("`impl`"));
-        // Self-row must not appear under crewmates.
-        let crewmates_section = prompt.split("== Your crewmates ==").nth(1).unwrap();
-        assert!(!crewmates_section.contains("`lead`"));
-    }
-
-    #[test]
-    fn worker_first_turn_with_none_addendum_matches_no_addendum_baseline() {
-        // Regression guard for #54: existing mission spawns (no crew
-        // addendum set) must produce byte-identical output to the
-        // pre-#54 composer, so seeded Build squad rows / any crew that
-        // leaves the addendum NULL keep the exact prompt they had.
-        let with_brief = compose_worker_first_turn(Some("WORKER_BRIEF"), None, None);
-        let without_brief = compose_worker_first_turn(None, None, None);
-
-        assert!(with_brief.starts_with(WORKER_COORDINATION_PREAMBLE));
-        assert!(with_brief.contains("== Your brief =="));
-        assert!(with_brief.contains("WORKER_BRIEF"));
-
-        // No addendum → preamble is the entire body when brief is None.
-        assert_eq!(without_brief, WORKER_COORDINATION_PREAMBLE);
-    }
-
-    #[test]
-    fn worker_first_turn_splices_addendum_between_preamble_and_brief() {
-        let body = compose_worker_first_turn(Some("WORKER_BRIEF"), Some("TEAM_TEXT"), None);
-        assert!(body.contains(WORKER_COORDINATION_PREAMBLE));
-        assert!(
-            body.contains("== Team conventions =="),
-            "addendum must be wrapped in a `== Team conventions ==` section; got: {body}",
-        );
-        assert!(body.contains("TEAM_TEXT"));
-        assert!(body.contains("== Your brief =="));
-        let preamble_pos = body.find("Coordination ==").unwrap();
-        let header_pos = body.find("== Team conventions ==").unwrap();
-        let addendum_pos = body.find("TEAM_TEXT").unwrap();
-        let brief_pos = body.find("== Your brief ==").unwrap();
-        assert!(
-            preamble_pos < header_pos,
-            "preamble must come before the team-conventions header; got body: {body}",
-        );
-        assert!(
-            header_pos < addendum_pos,
-            "team-conventions header must come before the addendum text; got body: {body}",
-        );
-        assert!(
-            addendum_pos < brief_pos,
-            "addendum must come before brief; got body: {body}",
-        );
-    }
-
-    #[test]
-    fn worker_first_turn_whitespace_only_addendum_collapses_to_none() {
-        let with_blanks = compose_worker_first_turn(Some("BRIEF"), Some("   \n\t  "), None);
-        let baseline = compose_worker_first_turn(Some("BRIEF"), None, None);
-        assert_eq!(
-            with_blanks, baseline,
-            "whitespace-only addendum must be treated as None",
-        );
-    }
-
-    #[test]
-    fn launch_prompt_splices_addendum_between_intro_and_brief() {
-        let allowed = [SignalType::new("mission_goal")];
-        let with_addendum = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", Some("LEAD_BRIEF")),
-            crew_name: "Alpha",
-            mission_goal: "ship v0",
-            roster: &[],
-            allowed_signals: &allowed,
-            crew_addendum: Some("TEAM_TEXT"),
-        });
-        assert!(
-            with_addendum.contains("== Team conventions =="),
-            "addendum must be wrapped in a `== Team conventions ==` section; got: {with_addendum}",
-        );
-        let intro_pos = with_addendum.find("the lead of crew").unwrap();
-        let header_pos = with_addendum.find("== Team conventions ==").unwrap();
-        let addendum_pos = with_addendum.find("TEAM_TEXT").unwrap();
-        let brief_pos = with_addendum.find("== Your brief ==").unwrap();
-        assert!(intro_pos < header_pos);
-        assert!(header_pos < addendum_pos);
-        assert!(addendum_pos < brief_pos);
-
-        // None addendum is byte-identical to the no-addendum baseline.
-        let baseline = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", Some("LEAD_BRIEF")),
-            crew_name: "Alpha",
-            mission_goal: "ship v0",
-            roster: &[],
-            allowed_signals: &allowed,
-            crew_addendum: None,
-        });
-        let whitespace = compose_launch_prompt(&LaunchPromptInput {
-            lead: lead("lead", Some("LEAD_BRIEF")),
-            crew_name: "Alpha",
-            mission_goal: "ship v0",
-            roster: &[],
-            allowed_signals: &allowed,
-            crew_addendum: Some("   \n  "),
-        });
-        assert_eq!(whitespace, baseline);
-        assert!(!baseline.contains("TEAM_TEXT"));
-    }
-}
-
-#[cfg(test)]
-mod leadless_tests {
-    use super::*;
-    #[test]
-    fn every_runtime_delivers_the_leadless_preamble_and_goal_as_the_first_turn() {
-        for runtime in ["shell", "claude-code", "codex", "copilot", "pi"] {
-            let (system, turn) = crate::runtimes::for_key(runtime).prompt_channels().worker(
+    fn every_runtime_delivers_the_same_member_context_as_its_first_turn() {
+        let expected =
+            compose_member_first_turn(Some("ROLE_BRIEF"), Some("TEAM_RULES"), Some("SHARED_GOAL"));
+        for runtime in Runtime::ALL {
+            let (system, turn) = crate::runtimes::adapter(runtime).prompt_channels().member(
                 Some("ROLE_BRIEF"),
-                None,
+                Some("TEAM_RULES"),
                 Some("SHARED_GOAL"),
+                false,
             );
-            assert!(system.is_none());
-            let body = turn.unwrap();
-            assert!(body.starts_with(TEAM_COORDINATION_PREAMBLE));
-            assert!(body
-                .contains("\n\n== Mission goal ==\nSHARED_GOAL\n\n== Your brief ==\nROLE_BRIEF"));
-            assert!(!body.contains("ask_lead"));
+            assert!(system.is_none(), "{runtime}");
+            assert_eq!(turn.as_deref(), Some(expected.as_str()), "{runtime}");
         }
-        assert!(!compose_worker_first_turn(None, None, Some(" ")).contains("== Mission goal =="));
-        assert!(!compose_worker_first_turn(None, None, None).contains("== Mission goal =="));
+        for rule in [
+            "Run `runner mission show` to see the current team and their handles before messaging",
+            "Act only on your own part of the goal",
+            "when your part waits on a teammate's handoff, finish your turn",
+            "your inbox announces every join and leave",
+            "shows and marks new inbox messages read",
+            "already tracks unread messages",
+            "msg read --all",
+            "--since",
+            "--from",
+            "never mark messages read",
+            "--to coder --to reviewer",
+            "mid-text mentions do not address",
+            "Reply to the sender",
+            "only when everyone must act",
+            "run unfiltered `runner msg read`",
+            "Do not post receipt-only replies or standby messages",
+            "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
+        ] {
+            assert!(expected.contains(rule), "missing {rule}");
+        }
+        assert!(!expected
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|word| word.eq_ignore_ascii_case("lead")));
+        assert!(!expected.contains("on_behalf_of"));
+        let positions = [
+            TEAM_COORDINATION_PREAMBLE,
+            "== Mission goal ==",
+            "SHARED_GOAL",
+            "== Team conventions ==",
+            "TEAM_RULES",
+            "== Your brief ==",
+            "ROLE_BRIEF",
+        ]
+        .map(|text| expected.find(text).unwrap());
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn blank_sections_are_omitted_and_direct_chats_keep_their_own_channels() {
+        assert_eq!(
+            compose_member_first_turn(Some(" \n"), Some("\t"), Some(" ")),
+            TEAM_COORDINATION_PREAMBLE
+        );
+        assert_eq!(
+            compose_member_first_turn(None, None, None),
+            TEAM_COORDINATION_PREAMBLE
+        );
+        assert_eq!(
+            compose_direct_first_turn(Some(" persona ")),
+            Some("persona".into())
+        );
+        assert_eq!(compose_direct_first_turn(Some(" \n")), None);
+        for runtime in Runtime::ALL {
+            let channels = crate::runtimes::adapter(runtime).prompt_channels();
+            let split = channels.split(SessionPromptKind::Direct, Some("persona".into()));
+            assert_eq!(
+                split,
+                if channels.system_prompt {
+                    (Some("persona".into()), None)
+                } else {
+                    (None, Some("persona".into()))
+                }
+            );
+        }
     }
 }
