@@ -275,8 +275,10 @@ jobs:
         include:
           - runner: ubuntu-24.04
             arch: x86_64
+            package_arch: x64
           - runner: ubuntu-24.04-arm
             arch: aarch64
+            package_arch: arm64
     runs-on: ${{ matrix.runner }}
     container: ubuntu:22.04
     timeout-minutes: 120
@@ -315,12 +317,12 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: ./script/linux/sign-updates target/linux-packages "Runner-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}"
+        run: ./script/linux/sign-updates target/linux-packages "Runner_${{ needs.prepare.outputs.version }}_linux-${{ matrix.package_arch }}"
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nightly-linux-${{ matrix.arch }}
-          path: target/linux-packages/Runner-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.*
+          path: target/linux-packages/Runner_${{ needs.prepare.outputs.version }}_linux-${{ matrix.package_arch }}.*
           if-no-files-found: error
 
   publish:
@@ -384,10 +386,10 @@ jobs:
           fi
 
           if [[ "$PLATFORM" == "all" || "$PLATFORM" == "linux" ]]; then
-            for arch in x86_64 aarch64; do
+            for arch in x64 arm64; do
               for format in tar.gz deb; do
-                test -s "nightly-artifacts/linux/Runner-$NIGHTLY_VERSION-linux-$arch.$format"
-                test -s "nightly-artifacts/linux/Runner-$NIGHTLY_VERSION-linux-$arch.$format.sig"
+                test -s "nightly-artifacts/linux/Runner_${NIGHTLY_VERSION}_linux-$arch.$format"
+                test -s "nightly-artifacts/linux/Runner_${NIGHTLY_VERSION}_linux-$arch.$format.sig"
               done
             done
           fi
@@ -448,10 +450,10 @@ jobs:
       - name: Publish Linux nightly assets
         if: inputs.platform == 'all' || inputs.platform == 'linux'
         run: |
-          for arch in x86_64 aarch64; do
+          for arch in x64 arm64; do
             for format in tar.gz deb; do
-              gh release upload nightly "nightly-artifacts/linux/Runner-$NIGHTLY_VERSION-linux-$arch.$format" --clobber
-              gh release upload nightly "nightly-artifacts/linux/Runner-$NIGHTLY_VERSION-linux-$arch.$format.sig" --clobber
+              gh release upload nightly "nightly-artifacts/linux/Runner_${NIGHTLY_VERSION}_linux-$arch.$format" --clobber
+              gh release upload nightly "nightly-artifacts/linux/Runner_${NIGHTLY_VERSION}_linux-$arch.$format.sig" --clobber
             done
           done
 
@@ -475,9 +477,9 @@ jobs:
 
           if [[ "$PLATFORM" == "all" || "$PLATFORM" == "linux" ]]; then
             assets=$(gh release view nightly --json assets --jq '.assets[].name')
-            for arch in x86_64 aarch64; do
+            for arch in x64 arm64; do
               for format in tar.gz deb; do
-                name="Runner-$NIGHTLY_VERSION-linux-$arch.$format"
+                name="Runner_${NIGHTLY_VERSION}_linux-$arch.$format"
                 printf '%s\n' "$assets" | grep -Fxq "$name"
                 printf '%s\n' "$assets" | grep -Fxq "$name.sig"
                 curl --silent --show-error --fail --head --location "https://github.com/yicheng47/runner/releases/download/nightly/$name" >/dev/null
@@ -532,8 +534,8 @@ jobs:
         if: inputs.platform == 'all' || inputs.platform == 'linux'
         run: |
           assets=$(gh release view nightly --json assets --jq '.assets[].name')
-          for arch in x86_64 aarch64; do
-            pattern="^Runner-nightly\\.[a-fA-F0-9]+\\.([0-9]{8})\\.([0-9]{4})-linux-$arch\\.(tar\\.gz|deb)$"
+          for arch in x64 arm64; do
+            pattern="^Runner_nightly\\.[a-fA-F0-9]+\\.([0-9]{8})\\.([0-9]{4})_linux-$arch\\.(tar\\.gz|deb)$"
             stamps=$(printf '%s\n' "$assets" | while IFS= read -r name; do
               if [[ "$name" =~ $pattern ]]; then printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"; fi
             done | sort -ru | sed -n '2,$p')

@@ -12,6 +12,11 @@ use super::*;
 const INSTALLER_FLAG: &str = "--runner-install-update";
 const MAX_PACKAGE_BYTES: u64 = 1024 * 1024 * 1024;
 const ARCH: &str = std::env::consts::ARCH;
+const PACKAGE_ARCH: &str = if cfg!(target_arch = "aarch64") {
+    "arm64"
+} else {
+    "x64"
+};
 static RELAUNCH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 fn current_executable() -> Result<PathBuf> {
@@ -100,12 +105,12 @@ fn trusted_system_executable(path: &Path) -> Result<()> {
 }
 
 pub(super) fn installer_version(name: &str) -> Option<(&str, &str)> {
-    let rest = name.strip_prefix("Runner-")?;
-    let (label, platform) = rest.rsplit_once("-linux-")?;
+    let rest = name.strip_prefix("Runner_")?;
+    let (label, platform) = rest.rsplit_once("_linux-")?;
     let extension = ["tar.gz", "deb"]
         .into_iter()
         .find_map(|ext| platform.strip_suffix(&format!(".{ext}")))?;
-    if !matches!(extension, "aarch64" | "x86_64") {
+    if !matches!(extension, "arm64" | "x64") {
         return None;
     }
     if semver::Version::parse(label)
@@ -148,7 +153,7 @@ fn select_update(
     version: &str,
     stamp: Option<&str>,
 ) -> Result<Option<Candidate>> {
-    let suffix = format!("-linux-{arch}.{}", kind.extension());
+    let suffix = format!("_linux-{arch}.{}", kind.extension());
     let mut candidates = release
         .assets
         .iter()
@@ -194,7 +199,7 @@ pub(super) fn available_update(
     select_update(
         release,
         kind,
-        ARCH,
+        PACKAGE_ARCH,
         option_env!("RUNNER_RELEASE_CHANNEL").unwrap_or("nightly"),
         env!("CARGO_PKG_VERSION"),
         stamp,
@@ -269,7 +274,7 @@ fn pinned_package(path: &Path, signature: &Path, dir: &Path) -> Result<PathBuf> 
         .context("Invalid package name")?;
     let (label, stamp) = installer_version(name).context("Invalid Linux update name")?;
     ensure!(
-        name.contains(&format!("-linux-{ARCH}.")),
+        name.contains(&format!("_linux-{PACKAGE_ARCH}.")),
         "Update architecture does not match"
     );
     ensure!(
@@ -748,30 +753,30 @@ mod tests {
     #[test]
     fn selection_preserves_architecture_format_channel_and_semantic_order() {
         let source = release(&[
-            "Runner-0.17.2-linux-aarch64.deb",
-            "Runner-0.17.2-linux-aarch64.deb.sig",
-            "Runner-0.17.10-linux-aarch64.deb",
-            "Runner-0.17.10-linux-aarch64.deb.sig",
-            "Runner-99.0.0-linux-x86_64.deb",
-            "Runner-99.0.0-linux-aarch64.tar.gz",
-            "Runner-nightly.aaaaaaa.20261020.1700-linux-aarch64.deb",
+            "Runner_0.17.2_linux-arm64.deb",
+            "Runner_0.17.2_linux-arm64.deb.sig",
+            "Runner_0.17.10_linux-arm64.deb",
+            "Runner_0.17.10_linux-arm64.deb.sig",
+            "Runner_99.0.0_linux-x64.deb",
+            "Runner_99.0.0_linux-arm64.tar.gz",
+            "Runner_nightly.aaaaaaa.20261020.1700_linux-arm64.deb",
         ]);
         let candidate = select_update(
             &source,
             InstallKind::Deb,
-            "aarch64",
+            "arm64",
             "production",
             "0.17.1",
             Some("20261020.1500"),
         )
         .unwrap()
         .unwrap();
-        assert_eq!(candidate.name, "Runner-0.17.10-linux-aarch64.deb");
+        assert_eq!(candidate.name, "Runner_0.17.10_linux-arm64.deb");
         assert!(candidate.sig_url.is_some());
         assert!(select_update(
             &source,
             InstallKind::Deb,
-            "aarch64",
+            "arm64",
             "production",
             "0.18.0",
             None
@@ -781,7 +786,7 @@ mod tests {
         assert!(select_update(
             &source,
             InstallKind::Deb,
-            "aarch64",
+            "arm64",
             "remote-nightly",
             "0.17.1",
             Some("20261020.1500")
@@ -793,15 +798,15 @@ mod tests {
     #[test]
     fn nightly_stamp_order_is_independent_of_sha_and_stable_version() {
         let source = release(&[
-            "Runner-nightly.fffffff.20261020.1500-linux-x86_64.tar.gz",
-            "Runner-nightly.aaaaaaa.20261020.1700-linux-x86_64.tar.gz",
-            "Runner-remote-nightly.bbbbbbb.20261020.1800-linux-x86_64.tar.gz",
-            "Runner-99.0.0-linux-x86_64.tar.gz",
+            "Runner_nightly.fffffff.20261020.1500_linux-x64.tar.gz",
+            "Runner_nightly.aaaaaaa.20261020.1700_linux-x64.tar.gz",
+            "Runner_remote-nightly.bbbbbbb.20261020.1800_linux-x64.tar.gz",
+            "Runner_99.0.0_linux-x64.tar.gz",
         ]);
         let candidate = select_update(
             &source,
             InstallKind::Tar,
-            "x86_64",
+            "x64",
             "nightly",
             "0.17.1",
             Some("20261020.1600"),
@@ -810,24 +815,19 @@ mod tests {
         .unwrap();
         assert_eq!(
             candidate.name,
-            "Runner-nightly.aaaaaaa.20261020.1700-linux-x86_64.tar.gz"
+            "Runner_nightly.aaaaaaa.20261020.1700_linux-x64.tar.gz"
         );
         assert!(candidate.sig_url.is_none());
-        assert!(select_update(
-            &source,
-            InstallKind::Tar,
-            "x86_64",
-            "nightly",
-            "0.17.1",
-            None
-        )
-        .unwrap()
-        .is_none());
+        assert!(
+            select_update(&source, InstallKind::Tar, "x64", "nightly", "0.17.1", None)
+                .unwrap()
+                .is_none()
+        );
         for invalid in [
-            "Runner-../../escape-linux-aarch64.deb",
-            "Runner-nightly.sha.bad-linux-x86_64.deb",
-            "Runner-1.0.0-linux-ppc64le.deb",
-            "Runner-1.0.0+bad-linux-aarch64.deb",
+            "Runner_../../escape_linux-arm64.deb",
+            "Runner_nightly.sha.bad_linux-x64.deb",
+            "Runner_1.0.0_linux-ppc64le.deb",
+            "Runner_1.0.0+bad_linux-arm64.deb",
         ] {
             assert!(installer_version(invalid).is_none(), "{invalid}");
         }
@@ -886,7 +886,7 @@ mod tests {
         identity: &str,
         machine: u16,
     ) -> PathBuf {
-        let name = format!("Runner-{label}-linux-{ARCH}");
+        let name = format!("Runner_{label}_linux-{PACKAGE_ARCH}");
         let path = root.join(format!("{name}.tar.gz"));
         let gz = flate2::write::GzEncoder::new(
             File::create(&path).unwrap(),
@@ -1012,7 +1012,7 @@ mod tests {
     #[test]
     fn traversal_and_oversized_archive_headers_are_rejected_before_writing() {
         let root = tempfile::tempdir().unwrap();
-        let name = format!("Runner-99.0.0-linux-{ARCH}");
+        let name = format!("Runner_99.0.0_linux-{PACKAGE_ARCH}");
         let path = root.path().join(format!("{name}.tar.gz"));
         for (entry, size) in [
             (format!("{name}/../escape"), 0),
@@ -1058,7 +1058,9 @@ mod tests {
         let tree = root.path().join("package/DEBIAN");
         fs::create_dir_all(&tree).unwrap();
         let arch = if ARCH == "aarch64" { "arm64" } else { "amd64" };
-        let path = root.path().join(format!("Runner-99.0.0-linux-{ARCH}.deb"));
+        let path = root
+            .path()
+            .join(format!("Runner_99.0.0_linux-{PACKAGE_ARCH}.deb"));
         for (name, version, valid) in [
             ("runner", "99.0.0", true),
             ("other", "99.0.0", false),
@@ -1132,7 +1134,7 @@ mod tests {
             ]);
             let candidate = Candidate {
                 info: UpdateInfo::new("99.0.0"),
-                name: format!("Runner-99.0.0-linux-{ARCH}.deb"),
+                name: format!("Runner_99.0.0_linux-{PACKAGE_ARCH}.deb"),
                 installer_url: url.clone(),
                 sig_url: Some(format!("{url}/signature")),
                 size: fixture.len() as u64,
@@ -1180,7 +1182,7 @@ mod tests {
         assert!(!stream_installer(&mut &fixture[..], &path, &transfer).unwrap());
         let partial = root
             .path()
-            .join(format!("Runner-99.0.0-linux-{ARCH}.deb.partial"));
+            .join(format!("Runner_99.0.0_linux-{PACKAGE_ARCH}.deb.partial"));
         fs::write(&partial, "partial").unwrap();
         sweep(root.path(), None, None, false).unwrap();
         assert!(!partial.exists());

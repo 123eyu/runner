@@ -324,8 +324,10 @@ jobs:
         include:
           - runner: ubuntu-24.04
             arch: x86_64
+            package_arch: x64
           - runner: ubuntu-24.04-arm
             arch: aarch64
+            package_arch: arm64
     runs-on: ${{ matrix.runner }}
     container: ubuntu:22.04
     timeout-minutes: 120
@@ -364,12 +366,12 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: ./script/linux/sign-updates target/linux-packages "Runner-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}"
+        run: ./script/linux/sign-updates target/linux-packages "Runner_${{ needs.prepare.outputs.version }}_linux-${{ matrix.package_arch }}"
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-${{ matrix.arch }}
-          path: target/linux-packages/Runner-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.*
+          path: target/linux-packages/Runner_${{ needs.prepare.outputs.version }}_linux-${{ matrix.package_arch }}.*
           if-no-files-found: error
 
   publish:

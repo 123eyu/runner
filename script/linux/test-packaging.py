@@ -107,7 +107,7 @@ class VersionTests(unittest.TestCase):
             tool.chmod(0o755)
             packages = scratch / 'packages'
             packages.mkdir()
-            name = 'Runner-99.0.0-linux-aarch64'
+            name = 'Runner_99.0.0_linux-arm64'
             for ext in ['tar.gz', 'deb']:
                 (packages / f'{name}.{ext}').write_bytes((fixtures / 'installer.txt').read_bytes())
             env = dict(os.environ, PATH=str(tool.parent) + os.pathsep + os.environ['PATH'],
@@ -416,7 +416,7 @@ def check_deb_lifecycle(package, scratch):
 def check_packages(directory):
     """Inspect real packages and exercise isolated tar/deb headless install lifetimes."""
     directory = Path(directory).resolve()
-    packages = list(directory.glob('Runner-*-linux-*'))
+    packages = list(directory.glob('Runner_*_linux-*'))
     if not packages:
         raise SystemExit('No Linux packages found')
     for package in packages:

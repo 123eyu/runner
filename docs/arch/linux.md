@@ -68,13 +68,13 @@ Build on a matching Linux architecture. The bundler always builds both inputs wi
 python3 script/linux/test-packaging.py --packages target/linux-packages
 ```
 
-Outputs are `Runner-<version>-linux-<x86_64|aarch64>.tar.gz` and `.deb`. Nightlies substitute `nightly.<sha>.<UTC stamp>` for the version label. Debian metadata keeps the UTC stamp before the commit for upgrade ordering. Debian metadata uses `amd64`/`arm64`; ELF machine validation prevents mislabelling. Both formats share one staging tree and include the app, sidecar, real same-byte `runnerd`, desktop entry, icon and user service. Packaging uses `dpkg-deb`, without nfpm or a runtime download. Local packaging alone does not sign artifacts. Release/nightly builds run `script/linux/sign-updates` and publish a detached `.sig` for each package using the existing updater signing key.
+Outputs are `Runner_<version>_linux-<x64|arm64>.tar.gz` and `.deb`, using the same architecture names as the macOS and Windows downloads; the underscore sorts them after those downloads on a release page. Nightlies substitute `nightly.<sha>.<UTC stamp>` for the version label. Debian metadata keeps the UTC stamp before the commit for upgrade ordering. Debian metadata uses `amd64`/`arm64`; ELF machine validation prevents mislabelling. Both formats share one staging tree and include the app, sidecar, real same-byte `runnerd`, desktop entry, icon and user service. Packaging uses `dpkg-deb`, without nfpm or a runtime download. Local packaging alone does not sign artifacts. Release/nightly builds run `script/linux/sign-updates` and publish a detached `.sig` for each package using the existing updater signing key.
 
 The tarball installs per user:
 
 ```sh
-tar -xzf Runner-<version>-linux-aarch64.tar.gz
-cd Runner-<version>-linux-aarch64
+tar -xzf Runner_<version>_linux-arm64.tar.gz
+cd Runner_<version>_linux-arm64
 ./install.sh
 # ~/.local/bin must be on PATH
 ~/.local/bin/runner --version
@@ -87,7 +87,7 @@ The user-installed desktop icon is an owned relative link into `lib/runner`, so 
 
 `--prefix /absolute/user/prefix` supports isolated/custom installs; add its `bin` to PATH. The installer refuses foreign commands, desktop entries, icons and units before changing files. Upgrades replace executable inodes, preserving already running processes until normal daemon replacement. The installer never runs or enables a service. Uninstall stops no sessions and retains data; stop/disable the optional service first. Do not install a tarball into `/usr` or `/usr/local`.
 
-Install a `.deb` with `sudo apt install ./Runner-…-linux-….deb`; other distros, including RPM-based ones, use the tarball. System packages install payloads to `/usr/lib/runner` and expose `/usr/bin/runner`, `runnerd` and `runner-app` through ownership-checked lifecycle scripts; the tarball uses the same layout under its prefix. Headless `runner` starts a local daemon and installs the per-user shim target on first use. Settings recognizes package-managed commands and directs removal to the installer/package manager; it cannot delete package-owned links. An earlier unrelated executable on PATH remains visible as a shadowing warning. The aliases are not ordinary package payload files: install/upgrade refuses foreign existing commands, and remove/purge preserves replacements. No package operation traverses user homes or deletes their databases.
+Install a `.deb` with `sudo apt install ./Runner_…_linux-….deb`; other distros, including RPM-based ones, use the tarball. System packages install payloads to `/usr/lib/runner` and expose `/usr/bin/runner`, `runnerd` and `runner-app` through ownership-checked lifecycle scripts; the tarball uses the same layout under its prefix. Headless `runner` starts a local daemon and installs the per-user shim target on first use. Settings recognizes package-managed commands and directs removal to the installer/package manager; it cannot delete package-owned links. An earlier unrelated executable on PATH remains visible as a shadowing warning. The aliases are not ordinary package payload files: install/upgrade refuses foreign existing commands, and remove/purge preserves replacements. No package operation traverses user homes or deletes their databases.
 
 ## Optional systemd user service
 

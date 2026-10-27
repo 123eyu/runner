@@ -51,7 +51,7 @@ Runner <version> is a <bug-fix | feature> release for macOS, Windows and Linux o
 - **macOS, Apple Silicon:** download `Runner-<version>-arm64.dmg`, or update through Sparkle. The app is signed and notarized.
 - **Windows x64, Windows 10 version 1809 or later:** download `Runner-Setup-<version>.<stamp>-x64.exe`. The installer, app, and CLI sidecars are Authenticode-signed by Open Source Developer Yicheng Wang. You can also update through Settings → Updates → Update, then choose Install and restart. Settings, chats, and missions are retained.
 
-- **Linux ARM64/x86_64:** use `Runner-<version>-linux-<aarch64|x86_64>.tar.gz` or `.deb`; install/update through the same package installer. The opt-in user service is disabled on install, and uninstall retains user data. Each Linux package carries a matching minisign signature verified by the in-app updater.
+- **Linux ARM64/x86_64:** use `Runner_<version>_linux-<arm64|x64>.tar.gz` or `.deb`; install/update through the same package installer. The opt-in user service is disabled on install, and uninstall retains user data. Each Linux package carries a matching minisign signature verified by the in-app updater.
 
 Windows ARM64 and Intel Macs are not supported. Linux ARM64/x86_64 downloads use tar/deb packages; signed in-app updates support managed tar installations and system-authorized APT installation. State the actual build baseline and native validation gaps, and do not claim local artifacts have already been published.
 

@@ -65,7 +65,7 @@ curl() {
   while (( $# )); do
     case "$1" in
       https:*/appcast.xml) source=nightly-artifacts/macos/appcast.xml ;;
-      https:*/Runner-*-linux-*.sig) source="nightly-artifacts/linux/${1##*/}" ;;
+      https:*/Runner_*_linux-*.sig) source="nightly-artifacts/linux/${1##*/}" ;;
       https:*/*.sig) source="nightly-artifacts/windows/$SETUP_NAME.sig" ;;
       --output) cp "$source" "$2"; return ;;
     esac
@@ -133,7 +133,7 @@ class NightlyTests(unittest.TestCase):
         (self.win / (self.env['SETUP_NAME'] + '.sig')).write_bytes(b'installer signature fixture')
         self.linux = self.root / 'nightly-artifacts/linux'
         self.linux.mkdir(parents=True, exist_ok=True)
-        self.linux_names = [f'Runner-{VERSION}-linux-{arch}.{ext}' for arch in ['x86_64', 'aarch64'] for ext in ['tar.gz', 'deb']]
+        self.linux_names = [f'Runner_{VERSION}_linux-{arch}.{ext}' for arch in ['x64', 'arm64'] for ext in ['tar.gz', 'deb']]
         self.linux_names += [name + ".sig" for name in self.linux_names]
         for name in self.linux_names:
             (self.linux / name).write_bytes(b'Linux package fixture')
@@ -247,8 +247,8 @@ class NightlyTests(unittest.TestCase):
 
     def test_linux_retention_keeps_one_stamp_and_does_not_prune_other_platforms(self):
         self.env['PLATFORM'] = 'linux'
-        old = [f'Runner-nightly.abc1234.202608{day:02}.0100-linux-{arch}.{ext}'
-               for day in [1, 2] for arch in ['x86_64', 'aarch64'] for ext in ['tar.gz', 'deb']]
+        old = [f'Runner_nightly.abc1234.202608{day:02}.0100_linux-{arch}.{ext}'
+               for day in [1, 2] for arch in ['x64', 'arm64'] for ext in ['tar.gz', 'deb']]
         old += [name + ".sig" for name in old]
         foreign = ['unrelated.txt', 'appcast.xml', 'Runner-Nightly-abc1234.20260801.0100-arm64.dmg', 'Runner-Setup-nightly.abc1234.20260801.0100-x64.exe']
         self.assets(old + foreign)

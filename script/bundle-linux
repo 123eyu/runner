@@ -13,7 +13,7 @@ import tempfile
 import json
 
 ROOT = Path(__file__).resolve().parent.parent
-ARCHES = {'x86_64': ('amd64', 62), 'aarch64': ('arm64', 183)}
+ARCHES = {'x86_64': ('amd64', 62, 'x64'), 'aarch64': ('arm64', 183, 'arm64')}
 
 
 def run(*args, **kwargs):
@@ -86,7 +86,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='runner-linux-', dir=out) as temp:
         temp = Path(temp)
-        tree = temp / f'Runner-{label}-linux-{args.arch}'
+        tree = temp / f'Runner_{label}_linux-{ARCHES[args.arch][2]}'
         app = tree / 'lib/runner'
         app.mkdir(parents=True)
         for name in ['Runner', 'runner-agent-cli']:
