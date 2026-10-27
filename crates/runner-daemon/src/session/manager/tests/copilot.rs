@@ -142,7 +142,11 @@ fn copilot_missing_worker_conversation_keeps_id_and_delivers_first_turn() {
     assert_eq!(spec.args[spec.args.len() - 2], "-i");
     assert_eq!(
         spec.args.last().unwrap(),
-        &router::prompt::compose_worker_first_turn(Some("SLOT_BRIEF"), Some("TEAM_RULES"), None)
+        &router::prompt::compose_member_first_turn(
+            Some("SLOT_BRIEF"),
+            Some("TEAM_RULES"),
+            Some("LATEST_GOAL")
+        )
     );
     mgr.kill(&id).unwrap();
 }

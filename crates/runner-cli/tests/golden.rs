@@ -477,7 +477,7 @@ cli_cases! {
         "--payload",
         r#"{"question":"Review?"}"#
     ],
-    ask_lead => vec!["ask", "Review?", "--context", "Checks pass", "--mission", MISSION, "--as", "coder"],
+    ask_person => vec!["ask", "Review?", "--mission", MISSION, "--as", "coder"],
     ask_human => vec![
         "ask",
         "--human",

@@ -507,6 +507,7 @@ record!(Session {
 });
 variant!(SessionActivityState => Self::Busy);
 record!(SessionRow {
+    role_handle,
     session,
     live_title,
     handle,

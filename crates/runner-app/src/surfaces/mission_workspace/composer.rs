@@ -152,11 +152,7 @@ impl MissionWorkspace {
     ) -> AnyElement {
         let roster = self.mission_composer_roster();
         let placeholder = if self.remote.is_some() {
-            if self.members().iter().any(|member| member.lead) {
-                crate::i18n::text("ui.message_the_crew_handle_to_address_one_session")
-            } else {
-                crate::i18n::text("ui.message_everyone_handle_to_address_one")
-            }
+            crate::i18n::text("ui.message_everyone_handle_to_address_one")
         } else {
             mission_composer_placeholder(&self.roster)
         };
@@ -499,8 +495,6 @@ impl MissionWorkspace {
 fn mission_composer_placeholder(roster: &[SlotWithRole]) -> &'static str {
     if roster.is_empty() {
         crate::i18n::text("ui.add_a_role_to_start_messaging")
-    } else if roster.iter().any(|member| member.slot.lead) {
-        crate::i18n::text("ui.message_the_crew_handle_to_address_one_session")
     } else {
         crate::i18n::text("ui.message_everyone_handle_to_address_one")
     }

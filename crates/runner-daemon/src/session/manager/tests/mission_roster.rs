@@ -10,6 +10,16 @@ fn removed_mission_slot_resumes_with_its_frozen_identity() {
             let mission =
                 crate::ops::mission::get(&conn, row.mission_id.as_deref().unwrap()).unwrap();
             crate::ops::mission::roster::load(&conn, data.path(), &mission).unwrap();
+            let path = runner_core::event_log::mission_dir(
+                data.path(),
+                mission.crew_id.as_deref(),
+                &mission.id,
+            )
+            .join("roster.json");
+            let mut legacy: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            legacy["slots"][0]["lead"] = lead.into();
+            std::fs::write(path, serde_json::to_vec(&legacy).unwrap()).unwrap();
             crate::ops::slot::delete(&mut conn, row.slot_id.as_deref().unwrap()).unwrap();
             conn.execute(
                 "UPDATE crews SET name='Edited', system_prompt_addendum='EDITED_RULES'",
@@ -32,7 +42,7 @@ fn removed_mission_slot_resumes_with_its_frozen_identity() {
         assert_eq!(spec.env.get("RUNNER_MISSION_ID"), Some(&mission.id));
         let loaded =
             crate::ops::mission::roster::load(&pool.get().unwrap(), data.path(), &mission).unwrap();
-        assert_eq!(loaded.slots[0].slot.lead, lead);
+        assert!(!loaded.slots[0].slot.lead);
         assert_eq!(loaded.file.crew_addendum.as_deref(), Some("TEAM_RULES"));
         mgr.kill(&id).unwrap();
     }

@@ -120,7 +120,7 @@ fn add_and_remove_keep_roster_log_router_and_history_across_remount() {
     assert!(events[join_notice].payload["text"]
         .as_str()
         .unwrap()
-        .contains("@lead (lead), @coder and @coder-2"));
+        .contains("@lead, @coder and @coder-2"));
     let task = join_notice
         + events[join_notice..]
             .iter()
@@ -212,7 +212,7 @@ fn add_and_remove_keep_roster_log_router_and_history_across_remount() {
 }
 
 #[test]
-fn refuse_pending_spawns_lead_and_bad_handles_without_changes() {
+fn refuse_pending_spawns_and_bad_handles_without_changes() {
     let fixture = Fixture::new();
     let cancel = fixture.state.sessions.register_pending_mission_cancel("m");
     assert!(fixture
@@ -228,10 +228,6 @@ fn refuse_pending_spawns_lead_and_bad_handles_without_changes() {
         .state
         .sessions
         .drop_pending_mission_cancel("m", &cancel);
-    assert!(remove_role(&fixture.state, "m", "lead")
-        .unwrap_err()
-        .to_string()
-        .contains("is the lead"));
     assert!(remove_role(&fixture.state, "m", "unknown")
         .unwrap_err()
         .to_string()

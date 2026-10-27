@@ -16,8 +16,7 @@ use crate::error::Result;
 // they loaded another fixture into this DB before
 // opening the app — we skip cleanly and still set the marker. This
 // avoids the partial-crew failure mode where a colliding role
-// handle would leave Pair coding missing its lead, while the start-
-// mission UI still treated it as launchable.
+// handle would leave Pair coding missing a slot.
 //
 // Tests skip this entire path so command tests can assume an empty
 // starting state.
@@ -108,7 +107,6 @@ fn seed_default_crew(tx: &rusqlite::Transaction) -> Result<()> {
         SEED_CODER_ROLE_ID,
         "coder",
         0,
-        true,
     )?;
     insert_seed_slot(
         tx,
@@ -116,7 +114,6 @@ fn seed_default_crew(tx: &rusqlite::Transaction) -> Result<()> {
         SEED_REVIEWER_ROLE_ID,
         "reviewer",
         1,
-        false,
     )?;
 
     Ok(())
@@ -162,7 +159,6 @@ fn insert_seed_slot(
     role_id: &str,
     slot_handle: &str,
     position: i64,
-    lead: bool,
 ) -> Result<()> {
     crate::repo::slot::insert(
         tx,
@@ -172,7 +168,7 @@ fn insert_seed_slot(
             role_id: role_id.into(),
             slot_handle: slot_handle.into(),
             position,
-            lead,
+            lead: false,
             runtime_override: None,
             model_override: None,
             effort_override: None,

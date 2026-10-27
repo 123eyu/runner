@@ -71,7 +71,7 @@ Runner is the local cockpit for coordinating CLI coding agents. Crews are reusab
 
 {invocation}
 
-Inside a mission, Runner pushes inbox notifications to every participant, including leads, workers and members of a team with no lead. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
+Inside a mission, Runner pushes inbox notifications to every member. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission.
 
 Messaging inside a mission: run `{command} msg read` when an `[inbox]` notification arrives; it shows and marks new inbox messages read, plus a short digest. It already tracks unread messages; do not add a --since cursor or --from filter to consume your inbox. Use `{command} msg read --all` for crew history since joining after a resume or when earlier messages are no longer in context. `--since` and `--from` are inspection filters: they never mark messages read, even with `--all`. If a filtered read reports unread messages, run unfiltered `{command} msg read`. Address one or several members with repeated `--to` or leading `@handle` mentions; explicit recipients win and mid-text mentions do not address. Reply to the sender, broadcast only when everyone must act, and do not post receipt-only replies or standby messages; consuming your inbox with `{command} msg read` is still required.
 
@@ -82,7 +82,7 @@ mission=$({command} mission start --title "Small task" -q)
 {command} mission add-role "$mission" <role> --task-file - < task.md
 ```
 
-Use `mission show` to see the team; direct messages can address any member when there is no lead.
+Use `mission show` to see the team; direct messages can address any member.
 
 Rules:
 
@@ -109,8 +109,8 @@ mod tests {
         for debug in [false, true] {
             let text = render(debug, Path::new("/tmp/runner"));
             for rule in [
-                "Inside a mission, Runner pushes inbox notifications to every participant",
-                "including leads, workers and members of a team with no lead",
+                "Inside a mission, Runner pushes inbox notifications to every member",
+                "every member",
                 "When waiting for a teammate and no independent work remains, finish your turn",
                 "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
                 "Iterate with teammates across turns",

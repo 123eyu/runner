@@ -44,7 +44,7 @@ An external agent that starts a different mission must arrange a watch whose out
 
 ## Send a message and answer a question
 
-Use `mission show` to find the current handles, lead and pending questions. The following examples use placeholders you replace with those values; the command syntax is the same in macOS shells and PowerShell:
+Use `mission show` to find the current handles, roles and pending questions. The following examples use placeholders you replace with those values; the command syntax is the same in macOS shells and PowerShell:
 
 ```sh
 runner mission show <mission-id> --json
@@ -56,7 +56,7 @@ runner mission archive <mission-id>
 
 Inside a mission, members can use `runner msg post --to reviewer "Ready for review"` and `runner msg read` without supplying a mission ID. Outside a mission, writes need `--mission`. An outside caller without `--as` speaks as the person; do not use `--as` to impersonate another member.
 
-Runner pushes inbox notifications to every mission participant, including leads, workers and members of a team with no lead. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission. Bounded diagnostic inspection, independent work and watching CI for an authorized PR remain valid.
+Runner pushes inbox notifications to every mission member. When waiting for a teammate and no independent work remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages. Iterate with teammates across turns. External monitoring instructions do not apply to receiving messages in your own mission. Bounded diagnostic inspection, independent work and watching CI for an authorized PR remain valid.
 
 Address several members with `runner msg post --to coder --to reviewer "Please check the parser."`, or use leading mentions: `runner msg post "@coder @reviewer Please check the parser."`. Explicit `--to` recipients take precedence. A leading address token is `@handle`, optionally followed by one `:` or `,`, so `@coder, @reviewer: Please check.` addresses both members. Handles use lowercase letters, digits, `_` and `-`, starting with a letter or digit. Any other token ends the leading run: `@reviewer's audit` and a bare `@` stay text and do not address anyone. Mentions inside the message do not address it. Unknown handles and `@human` are refused; `mission show` lists valid members. Omit recipients to broadcast when everyone needs to act, and reply to the sender for ordinary follow-ups.
 
@@ -72,7 +72,7 @@ runner mission add-role <returned-mission-id> coder --task-file task.md
 runner mission add-role <returned-mission-id> reviewer --task "Review the coder's diff after its handoff."
 ```
 
-As an external operator, arm the feed watch for the returned ID as above. These members join as workers with no lead and receive their own inbox notifications. Adding and removing roles is controlled by the person, not by an in-mission agent. The full [CLI reference](../reference/cli.md) lists overrides and lifecycle commands.
+As an external operator, arm the feed watch for the returned ID as above. These members receive the shared goal, their own task and their own inbox notifications. Adding and removing roles is controlled by the person, not by an in-mission agent. The full [CLI reference](../reference/cli.md) lists overrides and lifecycle commands.
 
 ## Exit codes
 

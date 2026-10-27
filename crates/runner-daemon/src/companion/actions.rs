@@ -306,7 +306,7 @@ impl DaemonCore {
                             id: slot.id,
                             handle: slot.slot_handle,
                             role: slot.role_id,
-                            lead: slot.lead,
+                            lead: false,
                             runtime: slot.runtime_override,
                             model: slot.model_override,
                             effort: slot.effort_override,
@@ -547,12 +547,6 @@ impl DaemonCore {
                     return Err(bad_request());
                 }
                 ops::slot::slot_reorder(core, &id, order).map_err(failed)?;
-                core.events.emit("slot/changed", &());
-                Ok(Value::Null)
-            }
-            SetLead { slot: id, .. } => {
-                slot(core, &id)?;
-                ops::slot::slot_set_lead(core, &id).map_err(failed)?;
                 core.events.emit("slot/changed", &());
                 Ok(Value::Null)
             }
@@ -940,7 +934,7 @@ fn catalog(core: &AppCore) -> Result<Catalog> {
                 .map(|slot| CatalogSlot {
                     handle: slot.slot.slot_handle,
                     role: slot.slot.role_id,
-                    lead: slot.slot.lead,
+                    lead: false,
                 })
                 .collect();
             Ok(CatalogCrew {

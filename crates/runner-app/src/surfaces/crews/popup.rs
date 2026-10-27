@@ -2,7 +2,6 @@ use super::logic::slot_command_summary;
 use super::logic::slot_runtime_options;
 use super::logic::slot_setup;
 use super::logic::trimmed_option;
-use super::slots::lead_badge;
 use std::rc::Rc;
 
 use gpui::prelude::*;
@@ -214,21 +213,16 @@ impl NativeRoot {
                     .flex_col()
                     .gap(rems(2. / 16.))
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(rems(6. / 16.))
-                            .child(
-                                div()
-                                    .min_w(px(0.))
-                                    .truncate()
-                                    .font_family(theme::UI_MONOSPACE_FONT)
-                                    .text_size(theme::text_title())
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::text())
-                                    .child(format!("@{}", slot.slot.slot_handle)),
-                            )
-                            .children(slot.slot.lead.then(lead_badge)),
+                        div().flex().items_center().gap(rems(6. / 16.)).child(
+                            div()
+                                .min_w(px(0.))
+                                .truncate()
+                                .font_family(theme::UI_MONOSPACE_FONT)
+                                .text_size(theme::text_title())
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::text())
+                                .child(format!("@{}", slot.slot.slot_handle)),
+                        ),
                     )
                     .child(
                         div()
@@ -461,9 +455,7 @@ impl NativeRoot {
     fn render_popup_view_footer(&self, slot: &SlotWithRole, cx: &mut Context<Self>) -> AnyElement {
         let root = cx.entity();
         let edit_root = root.clone();
-        let lead_root = root.clone();
         let remove_root = root;
-        let lead_id = slot.slot.id.clone();
         let remove_slot = slot.clone();
         let remove_focus = self
             .crew_surfaces
@@ -488,37 +480,6 @@ impl NativeRoot {
                         .on_press(move |window, cx| {
                             edit_root
                                 .update(cx, |this, cx| this.start_slot_override_edit(window, cx));
-                        }),
-                    ),
-            )
-            .child(
-                div()
-                    .when(cfg!(test), |lead| {
-                        lead.debug_selector(|| "CREW_SLOT_SET_LEAD".into())
-                    })
-                    .child(
-                        Button::new(
-                            "crew-slot-set-lead",
-                            if slot.slot.lead {
-                                crate::i18n::text("ui.lead")
-                            } else {
-                                crate::i18n::text("ui.set_as_lead")
-                            },
-                        )
-                        .icon("star.svg")
-                        .size(ButtonSize::Sm)
-                        .disabled(slot.slot.lead)
-                        .tooltip(if slot.slot.lead {
-                            crate::i18n::text("ui.this_slot_leads_the_crew")
-                        } else {
-                            crate::i18n::text("ui.make_this_slot_the_crew_s_lead")
-                        })
-                        .on_press(move |window, cx| {
-                            let slot_id = lead_id.clone();
-                            lead_root.update(cx, |this, cx| {
-                                this.close_slot_popup(window, cx);
-                                this.set_crew_lead(slot_id, cx);
-                            });
                         }),
                     ),
             )

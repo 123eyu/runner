@@ -208,20 +208,12 @@ impl MissionWorkspace {
         let handle = target
             .map(|session| session.handle.clone())
             .unwrap_or_default();
-        let lead_handle = members
-            .iter()
-            .find(|session| session.lead)
-            .map(|session| session.handle.as_str());
         let confirm = cx.entity();
         let cancel = confirm.clone();
         let restart_id = session_id.clone();
         runner_app::ui::ConfirmDialog::new(
             crate::i18n::tf("format.restart", &[("handle", (handle).to_string())]),
-            restart_confirm_body(
-                &handle,
-                lead_handle,
-                target.is_some_and(|session| session.lead),
-            ),
+            restart_confirm_body(&handle),
             crate::i18n::text("ui.restart"),
             crate::i18n::text("ui.restarting"),
             false,
@@ -255,7 +247,7 @@ impl MissionWorkspace {
         if self
             .sessions
             .iter()
-            .any(|session| session.session.id == session_id && !session.lead)
+            .any(|session| session.session.id == session_id)
             && !self.slot_actions.contains(session_id)
         {
             self.remove_confirm = Some(session_id.to_owned());

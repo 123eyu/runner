@@ -13,7 +13,7 @@ Runner is a local desktop app for coordinating multiple CLI coding agents from o
 Core vocabulary:
 
 - **Role**: a configured CLI agent runtime and system prompt, reusable across crews.
-- **Crew**: a named set of slots, each filled by a role, with exactly one lead.
+- **Crew**: a named set of slots, each filled by a role, with shared team conventions.
 - **Mission**: a live run of a crew, with one session per slot.
 - **Session**: one spawned agent process attached to a PTY.
 - **Event**: an NDJSON log entry used for mission coordination.

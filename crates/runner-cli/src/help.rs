@@ -15,7 +15,7 @@ USAGE
   runner daemon status|stop
   runner project list|show|create|rename|delete
   runner role list|show|create|update|delete
-  runner crew list|show|create|update|delete|add|set|remove|lead|order
+  runner crew list|show|create|update|delete|add|set|remove|order
   runner mission list|show|start|stop|resume|archive|unarchive|rename|pin|unpin|move|feed|answer
   runner chat start
   runner session list|show|stop|archive|resume|restart
@@ -77,8 +77,7 @@ REFERENCES
   A mission or chat started inside a project's directory belongs to it; --project overrides.
 
 MESSAGING INSIDE YOUR MISSION
-  Inside a mission, Runner pushes inbox notifications to every participant: leads, workers
-  and members of a team with no lead. When waiting for a teammate and no independent work
+  Inside a mission, Runner pushes inbox notifications to every member. When waiting for a teammate and no independent work
   remains, finish your turn. Do not start a feed watcher, poll, or sleep-loop to wait for messages.
   Iterate with teammates across turns. External monitoring instructions do not apply to
   receiving messages in your own mission.
@@ -107,8 +106,8 @@ EXTERNAL OPERATOR FLOW (A DIFFERENT MISSION)
   runner mission remove-role "$mission" <handle>
   runner mission show "$mission" --json
   runner mission answer "$mission" <question_id_from_mission_show> <choice>
-  # Use the HANDLE from the LEAD row in mission show, or any member when there is no lead.
-  runner msg post --mission "$mission" --to <lead_handle> "message"
+  # Use a HANDLE from mission show to address a member.
+  runner msg post --mission "$mission" --to <handle> "message"
   runner mission stop "$mission"
   runner mission archive "$mission"
 
@@ -164,8 +163,7 @@ mod tests {
     #[test]
     fn agent_guide_explains_pushed_inbox_messaging_and_non_acking_filters() {
         for rule in [
-            "Inside a mission, Runner pushes inbox notifications to every participant: leads, workers",
-            "and members of a team with no lead",
+            "Inside a mission, Runner pushes inbox notifications to every member.",
             "When waiting for a teammate and no independent work\n  remains, finish your turn",
             "Do not start a feed watcher, poll, or sleep-loop to wait for messages",
             "Iterate with teammates across turns",
@@ -213,7 +211,7 @@ mod tests {
             );
         }
         assert!(AGENT_GUIDE
-            .contains("runner msg post --mission \"$mission\" --to <lead_handle> \"message\""));
+            .contains("runner msg post --mission \"$mission\" --to <handle> \"message\""));
         assert!(!AGENT_GUIDE.contains("--as <roster_handle>"));
     }
 

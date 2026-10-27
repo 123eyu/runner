@@ -43,9 +43,8 @@ fn now() -> Timestamp {
 }
 
 /// Cap on `system_prompt` byte length. The composed first-user-turn
-/// body (`compose_launch_prompt` for a lead, `compose_worker_first_turn`
-/// for a non-lead) wraps this field plus ~1-3 KB of preamble + goal +
-/// roster + coordination. The defense-in-depth ceiling in
+/// body (`compose_member_first_turn`) wraps this field plus ~1-3 KB
+/// of preamble + goal + team conventions. The defense-in-depth ceiling in
 /// `router::runtime::first_turn_argv` is 32 KB; keeping
 /// `system_prompt` ≤ 16 KB plus `mission_goal` ≤ 8 KB leaves the
 /// composed body well under that ceiling so spawn-time argv

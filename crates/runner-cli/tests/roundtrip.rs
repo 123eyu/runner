@@ -114,14 +114,14 @@ fn i2_1_signal_appends_one_line_with_correct_envelope() {
 fn ask_shortcuts_append_directly_inside_a_mission() {
     let f = Fixture::new("C", "M");
 
-    let lead = f
+    let old_context = f
         .cmd("impl", &["ask", "Ship?", "--context", "Checks pass"])
         .output()
         .unwrap();
-    assert_eq!(lead.status.code(), Some(2));
-    assert!(
-        String::from_utf8_lossy(&lead.stderr).contains(runner_core::model::ASK_LEAD_REMOVED_HINT)
-    );
+    assert_eq!(old_context.status.code(), Some(2));
+    assert!(f.read_log().is_empty());
+    let shorthand = f.cmd("impl", &["ask", "Ship?"]).output().unwrap();
+    assert!(shorthand.status.success());
     let human = f
         .cmd("impl", &["ask", "--human", "Ship?", "--choices", "yes,no"])
         .output()
@@ -129,14 +129,15 @@ fn ask_shortcuts_append_directly_inside_a_mission() {
     assert!(human.status.success());
 
     let events = f.read_log();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2);
+    for event in &events {
+        assert_eq!(event.signal_type.as_ref().unwrap().as_str(), "ask_human");
+        assert_eq!(event.payload["prompt"], "Ship?");
+    }
+    assert_eq!(events[0].payload["choices"], serde_json::json!([]));
     assert_eq!(
-        events[0].signal_type.as_ref().unwrap().as_str(),
-        "ask_human"
-    );
-    assert_eq!(
-        events[0].payload,
-        serde_json::json!({"prompt": "Ship?", "choices": ["yes", "no"]})
+        events[1].payload["choices"],
+        serde_json::json!(["yes", "no"])
     );
     let removed = f.cmd("impl", &["signal", "ask_lead"]).output().unwrap();
     assert_eq!(removed.status.code(), Some(2));

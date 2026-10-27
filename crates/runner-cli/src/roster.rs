@@ -39,7 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn load_parses_lead_flag() {
+    fn load_ignores_legacy_lead_flag() {
         let dir = tempfile::tempdir().unwrap();
         let mission = dir.path().join("crews/C/missions/M");
         std::fs::create_dir_all(&mission).unwrap();
@@ -51,7 +51,7 @@ mod tests {
         let log = mission.join("events.ndjson");
         let r = load(&log).unwrap();
         assert_eq!(r.len(), 2);
-        assert!(r.iter().any(|e| e.handle == "lead" && e.lead));
+        assert!(r.iter().any(|e| e.handle == "lead" && !e.lead));
         assert!(r.iter().any(|e| e.handle == "impl" && !e.lead));
     }
 }

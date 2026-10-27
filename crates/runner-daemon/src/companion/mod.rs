@@ -42,7 +42,6 @@ pub const FEATURES: &[&str] = &[
     "updateSlot",
     "removeSlot",
     "reorderSlots",
-    "setLead",
     "catalog",
     "folders",
     "startChat",

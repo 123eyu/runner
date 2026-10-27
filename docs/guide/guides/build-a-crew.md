@@ -17,9 +17,8 @@ If these handles already exist, use the saved roles or choose different handles.
 
 1. Open **Crews**, create a crew and give it a name.
 2. Add the coder and reviewer roles. Give their slots distinct handles.
-3. Set the coder as **Lead**. A launchable crew needs exactly one lead.
-4. Review the runtime, model and effort for each slot. Leave values inherited unless this crew needs an override. If you change the runtime, recheck model and effort for that runtime.
-5. Add team conventions, for example:
+3. Review the runtime, model and effort for each slot. Leave values inherited unless this crew needs an override. If you change the runtime, recheck model and effort for that runtime.
+4. Add team conventions, for example:
 
    ```text
    The coder implements; the reviewer waits for a handoff. Before editing, the coder checks repository instructions and existing changes. The coder sends the reviewer a summary, changed files and checks run. The reviewer checks the working-tree diff without editing. Repeat until the review is clean. Leave all changes uncommitted unless the mission goal explicitly authorizes commits or a pull request. Ask the person if a decision changes scope.
@@ -41,7 +40,7 @@ Fresh installations seed **Pair coding crew**, a two-role loop that reviews the 
 
 | Role | Responsibility | System prompt |
 | --- | --- | --- |
-| **@coder** (lead) | Creates the task branch, implements the change, runs checks, hands the diff to the reviewer and fixes findings. | [coder.md](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/coder.md) |
+| **@coder** | Creates the task branch, implements the change, runs checks, hands the diff to the reviewer and fixes findings. | [coder.md](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/coder.md) |
 | **@reviewer** | Reviews the working-tree diff and reports must-fix issues with file and line references, without editing code. | [reviewer.md](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/reviewer.md) |
 
 The [team conventions](https://github.com/yicheng47/runner/blob/main/examples/pair-coding/team-conventions.md) require a task branch and a clean review before committing. Changes stay uncommitted unless the mission goal explicitly authorizes Git actions; merging always requires the person's instruction.

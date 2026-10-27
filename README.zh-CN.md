@@ -62,11 +62,11 @@ Runner 让命令行编码 agent 通过可复用的 crew、真实终端和共享 
 <table>
   <tr>
     <td width="50%" valign="middle">
-      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew 详情页展示 coder 和 reviewer 槽位、lead 标记、单槽位配置覆盖和共享团队约定" width="100%" /></a>
+      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew 详情页展示 coder 和 reviewer 槽位、单槽位配置覆盖和共享团队约定" width="100%" /></a>
     </td>
     <td width="50%" valign="middle">
       <h3>可复用的 Crew</h3>
-      <p>把保存的角色组合成 crew，指定一个 lead，并设定共享的团队约定。查看各槽位使用的 agent 和模型，按需覆盖配置，之后随时用同一支团队发起 mission。</p>
+      <p>把保存的角色组合成 crew，并设定共享的团队约定。查看各槽位使用的 agent 和模型，按需覆盖配置，之后随时用同一支团队发起 mission。</p>
     </td>
   </tr>
   <tr>

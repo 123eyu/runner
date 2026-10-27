@@ -34,7 +34,7 @@ fn direct_chat_persona_lands_as_trailing_positional_argv_without_worker_preamble
     let body = crate::router::prompt::compose_direct_first_turn(role.system_prompt.as_deref())
         .expect("non-empty persona");
     assert!(
-        !body.contains("in a crew coordinated by the bundled"),
+        !body.contains("of a team coordinated by the bundled"),
         "compose_direct_first_turn must NOT include the worker preamble (off-bus invariant)",
     );
 
@@ -65,7 +65,7 @@ fn direct_chat_persona_lands_as_trailing_positional_argv_without_worker_preamble
         spec.args
     );
     assert!(
-        !trailing.contains("in a crew coordinated by the bundled"),
+        !trailing.contains("of a team coordinated by the bundled"),
         "direct chat must NOT ship the worker coordination preamble in argv: {trailing:?}",
     );
     assert!(
@@ -93,7 +93,7 @@ fn mission_spawn_worker_preamble_lands_as_trailing_positional_argv_with_brief() 
     // spawn-time positional argv path rather than post-spawn
     // paste. Argv delivery must also suppress the paste
     // fallback so the worker doesn't get double-delivered.
-    use crate::router::prompt::compose_worker_first_turn;
+    use crate::router::prompt::compose_member_first_turn;
 
     let pool = pool_with_schema();
     let mission = mission();
@@ -122,9 +122,9 @@ fn mission_spawn_worker_preamble_lands_as_trailing_positional_argv_with_brief() 
     slot.id = slot_id;
     slot.lead = false;
 
-    let body = compose_worker_first_turn(role.system_prompt.as_deref(), None, None);
+    let body = compose_member_first_turn(role.system_prompt.as_deref(), None, None);
     // Composer ships the on-bus preamble + the brief.
-    assert!(body.contains("in a crew coordinated by the bundled"));
+    assert!(body.contains("of a team coordinated by the bundled"));
     assert!(body.contains("WORKER_BRIEF"));
 
     let fake = fake_runtime();
@@ -149,7 +149,7 @@ fn mission_spawn_worker_preamble_lands_as_trailing_positional_argv_with_brief() 
             "worker first-turn body must land as the trailing positional argv; got args.last() = {trailing:?}"
         );
     assert!(
-        trailing.contains("in a crew coordinated by the bundled"),
+        trailing.contains("of a team coordinated by the bundled"),
         "worker argv must ship the coordination preamble (on-bus invariant)"
     );
     assert!(

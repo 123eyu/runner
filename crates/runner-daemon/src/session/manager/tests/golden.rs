@@ -364,7 +364,7 @@ fn spawn_goldens() {
             effects_rows.push(json!({"runtime": key, "shape": "direct-permission", "mode": mode, "spawn": effects}));
         }
         for mode in MissionPermissionMode::ALL {
-            for lead in [false, true] {
+            for legacy_lead in [false, true] {
                 let data = tempfile::tempdir().unwrap();
                 let root = data.path();
                 let pool = pool_with_schema();
@@ -380,37 +380,19 @@ fn spawn_goldens() {
                 mission.crew_id = Some("c".into());
                 let mut slot = slot_for(&configured);
                 slot.id = insert_crew_role(&pool, &mission.id, &configured.id);
-                slot.lead = lead;
+                slot.lead = legacy_lead;
                 update_role_row(&pool.get().unwrap(), &configured);
                 let fake = fake_runtime();
                 let mgr = mgr_with_fake(None, Arc::clone(&fake));
                 mgr.set_mission_permission_mode(mode);
                 let (snapshot, effects) = with_conversation_home(root, || {
-                    let (system_prompt, first_turn) = if lead {
-                        crate::runtimes::for_key(key).prompt_channels().lead(
-                            &crate::router::prompt::LaunchPromptInput {
-                                lead: crate::router::prompt::LeadView {
-                                    handle: "tester",
-                                    display_name: "Tester",
-                                    system_prompt: Some("GOLDEN_PERSONA"),
-                                },
-                                crew_name: "Golden crew",
-                                mission_goal: "Golden goal",
-                                roster: &[],
-                                allowed_signals: &[],
-                                crew_addendum: Some("TEAM"),
-                            },
-                        )
-                    } else {
-                        crate::runtimes::for_key(key).prompt_channels().split(
-                            crate::router::prompt::SessionPromptKind::Worker,
-                            Some(crate::router::prompt::compose_worker_first_turn(
-                                Some("GOLDEN_PERSONA"),
-                                Some("TEAM"),
-                                None,
-                            )),
-                        )
-                    };
+                    let (system_prompt, first_turn) =
+                        crate::runtimes::for_key(key).prompt_channels().member(
+                            Some("GOLDEN_PERSONA"),
+                            Some("TEAM"),
+                            Some("Golden goal"),
+                            false,
+                        );
                     let spawned = mgr
                         .spawn_with_prompt_channels(
                             &mission,
@@ -430,8 +412,8 @@ fn spawn_goldens() {
                     mgr.kill(&spawned.id).unwrap();
                     (snapshot, effects)
                 });
-                rows.push(json!({"runtime": key, "shape": if lead {"mission-lead"} else {"mission-worker"}, "mode": mode, "spawn": snapshot}));
-                effects_rows.push(json!({"runtime": key, "shape": if lead {"mission-lead"} else {"mission-worker"}, "mode": mode, "spawn": effects}));
+                rows.push(json!({"runtime": key, "shape": if legacy_lead {"mission-legacy-flag"} else {"mission-member"}, "mode": mode, "spawn": snapshot}));
+                effects_rows.push(json!({"runtime": key, "shape": if legacy_lead {"mission-legacy-flag"} else {"mission-member"}, "mode": mode, "spawn": effects}));
             }
         }
     }

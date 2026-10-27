@@ -308,11 +308,7 @@ impl NativeRoot {
             .iter()
             .map(|slot| SharedString::from(slot.slot.slot_handle.clone()))
             .collect::<Vec<_>>();
-        let lead = slots
-            .iter()
-            .find(|slot| slot.slot.lead)
-            .map(|slot| slot.slot.slot_handle.as_str());
-        let summary = column_text(crew_summary(slots.len(), lead), column)
+        let summary = column_text(crew_summary(slots.len()), column)
             .text_size(theme::text_body())
             .text_color(theme::muted());
         let root = cx.entity();
@@ -560,7 +556,7 @@ impl NativeRoot {
             let mut input = TextField::textarea(
                 input_cx.focus_handle(),
                 conventions_value,
-                crate::i18n::message("ui.how_this_crew_works_together_who_leads_how_work_is_handed_off_and_reviewed_every_slot_gets"),
+                crate::i18n::message("ui.how_this_crew_works_together"),
                 6,
                 true,
             )

@@ -423,8 +423,7 @@ fn container_collapse_state_is_not_in_the_database() {
     }
 }
 
-// The "at most one lead per crew" invariant moves to the slot
-// commands; covered by the slot_set_lead test in ops::slot.
+// Legacy lead flags remain stored but do not constrain crews.
 // The schema no longer has the partial unique index that used to
 // enforce it.
 
@@ -572,12 +571,12 @@ fn seed_defaults_inserts_pair_coding_crew_on_empty_db() {
     assert_eq!(role_count, 2);
     assert_eq!(slot_count, 2);
 
-    let lead_handle: String = conn
-        .query_row("SELECT slot_handle FROM slots WHERE lead = 1", [], |r| {
+    let lead_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM slots WHERE lead != 0", [], |r| {
             r.get(0)
         })
         .unwrap();
-    assert_eq!(lead_handle, "coder");
+    assert_eq!(lead_count, 0);
 
     let (name, addendum): (String, Option<String>) = conn
         .query_row(
@@ -827,7 +826,7 @@ fn seed_defaults_skips_when_user_has_a_crew() {
 fn seed_defaults_skips_when_user_has_a_role_but_no_crew() {
     // Any existing role means this is not a first-launch-empty DB.
     // The seed must bail as one unit instead of colliding on a handle
-    // and leaving a partial crew without its lead.
+    // and leaving a partial crew.
     let pool = open_in_memory().unwrap();
     let mut conn = pool.get().unwrap();
     insert_role(&conn, "user-r1", "coder").unwrap();
@@ -1232,7 +1231,7 @@ fn migrations_0022_and_0023_preserve_data_and_role_references() {
             ))
             .collect::<Vec<_>>(),
         [
-            ("sl1", "r1", "lead", 0, true),
+            ("sl1", "r1", "lead", 0, false),
             ("sl2", "r1", "reviewer", 1, false),
         ]
     );

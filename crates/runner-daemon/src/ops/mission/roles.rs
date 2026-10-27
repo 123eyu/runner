@@ -82,7 +82,7 @@ fn team(slots: &[RosterSlot]) -> String {
     join_handles(
         slots
             .iter()
-            .map(|slot| format!("@{}{}", slot.handle, if slot.lead { " (lead)" } else { "" }))
+            .map(|slot| format!("@{}", slot.handle))
             .collect(),
     )
 }
@@ -174,13 +174,8 @@ fn add_checked(
             .as_deref()
             .unwrap_or(&member.role.runtime),
     );
-    let (system_prompt, first_turn) = crate::router::prompt::member_prompt_channels(
-        adapter,
-        &member,
-        &loaded.slots,
-        &loaded.file,
-        &log,
-    );
+    let (system_prompt, first_turn) =
+        crate::router::prompt::member_prompt_channels(adapter, &member, &loaded.file, &log, false);
     if let Some(body) = &first_turn {
         super::ensure_first_turn_fits(&handle, body)?;
     }
@@ -342,11 +337,6 @@ pub fn remove_role(state: &AppCore, mission_id: &str, handle: &str) -> Result<Mi
             }
         })?
         .clone();
-    if slot.lead {
-        return Err(Error::msg(format!(
-            "@{handle} is the lead and cannot be removed"
-        )));
-    }
     let session_id =
         repo::session::latest_unarchived_id_for_slot(&*state.db.get()?, mission_id, &slot.id)?
             .ok_or_else(|| Error::msg(format!("@{handle} has no session in this mission")))?;

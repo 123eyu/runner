@@ -1283,10 +1283,16 @@ async fn role_and_crew_actions_round_trip_through_the_host_operations_and_emit_e
     assert_change_events(&mut events, &["slot/changed"]);
     assert_eq!(host.ok(json!({"type":"updateSlot","slot":second,"handle":"critic","runtime":"codex","model":"slot-model","effort":"low","speed":"standard"})).await, Value::Null);
     assert_change_events(&mut events, &["slot/changed"]);
+    host.core
+        .db
+        .get()
+        .unwrap()
+        .execute("UPDATE slots SET lead = 1 WHERE crew_id = ?1", [&crew])
+        .unwrap();
     let read = host.ok(json!({"type":"crew","crew":crew})).await;
     assert_eq!(
         read,
-        json!({"id":crew,"name":"Pair","conventions":"Review everything.","slots":[{"id":first,"handle":"coder","role":role,"lead":true,"runtime":null,"model":null,"effort":null,"speed":null},{"id":second,"handle":"critic","role":role,"lead":false,"runtime":"codex","model":"slot-model","effort":"low","speed":"standard"}]})
+        json!({"id":crew,"name":"Pair","conventions":"Review everything.","slots":[{"id":first,"handle":"coder","role":role,"lead":false,"runtime":null,"model":null,"effort":null,"speed":null},{"id":second,"handle":"critic","role":role,"lead":false,"runtime":"codex","model":"slot-model","effort":"low","speed":"standard"}]})
     );
     assert!(!read.to_string().contains("env"));
     assert_eq!(
@@ -1295,14 +1301,9 @@ async fn role_and_crew_actions_round_trip_through_the_host_operations_and_emit_e
         Value::Null
     );
     assert_change_events(&mut events, &["slot/changed"]);
-    assert_eq!(
-        host.ok(json!({"type":"setLead","slot":second})).await,
-        Value::Null
-    );
-    assert_change_events(&mut events, &["slot/changed"]);
     let read = host.ok(json!({"type":"crew","crew":crew})).await;
     assert_eq!(read["slots"][0]["id"], second);
-    assert_eq!(read["slots"][0]["lead"], true);
+    assert_eq!(read["slots"][0]["lead"], false);
     assert_eq!(read["slots"][1]["lead"], false);
     assert_eq!(host.ok(json!({"type":"updateSlot","slot":second,"handle":"critic","runtime":null,"model":null,"effort":null,"speed":null})).await, Value::Null);
     assert_change_events(&mut events, &["slot/changed"]);
@@ -1317,7 +1318,7 @@ async fn role_and_crew_actions_round_trip_through_the_host_operations_and_emit_e
     assert_change_events(&mut events, &["slot/changed"]);
     let read = host.ok(json!({"type":"crew","crew":crew})).await;
     assert_eq!(read["slots"].as_array().unwrap().len(), 1);
-    assert_eq!(read["slots"][0]["lead"], true);
+    assert_eq!(read["slots"][0]["lead"], false);
     assert_eq!(
         host.ok(json!({"type":"updateCrew","crew":crew,"name":"Updated","conventions":null}))
             .await,
@@ -1370,7 +1371,6 @@ async fn role_and_crew_actions_reject_invalid_fields_and_unknown_ids_without_lea
         ("updateSlot", "slot"),
         ("removeSlot", "slot"),
         ("reorderSlots", "crew"),
-        ("setLead", "slot"),
     ] {
         let mut value = match kind {
             "updateRole" => role_request(kind),

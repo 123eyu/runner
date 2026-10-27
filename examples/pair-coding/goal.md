@@ -4,7 +4,7 @@ A two-role coder/reviewer loop for a single implementation task. The coder ships
 
 ## Roles
 
-- **@coder** (lead) — implements on a task-specific feature branch, runs the checks, fixes review findings. See `coder.md`.
+- **@coder** — implements on a task-specific feature branch, runs the checks, fixes review findings. See `coder.md`.
 - **@reviewer** — reads the working-tree diff after the coder's handoff, reports must-fix issues with file:line pointers, never edits code. See `reviewer.md`.
 
 ## Team conventions

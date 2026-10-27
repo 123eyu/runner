@@ -1,7 +1,6 @@
 // `slots` table — one position in a crew, referencing a Role template.
 //
-// Invariant enforcement (one lead per crew, dense positions, auto-promote
-// on delete) stays in `ops::slot`; this module owns the row struct,
+// Dense positions are enforced in `ops::slot`; this module owns the row struct,
 // the column list, and the statements.
 
 use rusqlite::{Connection, OptionalExtension};
@@ -54,7 +53,7 @@ impl From<SlotRow> for Slot {
             role_id: r.role_id,
             slot_handle: r.slot_handle,
             position: r.position,
-            lead: r.lead,
+            lead: false,
             runtime_override: r.runtime_override,
             model_override: r.model_override,
             effort_override: r.effort_override,
@@ -72,7 +71,7 @@ impl From<&Slot> for SlotRow {
             role_id: s.role_id.clone(),
             slot_handle: s.slot_handle.clone(),
             position: s.position,
-            lead: s.lead,
+            lead: false,
             runtime_override: s.runtime_override.clone(),
             model_override: s.model_override.clone(),
             effort_override: s.effort_override.clone(),
@@ -221,22 +220,6 @@ pub fn set_position(conn: &Connection, id: &str, position: i64) -> rusqlite::Res
     )
 }
 
-pub fn promote_to_lead(conn: &Connection, id: &str) -> rusqlite::Result<usize> {
-    conn.execute(
-        "UPDATE slots SET lead = 1 WHERE id = ?1",
-        rusqlite::params![id],
-    )
-}
-
-/// Clear the current lead flag for a crew. Run before `promote_to_lead`
-/// inside the caller's transaction so no reader ever sees two leads.
-pub fn clear_crew_lead(conn: &Connection, crew_id: &str) -> rusqlite::Result<usize> {
-    conn.execute(
-        "UPDATE slots SET lead = 0 WHERE crew_id = ?1 AND lead = 1",
-        rusqlite::params![crew_id],
-    )
-}
-
 pub fn delete(conn: &Connection, id: &str) -> rusqlite::Result<usize> {
     conn.execute("DELETE FROM slots WHERE id = ?1", rusqlite::params![id])
 }
@@ -320,7 +303,9 @@ mod tests {
         for row in [full_row(), minimal_row()] {
             insert(&conn, &row).unwrap();
             let read = get(&conn, &row.id).unwrap().unwrap();
-            assert_eq!(SlotRow::from(&read), row);
+            let mut expected = row;
+            expected.lead = false;
+            assert_eq!(SlotRow::from(&read), expected);
         }
         let stored: String = conn
             .query_row(
@@ -351,7 +336,7 @@ mod tests {
         let zulu = get(&conn, "s-z").unwrap().unwrap();
         let offset = get(&conn, "s-o").unwrap().unwrap();
         assert_eq!(zulu.added_at, offset.added_at);
-        assert!(zulu.lead);
+        assert!(!zulu.lead);
         assert!(!offset.lead);
     }
 

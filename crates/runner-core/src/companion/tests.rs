@@ -951,7 +951,6 @@ fn role_and_crew_wire_fields_and_privacy() {
         "update_slot",
         "remove_slot",
         "reorder_slots",
-        "set_lead",
     ] {
         let body = fixture(name);
         let message = ClientMessage::decode(&serde_json::to_vec(&body).unwrap()).unwrap();
@@ -1012,4 +1011,16 @@ fn role_and_crew_wire_fields_and_privacy() {
         panic!("action expected")
     };
     assert!(!format!("{action:?}").contains("private-body-canary"));
+}
+
+#[test]
+fn retired_set_lead_request_is_unknown_but_retains_its_id() {
+    let ClientMessage::Unknown(request) = decode("set_lead") else {
+        panic!("retired action must be unknown")
+    };
+    assert_eq!(request.id, 42);
+    assert_eq!(
+        serde_json::to_value(request.response()).unwrap()["code"],
+        "unknownRequest"
+    );
 }

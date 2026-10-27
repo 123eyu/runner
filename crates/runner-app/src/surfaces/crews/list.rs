@@ -379,7 +379,7 @@ impl NativeRoot {
             crate::i18n::text(if remote {
                 "client.crews_read_only"
             } else {
-                "ui.a_crew_is_a_team_of_roles_slots_one_lead_and_the_conventions_they_share_make_one_to_start"
+                "ui.a_crew_is_a_team_of_roles"
             }),
             div().when(!remote, |entry| {
                 entry
@@ -401,14 +401,27 @@ impl NativeRoot {
         );
         PaginatedListPage::new(
             crate::i18n::text("ui.crews"),
-            div().child(
-                crate::i18n::text(if remote { "client.crews_read_only" } else { "ui.teams_of_roles_you_start_missions_from_slots_one_lead_and_the_conventions_they_share" }),
-            ),
-            div().when(remote, |entry| entry.child(self.render_library_refresh(cx))).when(!remote, |entry| entry.when(cfg!(test), |entry| entry.debug_selector(|| "NEW_CREW".into())).child(Button::new("new-crew", crate::i18n::text("ui.new_crew_inline_action"))
-                .variant(ButtonVariant::Primary)
-                .on_press(move |window, cx| {
-                    create_root.update(cx, |this, cx| this.open_create_crew(window, cx));
-                }))),
+            div().child(crate::i18n::text(if remote {
+                "client.crews_read_only"
+            } else {
+                "ui.teams_of_roles_you_start_missions_from"
+            })),
+            div()
+                .when(remote, |entry| entry.child(self.render_library_refresh(cx)))
+                .when(!remote, |entry| {
+                    entry
+                        .when(cfg!(test), |entry| {
+                            entry.debug_selector(|| "NEW_CREW".into())
+                        })
+                        .child(
+                            Button::new("new-crew", crate::i18n::text("ui.new_crew_inline_action"))
+                                .variant(ButtonVariant::Primary)
+                                .on_press(move |window, cx| {
+                                    create_root
+                                        .update(cx, |this, cx| this.open_create_crew(window, cx));
+                                }),
+                        )
+                }),
             crate::i18n::text("noun.crews"),
             empty_state,
             self.crew_page_surfaces().search.clone(),
@@ -416,7 +429,11 @@ impl NativeRoot {
             self.crew_page_surfaces().list.page,
             self.crew_page_surfaces().list.page_count(),
             Rc::new(move |page, _, cx| {
-                page_root.update(cx, |this, cx| if this.library_view_current(&page_client, epoch, cx) { this.set_crew_page(page, cx); });
+                page_root.update(cx, |this, cx| {
+                    if this.library_view_current(&page_client, epoch, cx) {
+                        this.set_crew_page(page, cx);
+                    }
+                });
             }),
             div()
                 .when(cfg!(test), |table| {
@@ -431,7 +448,10 @@ impl NativeRoot {
             self.crew_page_surfaces().scrollbar.clone(),
         )
         .header(crew_table_header(&columns))
-        .page_size(self.crew_page_surfaces().page_size.clone(), self.crew_table_width(window, cx) < 480.)
+        .page_size(
+            self.crew_page_surfaces().page_size.clone(),
+            self.crew_table_width(window, cx) < 480.,
+        )
         .counts(
             self.crew_page_surfaces().list.filtered_count,
             self.crew_page_surfaces().list.total_count,

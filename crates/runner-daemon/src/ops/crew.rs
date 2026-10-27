@@ -47,7 +47,7 @@ pub fn list(conn: &Connection) -> Result<Vec<CrewListItem>> {
                 slot_handle: preview.slot_handle,
                 role_handle: preview.role_handle,
                 runtime: preview.runtime,
-                lead: preview.lead,
+                lead: false,
             });
     }
 
@@ -89,7 +89,7 @@ pub fn list_page(
                 slot_handle: preview.slot_handle,
                 role_handle: preview.role_handle,
                 runtime: preview.runtime,
-                lead: preview.lead,
+                lead: false,
             });
     }
     let items = rows

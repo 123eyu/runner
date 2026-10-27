@@ -362,7 +362,6 @@ impl MissionWorkspace {
                         cwd: session.and_then(|session| session.cwd.clone()),
                     },
                     handle: member.handle.clone(),
-                    lead: member.lead,
                     runtime: session
                         .and_then(|session| session.runtime.clone())
                         .unwrap_or_default(),

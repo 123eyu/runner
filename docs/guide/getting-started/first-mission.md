@@ -4,7 +4,7 @@ Run the default pair-coding crew on a small task: the coder implements it, the r
 
 ## Prepare the crew and folder
 
-On a fresh installation, Runner seeds **Pair coding crew**, with **@coder** as lead and **@reviewer** as the second slot. Both use Codex, so first install Codex, sign in, and confirm it works in a [chat](first-chat.md). Open **Crews**, select **Pair coding crew**, and check both slots. Existing installations with roles or crews may not receive the seed; [Build a crew](../guides/build-a-crew.md) explains how to create the same pair or choose different agents.
+On a fresh installation, Runner seeds **Pair coding crew**, with **@coder** and **@reviewer** as its slots. Both use Codex, so first install Codex, sign in, and confirm it works in a [chat](first-chat.md). Open **Crews**, select **Pair coding crew**, and check both slots. Existing installations with roles or crews may not receive the seed; [Build a crew](../guides/build-a-crew.md) explains how to create the same pair or choose different agents.
 
 Choose a small repository or a disposable project for the first task. Runner starts the crew in the directory you give it. It does not create an isolated copy or Git worktree for you; all members can see and change that directory.
 
@@ -14,7 +14,7 @@ Choose a small repository or a disposable project for the first task. Runner sta
 ## Start a mission
 
 1. Press **⇧⌘M** / **Ctrl+Shift+M**, or start a mission from the crew's page.
-2. Select **Pair coding crew**. The dialog shows its roster, lead and agent settings.
+2. Select **Pair coding crew**. The dialog shows its roster and agent settings.
 3. Give it a title such as “Explain the project.”
 4. Enter a concrete **Goal**, for example:
 
@@ -24,7 +24,7 @@ Choose a small repository or a disposable project for the first task. Runner sta
 
 5. Set **Working directory** to the repository, then click **Start mission** or press **⌘Enter** / **Ctrl+Enter**.
 
-The lead receives the goal. The other slot gets its role and team conventions and waits for work from the lead. An optional blank goal is useful for setting up a mission first, but a first task is easier to follow with the goal written at launch.
+Every member receives the goal, its role and the team conventions. The coder starts implementation; the reviewer waits for the coder’s handoff as the conventions require. An optional blank goal is useful for setting up a mission first, but a first task is easier to follow with the goal written at launch.
 
 ## Follow the work
 

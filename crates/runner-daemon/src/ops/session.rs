@@ -43,7 +43,8 @@ pub fn list_for_mission(
             live_title: row.live_title,
             handle: row.handle,
             runtime: row.runtime,
-            lead: row.lead,
+            role_handle: String::new(),
+            lead: false,
             agent_session_key: row.agent_session_key,
         })
         .collect();
@@ -56,7 +57,7 @@ pub fn list_for_mission(
             .find(|member| row.session.slot_id.as_deref() == Some(&member.slot.id))
         {
             row.handle = member.slot.slot_handle.clone();
-            row.lead = member.slot.lead;
+            row.role_handle = member.role.handle.clone();
         }
     }
     rows.retain(|row| {

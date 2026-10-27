@@ -41,7 +41,7 @@ impl From<String> for SignalType {
 }
 
 pub const ASK_LEAD_REMOVED_HINT: &str =
-    "ask the lead with `runner msg post --to <lead>`, or the person with `runner ask --human`";
+    "message a member with `runner msg post --to <handle>`, or ask the person with `runner ask`";
 
 /// Closed set of signal types the CLI recognizes for `runner signal
 /// <type>`. The router still dispatches on `SignalType` (the open

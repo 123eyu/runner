@@ -5,9 +5,12 @@ pub struct SessionRow {
     #[serde(flatten)]
     pub session: Session,
     pub live_title: Option<String>,
-    /// Handle of the role this session instantiates — denormalized so the
+    /// Mission slot handle — denormalized so the
     /// frontend can render `@coder`-style labels without a second lookup.
     pub handle: String,
+    /// Handle of the underlying reusable role.
+    #[serde(default)]
+    pub role_handle: String,
     /// Effective runtime kind for this session (`"claude-code"`,
     /// `"codex"`, `"shell"`, …): `sessions.agent_runtime` when the row
     /// recorded one (runtime-override spawns), else the role row's
@@ -16,7 +19,7 @@ pub struct SessionRow {
     /// (clear-on-resize for full-screen TUIs, etc.) without a second
     /// role lookup. See docs/impls/archive/0011 §"Per-runtime clear-on-resize".
     pub runtime: String,
-    /// Whether this role is the lead for the mission's crew.
+    /// Legacy compatibility field; always false.
     pub lead: bool,
     /// Native agent conversation key captured from the spawned agent.
     /// NULL means capture is pending, unavailable, or intentionally

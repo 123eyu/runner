@@ -62,11 +62,11 @@ Runner brings CLI coding agents together in reusable crews, with real terminals 
 <table>
   <tr>
     <td width="50%" valign="middle">
-      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew detail page with coder and reviewer slots, a lead badge, per-slot overrides and shared team conventions" width="100%" /></a>
+      <a href="assets/crews.png"><img src="assets/crews.png" alt="Crew detail page with coder and reviewer slots, per-slot overrides and shared team conventions" width="100%" /></a>
     </td>
     <td width="50%" valign="middle">
       <h3>Reusable crews</h3>
-      <p>Compose saved roles into a crew, choose a lead, and define shared team conventions. Review each slot's agent and model, adjust overrides, then launch a mission with the same team whenever you need it.</p>
+      <p>Compose saved roles into a crew and define shared team conventions. Review each slot's agent and model, adjust overrides, then launch a mission with the same team whenever you need it.</p>
     </td>
   </tr>
   <tr>

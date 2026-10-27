@@ -857,32 +857,15 @@ fn crew_row(
                 .flex()
                 .flex_col()
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(rems(6. / 16.))
-                        .child(
-                            div()
-                                .min_w(px(0.))
-                                .truncate()
-                                .text_size(theme::text_body())
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::text())
-                                .child(membership.crew_name),
-                        )
-                        .children(membership.lead.then(|| {
-                            div()
-                                .flex_none()
-                                .rounded(rems(3. / 16.))
-                                .border_1()
-                                .border_color(theme::border_strong())
-                                .px(rems(4. / 16.))
-                                .font_family(theme::UI_MONOSPACE_FONT)
-                                .text_size(theme::text_micro())
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme::faint())
-                                .child(crate::i18n::text("heading.lead"))
-                        })),
+                    div().flex().items_center().gap(rems(6. / 16.)).child(
+                        div()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(theme::text_body())
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::text())
+                            .child(membership.crew_name),
+                    ),
                 )
                 .child(
                     column_text(

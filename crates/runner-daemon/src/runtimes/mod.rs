@@ -17,7 +17,7 @@ mod tests;
 pub(crate) mod trae;
 
 use crate::model::{CodexSpeed, Runtime};
-use crate::router::prompt::{LaunchPromptInput, SessionPromptKind};
+use crate::router::prompt::SessionPromptKind;
 use crate::router::runtime::{ForkPlan, PermissionMode, ResumePlan, FIRST_TURN_ARGV_MAX_BYTES};
 use crate::session::hook_feed::HookWatcher;
 use crate::session::runtime::SpawnSpec;
@@ -74,40 +74,27 @@ impl PromptChannels {
             return (None, None);
         };
         match kind {
-            SessionPromptKind::Direct | SessionPromptKind::Worker => (Some(composed), None),
-            SessionPromptKind::Lead => {
-                unreachable!("pi lead prompts must be composed from LaunchPromptInput")
-            }
+            SessionPromptKind::Direct => (Some(composed), None),
+            SessionPromptKind::Member => (None, Some(composed)),
         }
     }
-    pub fn worker(
+    pub fn member(
         &self,
         system_prompt: Option<&str>,
         crew_addendum: Option<&str>,
-        leadless_goal: Option<&str>,
+        mission_goal: Option<&str>,
+        resuming: bool,
     ) -> (Option<String>, Option<String>) {
-        let body = Some(crate::router::prompt::compose_worker_first_turn(
+        let body = Some(crate::router::prompt::compose_member_first_turn(
             system_prompt,
             crew_addendum,
-            leadless_goal,
+            mission_goal,
         ));
-        if leadless_goal.is_some() {
-            (None, body)
+        if self.system_prompt && resuming {
+            (body, None)
         } else {
-            self.split(SessionPromptKind::Worker, body)
+            self.split(SessionPromptKind::Member, body)
         }
-    }
-    pub fn lead(&self, input: &LaunchPromptInput<'_>) -> (Option<String>, Option<String>) {
-        if !self.system_prompt {
-            return (
-                None,
-                Some(crate::router::prompt::compose_launch_prompt(input)),
-            );
-        }
-        let sections = crate::router::prompt::compose_launch_prompt_sections(input);
-        let mut system_prompt = sections.before_mission;
-        system_prompt.push_str(&sections.after_mission);
-        (Some(system_prompt), Some(sections.mission))
     }
     pub fn system_prompt_args(&self, prompt: Option<&str>) -> Vec<String> {
         match prompt {

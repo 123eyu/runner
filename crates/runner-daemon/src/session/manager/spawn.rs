@@ -595,8 +595,7 @@ impl SessionManager {
     /// did inline; factored out so spawn / spawn_direct / resume
     /// can share the argv composition.
     ///
-    /// `first_turn` is the composed first-user-turn body (mission
-    /// launch prompt for a lead, worker preamble for non-leads,
+    /// `first_turn` is the composed first-user-turn body (member prompt for missions,
     /// persona for direct chats). When the runtime accepts the
     /// positional `[PROMPT]` argv and the body fits in
     /// `FIRST_TURN_ARGV_MAX_BYTES`, the body lands as the trailing
@@ -1291,8 +1290,8 @@ impl SessionManager {
     /// 0001-v0-mvp.md C9 both require the bundled `role` CLI to win over any
     /// system binary with the same name.
     /// `first_turn` is the composed first-user-turn body to deliver
-    /// at spawn (lead launch prompt for a lead slot, worker preamble
-    /// plus brief for a non-lead). When the runtime accepts the
+    /// at spawn (team preamble, shared goal, conventions and brief).
+    /// When the runtime accepts the
     /// positional `[PROMPT]` argv and the body fits
     /// `FIRST_TURN_ARGV_MAX_BYTES`, it lands as the trailing
     /// positional during process init. Pass `None` to skip
@@ -1318,25 +1317,9 @@ impl SessionManager {
         events: Arc<dyn SessionEvents>,
         first_turn: Option<String>,
     ) -> Result<SpawnedSession> {
-        if crate::runtimes::for_key(&role.runtime)
-            .prompt_channels()
-            .system_prompt
-            && slot.lead
-        {
-            return Err(Error::msg(
-                "pi lead prompts must be passed through the structured prompt channels",
-            ));
-        }
         let (system_prompt, first_turn) = crate::runtimes::for_key(&role.runtime)
             .prompt_channels()
-            .split(
-                if slot.lead {
-                    router::prompt::SessionPromptKind::Lead
-                } else {
-                    router::prompt::SessionPromptKind::Worker
-                },
-                first_turn,
-            );
+            .split(router::prompt::SessionPromptKind::Member, first_turn);
         self.spawn_with_prompt_channels(
             mission,
             role,
@@ -2875,9 +2858,9 @@ impl SessionManager {
                 router::prompt::member_prompt_channels(
                     adapter,
                     &member,
-                    &roster,
                     &ctx.roster.file,
                     &log,
+                    plan.resuming,
                 )
             } else {
                 // A fresh agy conversation has no persona unless it is resent: agy
