@@ -890,7 +890,7 @@ pub(crate) fn open(tag: &str, cx: &mut App) {
         let _ = window.update(cx, |root, window, cx| {
             window.activate_window();
             if target.is_some() && root.remote_window.is_some() {
-                root.remember_remote_selection();
+                root.remember_remote_selection(cx);
                 root.remote_window = None;
                 root.client_ui.picker_open = false;
                 cx.notify();

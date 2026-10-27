@@ -279,7 +279,7 @@ pub(crate) struct Sidebar {
     shell: WeakEntity<NativeRoot>,
     app_store: Entity<AppStore>,
     front_page: crate::surfaces::front_page::FrontPageClient,
-    remote_settings: Option<AppSettings>,
+    pub(crate) remote_settings: Option<AppSettings>,
     remote_layouts: HashMap<String, PaneLayout>,
     remote_sessions: HashMap<String, SessionDisplay>,
     remote_selection: Option<crate::surfaces::remote_client::RemoteItem>,

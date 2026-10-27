@@ -2598,6 +2598,15 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
         })
         .unwrap();
     cx.run_until_parked();
+    window
+        .update(&mut cx, |root, _, cx| {
+            root.remote_window
+                .as_ref()
+                .unwrap()
+                .sidebar
+                .update(cx, |sidebar, cx| sidebar.toggle_active_only(cx));
+        })
+        .unwrap();
     store.update(&mut cx, |store, cx| {
         store.session_statuses.insert(
             "direct-agent".into(),
@@ -2645,6 +2654,17 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
         })
         .unwrap();
     cx.run_until_parked();
+    window
+        .read_with(&cx, |root, cx| {
+            assert!(root
+                .remote_window
+                .as_ref()
+                .unwrap()
+                .sidebar
+                .read(cx)
+                .active_only(cx));
+        })
+        .unwrap();
     cx.update(|cx| crate::notifications::open("mission-agent", cx));
     cx.run_until_parked();
     window
@@ -3388,6 +3408,149 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
                 .unwrap();
         });
     }
+}
+
+#[test]
+fn switching_computers_restores_each_windows_remote_sidebar_view() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, clients) = fixture(&mut cx, temp.path());
+    enable_front_page(&fake);
+    fake.set_overview(sidebar_overview());
+    let other = Computer {
+        id: "other".into(),
+        name: "Mini".into(),
+        ..computers()[1].clone()
+    };
+    fake.computers.lock().unwrap().push(other.clone());
+    clients.update(&mut cx, |clients, cx| clients.refresh(cx));
+    store.update(&mut cx, |store, _| {
+        let settings = &mut store.settings;
+        settings.sidebar_active_only = true;
+        settings
+            .sidebar_collapsed_projects
+            .insert("local-project".into());
+        settings
+            .sidebar_collapsed_active_groups
+            .insert("missions".into());
+        settings.sidebar_projects_open = false;
+        settings.sidebar_chats_open = false;
+    });
+    cx.run_until_parked();
+    let view = |settings: &AppSettings| {
+        (
+            settings.sidebar_active_only,
+            settings.sidebar_collapsed_projects.clone(),
+            settings.sidebar_collapsed_active_groups.clone(),
+            settings.sidebar_projects_open,
+            settings.sidebar_chats_open,
+        )
+    };
+    let local = store.read_with(&cx, |store, _| view(&store.settings));
+    let defaults = (false, Default::default(), Default::default(), true, true);
+    let window = add_window(&mut cx, &store, temp.path(), "remember-remote-sidebar");
+    let visit = |cx: &mut TestAppContext, computer: Computer| {
+        window
+            .update(cx, |root, window, cx| {
+                root.choose_computer(computer, false, window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+    };
+    let sidebar = |cx: &TestAppContext| {
+        window
+            .read_with(cx, |root, _| {
+                root.remote_window.as_ref().unwrap().sidebar.clone()
+            })
+            .unwrap()
+    };
+    let remote_view = |cx: &TestAppContext| {
+        sidebar(cx).read_with(cx, |sidebar, _| {
+            view(sidebar.remote_settings.as_ref().unwrap())
+        })
+    };
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(remote_view(&cx), defaults);
+    let mut visual = VisualTestContext::from_window(window.into(), &cx);
+    let project = visual.debug_bounds("SIDEBAR_PROJECT:p").unwrap();
+    visual.simulate_click(project.center(), Default::default());
+    visual.run_until_parked();
+    for selector in ["SIDEBAR_SECTION:PROJECTS", "SIDEBAR_SECTION:RECENTS"] {
+        let section = visual.debug_bounds(selector).unwrap();
+        visual.simulate_click(
+            point(section.left() + px(24.), section.center().y),
+            Default::default(),
+        );
+        visual.run_until_parked();
+    }
+    sidebar(&cx).update(&mut cx, |sidebar, cx| sidebar.toggle_active_only(cx));
+    visual.run_until_parked();
+    let group = visual.debug_bounds("ACTIVE_GROUP_TOGGLE chats").unwrap();
+    visual.simulate_click(group.center(), Default::default());
+    visual.run_until_parked();
+    let remembered = remote_view(&cx);
+    assert!(remembered.0);
+    assert!(!remembered.1.is_empty());
+    assert!(remembered.2.contains("chats"));
+    assert!(!remembered.3 && !remembered.4);
+
+    visit(&mut cx, computers()[0].clone());
+    assert_eq!(
+        store.read_with(&cx, |store, _| view(&store.settings)),
+        local
+    );
+    let overrides = store.update(&mut cx, |store, _| {
+        let mut shortcut = crate::keymap::entry("new-chat").unwrap().default.clone();
+        shortcut.shift = !shortcut.shift;
+        store
+            .settings
+            .keymap_overrides
+            .insert("new-chat".into(), Some(shortcut));
+        store.settings.keymap_overrides.clone()
+    });
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(remote_view(&cx), remembered);
+    sidebar(&cx).read_with(&cx, |sidebar, _| {
+        assert_eq!(
+            sidebar.remote_settings.as_ref().unwrap().keymap_overrides,
+            overrides
+        );
+    });
+    visit(&mut cx, other.clone());
+    assert_eq!(remote_view(&cx), defaults);
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(remote_view(&cx), remembered);
+    visit(&mut cx, other);
+    assert_eq!(remote_view(&cx), defaults);
+    visit(&mut cx, computers()[1].clone());
+    sidebar(&cx).update(&mut cx, |sidebar, cx| sidebar.toggle_active_only(cx));
+    visit(&mut cx, computers()[0].clone());
+    visit(&mut cx, computers()[1].clone());
+    let mut show_all = remembered;
+    show_all.0 = false;
+    assert_eq!(remote_view(&cx), show_all);
+    assert_eq!(
+        store.read_with(&cx, |store, _| view(&store.settings)),
+        local
+    );
+
+    let second = add_window(&mut cx, &store, temp.path(), "independent-remote-sidebar");
+    second.update(&mut cx, choose_host).unwrap();
+    cx.run_until_parked();
+    second
+        .read_with(&cx, |root, cx| {
+            let sidebar = root.remote_window.as_ref().unwrap().sidebar.read(cx);
+            assert_eq!(view(sidebar.remote_settings.as_ref().unwrap()), defaults);
+        })
+        .unwrap();
+
+    visit(&mut cx, computers()[0].clone());
+    clients.update(&mut cx, |clients, _| {
+        clients.overviews.remove("host");
+    });
+    visit(&mut cx, computers()[1].clone());
+    assert_eq!(remote_view(&cx), defaults);
 }
 
 #[test]

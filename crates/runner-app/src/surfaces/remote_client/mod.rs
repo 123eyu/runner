@@ -17,6 +17,13 @@ use runner_core::remote::{Computer, RemoteStatus, RemoteTrust};
 pub(crate) use pairing::PairDialog;
 pub(crate) use workspace::{sidebar_nodes, Item as RemoteItem, RemoteWindow};
 
+#[derive(Default)]
+pub(crate) struct RemoteSelection {
+    active: Option<RemoteItem>,
+    layouts: HashMap<String, PaneLayout>,
+    sidebar_settings: Option<AppSettings>,
+}
+
 pub(crate) struct ClientUi {
     pub(crate) picker_open: bool,
     pub(crate) picker_focus: FocusHandle,
@@ -25,7 +32,7 @@ pub(crate) struct ClientUi {
     menus: std::cell::RefCell<HashMap<String, Entity<PopoverMenu>>>,
     pub(crate) pair_generation: u64,
     pub(crate) epoch: u64,
-    pub(crate) selections: HashMap<String, (Option<RemoteItem>, HashMap<String, PaneLayout>)>,
+    pub(crate) selections: HashMap<String, RemoteSelection>,
 }
 impl ClientUi {
     pub(crate) fn new(cx: &mut Context<NativeRoot>) -> Self {
