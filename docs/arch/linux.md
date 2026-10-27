@@ -1,6 +1,6 @@
 # Linux development and packaging
 
-Linux support for ARM64 (`aarch64`) and x86_64 is being prepared in [#823](https://github.com/yicheng47/runner/issues/823). Signed tar/deb nightlies for both architectures are published on the shared [nightly prerelease](https://github.com/yicheng47/runner/releases/tag/nightly); stable Linux packages arrive with the next release. Publication does not establish native acceptance. See [validation](../tests/823-linux-support.md) for observed results and remaining gaps. A local Ubuntu 26.04 ARM64 build is evidence for that machine only.
+Linux support for ARM64 (`aarch64`) and x86_64 ([#823](https://github.com/yicheng47/runner/issues/823)) is in beta from Runner 0.18.2. Signed tar/deb packages for both architectures ship with each release and on the shared [nightly prerelease](https://github.com/yicheng47/runner/releases/tag/nightly). Publication does not establish native acceptance. See [validation](../tests/823-linux-support.md) for observed results and remaining gaps. A local Ubuntu 26.04 ARM64 build is evidence for that machine only.
 
 ## Platform requirements
 

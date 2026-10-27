@@ -10,8 +10,9 @@ Download the latest stable build from [Runner downloads](https://runnersh.dev/do
 | --- | --- | --- |
 | macOS | Signed and notarized `.dmg` | macOS 12 or later, Apple Silicon Mac |
 | Windows | Signed `Runner-Setup-…-x64.exe` | Windows 10 version 1809 or later, x64 |
+| Linux (beta) | Signed `Runner_…_linux-….deb` or `.tar.gz` | glibc 2.35 or later (Ubuntu 22.04 or later), kernel 5.3 or later, ARM64 or x86_64 |
 
-Intel Macs and Windows ARM64 are not supported. Linux ARM64/x86_64 support is in development. Signed tar/deb nightlies for both architectures are published on the [nightly prerelease](https://github.com/yicheng47/runner/releases/tag/nightly); stable Linux packages arrive with the next release, and native acceptance remains pending. See [Linux build/install instructions](https://github.com/yicheng47/runner/blob/main/docs/arch/linux.md) on `main` for prerequisites, local packages and current validation gaps.
+Intel Macs and Windows ARM64 are not supported. Linux support is in beta: it has been tried on an Ubuntu 26.04 ARM64 virtual machine, while native hardware, x86_64 and other distributions are not yet verified. On Debian or Ubuntu, install the package with `sudo apt install ./Runner_<version>_linux-<arm64|x64>.deb`; on other distributions, extract the tarball and run its `install.sh`. See [Linux build/install instructions](https://github.com/yicheng47/runner/blob/main/docs/arch/linux.md) on `main` for prerequisites, local packages and current validation gaps.
 
 On macOS, open the disk image, drag Runner into Applications, and launch it. On Windows, run the installer and launch Runner from the Start menu. A fresh Windows release may show a SmartScreen warning; after verifying that you downloaded the official installer, **More info → Run anyway** continues installation.
 

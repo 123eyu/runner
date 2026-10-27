@@ -51,9 +51,9 @@
   <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
 
-> Alpha · Native macOS (Apple Silicon) and Windows (x64).
+> Alpha · Native macOS (Apple Silicon) and Windows (x64), with Linux (ARM64, x86_64) in beta.
 
-Linux ARM64 and x86_64 support is in development, with tarball and Debian packaging. Signed tar/deb nightlies for both architectures are published on the [nightly prerelease](https://github.com/yicheng47/runner/releases/tag/nightly); stable Linux packages arrive with the next release, and native acceptance remains pending; see [Linux build and install instructions](docs/arch/linux.md) and [validation status](docs/tests/823-linux-support.md).
+Linux support is in beta from Runner 0.18.2, with signed `.deb` and tarball packages for ARM64 and x86_64 and in-app updates. It has been tried on an Ubuntu 26.04 ARM64 virtual machine; native hardware, x86_64 and other distributions are not yet verified. See [Linux build and install instructions](docs/arch/linux.md) and [validation status](docs/tests/823-linux-support.md).
 
 Runner brings CLI coding agents together in reusable crews, with real terminals and a shared mission feed. Your sessions and history stay on your machine.
 
