@@ -1,6 +1,6 @@
 # PR #1027 review-finding validation
 
-Candidate: working-tree diff on `fix/1027-linux-review-findings`, based on Linux umbrella `889e1c3be61c703a6b1bbdbf9ec7db470f70c910`. Mission brief: [1027 Linux review findings](../impls/briefs/1027-linux-review-findings.md). Final candidate: the implementation commit containing this record, with the exact final SHA reported in the follow-up PR and Runner handoff. The reviewed code identity below is preserved through commit folding. Local host: macOS ARM64, 2026-10-26. This worktree uses its own `target/`, with no shared `CARGO_TARGET_DIR`.
+Candidate: working-tree diff on `fix/1027-linux-review-findings`, based on Linux umbrella `889e1c3be61c703a6b1bbdbf9ec7db470f70c910`. Mission brief: [1027 Linux review findings](https://github.com/yicheng47/runner/blob/49e03dd419ab726383f6b8a96d693d85274173b4/docs/impls/briefs/1027-linux-review-findings.md). Final candidate: the implementation commit containing this record, with the exact final SHA reported in the follow-up PR and Runner handoff. The reviewed code identity below is preserved through commit folding. Local host: macOS ARM64, 2026-10-26. This worktree uses its own `target/`, with no shared `CARGO_TARGET_DIR`.
 
 ## Changed behavior and selected checks
 

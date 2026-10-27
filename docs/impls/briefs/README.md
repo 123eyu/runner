@@ -10,7 +10,7 @@ These are real briefs, with their original dates, paths and task-specific permis
 |---|---|---|
 | Small | [Mission inbox guidance](mission-inbox-guidance.md) | One coder, one focused change, named authoritative files, bounded checks and an open-PR handoff. Merged in [#985](https://github.com/yicheng47/runner/pull/985). |
 | Medium | [#735 — Start a chat modal](735-start-chat-modal.md) | A designed UI feature: spec and PNG references, concrete states and request mappings, coder/reviewer handoffs and native-check gaps. Shipped in 0.12.5. |
-| Large | [#823 — Linux support](823-linux.md) | A cross-platform change: ordered deliverables across runtime, UI, packaging and CI, review risks, and a separate live-test record. Active in [#1027](https://github.com/yicheng47/runner/pull/1027), which replaces #982. |
+| Large | [#823 — Linux support](823-linux.md) | A cross-platform change: ordered deliverables across runtime, UI, packaging and CI, review risks, and a separate live-test record. Merged to `main` in [#1027](https://github.com/yicheng47/runner/pull/1027), which replaced #982, and shipped as a beta in 0.18.2; #823 stays open for WSL and native acceptance. |
 
 Size describes the work, not a required agent count or brief length. Small fixes normally stay inline; launch a mission only when Jason requests or approves one. Large programs may need several independently reviewable missions rather than one long goal. Keep each launch goal under 8 KB and link to its spec or implementation plan for detail. The historical medium and large files exceed that launch limit: use them as supporting references and summarize the goal instead of passing the whole file unchanged.
 
@@ -38,3 +38,5 @@ The 2026-10-24 release sweep pruned the completed #929, #1006 and #1007 briefs. 
 The 0.18.0 release sweep pruned #836's 17 briefs, from Phase 1's `836-connect-host.md` to the landing review; the [program record](../archive/836-web-remote-control/README.md) links each at a fixed revision. The three examples remain, and #823 is still open.
 
 The 0.18.1 release sweep pruned the completed #1031 and terminal-redraw-test-settle briefs. Their validation records remain in [the test archive](../../tests/README.md), including the redraw brief’s initial investigation and unresolved observations. The three examples remain; #823 is still open.
+
+The 0.18.2 release sweep pruned three merged Linux briefs: the original local support mission, the Linux remote sign-in fix ([#1036](https://github.com/yicheng47/runner/pull/1036)) and the #1027 review findings ([#1040](https://github.com/yicheng47/runner/pull/1040)). Their test records stay in `docs/tests/` while #823 is open, and the Linux spec links the local brief at a [fixed revision](https://github.com/yicheng47/runner/blob/49e03dd419ab726383f6b8a96d693d85274173b4/docs/impls/briefs/823-linux-support-local.md). The three examples remain.

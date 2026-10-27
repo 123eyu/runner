@@ -1,6 +1,6 @@
 # Linux desktop and headless support
 
-Related: [#823](https://github.com/yicheng47/runner/issues/823). The current implementation record is [#982 Linux/remote integration](../impls/982-linux-remote-compat.md); the [original local mission brief](../impls/briefs/823-linux-support-local.md) is historical.
+Related: [#823](https://github.com/yicheng47/runner/issues/823). The current implementation record is [#982 Linux/remote integration](../impls/982-linux-remote-compat.md); the [original local mission brief](https://github.com/yicheng47/runner/blob/49e03dd419ab726383f6b8a96d693d85274173b4/docs/impls/briefs/823-linux-support-local.md) is historical.
 
 Runner supports Linux ARM64 and x86_64 with the native GPUI app, daemon and CLI.
 X11 and Wayland share the existing Windows-style window controls and Ctrl bindings.
