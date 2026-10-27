@@ -57,6 +57,14 @@ pub struct AgentObservation {
     pub interactions: Vec<HumanInteraction>,
     #[serde(default)]
     pub detail: Option<WorkDetail>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program_status: Option<ProgramStatusEvidence>,
+}
+
+/// Additive evidence keeps the existing source vocabulary readable by older clients.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProgramStatusEvidence {
+    pub message: Option<String>,
 }
 
 impl AgentObservation {
@@ -85,4 +93,27 @@ pub struct AgentStatus {
     #[serde(default)]
     pub failed_since: Option<i64>,
     pub unread_since: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn program_evidence_is_additive_and_preserves_existing_source_values() {
+        let old = serde_json::json!({
+            "activity": "working", "source": "baseline", "outcome": null,
+            "interactions": [], "detail": null
+        });
+        let mut observation: AgentObservation = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(observation.program_status, None);
+        observation.program_status = Some(ProgramStatusEvidence {
+            message: Some("Hello".into()),
+        });
+        let mut wire = serde_json::to_value(observation).unwrap();
+        assert_eq!(wire["source"], "baseline");
+        assert_eq!(wire["program_status"]["message"], "Hello");
+        wire.as_object_mut().unwrap().remove("program_status");
+        assert_eq!(wire, old);
+    }
 }

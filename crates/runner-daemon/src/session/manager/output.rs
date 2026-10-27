@@ -166,11 +166,12 @@ impl SessionManager {
                             &bytes,
                             super::super::clock::now(),
                         );
-                        manager_t.ingest_output_chunk(
+                        manager_t.ingest_output_for_launch(
                             &session_id,
                             mission_id.as_deref(),
                             &bytes,
                             events.as_ref(),
+                            Some(&stop),
                         );
                         #[cfg(windows)]
                         if first_turn_pending {
@@ -984,10 +985,30 @@ impl SessionManager {
         bytes: &[u8],
         events: &dyn SessionEvents,
     ) {
-        let _ = (mission_id, events);
+        self.ingest_output_for_launch(session_id, mission_id, bytes, events, None);
+    }
+
+    pub(super) fn ingest_output_for_launch(
+        &self,
+        session_id: &str,
+        mission_id: Option<&str>,
+        bytes: &[u8],
+        events: &dyn SessionEvents,
+        launch: Option<&Arc<AtomicBool>>,
+    ) {
+        let _ = mission_id;
         let state = self.session_state_or_insert(session_id);
-        let (model, observation) = {
+        let (model, observation, program_status, launch) = {
             let mut state = state.lock().unwrap();
+            if launch.is_some_and(|launch| {
+                launch.load(Ordering::Acquire)
+                    || state
+                        .handle
+                        .as_ref()
+                        .is_some_and(|handle| !Arc::ptr_eq(launch, &handle.stop))
+            }) {
+                return;
+            }
             state.output_seq += 1;
             let seq = state.output_seq;
             Self::push_frame(
@@ -1001,10 +1022,24 @@ impl SessionManager {
             let observation = model
                 .as_ref()
                 .and_then(|model| model.feed_output(seq, bytes));
-            (model, observation)
+            let program_status = model.as_ref().and_then(|model| model.take_program_status());
+            let launch = state.handle.as_ref().map(|handle| handle.stop.clone());
+            (model, observation, program_status, launch)
         };
         if let Some(model) = model {
             model.publish_input(observation);
+        }
+        if let (Some((seq, report)), Some(launch)) = (program_status, launch) {
+            self.publish_model_event_for_launch(
+                session_id,
+                SessionEvent::ProgramStatus {
+                    seq,
+                    report,
+                    live: true,
+                },
+                Some(&launch),
+                events,
+            );
         }
     }
 

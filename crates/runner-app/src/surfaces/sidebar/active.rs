@@ -84,7 +84,9 @@ fn active_session_status(
         SessionStatus::Stopped => status.lifecycle = Lifecycle::Stopped,
         SessionStatus::Crashed => status.lifecycle = Lifecycle::Error,
     }
-    if Runtime::parse(&session.agent_runtime).is_some_and(Runtime::is_shell) {
+    if Runtime::parse(&session.agent_runtime).is_some_and(Runtime::is_shell)
+        && status.observation.program_status.is_none()
+    {
         status.observation.activity = if activity == Some(&SessionActivityState::Busy) {
             Activity::Working
         } else {
@@ -179,8 +181,7 @@ impl Sidebar {
                     let terminals_only = members.iter().all(|session| is_shell(session));
                     let entries = members
                         .iter()
-                        .filter(|session| terminals_only || !is_shell(session))
-                        .map(|session| {
+                        .filter_map(|session| {
                             let mut status = active_session_status(
                                 session,
                                 self.session_status(&session.session_id, cx).as_ref(),
@@ -190,10 +191,16 @@ impl Sidebar {
                                     store.session_activity.get(&session.session_id)
                                 },
                             );
+                            if !terminals_only
+                                && is_shell(session)
+                                && status.observation.program_status.is_none()
+                            {
+                                return None;
+                            }
                             if self.archiving_sessions.contains(&session.session_id) {
                                 super::rows::mark_archiving_status(&mut status);
                             }
-                            (session.session_id.clone(), status)
+                            Some((session.session_id.clone(), status))
                         })
                         .collect();
                     (

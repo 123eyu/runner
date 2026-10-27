@@ -50,6 +50,8 @@ impl Reason {
             Self::MissionIdle => return crate::i18n::text("ui.every_crew_member_is_idle").into(),
         };
         StatusPresentation {
+            message: None,
+            program_status: false,
             kind,
             estimated: false,
             exit_code: None,

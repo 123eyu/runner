@@ -118,8 +118,10 @@ record!(AgentObservation {
     source,
     outcome,
     interactions,
-    detail
+    detail,
+    program_status
 });
+record!(ProgramStatusEvidence { message });
 record!(AgentStatus {
     lifecycle,
     observation,

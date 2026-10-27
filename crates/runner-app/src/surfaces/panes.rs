@@ -1060,7 +1060,11 @@ impl NativeRoot {
             }
             Some(button.into_any_element())
         });
-        let single_status = (!grouped && !focused_shell)
+        let focused_program_status = focused_entry
+            .as_ref()
+            .and_then(|entry| self.front_page_status(&entry.session_id, cx))
+            .is_some_and(|status| status.program_status);
+        let single_status = (!grouped && (!focused_shell || focused_program_status))
             .then_some(focused_entry.as_ref())
             .flatten()
             .map(|entry| {
@@ -1088,7 +1092,7 @@ impl NativeRoot {
                     .id("single-pane-status")
                     .flex_none()
                     .child(runner_app::ui::agent_status::header_status_indicator(
-                        status,
+                        status.clone(),
                         status.shows_label(width),
                         status.shows_detail(width),
                         "tab-status",
@@ -2408,22 +2412,26 @@ impl NativeRoot {
                 let label = entry.label(live.as_deref());
                 let manual_title = entry.title.clone().unwrap_or_default();
                 let placeholder = entry.default_label();
-                let status = pane_identity_shows_status(&entry.agent_runtime).then(|| {
-                    let mut status = self.front_page_status(&entry.session_id, cx).unwrap();
-                    if let Some(transition) = self
-                        .chat_transitions
-                        .get(&entry.session_id)
-                        .filter(|_| self.remote_window.is_none())
-                    {
-                        status.kind = if transition.kind == TransitionKind::Resuming {
-                            runner_app::ui::agent_status::StatusKind::Resuming
-                        } else {
-                            runner_app::ui::agent_status::StatusKind::Starting
-                        };
-                        status.estimated = false;
-                    }
-                    status
-                });
+                let program_status = self
+                    .front_page_status(&entry.session_id, cx)
+                    .is_some_and(|status| status.program_status);
+                let status =
+                    pane_identity_shows_status(&entry.agent_runtime, program_status).then(|| {
+                        let mut status = self.front_page_status(&entry.session_id, cx).unwrap();
+                        if let Some(transition) = self
+                            .chat_transitions
+                            .get(&entry.session_id)
+                            .filter(|_| self.remote_window.is_none())
+                        {
+                            status.kind = if transition.kind == TransitionKind::Resuming {
+                                runner_app::ui::agent_status::StatusKind::Resuming
+                            } else {
+                                runner_app::ui::agent_status::StatusKind::Starting
+                            };
+                            status.estimated = false;
+                        }
+                        status
+                    });
                 let disabled = self.session_lifecycle_disabled(&session_id, cx)
                     || secondary.as_ref().is_some_and(|state| state.secondary);
                 let menu = (rename_input.is_none()
@@ -2525,7 +2533,7 @@ impl NativeRoot {
                             .ml_2()
                             .flex_none()
                             .child(runner_app::ui::agent_status::pane_status_indicator(
-                                status,
+                                status.clone(),
                                 status.shows_label(width),
                                 status.shows_detail(width),
                                 SharedString::from(format!("status-{target}")),
@@ -3672,8 +3680,8 @@ fn pane_identity_icon(runtime: Option<&str>) -> ChatIcon {
     )
 }
 
-fn pane_identity_shows_status(runtime: &str) -> bool {
-    !Runtime::parse(runtime).is_some_and(Runtime::is_shell)
+fn pane_identity_shows_status(runtime: &str, program_status: bool) -> bool {
+    program_status || !Runtime::parse(runtime).is_some_and(Runtime::is_shell)
 }
 
 fn starting_overlay_label(runtime: &str, fork_materializing: bool) -> Option<&'static str> {
@@ -4850,13 +4858,14 @@ mod tests {
             pane_identity_icon(Some("unknown")).asset_path(),
             "message-square.svg"
         );
-        assert!(pane_identity_shows_status("codex"));
+        assert!(pane_identity_shows_status("codex", false));
 
         assert_eq!(
             pane_identity_icon(Some("shell")).asset_path(),
             "square-terminal.svg"
         );
-        assert!(!pane_identity_shows_status("shell"));
+        assert!(!pane_identity_shows_status("shell", false));
+        assert!(pane_identity_shows_status("shell", true));
         assert!(!side_panel_open(true, true));
 
         assert_eq!(pane_identity_icon(None).asset_path(), "square-dashed.svg");

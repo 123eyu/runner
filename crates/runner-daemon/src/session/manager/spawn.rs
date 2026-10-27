@@ -560,9 +560,13 @@ impl SessionManager {
         let forwarder = thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
                 match output.recv_timeout(Duration::from_millis(500)) {
-                    Ok(RuntimeOutput::Stream(bytes)) => {
-                        manager.ingest_output_chunk(&forwarder_id, None, &bytes, events.as_ref())
-                    }
+                    Ok(RuntimeOutput::Stream(bytes)) => manager.ingest_output_for_launch(
+                        &forwarder_id,
+                        None,
+                        &bytes,
+                        events.as_ref(),
+                        Some(&stop),
+                    ),
                     Ok(_) | Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => break,
                 }

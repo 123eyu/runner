@@ -25,6 +25,8 @@ pub enum StatusSource {
     Forwarder,
     #[serde(rename = "codex-attention")]
     CodexAttention,
+    #[serde(rename = "program-status")]
+    ProgramStatus,
     #[serde(rename = "input-submit")]
     InputSubmit,
     #[serde(rename = "input-interrupt")]
@@ -53,6 +55,7 @@ impl StatusSource {
             Self::Resume => "resume",
             Self::Forwarder => "forwarder",
             Self::CodexAttention => "codex-attention",
+            Self::ProgramStatus => "program-status",
             Self::InputSubmit => "input-submit",
             Self::InputInterrupt => "input-interrupt",
             Self::InputEscape => "input-escape",
@@ -110,6 +113,11 @@ pub(crate) struct PersistKey {
 }
 
 pub(crate) enum SessionEvent {
+    ProgramStatus {
+        seq: u64,
+        report: Option<runner_terminal::program_status::Report>,
+        live: bool,
+    },
     CodexAttention {
         blocked: bool,
         live: bool,
@@ -212,6 +220,9 @@ pub(crate) struct SessionModel {
     agent: agent::AgentModel,
     codex_attention: Option<HumanInteraction>,
     next_codex_attention: u64,
+    program_status_seq: u64,
+    program_status_wait: Option<(String, HumanInteraction)>,
+    next_program_status_wait: u64,
 }
 
 impl SessionModel {
@@ -335,6 +346,84 @@ impl SessionModel {
     pub fn apply(&mut self, event: SessionEvent, now: Now) -> Effects {
         let mut effects = Effects::default();
         match event {
+            SessionEvent::ProgramStatus { seq, report, live } => {
+                if !live
+                    || seq <= self.program_status_seq
+                    || matches!(self.status.lifecycle, Lifecycle::Stopped | Lifecycle::Error)
+                {
+                    return effects;
+                }
+                self.program_status_seq = seq;
+                if self.hook_status_armed {
+                    return effects;
+                }
+                let Some(report) = report else {
+                    self.program_status_wait = None;
+                    if self.status.observation.program_status.is_some() {
+                        let completion_armed = self.completion_armed;
+                        effects = self.apply(SessionEvent::BridgeFailed { live }, now);
+                        self.completion_armed = completion_armed;
+                        effects.publication = effects
+                            .publication
+                            .map(|(state, _)| (state, StatusSource::ProgramStatus));
+                    }
+                    return effects;
+                };
+                use runner_terminal::program_status::State;
+                let mut observation = AgentObservation {
+                    activity: if report.state == State::Working {
+                        Activity::Working
+                    } else {
+                        Activity::Idle
+                    },
+                    source: ObservationSource::Baseline,
+                    outcome: match report.state {
+                        State::Done => Some(TurnOutcome::Completed),
+                        State::Error => Some(TurnOutcome::Failed),
+                        _ => None,
+                    },
+                    program_status: Some(runner_core::protocol::status::ProgramStatusEvidence {
+                        message: report.message.map(|message| {
+                            message.chars().filter(|c| !matches!(*c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}')).collect()
+                        }),
+                    }),
+                    ..Default::default()
+                };
+                if report.state == State::Blocked {
+                    let reason = match report.kind.as_deref() {
+                        Some("permission") => WaitReason::Approval,
+                        Some("question") => WaitReason::Answer,
+                        _ => WaitReason::Unknown,
+                    };
+                    let same_wait = self
+                        .program_status_wait
+                        .as_ref()
+                        .is_some_and(|(id, wait)| *id == report.id && wait.reason == reason);
+                    if !same_wait {
+                        self.next_program_status_wait += 1;
+                        self.program_status_wait = Some((
+                            report.id,
+                            HumanInteraction {
+                                id: format!("program-status:{}", self.next_program_status_wait),
+                                reason,
+                                owners: Vec::new(),
+                                since: now.wall_millis,
+                            },
+                        ));
+                    }
+                    observation
+                        .interactions
+                        .push(self.program_status_wait.as_ref().unwrap().1.clone());
+                } else {
+                    self.program_status_wait = None;
+                }
+                let completion_armed = self.completion_armed;
+                effects = self.publish_snapshot(observation, live, now);
+                self.completion_armed = completion_armed;
+                effects.publication = effects
+                    .publication
+                    .map(|(state, _)| (state, StatusSource::ProgramStatus));
+            }
             SessionEvent::CodexAttention { blocked, live } => {
                 if !live || blocked == self.codex_attention.is_some() {
                     return effects;
@@ -386,6 +475,8 @@ impl SessionModel {
                 self.compaction_failed_since = None;
                 self.agent = Default::default();
                 self.codex_attention = None;
+                self.program_status_seq = 0;
+                self.program_status_wait = None;
                 self.baseline_activity = None;
                 self.hook_status_armed = false;
                 self.provisional_idle = false;
@@ -396,6 +487,8 @@ impl SessionModel {
                     self.status.lifecycle = Lifecycle::Stopped;
                 }
                 self.codex_attention = None;
+                self.program_status_wait = None;
+                self.status.observation.program_status = None;
                 self.status.observation.interactions.clear();
                 self.activity = None;
                 self.activity_revision = self.activity_revision.wrapping_add(1);
@@ -454,6 +547,7 @@ impl SessionModel {
                 effects.agent_feedback = feedback;
             }
             SessionEvent::BridgeFailed { live } => {
+                self.program_status_wait = None;
                 self.native_input = None;
                 self.completion_armed = false;
                 let fallback = AgentObservation {
@@ -476,7 +570,9 @@ impl SessionModel {
                     self.suppress_local_input_busy = false;
                     if self.activity == Some(SessionActivityState::Idle) {
                         self.activity = Some(SessionActivityState::Busy);
-                        if !self.hook_status_armed {
+                        if !self.hook_status_armed
+                            && self.status.observation.program_status.is_none()
+                        {
                             self.status.observation.activity = Activity::Working;
                             self.status.observation.source = ObservationSource::Baseline;
                             self.status.observation.outcome = None;
@@ -561,6 +657,9 @@ impl SessionModel {
                 self.status.failed_since = None;
                 self.compaction_failed_since = None;
                 self.codex_attention = None;
+                self.program_status_wait = None;
+                self.status.observation.program_status = None;
+                self.hook_status_armed = false;
                 self.status.observation.interactions.clear();
             }
             SessionEvent::ConversationChanged(report) => effects.persist_key = Some(report),
@@ -688,7 +787,9 @@ impl SessionModel {
         }
         // Native attention outlives byte activity and local cancellation; only
         // a subsequent Codex status report or process lifecycle can release it.
-        if self.codex_attention.is_some() && source == StatusSource::Forwarder {
+        if (self.codex_attention.is_some() || self.status.observation.program_status.is_some())
+            && source == StatusSource::Forwarder
+        {
             return false;
         }
         let old_status = self.status.clone();
