@@ -1,4 +1,6 @@
-use crate::runtimes::helpers::{resolve_config_write_path, write_config_atomically};
+use crate::runtimes::helpers::{
+    is_broad_trust_root, resolve_config_write_path, write_config_atomically,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -156,15 +158,6 @@ fn resolve_project_trust_root(cwd: &Path) -> Result<PathBuf> {
         }
     }
     Ok(cwd)
-}
-
-fn is_broad_trust_root(project_root: &Path, home: Option<&Path>) -> bool {
-    if project_root.parent().is_none() {
-        return true;
-    }
-    home.map(|home| fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf()))
-        .as_deref()
-        == Some(project_root)
 }
 
 fn resolve_worktree_main_root(cwd: &Path) -> Option<PathBuf> {
@@ -342,11 +335,6 @@ mod tests {
         seed_project_trust_at_with_home(&cwd, &config_path, Some(&home)).unwrap();
 
         assert!(!config_path.exists());
-    }
-
-    #[test]
-    fn filesystem_root_is_rejected_as_too_broad() {
-        assert!(is_broad_trust_root(Path::new("/"), None));
     }
 
     #[test]

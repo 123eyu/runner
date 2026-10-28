@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use serde_json::Value;
 
 use crate::error::{Error, Result};
+use crate::runtimes::helpers::is_broad_trust_root;
 
 static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 const TRUSTED_WORKSPACES: &str = "trustedWorkspaces";
@@ -151,15 +152,6 @@ fn render(value: &Value, indent: Option<&str>) -> Result<String> {
     })
 }
 
-fn is_broad_trust_root(cwd: &Path, home: Option<&Path>) -> bool {
-    if cwd.parent().is_none() {
-        return true;
-    }
-    home.map(|home| std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf()))
-        .as_deref()
-        == Some(cwd)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,14 +248,13 @@ mod tests {
     }
 
     #[test]
-    fn home_and_filesystem_root_are_rejected_as_too_broad() {
+    fn home_is_rejected_as_too_broad() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
         let settings = settings_path(&home);
         seed_project_trust_at(&home, &settings, Some(&home)).unwrap();
         assert!(!settings.exists());
-        assert!(is_broad_trust_root(Path::new("/"), None));
     }
 
     #[test]

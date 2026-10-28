@@ -1,3 +1,4 @@
+use crate::runtimes::helpers::is_broad_trust_root;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -99,15 +100,6 @@ fn seed_project_trust_at_with_home(
     crate::runtimes::helpers::write_config_atomically(&write_path, contents.as_bytes())
 }
 
-fn is_broad_trust_root(cwd: &Path, home: Option<&Path>) -> bool {
-    if cwd.parent().is_none() {
-        return true;
-    }
-    home.map(|home| std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf()))
-        .as_deref()
-        == Some(cwd)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn home_and_filesystem_root_are_rejected_as_too_broad() {
+    fn home_is_rejected_as_too_broad() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         let config = home.join(".copilot/config.json");
@@ -207,7 +199,6 @@ mod tests {
         seed_project_trust_at_with_home(&home, &config, Some(&home)).unwrap();
 
         assert!(!config.exists());
-        assert!(is_broad_trust_root(Path::new("/"), None));
     }
 
     #[test]

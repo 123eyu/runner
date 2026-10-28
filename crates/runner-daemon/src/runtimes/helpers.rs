@@ -165,6 +165,15 @@ pub(crate) fn ordinary_windows_path(path: &Path) -> PathBuf {
     root.join(components.as_path())
 }
 
+pub(crate) fn is_broad_trust_root(cwd: &Path, home: Option<&Path>) -> bool {
+    if cwd.parent().is_none() {
+        return true;
+    }
+    home.map(|home| std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf()))
+        .as_deref()
+        == Some(cwd)
+}
+
 pub(crate) fn resolve_config_write_path(config_path: &Path) -> crate::error::Result<PathBuf> {
     match std::fs::symlink_metadata(config_path) {
         Ok(metadata) if metadata.file_type().is_symlink() => std::fs::canonicalize(config_path)
@@ -290,4 +299,20 @@ pub(super) fn config_home(env_name: Option<&str>, relative: &str) -> Option<Path
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .or_else(|| home_dir().map(|home| home.join(relative)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trust_root_rejects_home_and_filesystem_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = std::fs::canonicalize(temp.path()).unwrap();
+        let root = home.ancestors().last().unwrap();
+        assert!(is_broad_trust_root(root, None));
+        assert!(is_broad_trust_root(&home, Some(temp.path())));
+        assert!(!is_broad_trust_root(&home.join("project"), Some(&home)));
+        assert!(!is_broad_trust_root(&home, None));
+    }
 }
