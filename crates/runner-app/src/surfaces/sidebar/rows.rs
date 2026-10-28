@@ -19,6 +19,15 @@ impl Sidebar {
         cx.notify();
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_set_active_project(
+        &mut self,
+        project_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_active_project(project_id, cx);
+    }
+
     pub(super) fn set_active_project(
         &mut self,
         project_id: Option<String>,

@@ -52,6 +52,8 @@ use runner_app::ui::{
 
 use super::profile_page::{column_text, section_label, text_action};
 
+use super::project_field::{ProjectChoice, ProjectField};
+
 use super::*;
 
 use crate::chat_icon::runtime_mark;
@@ -116,6 +118,7 @@ fn new_terminal_empty_pane(layout: &PaneLayout) -> Option<String> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StartChatSelection {
+    Project,
     Role,
     RoleRuntime,
     Runtime,
@@ -131,9 +134,11 @@ pub(crate) struct StartChatModal {
     remote_renamed: bool,
     host_account: Option<String>,
     _folder_subscription: Option<Subscription>,
+    _folder_choice: Option<Subscription>,
     _cwd_blur: Option<Subscription>,
+    _cwd_follow: Option<Subscription>,
     target: ChatTarget,
-    scope: ProjectScope,
+    project: ProjectField,
     mode: ChatMode,
     roles: Vec<RoleChoice>,
     runtimes: Vec<RuntimeChoice>,
@@ -180,6 +185,11 @@ impl StartChatModal {
         &self,
     ) -> Option<Entity<crate::surfaces::front_page::folder_picker::FolderPicker>> {
         self.folder_picker.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_project(&self) -> &ProjectField {
+        &self.project
     }
 
     #[cfg(test)]
@@ -416,6 +426,10 @@ impl NativeRoot {
         ] {
             select.update(cx, |select, cx| select.close(cx));
         }
+        modal
+            .project
+            .select()
+            .update(cx, |select, cx| select.close(cx));
         modal.model_field.update(cx, |field, cx| field.close(cx));
         self.submit_start_chat(window, cx);
     }
@@ -567,20 +581,6 @@ fn cwd_placeholder(mode: ChatMode, role: Option<&RoleChoice>, default_path: &str
         ),
         ChatMode::Runtime => working_dir_placeholder(None, default_path),
     }
-}
-
-fn project_start_scope(
-    project: Option<&runner_core::protocol::project::ProjectRow>,
-) -> (ProjectScope, String) {
-    project.map_or_else(
-        || (ProjectScope::Root, String::new()),
-        |project| {
-            (
-                ProjectScope::Project(project.id.clone()),
-                project.cwd.clone(),
-            )
-        },
-    )
 }
 
 #[cfg(test)]
@@ -883,13 +883,13 @@ pub(super) mod tests {
             self.act(move |root, _, cx| {
                 let modal = root.start_chat_modal.as_ref().unwrap();
                 let select = match selection {
-                    StartChatSelection::Role => &modal.role_select,
-                    StartChatSelection::RoleRuntime => &modal.role_runtime_select,
-                    StartChatSelection::Runtime => &modal.runtime_select,
-                    StartChatSelection::Effort => &modal.effort_select,
-                    StartChatSelection::Speed => &modal.speed_select,
-                }
-                .clone();
+                    StartChatSelection::Project => modal.project.select(),
+                    StartChatSelection::Role => modal.role_select.clone(),
+                    StartChatSelection::RoleRuntime => modal.role_runtime_select.clone(),
+                    StartChatSelection::Runtime => modal.runtime_select.clone(),
+                    StartChatSelection::Effort => modal.effort_select.clone(),
+                    StartChatSelection::Speed => modal.speed_select.clone(),
+                };
                 select.update(cx, |select, cx| select.set_value(value.clone(), cx));
                 root.select_start_chat_choice(selection, &value, cx);
             });
@@ -1713,10 +1713,11 @@ pub(super) mod tests {
             StartChatSelection::Effort,
             "an-effort-level-far-too-long-for-its-narrow-column",
         );
-        // Effort is the last select drawn, so its selectors are the ones held.
-        let text = modal.bounds("STYLED_SELECT_TEXT").unwrap();
+        let text = modal
+            .bounds("STYLED_SELECT_VALUE_start-chat-effort")
+            .unwrap();
         let mark = modal.bounds("STYLED_SELECT_MARK").unwrap();
-        let trigger = modal.bounds("STYLED_SELECT_TRIGGER").unwrap();
+        let trigger = modal.bounds("STYLED_SELECT_start-chat-effort").unwrap();
         assert!(text.right() <= mark.left(), "{text:?} {mark:?}");
         assert!(mark.right() <= trigger.right(), "{mark:?} {trigger:?}");
 
@@ -2428,6 +2429,236 @@ pub(super) mod tests {
         }
     }
 
+    pub(in crate::surfaces) fn project_fixture(
+        harness: &mut ModalHarness,
+    ) -> Vec<runner_core::protocol::project::ProjectRow> {
+        let base = harness._temp.path().join("projects");
+        let mut projects = Vec::new();
+        harness.act(|root, _, cx| {
+            for name in ["alpha", "beta"] {
+                let path = base.join(name);
+                fs::create_dir_all(path.join(".worktrees/feature")).unwrap();
+                projects.push(
+                    root.core(cx)
+                        .project_create(name.into(), path.to_string_lossy().into_owned())
+                        .unwrap(),
+                );
+            }
+            root.app_store.update(cx, |store, cx| {
+                store.projects = projects.clone();
+                cx.notify();
+            });
+        });
+        projects
+    }
+
+    #[test]
+    fn project_choice_defaults_to_the_entry_point_and_locks_a_pane() {
+        let mut harness = modal_harness(1200., 1000., Vec::new(), agents(), ChatMode::Runtime);
+        let projects = project_fixture(&mut harness);
+        harness.act(|root, window, cx| {
+            root.close_start_chat_modal(window, cx);
+            root.front_page_sidebar().update(cx, |sidebar, cx| {
+                sidebar.test_set_active_project(Some(projects[0].id.clone()), cx)
+            });
+            root.open_new_tab_modal(&NewTab, window, cx);
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            );
+            assert_eq!(modal.cwd.read(cx).text(), projects[0].cwd);
+            root.close_start_chat_modal(window, cx);
+            root.open_sidebar_chat_modal(ProjectScope::Project(projects[1].id.clone()), window, cx);
+            assert_eq!(
+                root.start_chat_modal.as_ref().unwrap().project.scope(),
+                ProjectScope::Project(projects[1].id.clone())
+            );
+            root.close_start_chat_modal(window, cx);
+            root.front_page_sidebar()
+                .update(cx, |sidebar, cx| sidebar.test_set_active_project(None, cx));
+            root.open_new_tab_modal(&NewTab, window, cx);
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            assert_eq!(modal.project.scope(), ProjectScope::Root);
+            assert_eq!(modal.cwd.read(cx).text(), "");
+            root.close_start_chat_modal(window, cx);
+            let node = runner_daemon::repo::node::ensure_project_node(
+                &root.app_store.read(cx).test_core.db.get().unwrap(),
+                &projects[0].id,
+            )
+            .unwrap();
+            let mut layout = PaneLayout::single(None, &[]);
+            layout.id = "01M3VD00000000000000000006".into();
+            layout.parent_id = Some(node.id);
+            let pane = layout.focused_pane_id.clone();
+            root.core(cx)
+                .node_tab_upsert(layout.upsert_input().unwrap())
+                .unwrap();
+            root.reload_tabs(cx).unwrap();
+            root.open_pane_chat_modal(&pane, window, cx);
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            assert!(modal.project.locked());
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            );
+            assert!(modal.project.select().read(cx).is_disabled());
+            assert!(!start_chat_focus_order(modal, cx).contains(&modal.project.focus_handle(cx)));
+            modal
+                .cwd
+                .update(cx, |input, cx| input.set_text(projects[1].cwd.clone(), cx));
+            root.follow_start_chat_cwd(cx);
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            );
+            assert_eq!(
+                modal.project.directory_hint(modal.cwd.read(cx).text()),
+                Some(super::super::project_field::DirectoryHint::Outside(
+                    "alpha".into()
+                ))
+            );
+        });
+    }
+
+    #[test]
+    fn project_follows_typed_directory_when_tab_moves_to_browse_on_the_app_shell() {
+        let mut harness = modal_harness(1200., 1000., Vec::new(), agents(), ChatMode::Runtime);
+        let projects = project_fixture(&mut harness);
+        harness.act(|root, window, cx| {
+            root.close_start_chat_modal(window, cx);
+            root.set_route(AppRoute::Settings, cx);
+            root.open_sidebar_chat_modal(ProjectScope::Project(projects[1].id.clone()), window, cx);
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            modal.cwd.read(cx).focus_handle().focus(window, cx);
+            window.activate_window();
+        });
+        harness
+            .visual
+            .simulate_keystrokes(&keymap::platform_default("cmd-a"));
+        harness.visual.simulate_input(&projects[0].cwd);
+        harness.visual.run_until_parked();
+        harness.visual.simulate_keystrokes("tab");
+        harness.visual.run_until_parked();
+        assert!(
+            harness
+                .visual
+                .debug_bounds("FIELD_SUBTITLE Inside alpha, so it is filed there.")
+                .is_some(),
+            "the followed project's hint must repaint without another input event"
+        );
+        harness.act(|root, window, cx| {
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            assert!(modal.browse_focus.is_focused(window));
+            assert_eq!(modal.cwd.read(cx).text(), projects[0].cwd);
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            );
+        });
+        harness.choose(StartChatSelection::Project, "");
+        harness.act(|root, window, cx| {
+            root.start_chat_modal
+                .as_ref()
+                .unwrap()
+                .cwd
+                .read(cx)
+                .focus_handle()
+                .focus(window, cx)
+        });
+        harness.visual.simulate_keystrokes("tab");
+        harness.visual.run_until_parked();
+        harness.read(|modal, _| assert_eq!(modal.project.scope(), ProjectScope::Root));
+    }
+
+    #[test]
+    fn project_choice_rewrites_or_keeps_the_directory_and_follows_blur_and_browse() {
+        let mut harness = modal_harness(1200., 1000., Vec::new(), agents(), ChatMode::Runtime);
+        let projects = project_fixture(&mut harness);
+        harness.act(|root, window, cx| {
+            root.close_start_chat_modal(window, cx);
+            root.open_sidebar_chat_modal(ProjectScope::Project(projects[0].id.clone()), window, cx);
+        });
+        harness.choose(StartChatSelection::Project, &projects[1].id);
+        harness.read(|modal, cx| assert_eq!(modal.cwd.read(cx).text(), projects[1].cwd));
+        let worktree = format!("{}/.worktrees/feature", projects[1].cwd);
+        harness.edit(|modal, cx| {
+            modal
+                .cwd
+                .update(cx, |input, cx| input.set_text(worktree.clone(), cx))
+        });
+        harness.choose(StartChatSelection::Project, &projects[1].id);
+        harness.read(|modal, cx| assert_eq!(modal.cwd.read(cx).text(), worktree));
+        harness.choose(StartChatSelection::Project, "");
+        harness.act(|root, _, cx| root.follow_start_chat_cwd(cx));
+        harness.read(|modal, cx| {
+            assert_eq!(modal.project.scope(), ProjectScope::Root);
+            assert_eq!(modal.cwd.read(cx).text(), worktree);
+        });
+        harness.act(|root, window, cx| {
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            modal
+                .cwd
+                .update(cx, |input, cx| input.set_text(projects[0].cwd.clone(), cx));
+            modal.cwd.read(cx).focus_handle().focus(window, cx);
+            window.activate_window();
+        });
+        harness.visual.simulate_keystrokes("tab");
+        harness.visual.run_until_parked();
+        harness.read(|modal, _| {
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            )
+        });
+        harness.act(|root, _, cx| root.browse_start_chat_cwd(cx));
+        let browsed = PathBuf::from(&projects[1].cwd);
+        harness
+            .visual
+            .simulate_path_prompt_response(move |_| Some(vec![browsed]));
+        harness.visual.run_until_parked();
+        harness.read(|modal, cx| {
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[1].id.clone())
+            );
+            assert_eq!(modal.cwd.read(cx).text(), projects[1].cwd);
+        });
+        harness.choose(StartChatSelection::Project, "");
+        harness.act(|root, _, cx| root.browse_start_chat_cwd(cx));
+        let same = PathBuf::from(&projects[1].cwd);
+        harness
+            .visual
+            .simulate_path_prompt_response(move |_| Some(vec![same]));
+        harness.visual.run_until_parked();
+        harness.read(|modal, _| {
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[1].id.clone())
+            )
+        });
+        harness.act(|root, _, cx| {
+            let modal = root.start_chat_modal.as_ref().unwrap();
+            modal
+                .cwd
+                .update(cx, |input, cx| input.set_text("/outside-projects", cx));
+            root.follow_start_chat_cwd(cx);
+        });
+        harness.read(|modal, cx| {
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[1].id.clone())
+            );
+            assert_eq!(
+                modal.project.directory_hint(modal.cwd.read(cx).text()),
+                Some(super::super::project_field::DirectoryHint::Outside(
+                    "beta".into()
+                ))
+            );
+        });
+    }
+
     #[test]
     fn create_keys_are_inert_in_start_chat() {
         let mut modal = modal_harness(1200., 1000., vec![codex_role()], agents(), ChatMode::Role);
@@ -2466,6 +2697,7 @@ pub(super) mod tests {
                     ("reset speed", resets(ResetKind::Speed)),
                     ("agent picker", modal.runtime_select.read(cx).focus_handle()),
                     ("name", modal.title.read(cx).focus_handle()),
+                    ("project", modal.project.focus_handle(cx)),
                     ("directory", modal.cwd.read(cx).focus_handle()),
                     ("browse", modal.browse_focus.clone()),
                     ("cancel", modal.cancel_focus.clone()),
@@ -2483,7 +2715,7 @@ pub(super) mod tests {
             })
         };
         let head = ["close", "role", "role picker"];
-        let tail = ["name", "directory", "browse", "cancel", "start"];
+        let tail = ["name", "project", "directory", "browse", "cancel", "start"];
         assert_eq!(
             order(&modal),
             [
@@ -2681,7 +2913,7 @@ pub(super) mod tests {
             }
         };
         fits(&mut modal, &["Runtime", "Model", "Effort", "Speed"]);
-        let picker = modal.bounds("STYLED_SELECT_TRIGGER").unwrap();
+        let picker = modal.bounds("STYLED_SELECT_start-chat-role").unwrap();
         let card = modal.bounds("START_CHAT_CARD").unwrap();
         assert!(
             picker.left() >= card.left() && picker.right() <= card.right(),
@@ -2983,32 +3215,6 @@ pub(super) mod tests {
         assert_eq!(
             terminal_working_dir(None, None, " ", Some("/home")).as_deref(),
             Some("/home")
-        );
-    }
-
-    #[test]
-    fn project_scope_seeds_cwd_before_role_and_settings_defaults() {
-        let project = runner_core::protocol::project::ProjectRow {
-            id: "project-1".into(),
-            name: "Runner".into(),
-            cwd: "/project".into(),
-            position: 0,
-            created_at: "now".into(),
-        };
-        let (scope, seeded_cwd) = project_start_scope(Some(&project));
-        assert_eq!(scope, ProjectScope::Project("project-1".into()));
-        assert_eq!(seeded_cwd, "/project");
-        assert_eq!(
-            effective_working_dir(&seeded_cwd, true, "/settings"),
-            Some("/project".into())
-        );
-
-        let (scope, seeded_cwd) = project_start_scope(None);
-        assert_eq!(scope, ProjectScope::Root);
-        assert!(seeded_cwd.is_empty());
-        assert_eq!(
-            effective_working_dir(&seeded_cwd, false, "/settings"),
-            Some("/settings".into())
         );
     }
 }

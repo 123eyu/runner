@@ -382,7 +382,7 @@ impl NativeRoot {
                                             start_root.update(cx, |this, cx| {
                                                 this.open_start_mission_modal(
                                                     Some(crew_id),
-                                                    runner_core::protocol::project::ProjectScope::Root,
+                                                    runner_core::protocol::project::ProjectScope::or_root(this.active_project_id(cx)),
                                                     window,
                                                     cx,
                                                 )

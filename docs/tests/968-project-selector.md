@@ -1,0 +1,87 @@
+# #968 — Project selector live validation
+
+## Candidate and scope
+
+QA ran the five mission-selected macOS workflows on 2026-10-28, 20:53–21:15 CST, after the coder reported clean code and delta reviews. This was feature validation, not a full smoke or regression run. The selected checks cover creation entry points and filing (the relevant parts of WS-CREATE-01/04/06), directory synchronization, keyboard traversal, and the empty-pane project lock (the relevant part of WS-PANE-01). Runtime lifecycle, authentication, daemon recovery, and unrelated terminal behavior were outside scope.
+
+Candidate: `feat/968-project-selector`, HEAD `131ba252fac716f4da5e88fdbd1abe3274202de1`, with the handed-off uncommitted implementation. SHA-256 of `git diff --binary 96272824`, NUL, then untracked `project_field.rs` bytes was `d09a6dc640ba8ef3d0765c4b2c1b34679b62a444344b64a8cd1c7aa8f547b09d`, verified before and after live testing. QA changed no implementation. This record was added afterward.
+
+Environment: macOS 26.6.2 (25G83), arm64; Runner app/CLI 0.18.2 development build; Codex 0.164.0. `make run` built the candidate app and CLI. Native control used CUA against `/private/tmp/runner-968-qa/Runner 968 QA.app`, bundle ID `com.wycstudios.runner.qa968`. The wrapper app and CLI were byte-identical to this worktree's binaries. App SHA-256: `383287f0c7e599a212081e11bcaa5129389fa9bf47eac20578994df19d2f0501`; CLI and installed development sidecar SHA-256: `59271b0308b997992b4c00f686baf7702dc1d474ce83817c30af7272c5f814d2`. The absolute development CLI reported `com.wycstudios.runner-dev/runnerd.sock` and outside-mission identity. The wrapper launch omitted `NO_COLOR` and implementation-mission identity variables. Installed Runner was untouched.
+
+Evidence root: `/private/tmp/runner-968-qa/evidence/`. `status.json`, `hashes.txt`, native screenshots, owned-object JSON, and cleanup evidence are retained there. Scratch projects used canonical paths `/private/tmp/runner-968-qa/project-a` and `project-b`; outside-directory checks used sibling `outside`. Test agents used only the owned `qa968` role, default on-request/workspace-write permissions and low effort. The first chat used GPT-5.4 Mini and encountered the runtime's retired-model notice; subsequent launches used its replacement GPT-6 Luna. That first chat's project/cwd filing had already succeeded; runtime readiness was not counted as a pass. No global model, permission, authentication, or extension settings were changed.
+
+The coder's automated evidence is separate: workspace nextest 2996 passed / 6 skipped (`/tmp/runner-968-workspace-final.log`), final hydration-delta app tests 989 passed / 3 skipped (`/tmp/runner-968-catalog-app-tests.log`), workspace/updater Clippy, formatting and guide translation checks reported clean. QA did not rerun those suites.
+
+## Results
+
+| Check | Platform / variant | Result | Observation and evidence |
+| --- | --- | --- | --- |
+| 968-01 | macOS / sidebar New chat | Passed | No project initially; keyboard Tab from Chat name reached Project and Space opened its menu. Chose QA968-A, which filled its directory; submitted chat appeared beneath A and CLI reported A's project ID and exact cwd. `chat-project-keyboard-menu.png`, `sidebar-selected-a.png`, `chat-started.png`, `sessions.json`. |
+| 968-02 | macOS / explicit mission project | Passed | Selected owned single-slot QA968 crew, bounded goal, and QA968-B. Native mission appeared beneath B; CLI reported B's project ID and exact cwd. Goal → Tab → Project → Space/arrow selection worked. `mission-started-b.png`, `mission-before-cleanup.json`, `missions.json`. |
+| 968-03 | macOS / project A +, chat and mission | Passed | Both dialogs initially showed A. Changing each to B before starting filed the resulting work beneath B. `project-plus-chat-initial-a.png`, `plus-chat-filed-b.png`, `project-plus-mission-initial-a.png`, `mission-started-b.png`, owned-object JSON. |
+| 968-04a | macOS / both dialogs, directory rules | Passed | Typing A's directory with B selected and clicking another field switched to A. An outside directory kept the current selection and showed the amber hint. Native Browse to B switched to B. Choosing No project kept B's directory; browsing the same folder again restored B. `chat-typed-a.png`, `chat-outside-warning.png`, `chat-browse-b.png`, `chat-browse-same-b.png`, `mission-typed-a-click-blur.png`, `mission-outside-warning.png`, `mission-browse-b.png`, `mission-no-project-keeps-b.png`, `mission-browse-same-b.png`. |
+| 968-04b | macOS / No project chat submission | Passed | After choosing No project, submitted with the unchanged directory inside B. CLI reported null project ID and B's cwd; native sidebar listed it in Recents. `chat-root-before-submit.png`, `chat-root-started.png`, `recents-root-chat.png`, `sessions.json`. |
+| 968-04c | macOS / both dialogs, keyboard directory blur | Failed | With B selected, type A’s directory and press Tab. Focus moves to Browse, but Project stays B with an outside-folder warning after a separate settled capture. Space opens the native picker, confirming cwd lost focus. Click-away recovers. `mission-tab-blur-recheck.png`, `chat-tab-blur-recheck.png`. |
+| 968-05 | macOS / empty pane | Passed | Project was disabled at tab project A with the specified subtitle. Tab from Chat name skipped the disabled selector and reached cwd. Entering B's directory kept A and showed the amber hint. `pane-locked-other-directory.png`. |
+| 968-06 | macOS / active-project defaults | Passed | Sidebar New chat from B's mission showed B. Crew-library Start mission for owned QA968 crew showed active B. `chat-sidebar-active-b.png`, `crew-page-active-b-default.png`. |
+| 968-WIN | Windows / selector and filing | Blocked | No native Windows machine/control available in this run. Left to Jason; CI is not native UI evidence. |
+| 968-REMOTE | Remote computer / host catalog and filing | Blocked | No second computer and paired remote-window fixture available in this run. Left to Jason; automated fake-host coverage is separate. |
+
+Must-fix QA finding: both dialogs fail to follow the matching project when cwd loses focus through Tab to Browse. Reproduce by selecting QA968-B, replacing cwd with `/private/tmp/runner-968-qa/project-a`, and pressing Tab. Expected: A becomes selected. Actual: B remains selected and the amber outside-folder hint appears. Separate screenshot calls confirmed the settled state; Space opened Browse, proving focus moved. Clicking Goal/Chat name recovers to A, but the failed keyboard variant remains Failed. Relevant wiring: `start_mission.rs:236` and the analogous New chat focus-out subscription; cause unconfirmed. Reported immediately to coder and reviewer via Runner. A focused wrapper relaunch reproduced both variants without starting agents or changing implementation. The previously disclosed disabled-select/subtitle and `clock.svg` design deviations still require Jason’s PR confirmation.
+
+## Objects and cleanup
+
+| Owned object | ID | Final state |
+| --- | --- | --- |
+| QA968-sidebar chat | `01M619DG107AVN7ZQPPMKFYZJC` | Stopped and archived |
+| QA968-plus-chat-B chat | `01M619JCD4RGVXXSEGSGFGS4YW` | Stopped and archived |
+| QA968-root-chat chat | `01M619T3RCFMNH3VX4TG71FZV1` | Stopped and archived |
+| QA968-plus-mission-B mission | `01M619PZPY32SKP7759HNSP12X` | Completed and archived; its only session stopped, recorded PID 98434 absent |
+| Mission's lead session | `01M619PZQ3BNHMZ92Q1FRF7M4D` | Stopped |
+| QA968 crew | `01M6197PMCCV59N79RG37RM8PR` | Retained to preserve archived mission metadata |
+| qa968 role | `01M6197PKZWVKQ56G2WESQPFT0` | Retained as test fixture |
+| QA968-A / QA968-B projects | `01M6197PK6D97VQRJAF6P99VJ7` / `01M6197PKJ9SXCM3N99W4P0B48` | Retained empty; no project or data deletion |
+
+CLI JSON confirms all three chats have stopped status and non-empty archive timestamps, and the mission has a non-empty archive timestamp. Native `cleanup-sidebar.png` shows test rows gone from project lists and Recents. The QA wrapper processes 86788 and focused-recheck 19178 were stopped and LaunchServices unregistration was invoked; a second unregister reported the app was no longer registered. The development daemon and pre-existing sessions were left intact. No follower was started. Only the two scratch-project Codex trust stanzas were removed; `config-diff-after-cleanup.txt` is empty, proving the config matches its pre-test contents. Evidence, wrapper files and conversation history remain retained.
+
+**QA NOT CLEAN:** keyboard directory blur remains a must-fix issue in both dialogs. Rerun 968-04c and the affected blur/selection and No project submission boundaries after the fix and clean delta review. Preserve the already-passed unaffected results. Windows and remote checks remain Blocked and are left to Jason.
+
+## Retest 1 — focus subscription change
+
+2026-10-28, 21:17–21:23 CST: clean delta review handed off HEAD `131ba252`, candidate digest `45424d809c663e75169aadaef45d314c8c281fef150933d82bfd2835029af2bb`. Both cwd subscriptions changed from `on_focus_out` to `on_blur`. QA verified the source digest before building with `env -u NO_COLOR -u RUNNER_CREW_ID -u RUNNER_MISSION_ID -u RUNNER_HANDLE -u RUNNER_EVENT_LOG make run`, then copied the byte-identical artifact into `/private/tmp/runner-968-qa/Runner 968 QA Retest.app` (`com.wycstudios.runner.qa968-retest`). App SHA-256: `a0fab1644d9df6787356184b05db2bd9dd859fcb4f63ad4a6cb4e72ef8a8429f`; CLI SHA-256 unchanged at `59271b0308b997992b4c00f686baf7702dc1d474ce83817c30af7272c5f814d2`. Development endpoint and namespace were verified again. Evidence is under `/private/tmp/runner-968-qa/evidence/retest/`.
+
+| Check | Variant | Result | Observation and evidence |
+| --- | --- | --- | --- |
+| 968-04c | New chat / Tab to Browse | Failed | Exact original reproduction still leaves B selected with A cwd and the outside warning after a separate settled screenshot. Space opens the native picker, confirming Browse focus. `chat-tab-blur.png`. Reported immediately to coder/reviewer. |
+| 968-04c | New mission / Tab to Browse | Failed | Same reproduction still leaves B selected with A cwd and the outside warning. `mission-tab-blur.png`. |
+| 968-04a | New chat / click-away, Browse, No project | Passed | Click-away switches to A, Browse selects B, and No project preserves the unchanged A directory. `chat-click-away.png`, `chat-browse.png`, `chat-no-project.png`. |
+| 968-04a | New mission / click-away, Browse, No project | Passed | Click-away switches to A, No project preserves A cwd, and Browse selects B. `mission-click-away.png`, `mission-no-project.png`, `mission-browse.png`. |
+
+No agents, chats or missions were launched during this retest. The owned retest wrapper process 34912 was stopped and its LaunchServices registration removed. Agent config still matches the pre-test file (`retest/config-diff-after-cleanup.txt` empty). Previously archived objects remain archived; previous Passed rows were not rerun. Windows and remote remain Blocked. **QA NOT CLEAN:** changing to `on_blur` alone did not resolve 968-04c. A trace-enabled diagnostic run was requested next; no additional functional fix is assumed.
+
+## Diagnostic run — native focus trace
+
+2026-10-28, 21:24–21:29 CST: reviewer approved a bounded diagnostic-only candidate at HEAD `131ba252`, digest `071516154bc685b27a8c386170ecc8b80c72ea7b433d69e99d8215ffcab9a051`, verified before rebuilding. QA launched `/private/tmp/runner-968-qa/Runner 968 QA Trace.app` (`com.wycstudios.runner.qa968-trace`) with child-only `RUNNER_968_FOCUS_TRACE=1`, omitting `NO_COLOR` and implementation-mission identity. App SHA-256 `d84204a08b086ab58d58e7c0f1ab60524c3a30450cf4517ee05c6cbc4f32150b`; CLI hash unchanged. Byte comparison and namespace evidence are in `evidence/trace/hashes.txt` and `status.json`. Full stderr: `/private/tmp/runner-968-qa/evidence/trace/app.log`; filtered events: `focus-only.log`.
+
+For both dialogs QA chose B, focused cwd, selected all and typed A's directory, then pressed Tab and captured a separate settled screenshot. The native trace proves the Tab handler, modal handoff, blur callback and follow function all ran with the actual typed A path. New chat recorded modal indices 8 → 9; New mission recorded 5 → 6. At the first follow log the actual cwd was A, committed cwd was B, chosen project was B, and locked was false. The screen still displayed B and its outside warning (`trace/chat-tab.png`, `trace/mission-tab.png`). These remain Failed observations, not fixed acceptance results.
+
+Clicking Chat name / Goal after Tab added no further blur/follow event, since focus had already moved to Browse; screenshots are `chat-click-away.png` and `mission-click-away.png`. To compare an actual direct blur, QA then refocused the unchanged A cwd and clicked Chat name / Goal. That added a blur/follow log with actual A, committed A and chosen A; the screen then showed A (`chat-refocus-click-away.png`, `mission-refocus-click-away.png`). The trace logs the chosen value at follow entry, so a missing repaint/notification after the first state change is a plausible inference for the coder to verify. It is not a confirmed implementation cause.
+
+All findings and paths were sent to coder/reviewer through Runner. No agents, sessions or missions were created in this diagnostic run. Wrapper process 58681 was stopped and its LaunchServices registration removed; config still matches the pre-test file (`trace/config-diff-after-cleanup.txt` empty). The source diagnostics are for coder to remove before the next functional candidate. **QA NOT CLEAN:** wait for a reviewed functional fix and rerun only the affected checks; original failures and platform/remote Blocked limits remain preserved.
+
+## Retest 2 — deferred project-follow repaint
+
+2026-10-28, 21:33–21:39 CST: clean repaint-delta review handed off HEAD `131ba252`, candidate digest `b11feb90dc301c5a171b2af57de340fb51364095b09c6d821151def7902abe01`. QA verified this digest before rebuilding and again after the live checks. The blur callbacks now defer project-follow until after GPUI's focus drawing phase; temporary trace handlers/environment were removed. Build and launch used the same isolated development procedure. Wrapper: `/private/tmp/runner-968-qa/Runner 968 QA Repaint.app`, bundle ID `com.wycstudios.runner.qa968-repaint`. App SHA-256: `687168258721010cde4a7b75c3f89baec2d03c6986afa656d15e675a0ddc9e7d`; CLI SHA-256 unchanged at `59271b0308b997992b4c00f686baf7702dc1d474ce83817c30af7272c5f814d2`. Worktree and wrapper binaries were byte-identical. Development namespace/endpoint were verified via the absolute CLI; diagnostic env was omitted. Evidence: `/private/tmp/runner-968-qa/evidence/repaint/`.
+
+| Check | Variant | Result | Observation and evidence |
+| --- | --- | --- | --- |
+| 968-04c | New chat / Tab to Browse | Passed | Chose B, typed A cwd, pressed Tab, then captured before any other click/refocus. Visible Project was A with the normal inside-folder hint and no B/outside warning. Space opened the native picker, confirming Browse focus; cancelled it safely. `chat-tab.png`. |
+| 968-04c | New mission / Tab to Browse | Passed | Same reproduction immediately displayed A and the normal inside hint before further interaction. Space opened Browse, proving focus moved. `mission-tab.png`. |
+| 968-04a | New chat / click-away, No project, Browse | Passed | Typed B cwd from selected A and clicked Chat name: B became visible. Chose No project: B cwd stayed unchanged. Browsed the same B directory: selection restored B and the normal inside hint. `chat-click-away.png`, `chat-no-project.png`, `chat-browse-same.png`. |
+| 968-04a | New mission / Browse, click-away, No project, same-folder Browse | Passed | Browse changed A cwd/project to B. Typing A and clicking Goal selected A. No project kept A cwd. Browsing the same A directory restored A. `mission-browse.png`, `mission-click-away.png`, `mission-no-project.png`, `mission-browse-same.png`. |
+
+The original Failed rows, failed first retest and diagnostic state/display mismatch remain historical evidence above. This candidate resolves the visible keyboard-blur issue. Previously passed entry-point, filing, Root chat submission and pane checks remain valid and were not repeated. No full regression or automated suite was rerun by QA. The coder reports 991 app tests passed / 3 skipped, both Clippy passes, formatting and diff checks clean for this delta (`/tmp/runner-968-repaint-app-tests.log`, `runner-968-repaint-clippy.log`, `runner-968-repaint-clippy-updater.log`).
+
+No new agents, chats or missions were started during this retest. Wrapper process 75125 was stopped, verified absent, and unregistered from LaunchServices. The three original chats and one original mission were independently rechecked as stopped/archived (`repaint/cleanup.json`). Global Codex config still matches the pre-test file (`repaint/config-diff-after-cleanup.txt` empty). Scratch fixtures, all earlier wrappers and evidence remain retained; pre-existing sessions and installed Runner were not operated.
+
+**NO REMAINING MUST-FIX QA ISSUES** for the selected accessible macOS workflows, including both keyboard-blur paths and directly affected directory/selection boundaries. Native Windows and remote-computer checks remain **Blocked**, left to Jason; the two disclosed design deviations still await his PR confirmation. This is a feature pass with those limits, not a full regression pass.

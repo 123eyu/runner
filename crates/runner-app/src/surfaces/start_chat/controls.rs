@@ -300,6 +300,7 @@ pub(super) fn set_start_chat_controls_disabled(
     disabled: bool,
     cx: &mut Context<NativeRoot>,
 ) {
+    modal.project.set_disabled(disabled, cx);
     modal
         .title
         .update(cx, |field, field_cx| field.set_disabled(disabled, field_cx));
@@ -373,6 +374,9 @@ pub(super) fn start_chat_focus_order(modal: &StartChatModal, cx: &App) -> Vec<Fo
     }
     if modal.front_page.supports(&["rename"]) {
         order.push(modal.title.read(cx).focus_handle());
+    }
+    if !modal.project.locked() {
+        order.push(modal.project.focus_handle(cx));
     }
     order.push(modal.cwd.read(cx).focus_handle());
     if modal.front_page.supports(&["folders"]) {

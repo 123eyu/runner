@@ -1,10 +1,10 @@
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use serde_rusqlite::from_row;
-use std::path::Path;
 
 use super::{de_err, select_list};
 
+use runner_core::protocol::project::deepest_folder_of;
 pub use runner_core::protocol::project::ProjectRow;
 
 const COLUMNS: &[&str] = &["id", "name", "cwd", "position", "created_at"];
@@ -31,23 +31,13 @@ pub fn get(conn: &Connection, id: &str) -> rusqlite::Result<Option<ProjectRow>> 
 }
 
 pub fn find_for_path(conn: &Connection, cwd: &str) -> rusqlite::Result<Option<ProjectRow>> {
-    let cwd = Path::new(cwd);
-    let canonical_cwd = cwd.canonicalize().ok();
-    Ok(list(conn)?
-        .into_iter()
-        .filter_map(|project| {
-            let project_path = Path::new(&project.cwd);
-            let canonical_project = project_path.canonicalize().ok();
-            let matched_path = match (canonical_cwd.as_deref(), canonical_project.as_deref()) {
-                (Some(cwd), Some(project)) if cwd.starts_with(project) => Some(project),
-                (Some(_), Some(_)) => None,
-                _ if cwd.starts_with(project_path) => Some(project_path),
-                _ => None,
-            }?;
-            Some((matched_path.components().count(), project))
-        })
-        .max_by_key(|(depth, _)| *depth)
-        .map(|(_, project)| project))
+    let mut projects = list(conn)?;
+    Ok(deepest_folder_of(
+        projects.iter().map(|project| project.cwd.as_str()),
+        cwd,
+        true,
+    )
+    .map(|index| projects.swap_remove(index)))
 }
 
 pub fn create(conn: &Connection, name: &str, cwd: &str) -> rusqlite::Result<ProjectRow> {

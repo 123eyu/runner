@@ -7,7 +7,7 @@ Start a chat to work with one agent in its own terminal. You can choose the agen
 1. [Install and sign in to an agent](install.md), then open Runner.
 2. Press **⌘N** / **Ctrl+N** to open **Start a chat**. If an empty pane has focus, the chat will fill it; otherwise it starts in a new tab.
 3. Choose **Direct** and select your agent, or choose **Role** and select a saved role such as **Coder**. The seeded Coder role requires Codex. Model and effort choices depend on the agent; leaving them at their defaults uses the agent or role configuration.
-4. Set **Working directory** to a folder you want the agent to read. A project selection can supply this path. Check the path before starting.
+4. Choose **Project**, or **No project** to list the chat under Recents. A project fills **Working directory** with its folder; check or change the path before starting. A directory inside another project updates the selection when you leave the field.
 5. Click **Start chat**, or press **⌘Enter** / **Ctrl+Enter**.
 6. In the terminal, send a small prompt such as: “List the top-level files in this folder and explain what each is for. Do not change any files.” Complete any sign-in, trust or approval prompts in the agent's own terminal.
 7. Wait for the agent's reply. Its terminal remains available for follow-up questions. When finished, use **Stop** in the session controls, or **⇧⌘X** / **Ctrl+Shift+X** with that session focused.

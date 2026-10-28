@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use crate::surfaces::project_field::{ProjectChoice, ProjectField};
 use gpui::prelude::*;
 use gpui::{div, px, rems, svg, AnyElement, Entity, FontWeight, PathPromptOptions, Window};
 use runner_app::ui::{
@@ -8,7 +9,6 @@ use runner_app::ui::{
 };
 use runner_core::protocol::crew::CrewListItem;
 use runner_core::protocol::model::SlotWithRole;
-use runner_core::protocol::project::ProjectRow;
 use runner_core::protocol::project::ProjectScope;
 
 use crate::surfaces::crews::{crew_picture, slot_setup, slot_setup_line};
@@ -19,7 +19,7 @@ use crate::*;
 pub(crate) struct StartMissionModalState {
     remote: Option<RemoteMissionForm>,
     initial_crew_id: Option<String>,
-    project: Option<ProjectRow>,
+    project: ProjectField,
     crews: Vec<CrewListItem>,
     crew_id: String,
     roster: Vec<SlotWithRole>,
@@ -41,7 +41,7 @@ struct RemoteMissionForm {
     client: FrontPageClient,
     navigation: u64,
     form: u64,
-    project: Option<String>,
+    initial_project: Option<String>,
     catalog: Option<runner_core::companion::Catalog>,
     folder_picker: Option<Entity<FolderPicker>>,
 }
@@ -53,6 +53,11 @@ struct StartMissionSlotDisplay {
 }
 
 impl StartMissionModalState {
+    #[cfg(test)]
+    pub(crate) fn test_project(&self) -> &ProjectField {
+        &self.project
+    }
+
     fn can_submit(&self, cx: &App) -> bool {
         !self.submitting
             && !self.loading
@@ -136,7 +141,7 @@ impl NativeRoot {
                 client,
                 navigation,
                 form,
-                project: scope.project_id().map(str::to_owned),
+                initial_project: scope.project_id().map(str::to_owned),
                 catalog: None,
                 folder_picker: None,
             })
@@ -158,14 +163,27 @@ impl NativeRoot {
                     .cloned()
             })
             .flatten();
-        let cwd = if remote_form.is_some() {
-            String::new()
-        } else {
-            project
-                .as_ref()
-                .map(|project| project.cwd.clone())
-                .unwrap_or_else(|| self.settings(cx).default_working_dir.clone())
-        };
+        let cwd = project
+            .as_ref()
+            .map(|project| project.cwd.clone())
+            .unwrap_or_default();
+        let project_root = cx.entity();
+        let project = ProjectField::new(
+            "start-mission-project",
+            if remote_form.is_some() {
+                Vec::new()
+            } else {
+                ProjectChoice::local(&self.app_store.read(cx).projects)
+            },
+            remote_form.is_none(),
+            project.map(|project| project.id),
+            false,
+            Rc::new(move |id, _, cx| {
+                project_root.update(cx, |this, cx| this.select_start_mission_project(&id, cx))
+            }),
+            cx,
+        );
+        project.set_disabled(remote_form.is_some(), cx);
         let title = cx.new(|input_cx| {
             TextField::new(
                 input_cx.focus_handle(),
@@ -210,10 +228,15 @@ impl NativeRoot {
             .placeholder(crate::i18n::message("ui.no_crews_yet"))
         });
         let crew_focus = crew_select.read(cx).focus_handle();
-        let subscriptions = [&title, &goal, &cwd_input]
+        let cwd_focus = cwd_input.read(cx).focus_handle();
+        let mut subscriptions: Vec<_> = [&title, &goal, &cwd_input]
             .into_iter()
             .map(|input| cx.observe(input, |_, _, cx| cx.notify()))
             .collect();
+        subscriptions.push(cx.on_blur(&cwd_focus, window, |_, window, cx| {
+            // Focus callbacks run during drawing, when notifications cannot schedule a frame.
+            cx.defer_in(window, |this, _, cx| this.follow_start_mission_cwd(cx));
+        }));
         self.start_mission_modal = Some(StartMissionModalState {
             remote: remote_form,
             initial_crew_id,
@@ -280,6 +303,34 @@ impl NativeRoot {
             });
         })
         .detach();
+    }
+
+    fn select_start_mission_project(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(modal) = self
+            .start_mission_modal
+            .as_mut()
+            .filter(|modal| !modal.submitting)
+        else {
+            return;
+        };
+        let directory = modal.cwd.read(cx).text().to_owned();
+        if let Some(directory) = modal.project.choose(id, &directory) {
+            modal.cwd.update(cx, |input, cx| input.reset(directory, cx));
+        }
+        cx.notify();
+    }
+
+    fn follow_start_mission_cwd(&mut self, cx: &mut Context<Self>) {
+        let Some(modal) = self
+            .start_mission_modal
+            .as_mut()
+            .filter(|modal| !modal.submitting)
+        else {
+            return;
+        };
+        let directory = modal.cwd.read(cx).text().to_owned();
+        modal.project.follow(&directory, cx);
+        cx.notify();
     }
 
     fn select_start_mission_crew(&mut self, crew_id: String, cx: &mut Context<Self>) {
@@ -403,6 +454,8 @@ impl NativeRoot {
                             modal.cwd.update(cx, |input, input_cx| {
                                 input.reset(path.to_string_lossy().into_owned(), input_cx)
                             });
+                            let directory = modal.cwd.read(cx).text().to_owned();
+                            modal.project.picked(&directory, cx);
                         }
                     }
                     Ok(None) => {}
@@ -428,6 +481,10 @@ impl NativeRoot {
             return;
         };
         modal.crew_select.update(cx, |select, cx| select.close(cx));
+        modal
+            .project
+            .select()
+            .update(cx, |select, cx| select.close(cx));
         self.submit_start_mission(window, cx);
     }
 
@@ -438,6 +495,8 @@ impl NativeRoot {
         if !modal.can_submit(cx) || modal.is_composing(cx) {
             return;
         }
+        self.follow_start_mission_cwd(cx);
+        let modal = self.start_mission_modal.as_ref().unwrap();
         let client = self.front_page_client(cx);
         if client.is_remote() != modal.remote.is_some() {
             return;
@@ -455,11 +514,7 @@ impl NativeRoot {
         let title = modal.title.read(cx).text().trim().to_owned();
         let goal = nonempty(modal.goal.read(cx).text());
         let cwd = nonempty(modal.cwd.read(cx).text());
-        let project = modal
-            .remote
-            .as_ref()
-            .map(|remote| remote.project.clone())
-            .unwrap_or_else(|| modal.project.as_ref().map(|project| project.id.clone()));
+        let project = modal.project.scope().project_id().map(str::to_owned);
         let size = if let Some(workspace) = self.remote_client.mission_workspace() {
             let size = workspace
                 .read(cx)
@@ -631,6 +686,10 @@ impl NativeRoot {
                     .subtitle(crate::i18n::text("ui.shared_with_every_member")),
             )
             .child(
+                Field::new("start-mission-project-field", crate::i18n::text("ui.project"), modal.project.select())
+                    .focus_target(modal.project.focus_handle(cx)).emphasized(true),
+            )
+            .child(
                 Field::new(
                     "start-mission-cwd-field",
                     crate::i18n::text("ui.working_directory"),
@@ -650,7 +709,7 @@ impl NativeRoot {
                     .children(modal.remote.as_ref().and_then(|remote| remote.folder_picker.clone()).map(FolderPicker::anchor)),
                 )
                 .emphasized(true)
-                .subtitle(if modal.crew_id.is_empty() { crate::i18n::text("ui.every_role_you_add_starts_here_leave_blank_to_use_its_default_directory_or_your_home_direc") } else { crate::i18n::text("ui.each_role_starts_here_leave_blank_to_use_its_default_directory_or_your_home_directory") }).map(|field| if let Some(error) = modal.remote.as_ref().and_then(|remote| remote.folder_picker.as_ref()).and_then(|picker| picker.read(cx).path_error.clone()) { field.error(error) } else { field }),
+                .subtitle(if modal.crew_id.is_empty() { crate::i18n::text("ui.every_role_you_add_starts_here_leave_blank_to_use_its_default_directory_or_your_home_direc") } else { crate::i18n::text("ui.each_role_starts_here_leave_blank_to_use_its_default_directory_or_your_home_directory") }).map(|field| if let Some(error) = modal.remote.as_ref().and_then(|remote| remote.folder_picker.as_ref()).and_then(|picker| picker.read(cx).path_error.clone()) { field.error(error) } else if let Some(hint) = modal.project.directory_hint(modal.cwd.read(cx).text()) { hint.apply(field) } else { field }),
             )
             ;
         let footer = div().w_full().flex().items_center().justify_end().child(
@@ -705,6 +764,7 @@ impl NativeRoot {
                 modal.crew_select.read(cx).focus_handle(),
                 modal.title.read(cx).focus_handle(),
                 modal.goal.read(cx).focus_handle(),
+                modal.project.focus_handle(cx),
                 modal.cwd.read(cx).focus_handle(),
             ];
             if modal
@@ -815,6 +875,29 @@ impl NativeRoot {
                             select.set_options(remote_mission_crew_options(&catalog), cx);
                             select.set_value(preferred, cx);
                         });
+                        modal.project.set_choices(ProjectChoice::host(&catalog), cx);
+                        modal.project.set_disabled(false, cx);
+                        if let Some(id) = modal
+                            .remote
+                            .as_mut()
+                            .unwrap()
+                            .initial_project
+                            .take()
+                            .filter(|id| catalog.projects.iter().any(|project| &project.id == id))
+                        {
+                            let replacement = modal.project.choose(&id, "");
+                            modal
+                                .project
+                                .select()
+                                .update(cx, |select, cx| select.set_value(id, cx));
+                            if !modal.cwd.read(cx).edited() {
+                                if let Some(directory) = replacement {
+                                    modal.cwd.update(cx, |input, cx| input.reset(directory, cx));
+                                }
+                            }
+                        }
+                        let directory = modal.cwd.read(cx).text().to_owned();
+                        modal.project.follow(&directory, cx);
                         let input = modal.cwd.clone();
                         let client = modal.remote.as_ref().unwrap().client.clone();
                         let choices = crate::surfaces::front_page::folder_picker::choices(&catalog);
@@ -829,6 +912,19 @@ impl NativeRoot {
                             )
                         });
                         let subscription = cx.observe(&picker, |_, _, cx| cx.notify());
+                        let choice = cx.subscribe(
+                            &picker,
+                            |this,
+                             _,
+                             _: &crate::surfaces::front_page::folder_picker::FolderChosen,
+                             cx| {
+                                if let Some(modal) = this.start_mission_modal.as_mut() {
+                                    let directory = modal.cwd.read(cx).text().to_owned();
+                                    modal.project.picked(&directory, cx);
+                                    cx.notify();
+                                }
+                            },
+                        );
                         let blur_picker = picker.clone();
                         let blur = cx.on_focus_out(
                             &input.read(cx).focus_handle(),
@@ -840,7 +936,7 @@ impl NativeRoot {
                         let remote = modal.remote.as_mut().unwrap();
                         remote.catalog = Some(catalog);
                         remote.folder_picker = Some(picker);
-                        modal._subscriptions.extend([subscription, blur]);
+                        modal._subscriptions.extend([subscription, choice, blur]);
                     }
                     Err(error) => modal.error = Some(error),
                 }
@@ -878,6 +974,7 @@ fn set_start_mission_fields_disabled(
     disabled: bool,
     cx: &mut Context<NativeRoot>,
 ) {
+    modal.project.set_disabled(disabled, cx);
     modal.crew_select.update(cx, |select, select_cx| {
         select.set_disabled(disabled, select_cx)
     });
@@ -1081,6 +1178,191 @@ mod keyboard_tests {
             });
         });
         harness
+    }
+
+    #[test]
+    fn project_follows_typed_directory_when_tab_moves_to_browse_on_the_app_shell() {
+        let mut harness = modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
+        let projects = crate::surfaces::start_chat::tests::project_fixture(&mut harness);
+        harness.act(|root, window, cx| {
+            root.start_chat_modal = None;
+            root.set_route(AppRoute::Settings, cx);
+            root.open_start_mission_modal(
+                None,
+                ProjectScope::Project(projects[1].id.clone()),
+                window,
+                cx,
+            );
+            let modal = root.start_mission_modal.as_ref().unwrap();
+            modal.cwd.read(cx).focus_handle().focus(window, cx);
+            window.activate_window();
+        });
+        harness
+            .visual
+            .simulate_keystrokes(&keymap::platform_default("cmd-a"));
+        harness.visual.simulate_input(&projects[0].cwd);
+        harness.visual.run_until_parked();
+        harness.visual.simulate_keystrokes("tab");
+        harness.visual.run_until_parked();
+        assert!(
+            harness
+                .visual
+                .debug_bounds("FIELD_SUBTITLE Inside alpha, so it is filed there.")
+                .is_some(),
+            "the followed project's hint must repaint without another input event"
+        );
+        harness.act(|root, window, cx| {
+            let modal = root.start_mission_modal.as_ref().unwrap();
+            assert!(modal.browse_focus.is_focused(window));
+            assert_eq!(modal.cwd.read(cx).text(), projects[0].cwd);
+            assert_eq!(
+                modal.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            );
+            root.select_start_mission_project("", cx);
+            root.start_mission_modal
+                .as_ref()
+                .unwrap()
+                .cwd
+                .read(cx)
+                .focus_handle()
+                .focus(window, cx);
+        });
+        harness.visual.simulate_keystrokes("tab");
+        harness.visual.run_until_parked();
+        harness.act(|root, _, _| {
+            assert_eq!(
+                root.start_mission_modal.as_ref().unwrap().project.scope(),
+                ProjectScope::Root
+            )
+        });
+    }
+
+    #[test]
+    fn project_choice_follows_blur_and_browse_and_submits_the_shown_membership() {
+        for unfiled in [false, true] {
+            let mut harness =
+                modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
+            let projects = crate::surfaces::start_chat::tests::project_fixture(&mut harness);
+            harness.act(|root, window, cx| {
+                root.start_chat_modal = None;
+                root.open_start_mission_modal(
+                    None,
+                    ProjectScope::Project(projects[0].id.clone()),
+                    window,
+                    cx,
+                );
+            });
+            harness.act(|root, window, cx| {
+                let form = root.start_mission_modal.as_ref().unwrap();
+                assert_eq!(
+                    form.project.scope(),
+                    ProjectScope::Project(projects[0].id.clone())
+                );
+                form.cwd
+                    .update(cx, |input, cx| input.set_text(projects[1].cwd.clone(), cx));
+                form.cwd.read(cx).focus_handle().focus(window, cx);
+                window.activate_window();
+            });
+            harness.visual.simulate_keystrokes("tab");
+            harness.visual.run_until_parked();
+            harness.act(|root, _, cx| {
+                assert_eq!(
+                    root.start_mission_modal.as_ref().unwrap().project.scope(),
+                    ProjectScope::Project(projects[1].id.clone())
+                );
+                root.select_start_mission_project(&projects[0].id, cx);
+                assert_eq!(
+                    root.start_mission_modal
+                        .as_ref()
+                        .unwrap()
+                        .cwd
+                        .read(cx)
+                        .text(),
+                    projects[0].cwd
+                );
+                root.browse_start_mission_cwd(cx);
+            });
+            let browsed =
+                std::path::PathBuf::from(format!("{}/.worktrees/feature", projects[1].cwd));
+            harness
+                .visual
+                .simulate_path_prompt_response(move |_| Some(vec![browsed]));
+            harness.visual.run_until_parked();
+            harness.act(|root, window, cx| {
+                let form = root.start_mission_modal.as_ref().unwrap();
+                assert_eq!(
+                    form.project.scope(),
+                    ProjectScope::Project(projects[1].id.clone())
+                );
+                let directory = form.cwd.read(cx).text().to_owned();
+                root.select_start_mission_project(&projects[1].id, cx);
+                assert_eq!(
+                    root.start_mission_modal
+                        .as_ref()
+                        .unwrap()
+                        .cwd
+                        .read(cx)
+                        .text(),
+                    directory
+                );
+                if unfiled {
+                    root.select_start_mission_project("", cx);
+                }
+                let form = root.start_mission_modal.as_ref().unwrap();
+                form.title
+                    .update(cx, |input, cx| input.set_text("Project filing", cx));
+                root.select_start_mission_crew(String::new(), cx);
+                root.confirm_start_mission(&ConfirmStartMission, window, cx);
+            });
+            harness.act(|root, _, cx| {
+                let AppRoute::Mission(id) = &root.route else {
+                    panic!("mission not opened")
+                };
+                let mission = root.core(cx).mission_get(id).unwrap();
+                assert_eq!(
+                    mission.project_id,
+                    (!unfiled).then(|| projects[1].id.clone())
+                );
+                assert_eq!(
+                    mission.cwd.as_deref(),
+                    Some(format!("{}/.worktrees/feature", projects[1].cwd).as_str())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn project_choice_warns_outside_and_crew_library_uses_the_active_project() {
+        let mut harness = mission_harness();
+        let projects = crate::surfaces::start_chat::tests::project_fixture(&mut harness);
+        harness.act(|root, window, cx| {
+            root.start_mission_modal = None;
+            root.front_page_sidebar().update(cx, |sidebar, cx| {
+                sidebar.test_set_active_project(Some(projects[0].id.clone()), cx)
+            });
+            root.open_start_mission_modal(
+                Some("crew".into()),
+                ProjectScope::or_root(root.active_project_id(cx)),
+                window,
+                cx,
+            );
+            let form = root.start_mission_modal.as_ref().unwrap();
+            assert_eq!(
+                form.project.scope(),
+                ProjectScope::Project(projects[0].id.clone())
+            );
+            form.cwd
+                .update(cx, |input, cx| input.set_text("/outside-projects", cx));
+            root.follow_start_mission_cwd(cx);
+            let form = root.start_mission_modal.as_ref().unwrap();
+            assert_eq!(
+                form.project.directory_hint(form.cwd.read(cx).text()),
+                Some(crate::surfaces::project_field::DirectoryHint::Outside(
+                    "alpha".into()
+                ))
+            );
+        });
     }
 
     #[test]
@@ -1347,7 +1629,7 @@ mod keyboard_tests {
             .simulate_keystrokes(&keymap::platform_default("shift-cmd-m"));
         harness.act(|root, _, cx| {
             let form = root.start_mission_modal.as_ref().unwrap();
-            assert_eq!(form.project.as_ref().unwrap().id, project_id);
+            assert_eq!(form.project.chosen().unwrap().id, project_id);
             assert_eq!(form.cwd.read(cx).text(), "/tmp");
         });
     }
@@ -1424,6 +1706,90 @@ mod remote_tests {
     }
 
     #[test]
+    fn remote_project_choices_arrive_with_the_catalog_and_submit_the_chosen_host_scope() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for unfiled in [false, true] {
+            let (_temp, mut cx, window, _, fake) = setup(None);
+            open(&mut cx, window, &fake, ProjectScope::Root);
+            window
+                .update(&mut cx, |root, window, cx| {
+                    let form = root.start_mission_modal.as_ref().unwrap();
+                    assert_eq!(form.project.scope(), ProjectScope::Root);
+                    root.select_start_mission_project("host-project", cx);
+                    let form = root.start_mission_modal.as_ref().unwrap();
+                    assert_eq!(form.cwd.read(cx).text(), r"\\nas\share");
+                    form.cwd
+                        .update(cx, |input, cx| input.set_text(r"\\nas\share\worktree", cx));
+                    root.follow_start_mission_cwd(cx);
+                    if unfiled {
+                        root.select_start_mission_project("", cx);
+                    }
+                    root.confirm_start_mission(&ConfirmStartMission, window, cx);
+                })
+                .unwrap();
+            cx.run_until_parked();
+            let starts = remote_test::action_trace(&fake, "startMission");
+            assert_eq!(starts.len(), 1);
+            assert_eq!(starts[0]["cwd"], r"\\nas\share\worktree");
+            if unfiled {
+                assert!(starts[0]["project"].is_null());
+            } else {
+                assert_eq!(starts[0]["project"], "host-project");
+            }
+        }
+    }
+
+    #[test]
+    fn a_directory_edited_while_the_catalog_loads_chooses_the_deepest_host_project() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let (_temp, mut cx, window, _, fake) = setup(None);
+        let mut listing = catalog();
+        listing["projects"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "nested-project", "name": "Nested project", "path": r"\\nas\share\nested"
+            }));
+        fake.queue_result("catalog", Ok(listing));
+        let directory = r"\\nas\share\nested\worktree";
+        window
+            .update(&mut cx, |root, window, cx| {
+                root.open_start_mission_modal(
+                    None,
+                    ProjectScope::Project("host-project".into()),
+                    window,
+                    cx,
+                );
+                let form = root.start_mission_modal.as_ref().unwrap();
+                assert!(form.loading);
+                assert!(form.remote.as_ref().unwrap().catalog.is_none());
+                form.cwd
+                    .update(cx, |input, cx| input.set_text(directory, cx));
+                form.title
+                    .update(cx, |input, cx| input.set_text("Nested host mission", cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |root, window, cx| {
+                let form = root.start_mission_modal.as_ref().unwrap();
+                assert_eq!(
+                    form.project.scope(),
+                    ProjectScope::Project("nested-project".into())
+                );
+                assert_eq!(form.project.select().read(cx).value(), "nested-project");
+                assert_eq!(form.cwd.read(cx).text(), directory);
+                root.confirm_start_mission(&ConfirmStartMission, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let starts = remote_test::action_trace(&fake, "startMission");
+        assert_eq!(starts.len(), 1);
+        assert_eq!(starts[0]["project"], "nested-project");
+        assert_eq!(starts[0]["cwd"], directory);
+    }
+
+    #[test]
     fn host_catalog_existing_crew_defaults_scope_size_and_activation_come_from_the_target() {
         let _theme = crate::theme_snapshot::ThemeGuard::new();
         for push_before_result in [true, false] {
@@ -1451,7 +1817,8 @@ mod remote_tests {
                     assert!(modal.crews.is_empty());
                     assert!(modal.roster.is_empty());
                     assert_eq!(modal.crew_id, "host-crew");
-                    assert!(modal.cwd.read(cx).text().is_empty());
+                    assert_eq!(modal.cwd.read(cx).text(), r"\\nas\share");
+                    assert_eq!(modal.project.select().read(cx).value(), "host-project");
                     assert!(modal.slot_display().iter().all(|slot| slot.setup.is_none()));
                     assert!(modal.can_submit(cx));
                     modal
@@ -1486,7 +1853,7 @@ mod remote_tests {
             assert_eq!(request["title"], "Host mission");
             assert_eq!(request["goal"], "Host goal");
             assert_eq!(request["project"], "host-project");
-            assert!(request["cwd"].is_null());
+            assert_eq!(request["cwd"], r"\\nas\share");
             assert_eq!(request["cols"], size.0.max(20));
             assert_eq!(request["rows"], size.1.max(8));
             window
@@ -1593,7 +1960,10 @@ mod remote_tests {
                     remote_test::action_trace(&fake, "startMission")[0]["cwd"],
                     "\\\\nas\\share"
                 );
-                assert!(remote_test::action_trace(&fake, "startMission")[0]["project"].is_null());
+                assert_eq!(
+                    remote_test::action_trace(&fake, "startMission")[0]["project"],
+                    "host-project"
+                );
             });
         }
     }
