@@ -8,7 +8,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn tab_label_source(&self, layout: &PaneLayout, cx: &App) -> crate::i18n::Text {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             let sessions = layout
                 .session_ids()
                 .iter()
@@ -92,8 +92,8 @@ impl NativeRoot {
     }
 
     pub(crate) fn sync_sidebar_shortcut_rows(&mut self, cx: &mut Context<Self>) {
-        if let Some(remote) = &self.remote_window {
-            remote.sidebar.update(cx, |sidebar, cx| {
+        if let Some(sidebar) = self.remote_client.sidebar() {
+            sidebar.update(cx, |sidebar, cx| {
                 sidebar.refresh_shortcut_rows(&TabSet::default(), cx)
             });
             return;
@@ -106,7 +106,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn mark_active_tab_viewed(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         if self.route != AppRoute::Chat {
@@ -150,7 +150,7 @@ impl NativeRoot {
     /// The project the active tab sits under, which every pane and drawer
     /// shell in it belongs to.
     pub(crate) fn active_tab_project_id(&self, cx: &App) -> Option<String> {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return self
                 .front_page_layout()
                 .and_then(|layout| layout.parent_id.clone());
@@ -203,7 +203,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.select_remote_item(
                 crate::surfaces::remote_client::RemoteItem::Tab(tab_id.into()),
                 cx,
@@ -211,7 +211,8 @@ impl NativeRoot {
             if let Some(layout) = self.front_page_layout_mut() {
                 layout.focus_session(session_id);
             }
-            self.focus_remote_terminal(session_id, window, cx);
+            self.remote_client
+                .focus_remote_terminal(session_id, window, cx);
             return;
         }
 
@@ -231,22 +232,11 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if let Some(remote) = &mut self.remote_window {
-            let tab = remote
-                .layouts
-                .values()
-                .find(|layout| layout.all_session_ids().iter().any(|id| id == session_id))
-                .map(|layout| layout.id.clone());
-            if let Some(tab) = tab {
-                if let Some(layout) = remote.layouts.get_mut(&tab) {
-                    if layout.drawer_shells().iter().any(|id| id == session_id) {
-                        layout.activate_drawer_shell(session_id);
-                    } else {
-                        layout.focus_session(session_id);
-                    }
-                }
+        if self.remote_client.is_active() {
+            if let Some(tab) = self.remote_client.focus_session_layout(session_id) {
                 self.select_remote_item(crate::surfaces::remote_client::RemoteItem::Tab(tab), cx);
-                self.focus_remote_terminal(session_id, window, cx);
+                self.remote_client
+                    .focus_remote_terminal(session_id, window, cx);
                 return true;
             }
             return false;

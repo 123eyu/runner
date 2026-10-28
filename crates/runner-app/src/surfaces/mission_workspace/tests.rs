@@ -249,7 +249,7 @@ fn same_mission_notification_resumes_a_suspended_local_mission() {
     cx.update(|cx| crate::notifications::open("mission-agent", cx));
     cx.run_until_parked();
     host.read_with(&cx, |root, cx| {
-        assert!(root.remote_window.is_none());
+        assert!(root.remote_client.is_local());
         assert_eq!(root.route, AppRoute::Mission("test-mission".into()));
         let workspace = root.mission_workspace.read(cx);
         assert!(workspace.active);
@@ -287,7 +287,7 @@ fn local_mission_load_finishes_while_remote_and_attaches_only_on_return() {
     .unwrap();
     cx.run_until_parked();
     host.read_with(&cx, |root, cx| {
-        assert!(root.remote_window.is_some());
+        assert!(root.remote_client.is_active());
         let workspace = root.mission_workspace.read(cx);
         assert!(!workspace.active);
         assert!(!workspace.loading);
@@ -3613,8 +3613,8 @@ fn mission_lifecycle_entry_points_dispatch_once_for_both_targets() {
         let workspace = window
             .read_with(&cx, |root, _| {
                 if remote {
-                    root.remote_window
-                        .as_ref()
+                    root.remote_client
+                        .workspace()
                         .unwrap()
                         .mission_workspace
                         .clone()

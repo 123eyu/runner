@@ -997,8 +997,8 @@ fn chat_lifecycle_entry_points_dispatch_once_for_local_and_remote_targets() {
             window
                 .read_with(&cx, |root, _| {
                     let error = if remote {
-                        root.remote_window
-                            .as_ref()
+                        root.remote_client
+                            .workspace()
                             .unwrap()
                             .action_error
                             .as_deref()
@@ -1128,7 +1128,7 @@ fn remote_actions_publish_pending_and_clear_errors_before_held_requests_complete
         cx.run_until_parked();
         window
             .update(&mut cx, |root, _, cx| {
-                root.remote_window.as_mut().unwrap().action_error = Some("old error".into());
+                root.remote_client.workspace_mut().unwrap().action_error = Some("old error".into());
                 cx.notify();
             })
             .unwrap();
@@ -1144,7 +1144,7 @@ fn remote_actions_publish_pending_and_clear_errors_before_held_requests_complete
         let _subscription = cx.update(|cx| {
             cx.observe(&entity, move |root, cx| {
                 let root = root.read(cx);
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 let _ = observed.send((
                     remote.actions_pending.contains(key),
                     remote.action_error.clone(),

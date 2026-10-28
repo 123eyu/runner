@@ -201,13 +201,9 @@ impl MissionWorkspace {
             let open_root = root.clone();
             let card_key_id = session_id.clone();
             let card_key_root = root.clone();
-            let mut status = runner_app::ui::agent_status::StatusPresentation::new(
-                &self.slot_agent_status(&session_id, cx),
-            );
-            if self.remote.is_some() {
-                status.waiting_since = None;
-                status.estimated = false;
-            }
+            let status = self
+                .presentation
+                .status_presentation(&self.slot_agent_status(&session_id, cx));
             let subtitle = runner_app::ui::agent_status::status_indicator(
                 status,
                 true,
@@ -269,7 +265,7 @@ impl MissionWorkspace {
                             })
                         })
                     }))
-                    .when(self.remote.is_none(), |controls| {
+                    .when(!self.presentation.is_remote(), |controls| {
                         controls.child(
                             IconButton::new(
                                 SharedString::from(format!("remove-role-{session_id}")),
@@ -458,7 +454,7 @@ impl MissionWorkspace {
                                 |card| card.child(subtitle),
                             ),
                     )
-                    .when(self.remote.is_none(), |card| {
+                    .when(!self.presentation.is_remote(), |card| {
                         card.child(
                             div()
                                 .pt_2()
@@ -508,7 +504,7 @@ impl MissionWorkspace {
                     .child(crate::i18n::text("ui.mission_roster_empty")),
             );
         }
-        if self.remote.is_none()
+        if !self.presentation.is_remote()
             && mission_slot_actions_available(
                 self.mission_view().as_ref().map(|mission| mission.status),
                 self.archived(),
@@ -547,7 +543,7 @@ impl MissionWorkspace {
     }
 
     fn reveal_mission_cwd(&mut self, cwd: String, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         let task = cx.background_spawn(async move {
@@ -661,7 +657,7 @@ impl MissionWorkspace {
                         .into_any_element(),
                 },
             ));
-        if self.remote.is_none() {
+        if !self.presentation.is_remote() {
             panel = panel.child(meta_section(
                 crate::i18n::text("ui.working_dir"),
                 mission.cwd.clone().map_or_else(
@@ -937,4 +933,18 @@ fn tracked_uppercase(label: &str) -> String {
         .map(|character| character.to_string())
         .collect::<Vec<_>>()
         .join("\u{2009}")
+}
+
+impl remote::MissionPresentation {
+    pub(super) fn status_presentation(
+        &self,
+        status: &runner_core::protocol::status::AgentStatus,
+    ) -> runner_app::ui::agent_status::StatusPresentation {
+        let mut display = runner_app::ui::agent_status::StatusPresentation::new(status);
+        if self.is_remote() {
+            display.waiting_since = None;
+            display.estimated = false;
+        }
+        display
+    }
 }

@@ -235,7 +235,8 @@ impl RoleSurfaces {
                 size_root.update(cx, |this, cx| match remote_epoch {
                     None => this.set_local_role_page_size(size, cx),
                     Some(epoch)
-                        if this.remote_window.is_some() && this.client_ui.epoch == epoch =>
+                        if this.remote_client.is_active()
+                            && this.remote_client.ui.epoch == epoch =>
                     {
                         this.set_role_page_size(size, cx)
                     }
@@ -254,7 +255,8 @@ impl RoleSurfaces {
                     search_root.update(cx, |this, cx| match remote_epoch {
                         None => this.set_local_role_query(query, cx),
                         Some(epoch)
-                            if this.remote_window.is_some() && this.client_ui.epoch == epoch =>
+                            if this.remote_client.is_active()
+                                && this.remote_client.ui.epoch == epoch =>
                         {
                             this.set_role_query(query, cx)
                         }

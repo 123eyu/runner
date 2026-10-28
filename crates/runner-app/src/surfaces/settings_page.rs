@@ -936,7 +936,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
 
@@ -1084,7 +1084,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
 
@@ -1188,7 +1188,7 @@ impl NativeRoot {
         activity: CommandInstallActivity,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         if self.settings_page.command_install_activity.is_some() {
@@ -1249,7 +1249,7 @@ impl NativeRoot {
         for chat in self.attached.values() {
             app_settings::configure_terminal(&chat.terminal, self.settings(cx));
         }
-        self.configure_remote_terminals(cx);
+        self.remote_client.configure_remote_terminals(cx);
     }
 
     fn browse_settings_working_dir(&mut self, cx: &mut Context<Self>) {

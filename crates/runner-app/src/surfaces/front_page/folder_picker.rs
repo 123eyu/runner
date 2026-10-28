@@ -779,8 +779,8 @@ mod tests {
             window
                 .read_with(&visual, |root, cx| {
                     let picker = root
-                        .remote_window
-                        .as_ref()
+                        .remote_client
+                        .workspace()
                         .unwrap()
                         .project_picker
                         .as_ref()

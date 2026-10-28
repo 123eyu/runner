@@ -236,12 +236,7 @@ impl Sidebar {
                     if let Some(shell) = self.shell.upgrade() {
                         let id = id.clone();
                         shell.update(cx, |root, cx| {
-                            if let Some(remote) = root.remote_window.as_mut() {
-                                remote.delete_project = Some(id);
-                                remote.delete_project_force = false;
-                                remote.delete_project_error = None;
-                                cx.notify();
-                            }
+                            root.remote_client.open_delete_project(id, cx);
                         });
                     }
                     return;
@@ -256,7 +251,7 @@ impl Sidebar {
                                 SidebarMenuAction::ResumeMission(_) => "resumeMission",
                                 _ => "archive",
                             };
-                            root.remote_action(
+                            root.remote_client.remote_action(
                                 format!("mission:{id}"),
                                 &[feature],
                                 move |client| {
@@ -351,7 +346,7 @@ impl Sidebar {
                 if self.front_page.is_remote() {
                     if let Some(shell) = self.shell.upgrade() {
                         shell.update(cx, |root, cx| {
-                            root.remote_action(
+                            root.remote_client.remote_action(
                                 format!("pin:{node_id}"),
                                 &["pin"],
                                 move |client| {
@@ -379,8 +374,8 @@ impl Sidebar {
                             .upgrade()
                             .and_then(|shell| {
                                 let shell = shell.read(cx);
-                                let layout = if let Some(remote) = &shell.remote_window {
-                                    remote.layouts.get(node_id)
+                                let layout = if shell.remote_client.is_active() {
+                                    shell.remote_client.tab_layout(node_id)
                                 } else {
                                     shell
                                         .tabs
@@ -447,7 +442,7 @@ impl Sidebar {
                 if self.front_page.is_remote() {
                     if let Some(shell) = self.shell.upgrade() {
                         shell.update(cx, |root, cx| {
-                            root.remote_action(
+                            root.remote_client.remote_action(
                                 format!("mission:{mission_id}"),
                                 &["archive"],
                                 move |client| {

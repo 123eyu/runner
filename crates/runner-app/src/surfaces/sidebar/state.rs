@@ -164,8 +164,8 @@ impl Sidebar {
         };
         cx.defer(move |cx| {
             shell.update(cx, |shell, shell_cx| {
-                if let Some(remote) = shell.remote_window.as_mut() {
-                    remote.action_error = Some(error);
+                if shell.remote_client.is_active() {
+                    shell.remote_client.set_error(error);
                 } else {
                     shell.error = Some(error.into());
                 }

@@ -48,7 +48,7 @@ pub(super) enum ChatMode {
 }
 
 #[derive(Clone)]
-enum ChatTarget {
+pub(super) enum ChatTarget {
     NewTab,
     Pane { tab_id: String, pane_id: String },
 }
@@ -479,7 +479,7 @@ impl NativeRoot {
         }
     }
 
-    fn switch_start_chat_mode(
+    pub(super) fn switch_start_chat_mode(
         &mut self,
         mode: ChatMode,
         window: &mut Window,
@@ -585,7 +585,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(workspace) = self.remote_mission_workspace() {
+        if let Some(workspace) = self.remote_client.remote_mission_workspace() {
             workspace.update(cx, |workspace, cx| {
                 workspace.add_terminal_drawer_shell(window, cx)
             });
@@ -655,13 +655,13 @@ impl NativeRoot {
     }
 
     pub(crate) fn toggle_terminal_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(workspace) = self.remote_mission_workspace() {
+        if let Some(workspace) = self.remote_client.remote_mission_workspace() {
             workspace.update(cx, |workspace, cx| {
                 workspace.toggle_terminal_drawer(window, cx)
             });
             return;
         }
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             let Some(layout) = self.front_page_layout() else {
                 return;
             };
@@ -673,7 +673,7 @@ impl NativeRoot {
                 if let Some(layout) = self.front_page_layout_mut() {
                     layout.set_drawer_open(true);
                 }
-                self.attach_remote_panes(cx);
+                self.remote_client.attach_remote_panes(cx);
                 cx.notify();
             }
             return;
@@ -705,17 +705,17 @@ impl NativeRoot {
     }
 
     pub(crate) fn hide_terminal_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(workspace) = self.remote_mission_workspace() {
+        if let Some(workspace) = self.remote_client.remote_mission_workspace() {
             workspace.update(cx, |workspace, cx| {
                 workspace.hide_terminal_drawer(window, cx)
             });
             return;
         }
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(layout) = self.front_page_layout_mut() {
                 layout.set_drawer_open(false);
             }
-            self.attach_remote_panes(cx);
+            self.remote_client.attach_remote_panes(cx);
             cx.notify();
             return;
         }
@@ -732,12 +732,13 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(layout) = self.front_page_layout_mut() {
                 layout.activate_drawer_shell(session_id);
             }
-            self.attach_remote_panes(cx);
-            self.focus_remote_terminal(session_id, window, cx);
+            self.remote_client.attach_remote_panes(cx);
+            self.remote_client
+                .focus_remote_terminal(session_id, window, cx);
             cx.notify();
             return;
         }
@@ -977,7 +978,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             let target = self
                 .front_page_layout()
                 .and_then(|layout| {
@@ -1030,7 +1031,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.open_remote_start_chat(ChatTarget::NewTab, scope, window, cx);
             return;
         }
@@ -1057,7 +1058,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(layout) = self.front_page_layout() {
                 let target = ChatTarget::Pane {
                     tab_id: layout.id.clone(),
@@ -1131,86 +1132,13 @@ impl NativeRoot {
         if self.create_modal_open() {
             return;
         }
-        let client = self.front_page_client(cx);
-        let required = if matches!(target, ChatTarget::Pane { .. }) {
-            vec!["catalog", "startChat", "layout"]
-        } else {
-            vec!["catalog", "startChat"]
-        };
-        if !client.supports(&required) {
-            return;
-        }
-        let remote = self.remote_window.as_mut().unwrap();
-        if !remote.actions_pending.insert("catalog".into()) {
-            return;
-        }
-        remote.form_generation += 1;
-        let generation = remote.form_generation;
-        let epoch = self.client_ui.epoch;
-        let guard = client.clone();
-        let work = cx.background_spawn(async move { client.catalog() });
-        cx.spawn_in(window, async move |weak, cx| {
-            let result = work.await;
-            let _ = weak.update_in(cx, |root, window, cx| {
-                if root.client_ui.epoch != epoch || !guard.valid() {
-                    return;
-                }
-                let Some(remote) = root.remote_window.as_mut() else {
-                    return;
-                };
-                remote.actions_pending.remove("catalog");
-                if remote.form_generation != generation {
-                    cx.notify();
-                    return;
-                }
-                match result {
-                    Ok(catalog) => {
-                        if default_role_id
-                            .as_ref()
-                            .is_some_and(|id| !catalog.roles.iter().any(|role| &role.id == id))
-                        {
-                            remote.action_error =
-                                Some(crate::i18n::text("client.role_unavailable").to_owned());
-                            cx.notify();
-                            return;
-                        }
-                        let role_launch = default_role_id.is_some();
-                        remote.catalog = Some(catalog.clone());
-                        let roles = catalog.roles.clone().into_iter().map(Into::into).collect();
-                        let runtimes = catalog
-                            .runtimes
-                            .iter()
-                            .filter_map(RuntimeChoice::remote)
-                            .collect();
-                        root.build_start_chat_modal(
-                            target,
-                            default_role_id,
-                            roles,
-                            runtimes,
-                            Vec::new(),
-                            scope,
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                            false,
-                            None,
-                            None,
-                            guard,
-                            Some(catalog),
-                            window,
-                            cx,
-                        );
-                        if role_launch {
-                            root.switch_start_chat_mode(ChatMode::Role, window, cx);
-                        }
-                    }
-                    Err(error) => remote.action_error = Some(error.to_string()),
-                }
-                root.sync_remote_state(cx);
-                cx.notify();
-            });
-        })
-        .detach();
+        self.remote_client.open_remote_start_chat_with_role(
+            target,
+            scope,
+            default_role_id,
+            window,
+            cx,
+        );
     }
 
     fn open_start_chat_modal(
@@ -1269,7 +1197,7 @@ impl NativeRoot {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn build_start_chat_modal(
+    pub(super) fn build_start_chat_modal(
         &mut self,
         target: ChatTarget,
         default_role_id: Option<String>,
@@ -1484,9 +1412,9 @@ impl NativeRoot {
         });
         if let Some(catalog) = host_catalog {
             let client = self.front_page_client(cx);
-            let remote = self.remote_window.as_ref().unwrap();
-            let computer = remote.computer.name.clone();
-            let platform = remote.computer.info.platform.clone();
+            let remote = self.remote_client.computer().unwrap();
+            let computer = remote.name.clone();
+            let platform = remote.info.platform.clone();
             let input = self.start_chat_modal.as_ref().unwrap().cwd.clone();
             let picker = cx.new(|picker_cx| {
                 crate::surfaces::front_page::folder_picker::FolderPicker::new(
@@ -1523,7 +1451,7 @@ impl NativeRoot {
     }
 
     fn refresh_start_chat_models(&self, cx: &Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         if let Some(runtime) = self
@@ -1537,7 +1465,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn refresh_start_chat_runtimes(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let (runtimes, agents_checking, agents_error) =
@@ -1610,7 +1538,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn sync_start_chat_default_runtime(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let default_runtime = self.settings(cx).default_runtime.clone();
@@ -1762,7 +1690,7 @@ impl NativeRoot {
     }
 
     fn browse_start_chat_cwd(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
 
@@ -1883,13 +1811,7 @@ impl NativeRoot {
                     }
                     return;
                 };
-                if remote
-                    && self.remote_window.as_ref().is_some_and(|remote| {
-                        remote.layout_hints.contains_key(tab_id)
-                            || remote.actions_pending.contains("archive-sessions")
-                            || remote.actions_pending.contains(&format!("layout:{tab_id}"))
-                    })
-                {
+                if remote && self.remote_client.layout_pending(tab_id) {
                     return;
                 }
                 Some((layout.clone(), pane_id.clone()))
@@ -1984,55 +1906,27 @@ impl NativeRoot {
             renamed: remote && modal.remote_renamed,
         };
         let form_id = modal.cwd.clone();
-        let epoch = self.client_ui.epoch;
-        let guard = client.clone();
         let remote_context = if remote {
-            self.remote_window
-                .as_ref()
-                .map(|remote| (remote.layouts.clone(), remote.navigation_generation))
+            self.remote_client
+                .prepare_chat_launch(client.clone(), launch.placement.as_ref())
         } else {
             None
         };
-        let layout_key = remote
-            .then(|| {
-                launch
-                    .placement
-                    .as_ref()
-                    .map(|(layout, _)| format!("layout:{}", layout.id))
-            })
-            .flatten();
         let modal = self.start_chat_modal.as_mut().unwrap();
         modal.submitting = true;
         modal.error = None;
         set_start_chat_controls_disabled(modal, true, cx);
-        if let Some(key) = &layout_key {
-            self.remote_window
-                .as_mut()
-                .unwrap()
-                .actions_pending
-                .insert(key.clone());
-        }
         let operation = move || {
             let result = client.launch_chat(&mut launch);
             (launch, result)
         };
-        if let Some((before, navigation_generation)) = remote_context {
+        if let Some(action) = remote_context {
             let work = cx.background_spawn(async move { operation() });
             cx.spawn_in(window, async move |weak, cx| {
                 let (launch, result) = work.await;
                 let _ = weak.update_in(cx, |root, _, cx| {
-                    if root.client_ui.epoch != epoch
-                        || !guard.valid()
-                        || root.front_page_client(cx).target != guard.target
-                    {
+                    if !root.remote_client.settle_chat_launch(&action) {
                         return;
-                    }
-                    if let Some(key) = &layout_key {
-                        root.remote_window
-                            .as_mut()
-                            .unwrap()
-                            .actions_pending
-                            .remove(key);
                     }
                     let Some(modal) = root
                         .start_chat_modal
@@ -2047,14 +1941,10 @@ impl NativeRoot {
                     match result {
                         Ok(output) => {
                             root.start_chat_modal = None;
-                            root.apply_remote_completion(
-                                crate::surfaces::front_page::actions::Completion {
-                                    session: Some(output.session),
-                                    layout: output.layout,
-                                    ..Default::default()
-                                },
-                                &before,
-                                navigation_generation,
+                            root.remote_client.complete_chat_launch(
+                                action,
+                                output.session,
+                                output.layout,
                                 cx,
                             );
                             root.sync_remote_state(cx);
@@ -2456,7 +2346,7 @@ impl NativeRoot {
                 .as_ref()
                 .and_then(|modal| modal.active_runtime())
             {
-                if self.remote_window.is_none() {
+                if self.remote_client.is_local() {
                     self.request_model_catalog(runtime.name.key(), cx);
                 }
             }

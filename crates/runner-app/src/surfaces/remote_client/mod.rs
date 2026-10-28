@@ -1,7 +1,12 @@
+mod actions;
+mod bridge;
 pub(crate) mod feed;
+mod library;
 pub(crate) mod model;
 mod pairing;
 mod picker;
+mod project;
+mod start_chat;
 #[cfg(test)]
 pub(crate) mod tests;
 mod transport;
@@ -16,6 +21,71 @@ use runner_core::remote::{Computer, RemoteStatus, RemoteTrust};
 
 pub(crate) use pairing::PairDialog;
 pub(crate) use workspace::{sidebar_nodes, Item as RemoteItem, RemoteWindow};
+
+pub(crate) struct RemoteClient {
+    pub(crate) ui: ClientUi,
+    workspace: Option<RemoteWindow>,
+    app_store: Entity<AppStore>,
+    root_focus: FocusHandle,
+    _subscription: Subscription,
+}
+
+impl RemoteClient {
+    pub(crate) fn new(
+        app_store: Entity<AppStore>,
+        root_focus: FocusHandle,
+        cx: &mut Context<NativeRoot>,
+    ) -> Self {
+        let clients = app_store.read(cx).remote_clients.clone();
+        let subscription = cx.observe(&clients, |root, _, cx| root.sync_remote_state(cx));
+        Self {
+            ui: ClientUi::new(cx),
+            workspace: None,
+            app_store,
+            root_focus,
+            _subscription: subscription,
+        }
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.workspace.is_some()
+    }
+    pub(crate) fn is_local(&self) -> bool {
+        !self.is_active()
+    }
+    #[cfg(test)]
+    pub(crate) fn workspace(&self) -> Option<&RemoteWindow> {
+        self.workspace.as_ref()
+    }
+    #[cfg(test)]
+    pub(crate) fn workspace_mut(&mut self) -> Option<&mut RemoteWindow> {
+        self.workspace.as_mut()
+    }
+    pub(crate) fn disconnect(&mut self) {
+        self.workspace = None;
+    }
+    pub(crate) fn client(&self, cx: &App) -> crate::surfaces::front_page::FrontPageClient {
+        self.workspace
+            .as_ref()
+            .map(|remote| remote.front_page.clone())
+            .unwrap_or_else(|| {
+                crate::surfaces::front_page::FrontPageClient::local(self.core(cx).clone())
+            })
+    }
+    fn core<'a>(&self, cx: &'a App) -> &'a DaemonClient {
+        &self.app_store.read(cx).client
+    }
+    fn settings<'a>(&self, cx: &'a App) -> &'a AppSettings {
+        &self.app_store.read(cx).settings
+    }
+    fn terminal_style(&self, cx: &App) -> crate::terminal::element::TerminalStyle {
+        let mut style = crate::surfaces::app_shell::terminal_style_for(self.settings(cx));
+        if let Some(palette) = self.remote_terminal_palette(cx) {
+            style.palette = palette;
+        }
+        style
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct RemoteSelection {
@@ -86,15 +156,15 @@ fn seen_time(value: &str) -> String {
     )
 }
 
-impl NativeRoot {
-    pub(crate) fn refresh_computers(&self, cx: &mut Context<Self>) {
+impl RemoteClient {
+    pub(crate) fn refresh_computers(&self, cx: &mut Context<NativeRoot>) {
         state(&self.app_store, cx).update(cx, |state, cx| state.refresh(cx));
     }
     fn computer_menu(
         &self,
         computer: Option<&Computer>,
         devices: &[&runner_core::remote::PairedDevice],
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) -> Option<Entity<PopoverMenu>> {
         let incoming = devices
             .iter()
@@ -119,7 +189,7 @@ impl NativeRoot {
         // Key by available actions too, so a successful pair refreshes the menu.
         let key = format!("{key}-{}-{}", incoming.join("-"), outgoing.is_some());
         Some(
-            self.client_ui
+            self.ui
                 .menus
                 .borrow_mut()
                 .entry(key)
@@ -177,7 +247,7 @@ impl NativeRoot {
         &self,
         trust: &RemoteTrust,
         status: &RemoteStatus,
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) -> AnyElement {
         let clients = state(&self.app_store, cx);
         let mut computers = clients.read(cx).computers.clone();
@@ -242,7 +312,7 @@ impl NativeRoot {
                     .size(ButtonSize::Sm)
                     .on_press(move |window, cx| {
                         let _ = root.update(cx, |root, cx| {
-                            root.open_computer_pair(
+                            root.remote_client.open_computer_pair(
                                 computer.clone(),
                                 pairing::Purpose::PairOnly,
                                 window,
@@ -390,7 +460,9 @@ impl NativeRoot {
                             .on_press({
                                 let root = cx.weak_entity();
                                 move |_, cx| {
-                                    let _ = root.update(cx, |root, cx| root.refresh_computers(cx));
+                                    let _ = root.update(cx, |root, cx| {
+                                        root.remote_client.refresh_computers(cx)
+                                    });
                                 }
                             }),
                     ),

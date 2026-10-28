@@ -28,7 +28,7 @@ impl MissionWorkspace {
         );
         let terminal_background =
             crate::terminal::element::to_hsla(self.terminal_style(cx).palette.background, 1.);
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             let mut pane = div()
                 .absolute()
                 .inset_0()

@@ -117,7 +117,7 @@ impl MissionWorkspace {
         let banner = self
             .shell
             .upgrade()
-            .filter(|_| self.remote.is_none())
+            .filter(|_| !self.presentation.is_remote())
             .and_then(|shell| {
                 shell.update(cx, |shell, cx| {
                     (shell.route != AppRoute::Settings)
@@ -278,7 +278,7 @@ impl MissionWorkspace {
     }
 
     pub(crate) fn render_mission_overlays(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        if self.remote.is_some() && !self.active {
+        if self.presentation.is_remote() && !self.active {
             return Vec::new();
         }
         let mut overlays = Vec::new();
@@ -457,18 +457,12 @@ impl MissionWorkspace {
                 .into_any_element(),
             );
         }
-        if self.remote.as_ref().is_some_and(|remote| {
-            self.error.is_some() && remote.shell_started.lock().unwrap().is_some()
-        }) {
+        if self.error.is_some() && self.presentation.shell_retry_available() {
             let root = cx.entity();
             notices.push(
                 Button::new("retry-mission-shell", crate::i18n::text("ui.retry"))
                     .disabled(
-                        !self.remote_supports(&["layout"])
-                            || self
-                                .remote
-                                .as_ref()
-                                .is_some_and(|remote| remote.shell_pending),
+                        !self.remote_supports(&["layout"]) || self.presentation.shell_pending(),
                     )
                     .on_press(move |window, cx| {
                         root.update(cx, |this, cx| this.add_terminal_drawer_shell(window, cx))
@@ -586,13 +580,9 @@ impl MissionWorkspace {
             &labels,
             super::panes::TerminalDrawerCallbacks {
                 can_add: self.remote_supports(&["startShell", "layout"])
-                    && self.remote.as_ref().is_none_or(|remote| {
-                        !remote.shell_pending && remote.drawer_expected.is_none()
-                    }),
+                    && self.presentation.drawer_actions_available(),
                 can_close: self.remote_supports(&["close"])
-                    && self.remote.as_ref().is_none_or(|remote| {
-                        !remote.shell_pending && remote.drawer_expected.is_none()
-                    }),
+                    && self.presentation.drawer_actions_available(),
                 activate: Rc::new(move |session_id, window, cx| {
                     activate_root.update(cx, |this, cx| {
                         this.activate_terminal_drawer_shell(&session_id, window, cx)
@@ -637,7 +627,7 @@ impl MissionWorkspace {
         let terminal_style = self.terminal_style(cx);
         let terminal_background =
             crate::terminal::element::to_hsla(terminal_style.palette.background, 1.);
-        let terminal_surface = if self.remote.is_some() {
+        let terminal_surface = if self.presentation.is_remote() {
             self.remote_terminal_content(&session_id, cx)
         } else if let Some(chat) = self.attached.get(&session_id) {
             let terminal = Arc::clone(&chat.terminal);
@@ -863,7 +853,7 @@ impl MissionWorkspace {
     }
 
     fn render_loaded_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        if self.remote.is_none()
+        if !self.presentation.is_remote()
             && self.members().iter().any(|session| {
                 self.app_store
                     .read(cx)

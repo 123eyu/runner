@@ -54,7 +54,7 @@ fn items(status: &RemoteStatus) -> Vec<MenuItem> {
 
 impl NativeRoot {
     fn toggle_account_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.account_menu.state.close();
             return;
         }
@@ -84,7 +84,7 @@ impl NativeRoot {
     }
 
     fn activate_account_menu(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.account_menu.state.close();
             return;
         }
@@ -110,7 +110,7 @@ impl NativeRoot {
     }
 
     pub(super) fn render_account_avatar(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return div().into_any_element();
         }
         let zoom = self.settings(cx).app_zoom;
@@ -226,7 +226,7 @@ impl NativeRoot {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if self.remote_window.is_some()
+        if self.remote_client.is_active()
             || !self.account_menu.state.open
             || !self.app_store.read(cx).remote_access_enabled()
         {

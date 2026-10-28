@@ -12,33 +12,12 @@ pub(super) fn computer_detail(computer: &Computer) -> String {
     }
 }
 
-impl NativeRoot {
-    pub(super) fn choose_computer(
-        &mut self,
-        computer: Computer,
-        new_window: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.client_ui.picker_open = false;
-        if computer.is_self {
-            if new_window {
-                let _ = open_new_runner_window(None, cx);
-            } else {
-                self.return_to_this_computer(window, cx);
-            }
-        } else if !computer.paired {
-            self.open_computer_pair(computer, pairing::Purpose::Open { new_window }, window, cx);
-        } else {
-            self.open_computer(computer, new_window, cx);
-        }
-        cx.notify();
-    }
+impl RemoteClient {
     pub(super) fn open_computer(
         &mut self,
         computer: Computer,
         new_window: bool,
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) {
         if new_window {
             cx.defer(move |cx| match open_new_runner_window(None, cx) {
@@ -67,9 +46,9 @@ impl NativeRoot {
             .detach();
         }
     }
-    pub(crate) fn render_computer_trigger(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_computer_trigger(&self, cx: &mut Context<NativeRoot>) -> AnyElement {
         let clients = state(&self.app_store, cx);
-        let current = self.remote_window.as_ref();
+        let current = self.workspace.as_ref();
         let status = self
             .app_store
             .read(cx)
@@ -125,12 +104,12 @@ impl NativeRoot {
                         theme::chrome_selected()
                     })
                     .cursor_pointer()
-                    .on_click(
-                        cx.listener(|root, _, window, cx| root.toggle_computer_picker(window, cx)),
-                    )
+                    .on_click(cx.listener(|root, _, window, cx| {
+                        root.remote_client.toggle_computer_picker(window, cx)
+                    }))
                     .on_key_down(cx.listener(|root, event: &KeyDownEvent, window, cx| {
                         if matches!(event.keystroke.key.as_str(), "enter" | "space" | "down") {
-                            root.toggle_computer_picker(window, cx);
+                            root.remote_client.toggle_computer_picker(window, cx);
                             cx.stop_propagation();
                         }
                     }))
@@ -175,7 +154,8 @@ impl NativeRoot {
                 gpui::canvas(
                     |_, _, _| {},
                     move |bounds, _, _, cx| {
-                        let _ = owner.update(cx, |root, _| root.client_ui.anchor = Some(bounds));
+                        let _ =
+                            owner.update(cx, |root, _| root.remote_client.ui.anchor = Some(bounds));
                     },
                 )
                 .absolute()
@@ -183,7 +163,7 @@ impl NativeRoot {
             )
             .into_any_element()
     }
-    fn toggle_computer_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_computer_picker(&mut self, window: &mut Window, cx: &mut Context<NativeRoot>) {
         if !self.app_store.read(cx).remote_access_enabled()
             || !self
                 .app_store
@@ -194,22 +174,22 @@ impl NativeRoot {
         {
             return;
         }
-        self.client_ui.picker_open = !self.client_ui.picker_open;
-        if self.client_ui.picker_open {
+        self.ui.picker_open = !self.ui.picker_open;
+        if self.ui.picker_open {
             self.refresh_computers(cx);
-            self.client_ui.picker_focus.focus(window, cx);
+            self.ui.picker_focus.focus(window, cx);
         }
         cx.notify();
     }
     pub(crate) fn render_computer_picker(
         &mut self,
         window: &Window,
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) -> Option<AnyElement> {
-        if !self.client_ui.picker_open || !self.app_store.read(cx).remote_access_enabled() {
+        if !self.ui.picker_open || !self.app_store.read(cx).remote_access_enabled() {
             return None;
         }
-        let anchor = self.client_ui.anchor?;
+        let anchor = self.ui.anchor?;
         let clients = state(&self.app_store, cx);
         let status = self
             .app_store
@@ -228,9 +208,9 @@ impl NativeRoot {
         let mut rows = Vec::new();
         for computer in &computers {
             let selected = if computer.is_self {
-                self.remote_window.is_none()
+                self.workspace.is_none()
             } else {
-                self.remote_window
+                self.workspace
                     .as_ref()
                     .is_some_and(|remote| remote.computer.id == computer.id)
             };
@@ -354,11 +334,11 @@ impl NativeRoot {
             .border_color(theme::border())
             .bg(theme::panel())
             .shadow_2xl()
-            .track_focus(&self.client_ui.picker_focus)
+            .track_focus(&self.ui.picker_focus)
             .on_key_down(cx.listener(|root, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => {
-                        root.client_ui.picker_open = false;
+                        root.remote_client.ui.picker_open = false;
                         root.root_focus.focus(window, cx);
                     }
                     "tab" => {
@@ -367,8 +347,13 @@ impl NativeRoot {
                         } else {
                             window.focus_next(cx);
                         }
-                        if !root.client_ui.picker_focus.contains_focused(window, cx) {
-                            root.client_ui.picker_open = false;
+                        if !root
+                            .remote_client
+                            .ui
+                            .picker_focus
+                            .contains_focused(window, cx)
+                        {
+                            root.remote_client.ui.picker_open = false;
                             root.root_focus.focus(window, cx);
                         }
                     }
@@ -418,7 +403,7 @@ impl NativeRoot {
             menu.into_any_element(),
             Rc::new(move |window, cx| {
                 let _ = owner.update(cx, |root, cx| {
-                    root.client_ui.picker_open = false;
+                    root.remote_client.ui.picker_open = false;
                     root.root_focus.focus(window, cx);
                     cx.notify();
                 });

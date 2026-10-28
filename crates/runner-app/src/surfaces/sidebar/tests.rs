@@ -599,7 +599,7 @@ fn remote_role_labels_stay_consistent_in_pinned_project_active_rows_and_headers(
                     .is_some());
                 window
                     .read_with(&visual, |root, cx| {
-                        let remote = root.remote_window.as_ref().unwrap();
+                        let remote = root.remote_client.workspace().unwrap();
                         let sidebar = remote.sidebar.read(cx);
                         let mut titles = sidebar
                             .resolved_active_rows(cx)
@@ -618,8 +618,8 @@ fn remote_role_labels_stay_consistent_in_pinned_project_active_rows_and_headers(
                     .unwrap();
                 window
                     .update(&mut visual, |root, _, cx| {
-                        root.remote_window
-                            .as_ref()
+                        root.remote_client
+                            .workspace()
                             .unwrap()
                             .sidebar
                             .update(cx, |sidebar, cx| sidebar.toggle_active_only(cx));
@@ -633,8 +633,8 @@ fn remote_role_labels_stay_consistent_in_pinned_project_active_rows_and_headers(
                 }
                 window
                     .update(&mut visual, |root, _, cx| {
-                        root.remote_window
-                            .as_ref()
+                        root.remote_client
+                            .workspace()
                             .unwrap()
                             .sidebar
                             .update(cx, |sidebar, cx| sidebar.toggle_active_only(cx));

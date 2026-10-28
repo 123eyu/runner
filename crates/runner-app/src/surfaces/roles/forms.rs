@@ -156,7 +156,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn open_create_role(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
 
@@ -386,7 +386,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
 

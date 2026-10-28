@@ -35,7 +35,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             self.remote_navigation_changed(cx);
         }
         match self.persist_mission_layout(cx) {
@@ -72,7 +72,7 @@ impl MissionWorkspace {
         if !self.layout.drawer.activate(session_id) {
             return;
         }
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             self.remote_navigation_changed(cx);
         }
         match self.persist_mission_layout(cx) {
@@ -133,12 +133,11 @@ impl MissionWorkspace {
             .remote_summary()
             .map(|summary| summary.shells.clone())
             .unwrap_or_default();
-        let stage = if let Some(remote) = &mut self.remote {
-            if remote.shell_pending || remote.drawer_expected.is_some() {
+        let stage = if remote_target {
+            let Some(stage) = self.presentation.begin_shell() else {
                 return;
-            }
-            remote.shell_pending = true;
-            Some(remote.shell_started.clone())
+            };
+            Some(stage)
         } else {
             None
         };
@@ -175,31 +174,20 @@ impl MissionWorkspace {
                     if this.generation != generation || !guard.valid() {
                         return;
                     }
-                    let current = this.remote_summary().map(|summary| summary.shells.clone());
                     if this.client.target != guard.target {
                         return;
                     }
-                    let Some(remote) = this.remote.as_mut() else {
+                    let Some(result) = this.presentation.complete_shell(
+                        this.mission_id.as_deref(),
+                        before,
+                        &mut this.layout,
+                        result,
+                    ) else {
                         return;
                     };
-                    remote.shell_pending = false;
                     match result {
-                        Ok((id, shells)) => {
-                            *remote.shell_started.lock().unwrap() = None;
-                            remote.activate_shell = Some(id);
-                            if current.as_ref() == Some(&before) && before != shells {
-                                remote.drawer_expected = Some((before, shells));
-                            }
+                        Ok(()) => {
                             this.error = None;
-                            if let Some(shell) = remote
-                                .activate_shell
-                                .clone()
-                                .filter(|id| this.layout.drawer.shells().contains(id))
-                            {
-                                this.layout.drawer.activate(&shell);
-                                this.layout.drawer.set_open(true);
-                                remote.activate_shell = None;
-                            }
                             this.remote_navigation_changed(cx);
                         }
                         Err(error) => {
@@ -444,7 +432,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             if !self.remote_supports(&["close"]) {
                 return;
             }

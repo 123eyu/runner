@@ -130,9 +130,8 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(remote) = &self.remote_window {
-            let layouts = remote.layouts.values().cloned().collect::<Vec<_>>();
-            let session_ids = archive_targets_for_chats(session_ids, &layouts);
+        if self.remote_client.is_active() {
+            let session_ids = self.remote_client.archive_targets(session_ids);
             self.request_archive_all(None, session_ids, ArchiveAllSource::Chat, window, cx);
             return;
         }
@@ -271,7 +270,7 @@ impl NativeRoot {
         }
         let pane_closes =
             take_pending_pane_closes(&mut self.pending_pane_closes, &attempted, &removed);
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.clear_pending_tab_close(&attempted);
             cx.notify();
             return;

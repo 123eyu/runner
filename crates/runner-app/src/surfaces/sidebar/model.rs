@@ -309,12 +309,12 @@ impl Sidebar {
         if self.front_page.is_remote() {
             return matches!(&self.remote_selection, Some(crate::surfaces::remote_client::RemoteItem::Tab(id)) if id == tab);
         }
-        self.shell.upgrade().is_some_and(|shell| { let shell = shell.read(cx); if let Some(remote) = &shell.remote_window { matches!(&remote.active, Some(crate::surfaces::remote_client::RemoteItem::Tab(id)) if id == tab) } else { super::elements::chat_tab_row_active(&shell.route, shell.tabs.active_tab_id(), tab) } })
+        self.shell.upgrade().is_some_and(|shell| { let shell = shell.read(cx); if shell.remote_client.is_active() { matches!(shell.remote_client.active_item(), Some(crate::surfaces::remote_client::RemoteItem::Tab(id)) if id == tab) } else { super::elements::chat_tab_row_active(&shell.route, shell.tabs.active_tab_id(), tab) } })
     }
     pub(super) fn mission_selected(&self, mission: &str, cx: &App) -> bool {
         if self.front_page.is_remote() {
             return matches!(&self.remote_selection, Some(crate::surfaces::remote_client::RemoteItem::Mission(id)) if id == mission);
         }
-        self.shell.upgrade().is_some_and(|shell| { let shell = shell.read(cx); if let Some(remote) = &shell.remote_window { matches!(&remote.active, Some(crate::surfaces::remote_client::RemoteItem::Mission(id)) if id == mission) } else { matches!(&shell.route, AppRoute::Mission(id) if id == mission) } })
+        self.shell.upgrade().is_some_and(|shell| { let shell = shell.read(cx); if shell.remote_client.is_active() { matches!(shell.remote_client.active_item(), Some(crate::surfaces::remote_client::RemoteItem::Mission(id)) if id == mission) } else { matches!(&shell.route, AppRoute::Mission(id) if id == mission) } })
     }
 }

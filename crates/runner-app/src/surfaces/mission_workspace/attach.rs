@@ -18,7 +18,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         self.active = true;
@@ -305,12 +305,8 @@ impl MissionWorkspace {
     }
 
     pub(crate) fn current_mission_terminal_size(&self, window: &Window, cx: &App) -> (u16, u16) {
-        if let Some(remote) = &self.remote {
-            if let MissionTab::Session(id) = &self.active_tab {
-                if let Some(size) = remote.terminal_sizes.get(id) {
-                    return *size;
-                }
-            }
+        if let Some(size) = self.presentation.terminal_size(&self.active_tab) {
+            return size;
         }
         let measured = match &self.active_tab {
             MissionTab::Session(session_id) => self
@@ -343,7 +339,7 @@ impl MissionWorkspace {
     }
 
     pub(crate) fn schedule_mission_grid_hint(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         if !self.is_active(cx) || self.secondary || self.grid_hint_pending {
@@ -379,7 +375,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             self.remote_navigation_changed(cx);
             return Ok(());
         }
@@ -437,7 +433,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return Ok(());
         }
         let Some(session_id) = layout.drawer.active_shell() else {
@@ -469,7 +465,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return Ok(());
         }
         if self.secondary_state(cx).secondary
@@ -603,7 +599,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         if !active {
@@ -649,7 +645,7 @@ impl MissionWorkspace {
         if self.rename_modal.is_some() || self.stop_all_confirm || self.restart_confirm.is_some() {
             return;
         }
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             if let MissionTab::Session(id) = &self.active_tab {
                 self.defer_remote_terminal_focus(id.clone(), false, window, cx);
             } else {
@@ -676,7 +672,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             self.defer_remote_terminal_focus(session_id.to_owned(), true, window, cx);
             return;
         }
@@ -702,25 +698,28 @@ impl MissionWorkspace {
         let generation = self.generation;
         window.defer(cx, move |window, cx| {
             shell.update(cx, |shell, cx| {
-                let current = shell.remote_window.as_ref().is_some_and(|remote| {
-                    if remote.front_page.target != target {
-                        return false;
-                    }
-                    let workspace = remote.mission_workspace.read(cx);
-                    workspace.active
-                        && workspace.generation == generation
-                        && workspace.rename_modal.is_none()
-                        && !workspace.stop_all_confirm
-                        && workspace.restart_confirm.is_none()
-                        && if drawer {
-                            workspace.layout.drawer.open()
-                                && workspace.layout.drawer.active_shell() == Some(&id)
-                        } else {
-                            workspace.active_tab == MissionTab::Session(id.clone())
+                let current = shell
+                    .remote_client
+                    .mission_workspace()
+                    .is_some_and(|workspace| {
+                        if shell.remote_client.client(cx).target != target {
+                            return false;
                         }
-                });
+                        let workspace = workspace.read(cx);
+                        workspace.active
+                            && workspace.generation == generation
+                            && workspace.rename_modal.is_none()
+                            && !workspace.stop_all_confirm
+                            && workspace.restart_confirm.is_none()
+                            && if drawer {
+                                workspace.layout.drawer.open()
+                                    && workspace.layout.drawer.active_shell() == Some(&id)
+                            } else {
+                                workspace.active_tab == MissionTab::Session(id.clone())
+                            }
+                    });
                 if current {
-                    shell.focus_remote_terminal(&id, window, cx);
+                    shell.remote_client.focus_remote_terminal(&id, window, cx);
                 }
             })
         });
