@@ -1,3 +1,4 @@
+pub(crate) mod launch;
 pub(crate) mod models;
 pub(crate) mod onboarding;
 pub(crate) mod skills;
@@ -151,6 +152,9 @@ use runner_core::protocol::runtime_metadata::claude_code::{PERMISSIONS, SKILL_DI
 
 pub struct ClaudeCode;
 impl RuntimeAdapter for ClaudeCode {
+    fn native_permission_mode(&self, args: &[String]) -> Option<String> {
+        Some(launch::permission_arg(args))
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }
@@ -217,8 +221,8 @@ impl RuntimeAdapter for ClaudeCode {
             ("DISABLE_INSTALLATION_CHECKS", "1"),
         ]
     }
-    fn launch_gate(&self) -> Option<Duration> {
-        Some(CLAUDE_LAUNCH_GATE_GRACE)
+    fn launch_gate(&self, session_id: &str, state: &Mutex<Option<Instant>>) {
+        launch::enter_gate(session_id, state, CLAUDE_LAUNCH_GATE_GRACE);
     }
     fn key_capture(&self) -> KeyCapture {
         KeyCapture::Hook

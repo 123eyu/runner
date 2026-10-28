@@ -8,6 +8,9 @@ mod status;
 
 pub struct Grok;
 impl RuntimeAdapter for Grok {
+    fn probe_uses_shell_env(&self) -> bool {
+        true
+    }
     fn catalog(&self) -> Option<RuntimeCatalog> {
         runner_core::protocol::runtime_metadata::grok::catalog()
     }

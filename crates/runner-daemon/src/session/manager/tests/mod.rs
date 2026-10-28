@@ -625,7 +625,7 @@ fn install_test_session_handle(manager: &SessionManager, session_id: &str) {
             runtime: "fake".into(),
             session_id: session_id.into(),
         },
-        codex_capture: None,
+        rollout_capture: None,
         forwarder: None,
         stop: Arc::new(AtomicBool::new(false)),
     });

@@ -28,7 +28,9 @@ pub use helpers::Permissions;
 pub(crate) use helpers::{test_home, with_conversation_home};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant};
 
 pub use runner_core::protocol::runtime::RuntimeCatalog;
 
@@ -122,6 +124,19 @@ pub enum KeyCapture {
     RolloutScan { sessions_root: Option<PathBuf> },
     LogTail,
     Hook,
+}
+
+pub use codex::capture::CaptureRequest as RolloutCaptureRequest;
+
+pub struct CaptureContext {
+    pub manager: Weak<crate::session::manager::SessionManager>,
+    pub session_id: String,
+    pub mission_id: Option<String>,
+    pub app_data_dir: PathBuf,
+    pub row_started_at: String,
+    pub stop: Arc<AtomicBool>,
+    pub pool: Arc<crate::db::DbPool>,
+    pub events: Arc<dyn crate::session::manager::SessionEvents>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +342,9 @@ pub trait RuntimeAdapter: Send + Sync {
         SkillSupport::default()
     }
     fn permissions(&self) -> &'static Permissions;
+    fn native_permission_mode(&self, _args: &[String]) -> Option<String> {
+        None
+    }
     fn skill_roots_with_env(
         &self,
         _home: &Path,
@@ -358,9 +376,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> std::collections::BTreeMap<String, String> {
         Default::default()
     }
-    fn launch_gate(&self) -> Option<Duration> {
-        None
-    }
+    fn launch_gate(&self, _session_id: &str, _state: &Mutex<Option<Instant>>) {}
     fn seed_trust(
         &self,
         _session_id: &str,
@@ -368,6 +384,21 @@ pub trait RuntimeAdapter: Send + Sync {
         _copilot_home: Option<&str>,
     ) -> crate::error::Result<()> {
         Ok(())
+    }
+    fn capture_prompt(
+        &self,
+        _session_id: &str,
+        first_turn: Option<String>,
+    ) -> (Option<String>, Option<String>) {
+        (first_turn, None)
+    }
+    fn prepare_capture(&self, _app_data_dir: &Path, _session_id: &str) {}
+    fn start_capture(&self, _ctx: CaptureContext) {}
+    fn start_rollout_capture(&self, _request: RolloutCaptureRequest) {}
+    fn cleanup_capture(&self, _app_data_dir: &Path, _pool: &crate::db::DbPool) {}
+    fn remove_capture(&self, _app_data_dir: &Path, _session_id: &str) {}
+    fn probe_uses_shell_env(&self) -> bool {
+        false
     }
     fn key_capture(&self) -> KeyCapture {
         KeyCapture::None
@@ -389,6 +420,16 @@ pub trait RuntimeAdapter: Send + Sync {
     }
     fn fork_plan(&self, _source_key: &str, _source_label: &str) -> Option<ForkPlan> {
         None
+    }
+    fn materialize_fork(
+        &self,
+        _spec: &SpawnSpec,
+        _plan: &ForkPlan,
+        _timeout: Duration,
+    ) -> crate::error::Result<String> {
+        Err(crate::error::Error::msg(
+            "runtime does not support headless fork materialization",
+        ))
     }
     fn conversation_exists(&self, _key: &str, _ctx: &ProbeContext<'_>) -> Option<bool> {
         None

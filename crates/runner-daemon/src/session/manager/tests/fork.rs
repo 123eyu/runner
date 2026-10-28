@@ -321,7 +321,7 @@ fn codex_direct_chat_fork_captures_headless_key_then_resumes_without_watcher() {
     assert_eq!(&spec.args[..2], &["resume", fork_key.as_str()]);
     assert_chat_has_no_permission_flags(&spec.args);
     assert!(!spec.args.contains(&"fork".to_string()));
-    assert!(mgr.codex_capture_context(&spawned.id).is_none());
+    assert!(mgr.rollout_capture_context(&spawned.id).is_none());
     let fork = crate::repo::session::get_row(&pool.get().unwrap(), &spawned.id)
         .unwrap()
         .unwrap();
@@ -434,7 +434,8 @@ fn headless_fork_rejects_nonzero_exit_and_kills_timed_out_process_group() {
         shell_path: None,
         initial_size: None,
     };
-    let error = super::spawn::run_headless_fork(&spec, &plan, Duration::from_secs(10)).unwrap_err();
+    let error = crate::runtimes::codex::fork::materialize(&spec, &plan, Duration::from_secs(10))
+        .unwrap_err();
     assert!(error.to_string().contains("exited with"), "{error}");
 
     let fork_key = uuid::Uuid::new_v4().to_string();
@@ -468,7 +469,8 @@ fn headless_fork_rejects_nonzero_exit_and_kills_timed_out_process_group() {
     let timeout = Duration::from_secs(30);
     let started = Instant::now();
     let error =
-        super::spawn::run_headless_fork(&missing_rollout_spec, &codex_plan, timeout).unwrap_err();
+        crate::runtimes::codex::fork::materialize(&missing_rollout_spec, &codex_plan, timeout)
+            .unwrap_err();
     assert!(error.to_string().contains("rollout for thread"), "{error}");
     assert!(started.elapsed() < timeout);
 
@@ -481,8 +483,9 @@ fn headless_fork_rejects_nonzero_exit_and_kills_timed_out_process_group() {
     let mut timed_spec = spec;
     timed_spec.command = command.to_string_lossy().into_owned();
     let started = Instant::now();
-    let error = super::spawn::run_headless_fork(&timed_spec, &plan, Duration::from_millis(250))
-        .unwrap_err();
+    let error =
+        crate::runtimes::codex::fork::materialize(&timed_spec, &plan, Duration::from_millis(250))
+            .unwrap_err();
     assert!(error.to_string().contains("timed out"));
     assert!(started.elapsed() < ci_scaled_budget(Duration::from_secs(2)));
 }
@@ -607,7 +610,8 @@ fn headless_fork_timeout_kills_batch_descendant_and_closes_pipes() {
         source_key: uuid::Uuid::new_v4().to_string(),
     };
     let started = Instant::now();
-    let error = super::spawn::run_headless_fork(&spec, &plan, Duration::from_secs(5)).unwrap_err();
+    let error = crate::runtimes::codex::fork::materialize(&spec, &plan, Duration::from_secs(5))
+        .unwrap_err();
     assert!(error.to_string().contains("timed out"), "{error}");
     assert!(started.elapsed() < Duration::from_secs(15));
     let pid: i32 = std::fs::read_to_string(descendant_pid)

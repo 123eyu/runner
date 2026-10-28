@@ -101,7 +101,7 @@ pub(crate) fn fork_rollout_is_ready(sessions_root: &Path, key: &str, source_key:
 /// `agent_session_key`. Returns immediately; no-op if the runtime's
 /// sessions root doesn't exist.
 pub struct CaptureRequest {
-    pub manager: std::sync::Weak<super::manager::SessionManager>,
+    pub manager: std::sync::Weak<crate::session::manager::SessionManager>,
     pub session_id: String,
     pub mission_id: Option<String>,
     pub sessions_root: PathBuf,
@@ -221,7 +221,7 @@ fn run(request: CaptureRequest) {
 }
 
 fn persist_capture(
-    manager: &std::sync::Weak<super::manager::SessionManager>,
+    manager: &std::sync::Weak<crate::session::manager::SessionManager>,
     pool: &DbPool,
     session_id: &str,
     expected_row_started_at: &str,
@@ -233,10 +233,10 @@ fn persist_capture(
     manager
         .persist_reported_key(
             session_id,
-            super::state::PersistKey {
+            crate::session::state::PersistKey {
                 key: Some(agent_session_key.into()),
                 generation: expected_row_started_at.into(),
-                origin: super::state::KeyOrigin::Captured,
+                origin: crate::session::state::KeyOrigin::Captured,
             },
             pool,
         )
@@ -314,16 +314,24 @@ fn fallback_row_is_unambiguous(
     spawn_cwd: &str,
 ) -> bool {
     let Ok(conn) = pool.get() else { return false };
-    let current_cwd =
-        crate::repo::session::codex_capture_cwd(&conn, session_id, expected_row_started_at);
+    let current_cwd = crate::repo::session::capture_cwd(
+        &conn,
+        session_id,
+        expected_row_started_at,
+        crate::model::Runtime::Codex.key(),
+    );
     match current_cwd {
         Ok(Some(cwd)) if cwd != spawn_cwd => return false,
         Ok(_) => {}
         Err(_) => return false,
     }
 
-    let sibling_count =
-        crate::repo::session::count_codex_capture_siblings(&conn, session_id, spawn_cwd);
+    let sibling_count = crate::repo::session::count_capture_siblings(
+        &conn,
+        session_id,
+        spawn_cwd,
+        crate::model::Runtime::Codex.key(),
+    );
     sibling_count.map(|count| count == 0).unwrap_or(false)
 }
 
@@ -623,6 +631,21 @@ fn parse_session_meta(path: &Path, want_cwd: &str, started_after: DateTime<Utc>)
         }),
         _ => ParseVerdict::NotOurs,
     }
+}
+
+pub(crate) fn mark_prompt(
+    session_id: &str,
+    first_turn: Option<String>,
+) -> (Option<String>, Option<String>) {
+    let Some(first_turn) = first_turn else {
+        return (None, None);
+    };
+    let marker = prompt_marker(session_id);
+    let marked_first_turn = format!("{first_turn}\n\n{marker}");
+    if marked_first_turn.len() > crate::router::runtime::FIRST_TURN_ARGV_MAX_BYTES {
+        return (Some(first_turn), None);
+    }
+    (Some(marked_first_turn), Some(marker))
 }
 
 #[cfg(test)]

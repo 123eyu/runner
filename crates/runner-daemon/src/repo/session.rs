@@ -1085,10 +1085,11 @@ pub fn live_handles_for_mission(
     rows.collect()
 }
 
-pub fn codex_capture_cwd(
+pub fn capture_cwd(
     conn: &Connection,
     session_id: &str,
     expected_started_at: &str,
+    runtime: &str,
 ) -> rusqlite::Result<Option<String>> {
     conn.query_row(
         "SELECT s.cwd
@@ -1098,16 +1099,17 @@ pub fn codex_capture_cwd(
             AND s.started_at = ?2
             AND s.status = 'running'
             AND s.agent_session_key IS NULL
-            AND s.agent_runtime = 'codex'",
-        rusqlite::params![session_id, expected_started_at],
+            AND s.agent_runtime = ?3",
+        rusqlite::params![session_id, expected_started_at, runtime],
         |row| row.get(0),
     )
 }
 
-pub fn count_codex_capture_siblings(
+pub fn count_capture_siblings(
     conn: &Connection,
     session_id: &str,
     spawn_cwd: &str,
+    runtime: &str,
 ) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT COUNT(*)
@@ -1115,10 +1117,10 @@ pub fn count_codex_capture_siblings(
            LEFT JOIN roles r ON r.id = s.role_id
           WHERE s.status = 'running'
             AND s.agent_session_key IS NULL
-            AND s.agent_runtime = 'codex'
+            AND s.agent_runtime = ?3
             AND s.id <> ?1
             AND (s.cwd = ?2 OR s.cwd IS NULL)",
-        rusqlite::params![session_id, spawn_cwd],
+        rusqlite::params![session_id, spawn_cwd, runtime],
         |row| row.get(0),
     )
 }

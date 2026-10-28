@@ -7,6 +7,9 @@ mod models;
 
 pub struct CursorAgent;
 impl RuntimeAdapter for CursorAgent {
+    fn probe_uses_shell_env(&self) -> bool {
+        true
+    }
     fn catalog(&self) -> Option<RuntimeCatalog> {
         runner_core::protocol::runtime_metadata::cursor_agent::catalog()
     }

@@ -240,7 +240,7 @@ fn install_replay_handle(
             runtime: "fake".into(),
             session_id: ID.into(),
         },
-        codex_capture: None,
+        rollout_capture: None,
         forwarder: None,
         stop: Arc::new(AtomicBool::new(false)),
     };
@@ -562,7 +562,7 @@ fn replay(path: &Path) -> Value {
                             &json!({"type":"session_meta","payload":{"id":"33333333-3333-4333-8333-333333333333","cwd":"/scenario/project","timestamp":START}}),
                         );
                         let captured = sessions_root.as_ref().and_then(|root| {
-                            crate::session::codex_capture::replay_scan(
+                            crate::runtimes::codex::capture::replay_scan(
                                 root,
                                 "/scenario/project",
                                 started,

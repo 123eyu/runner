@@ -503,7 +503,7 @@ struct SessionHandle {
     /// Codex-lineage runtimes cannot be given a caller-owned session id at launch.
     /// When this is present, user activity can retry native id
     /// capture after the runtime has actually created its rollout file.
-    codex_capture: Option<CodexCaptureContext>,
+    rollout_capture: Option<RolloutCaptureContext>,
     /// Forwarder thread that drains the runtime's `OutputStream`
     /// into the process-local terminal sink. `kill` joins on this so callers
     /// (mission_stop) get the same "no live sessions after we
@@ -532,7 +532,8 @@ const WINDOWS_FIRST_TURN_TIMEOUT: Duration = Duration::from_secs(10);
 const WINDOWS_FIRST_TURN_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
-struct CodexCaptureContext {
+struct RolloutCaptureContext {
+    runtime: String,
     manager: Weak<SessionManager>,
     mission_id: Option<String>,
     sessions_root: PathBuf,
@@ -683,13 +684,7 @@ pub struct SessionManager {
     /// way Terminal.app's children would (issues #109 / #152).
     shell_env: Arc<RwLock<crate::shell_path::LoginShellEnv>>,
     discovery_state: crate::runtime_status::SharedDiscoveryState,
-    /// Timestamp of the most recent claude-code spawn through the
-    /// launch gate. `None` until the first claude-code spawn lands.
-    /// Each new claude-code spawn reads this, sleeps the remainder
-    /// of the adapter launch grace, then updates it. Non-claude
-    /// runtimes never touch this field. See `enter_claude_launch_gate`
-    /// + issue #171.
-    claude_launch_gate: Mutex<Option<Instant>>,
+    launch_gate: Mutex<Option<Instant>>,
     /// Cancellation flags for in-flight background mission spawns,
     /// keyed by `mission_id`. `mission_start` registers a fresh flag
     /// before dispatching the `complete_mission_session_spawn`
@@ -801,30 +796,9 @@ pub struct PendingMissionSpawn {
     first_turn: Option<String>,
     resolved_cwd: Option<String>,
     row_started_at: String,
-    codex_prompt_marker: Option<String>,
+    capture_prompt_marker: Option<String>,
     app_data_dir: PathBuf,
     pool: Arc<DbPool>,
-}
-
-/// Pure helper for `enter_claude_launch_gate`: how long to sleep
-/// before letting a new claude-code spawn proceed, given the
-/// timestamp of the most recent prior spawn.
-///
-/// - `None` last → zero (no prior claude to race against).
-/// - prior was ≥ `grace` ago → zero (refresh window already elapsed).
-/// - prior was < `grace` ago → the remainder.
-///
-/// Factored out so the wait-math has direct test coverage with
-/// explicit grace values, independent of the cfg(test)-zeroed
-/// production constant.
-fn compute_gate_wait(last: Option<Instant>, now: Instant, grace: Duration) -> Duration {
-    match last {
-        None => Duration::ZERO,
-        Some(t) => {
-            let elapsed = now.saturating_duration_since(t);
-            grace.saturating_sub(elapsed)
-        }
-    }
 }
 
 impl SessionManager {
@@ -848,7 +822,7 @@ impl SessionManager {
             delivery_listeners: Mutex::new(HashMap::new()),
             shell_env,
             discovery_state,
-            claude_launch_gate: Mutex::new(None),
+            launch_gate: Mutex::new(None),
             pending_mission_cancels: Mutex::new(HashMap::new()),
             runtime,
             hook_endpoint: RwLock::new(None),
@@ -897,9 +871,7 @@ impl SessionManager {
                         .vars,
                 );
             }
-            if matches!(adapter.key_capture(), crate::runtimes::KeyCapture::LogTail) {
-                crate::runtimes::antigravity::agy_capture::clear_orphans(app_data_dir, &pool);
-            }
+            adapter.cleanup_capture(app_data_dir, &pool);
         }
         Ok(())
     }
@@ -1929,16 +1901,16 @@ impl SessionManager {
             .collect()
     }
 
-    fn codex_capture_context(&self, session_id: &str) -> Option<CodexCaptureContext> {
+    fn rollout_capture_context(&self, session_id: &str) -> Option<RolloutCaptureContext> {
         let state = self.session_state(session_id)?;
         let state = state.lock().unwrap();
         state
             .handle
             .as_ref()
-            .and_then(|handle| handle.codex_capture.clone())
+            .and_then(|handle| handle.rollout_capture.clone())
     }
 
-    fn spawn_codex_capture_if_unkeyed(&self, session_id: &str, ctx: &CodexCaptureContext) {
+    fn spawn_rollout_capture_if_unkeyed(&self, session_id: &str, ctx: &RolloutCaptureContext) {
         let Ok(conn) = ctx.pool.get() else { return };
         let should_capture = conn
             .query_row(
@@ -1954,8 +1926,8 @@ impl SessionManager {
         if !should_capture {
             return;
         }
-        crate::session::codex_capture::spawn_capture(
-            crate::session::codex_capture::CaptureRequest {
+        crate::runtimes::for_key(&ctx.runtime).start_rollout_capture(
+            crate::runtimes::RolloutCaptureRequest {
                 manager: ctx.manager.clone(),
                 session_id: session_id.to_string(),
                 mission_id: ctx.mission_id.clone(),

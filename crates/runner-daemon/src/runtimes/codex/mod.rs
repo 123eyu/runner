@@ -1,5 +1,7 @@
+pub(crate) mod capture;
 pub(crate) mod codex_status;
 pub(crate) mod codex_trust;
+pub(crate) mod fork;
 pub(crate) mod models;
 mod program_status;
 pub(crate) mod skills;
@@ -147,6 +149,24 @@ use runner_core::protocol::runtime_metadata::codex::{PERMISSIONS, SKILL_DIRS};
 
 pub struct Codex;
 impl RuntimeAdapter for Codex {
+    fn capture_prompt(
+        &self,
+        session_id: &str,
+        first_turn: Option<String>,
+    ) -> (Option<String>, Option<String>) {
+        capture::mark_prompt(session_id, first_turn)
+    }
+    fn start_rollout_capture(&self, request: RolloutCaptureRequest) {
+        capture::spawn_capture(request);
+    }
+    fn materialize_fork(
+        &self,
+        spec: &SpawnSpec,
+        plan: &ForkPlan,
+        timeout: Duration,
+    ) -> crate::error::Result<String> {
+        fork::materialize(spec, plan, timeout)
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }

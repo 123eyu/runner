@@ -228,7 +228,7 @@ fn codex_mission_spawn_grants_event_log_dir_to_sandbox() {
 
     let spec = fake.last_spawn_spec().expect("spawn was called");
     let mission_dir_arg = mission_dir.to_string_lossy().to_string();
-    let marker = crate::session::codex_capture::prompt_marker(&spawned.id);
+    let marker = crate::runtimes::codex::capture::prompt_marker(&spawned.id);
     assert!(
         has_arg_pair(&spec.args, "--add-dir", &mission_dir_arg),
         "codex mission spawn must grant mission dir with --add-dir; args = {:?}",
@@ -834,7 +834,7 @@ fn runtime_only_chat_spawn_and_resume_assert_no_permission_posture() {
 
 #[test]
 fn trae_first_turn_gets_capture_prompt_marker() {
-    let (first_turn, marker) = SessionManager::codex_capture_prompt_marker(
+    let (first_turn, marker) = SessionManager::capture_prompt_marker(
         Runtime::Trae.key(),
         "session-id",
         Some("first turn".to_string()),
@@ -842,7 +842,7 @@ fn trae_first_turn_gets_capture_prompt_marker() {
     let marker = marker.expect("trae must use the codex-lineage capture marker");
     assert_eq!(
         marker,
-        crate::session::codex_capture::prompt_marker("session-id")
+        crate::runtimes::codex::capture::prompt_marker("session-id")
     );
     let expected = format!("first turn\n\n{marker}");
     assert_eq!(first_turn.as_deref(), Some(expected.as_str()));

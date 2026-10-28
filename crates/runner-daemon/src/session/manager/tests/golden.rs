@@ -128,7 +128,7 @@ impl Normalizer {
                     Runtime::ClaudeCode | Runtime::Copilot | Runtime::Antigravity
                 )
             });
-        let rollout = mgr.codex_capture_context(&spec.session_id).map(|ctx| {
+        let rollout = mgr.rollout_capture_context(&spec.session_id).map(|ctx| {
             json!({
                 "sessions_root": self.text(&ctx.sessions_root.to_string_lossy(), root).replace("<TMP>", "<HOME>"),
                 "prompt_marker": ctx.prompt_marker.map(|marker| self.text(&marker, root))
@@ -593,7 +593,7 @@ fn spawn_capabilities_golden() {
         .chain(["unknown-runtime"])
     {
         let mgr = mgr_with_fake(None, fake_runtime());
-        mgr.enter_claude_launch_gate("golden", key);
+        mgr.enter_launch_gate("golden", key);
         let markers: Vec<_> = [
             None,
             Some("TURN".into()),
@@ -601,13 +601,13 @@ fn spawn_capabilities_golden() {
         ]
         .into_iter()
         .map(|body| {
-            let (body, marker) = SessionManager::codex_capture_prompt_marker(key, "golden", body);
+            let (body, marker) = SessionManager::capture_prompt_marker(key, "golden", body);
             json!({"body_len": body.as_ref().map(String::len), "marker": marker})
         })
         .collect();
         rows.push(json!({"runtime": key, "hooks_unix": crate::runtimes::for_key(key).status_hooks().is_some_and(|hooks| hooks.supported(false)),
             "hooks_windows": crate::runtimes::for_key(key).status_hooks().is_some_and(|hooks| hooks.supported(true)),
-            "launch_gate": mgr.claude_launch_gate.lock().unwrap().is_some(), "markers": markers,
+            "launch_gate": mgr.launch_gate.lock().unwrap().is_some(), "markers": markers,
             "env": Normalizer::default().text(&serde_json::to_string(&super::super::spawn::agent_env(BTreeMap::new(), &HashMap::new(), BTreeMap::new(), key)).unwrap(), data.path())}));
     }
     crate::golden::assert_golden("spawn-capabilities", json!(rows));
