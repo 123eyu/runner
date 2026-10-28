@@ -149,6 +149,25 @@ use runner_core::protocol::runtime_metadata::codex::{PERMISSIONS, SKILL_DIRS};
 
 pub struct Codex;
 impl RuntimeAdapter for Codex {
+    fn skill_roots_with_env(
+        &self,
+        home: &Path,
+        codex_home: Option<&Path>,
+        _env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<Vec<PathBuf>> {
+        let codex_home = codex_home?;
+        Some(
+            SKILL_DIRS
+                .iter()
+                .map(
+                    |relative| match Path::new(relative).strip_prefix(".codex") {
+                        Ok(suffix) => codex_home.join(suffix),
+                        Err(_) => home.join(relative),
+                    },
+                )
+                .collect(),
+        )
+    }
     fn status_semantics(&self) -> StatusSemantics {
         StatusSemantics {
             startup_ready_batch: true,

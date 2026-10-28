@@ -41,23 +41,11 @@ pub fn set_global_enabled(
     path: &Path,
     enabled: bool,
 ) -> Result<SkillCatalog> {
-    if runtime == Runtime::ClaudeCode {
-        if let Some(main) = crate::claude_accounts::sharing::main_account(&core.db) {
-            let env = std::collections::BTreeMap::from([(
-                crate::claude_accounts::sharing::MAIN_FOLDER.into(),
-                main.folder.clone(),
-            )]);
-            let catalog =
-                crate::skills::skill_catalog_with_env(runtime, &home_dir()?, None, &env).unwrap();
-            crate::runtimes::claude_code::skills::set_enabled_folder(
-                Path::new(&main.folder),
-                find_entry(&catalog, path)?,
-                enabled,
-            )?;
-            return Ok(
-                crate::skills::skill_catalog_with_env(runtime, &home_dir()?, None, &env).unwrap(),
-            );
-        }
+    let env = crate::claude_accounts::sharing::config_env(&core.db, Default::default());
+    if let Some(result) =
+        crate::runtimes::adapter(runtime).toggle_skill_with_env(&home_dir()?, path, enabled, &env)
+    {
+        return result;
     }
     set_global_enabled_at(
         &home_dir()?,

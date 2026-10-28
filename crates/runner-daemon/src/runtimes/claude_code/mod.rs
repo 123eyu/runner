@@ -155,6 +155,49 @@ impl RuntimeAdapter for ClaudeCode {
     fn native_permission_mode(&self, args: &[String]) -> Option<String> {
         Some(launch::permission_arg(args))
     }
+    fn skill_roots_with_env(
+        &self,
+        _home: &Path,
+        _codex_home: Option<&Path>,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<Vec<PathBuf>> {
+        env.get(crate::claude_accounts::sharing::MAIN_FOLDER)
+            .map(|folder| vec![Path::new(folder).join("skills")])
+    }
+    fn skill_state_with_env(
+        &self,
+        home: &Path,
+        codex_home: Option<&Path>,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> SkillState {
+        match env.get(crate::claude_accounts::sharing::MAIN_FOLDER) {
+            Some(folder) => skills::load_folder(Path::new(folder)),
+            None => skills::load(home, codex_home),
+        }
+    }
+    fn toggle_skill_with_env(
+        &self,
+        home: &Path,
+        path: &Path,
+        enabled: bool,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<crate::error::Result<crate::skills::SkillCatalog>> {
+        let folder = env.get(crate::claude_accounts::sharing::MAIN_FOLDER)?;
+        Some((|| {
+            let catalog =
+                crate::skills::skill_catalog_with_env(Runtime::ClaudeCode, home, None, env)
+                    .unwrap();
+            skills::set_enabled_folder(
+                Path::new(folder),
+                crate::ops::skills::find_entry(&catalog, path)?,
+                enabled,
+            )?;
+            Ok(
+                crate::skills::skill_catalog_with_env(Runtime::ClaudeCode, home, None, env)
+                    .unwrap(),
+            )
+        })())
+    }
     fn status_semantics(&self) -> StatusSemantics {
         StatusSemantics {
             interaction_prefix: Some("claude"),
