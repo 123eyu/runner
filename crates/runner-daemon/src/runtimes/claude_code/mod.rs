@@ -155,6 +155,17 @@ impl RuntimeAdapter for ClaudeCode {
     fn native_permission_mode(&self, args: &[String]) -> Option<String> {
         Some(launch::permission_arg(args))
     }
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            interaction_prefix: Some("claude"),
+            batch_feedback: true,
+            compaction: CompactionPolicy::ResumeUnfinishedTurn,
+            permission_prompt: PermissionPromptPolicy::VisibleCandidates,
+            elicitation_uses_requests: true,
+            idle_clears_compaction: true,
+            ..Default::default()
+        }
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }

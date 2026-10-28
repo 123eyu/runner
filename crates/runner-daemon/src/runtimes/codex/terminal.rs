@@ -61,7 +61,7 @@ impl TerminalAdapter for CodexTerminal {
     fn output_activity_bytes(&self, _bytes: &[u8]) -> usize {
         self.program_status.activity_bytes()
     }
-    fn take_codex_attention(&mut self) -> Option<bool> {
+    fn take_attention(&mut self) -> Option<bool> {
         self.attention.take()
     }
     fn on_input(&mut self, bytes: &[u8]) -> TerminalInput {

@@ -149,6 +149,18 @@ use runner_core::protocol::runtime_metadata::codex::{PERMISSIONS, SKILL_DIRS};
 
 pub struct Codex;
 impl RuntimeAdapter for Codex {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            startup_ready_batch: true,
+            native_attention: true,
+            reject_events_after_interruption: true,
+            reject_completions_after_outcome: true,
+            compaction: CompactionPolicy::KeepWorking,
+            interrupted_turn_unavailable: true,
+            ended_session_keeps_ready: true,
+            ..Default::default()
+        }
+    }
     fn capture_prompt(
         &self,
         session_id: &str,

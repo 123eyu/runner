@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::model::Runtime;
+use crate::runtimes::{CompactionPolicy, PermissionPromptPolicy, StatusSemantics, ToolEndPolicy};
 use crate::session::status::{
     Activity, AgentObservation, HumanInteraction, ObservationSource, TurnOutcome, WaitReason,
     WorkDetail,
@@ -107,20 +108,20 @@ impl AgentEvent {
     }
 
     pub(crate) fn needs_feedback(&self) -> bool {
-        matches!(
-            self,
-            Self::Batch {
-                runtime: Runtime::ClaudeCode,
-                ..
-            } | Self::Transcript {
-                runtime: Runtime::ClaudeCode,
-                ..
+        match self {
+            Self::Batch { runtime, .. } | Self::Transcript { runtime, .. } => {
+                crate::runtimes::adapter(*runtime)
+                    .status_semantics()
+                    .batch_feedback
             }
-        )
+            _ => false,
+        }
     }
 
     pub(crate) fn startup_ready(&self) -> bool {
-        matches!(self, Self::Batch { runtime: Runtime::Codex, events } if matches!(events.first(), Some(Self::StartupReady)))
+        matches!(self, Self::Batch { runtime, events }
+            if crate::runtimes::adapter(*runtime).status_semantics().startup_ready_batch
+                && matches!(events.first(), Some(Self::StartupReady)))
     }
 }
 
@@ -152,7 +153,7 @@ impl TurnState {
 #[derive(Clone, Default)]
 pub(crate) struct AgentModel {
     pub(crate) value: TurnState,
-    runtime: Option<Runtime>,
+    semantics: Option<StatusSemantics>,
     tools: usize,
     compacting: bool,
     pub(crate) compaction_resume: Option<(Activity, Option<TurnOutcome>)>,
@@ -184,14 +185,15 @@ impl AgentModel {
         let accepted = if let AgentEvent::Batch { runtime, events }
         | AgentEvent::Transcript { runtime, events } = event
         {
-            self.runtime = Some(runtime);
+            let semantics = crate::runtimes::adapter(runtime).status_semantics();
+            self.semantics = Some(semantics);
             let mut accepted = false;
             for event in events {
-                accepted |= self.apply(event, runtime, now);
+                accepted |= self.apply(event, semantics, now);
             }
             accepted
         } else {
-            self.apply(event, self.runtime.unwrap_or(Runtime::ClaudeCode), now)
+            self.apply(event, self.semantics(), now)
         };
         if accepted {
             self.value.source = ObservationSource::Hook;
@@ -217,41 +219,41 @@ impl AgentModel {
         self.cancelled_tool_result
     }
 
-    fn apply(&mut self, event: AgentEvent, runtime: Runtime, now: i64) -> bool {
+    fn apply(&mut self, event: AgentEvent, semantics: StatusSemantics, now: i64) -> bool {
         if matches!(event, AgentEvent::ConversationRecovered) {
             *self = Self {
-                runtime: Some(runtime),
+                semantics: Some(semantics),
                 ..Default::default()
             };
             return false;
         }
-        if runtime == Runtime::Antigravity
+        if semantics.interruption_ends_invocation
             && self.interrupted_invocation
             && !matches!(event, AgentEvent::TurnStarted)
         {
             return false;
         }
-        if runtime == Runtime::Codex {
-            if self.value.outcome == Some(TurnOutcome::Interrupted)
-                && !matches!(
-                    event,
-                    AgentEvent::TurnStarted
-                        | AgentEvent::StartupReady
-                        | AgentEvent::SessionEnded
-                        | AgentEvent::AbortSettled
-                        | AgentEvent::ManualCompactionStarted
-                )
-            {
-                return false;
-            }
-            if self.value.outcome.is_some()
-                && matches!(
-                    event,
-                    AgentEvent::ToolEnded { .. } | AgentEvent::CompactionEnded
-                )
-            {
-                return false;
-            }
+        if semantics.reject_events_after_interruption
+            && self.value.outcome == Some(TurnOutcome::Interrupted)
+            && !matches!(
+                event,
+                AgentEvent::TurnStarted
+                    | AgentEvent::StartupReady
+                    | AgentEvent::SessionEnded
+                    | AgentEvent::AbortSettled
+                    | AgentEvent::ManualCompactionStarted
+            )
+        {
+            return false;
+        }
+        if semantics.reject_completions_after_outcome
+            && self.value.outcome.is_some()
+            && matches!(
+                event,
+                AgentEvent::ToolEnded { .. } | AgentEvent::CompactionEnded
+            )
+        {
+            return false;
         }
         match event {
             AgentEvent::ConversationRecovered => unreachable!(),
@@ -263,7 +265,7 @@ impl AgentModel {
             }
             AgentEvent::Ready => self.value.activity = Activity::Ready,
             AgentEvent::TurnStarted => {
-                self.clear_turn(runtime != Runtime::Pi);
+                self.clear_turn(!semantics.preserve_turn_interactions);
                 self.interrupted_invocation = false;
                 self.work();
             }
@@ -272,13 +274,13 @@ impl AgentModel {
                 self.value.detail = detail;
             }
             AgentEvent::ToolStarted { count, question } => {
-                if runtime == Runtime::Copilot {
-                    self.finish_compaction(runtime);
+                if semantics.finish_compaction_on_progress {
+                    self.finish_compaction(semantics);
                 }
                 self.tools = count;
                 self.work();
                 if let Some(owner) = question {
-                    self.wait(runtime, WaitReason::Answer, vec![owner], now);
+                    self.wait(semantics, WaitReason::Answer, vec![owner], now);
                 }
             }
             AgentEvent::ToolEnded {
@@ -287,8 +289,8 @@ impl AgentModel {
                 interrupted,
                 transcript,
             } => {
-                let compact_working = if runtime == Runtime::Copilot && !transcript {
-                    self.finish_compaction(runtime)
+                let compact_working = if semantics.finish_compaction_on_progress && !transcript {
+                    self.finish_compaction(semantics)
                 } else {
                     None
                 };
@@ -304,7 +306,7 @@ impl AgentModel {
                         Activity::Ready
                     };
                     self.value.outcome = Some(TurnOutcome::Interrupted);
-                } else if runtime == Runtime::Copilot {
+                } else if semantics.tool_end == ToolEndPolicy::ResumeAfterCompaction {
                     if self.value.outcome == Some(TurnOutcome::Interrupted) {
                         if !self.value.needs_you() {
                             self.value.activity = Activity::Ready;
@@ -312,12 +314,12 @@ impl AgentModel {
                     } else if !transcript && compact_working != Some(false) {
                         self.work();
                     }
-                } else if runtime == Runtime::Pi {
+                } else if semantics.tool_end == ToolEndPolicy::KeepWorking {
                     self.value.activity = Activity::Working;
                 } else if !transcript && self.value.outcome.is_none() {
                     self.work();
                 }
-                self.update_detail(runtime);
+                self.update_detail(semantics);
             }
             AgentEvent::CompactionStarted | AgentEvent::ManualCompactionStarted => {
                 if !self.compacting {
@@ -327,27 +329,28 @@ impl AgentModel {
                 self.work();
             }
             AgentEvent::CompactionEnded => {
-                if runtime == Runtime::Pi && !self.compacting {
+                if semantics.compaction_requires_start && !self.compacting {
                     return false;
                 }
-                self.finish_compaction(runtime);
-                self.update_detail(runtime);
+                self.finish_compaction(semantics);
+                self.update_detail(semantics);
             }
             AgentEvent::TurnEnded { outcome } => {
-                let manual = (runtime == Runtime::Copilot)
+                let manual = (semantics.preserve_manual_compaction_outcome)
                     .then(|| {
                         self.compaction_resume.filter(|(activity, outcome)| {
                             *activity != Activity::Working || outcome.is_some()
                         })
                     })
                     .flatten();
-                self.clear_turn(runtime != Runtime::Pi);
-                self.value.activity =
-                    if runtime == Runtime::Codex && outcome == TurnOutcome::Interrupted {
-                        Activity::Unavailable
-                    } else {
-                        Activity::Ready
-                    };
+                self.clear_turn(!semantics.preserve_turn_interactions);
+                self.value.activity = if semantics.interrupted_turn_unavailable
+                    && outcome == TurnOutcome::Interrupted
+                {
+                    Activity::Unavailable
+                } else {
+                    Activity::Ready
+                };
                 if let Some((_, outcome)) = manual {
                     self.value.outcome = outcome;
                 } else if self.value.outcome != Some(TurnOutcome::Interrupted) {
@@ -356,20 +359,21 @@ impl AgentModel {
             }
             AgentEvent::SessionEnded => {
                 self.clear_turn(true);
-                self.value.activity = if runtime == Runtime::Codex && self.value.outcome.is_some() {
-                    Activity::Ready
-                } else {
-                    Activity::Unavailable
-                };
+                self.value.activity =
+                    if semantics.ended_session_keeps_ready && self.value.outcome.is_some() {
+                        Activity::Ready
+                    } else {
+                        Activity::Unavailable
+                    };
             }
             AgentEvent::LocalCancel { kind: _ } => {
                 if self.value.source != ObservationSource::Hook
                     || (self.value.activity != Activity::Working
-                        && !(runtime != Runtime::Antigravity && self.value.needs_you()))
+                        && !(!semantics.interruption_ends_invocation && self.value.needs_you()))
                 {
                     return false;
                 }
-                self.interrupted_invocation = runtime == Runtime::Antigravity;
+                self.interrupted_invocation = semantics.interruption_ends_invocation;
                 self.value.activity = if self.value.needs_you() {
                     Activity::Unavailable
                 } else {
@@ -378,7 +382,7 @@ impl AgentModel {
                 self.value.outcome = Some(TurnOutcome::Interrupted);
                 self.compacting = false;
                 self.compaction_resume = None;
-                self.update_detail(runtime);
+                self.update_detail(semantics);
             }
             AgentEvent::AbortSettled => {
                 if self.value.outcome != Some(TurnOutcome::Interrupted)
@@ -405,7 +409,7 @@ impl AgentModel {
                     };
                     self.value.outcome = Some(TurnOutcome::Interrupted);
                 }
-                self.update_detail(runtime);
+                self.update_detail(semantics);
             }
             AgentEvent::RejectionSettled => {
                 if !self.cancelled_tool_result || self.value.needs_you() {
@@ -415,18 +419,18 @@ impl AgentModel {
                 self.cancelled_tool_result = false;
             }
             AgentEvent::InteractionOpened { reason, owners } => {
-                self.wait(runtime, reason, owners, now);
+                self.wait(semantics, reason, owners, now);
             }
             AgentEvent::InteractionClosed { owner, reason } => {
                 self.close(&owner, reason);
                 self.permission_owners.retain(|id| *id != owner);
-                if runtime == Runtime::Copilot
+                if semantics.interaction_close_settles_interruption
                     && self.value.outcome == Some(TurnOutcome::Interrupted)
                     && !self.value.needs_you()
                 {
                     self.value.activity = Activity::Ready;
                 }
-                self.update_detail(runtime);
+                self.update_detail(semantics);
             }
             AgentEvent::PermissionRequested { reason, owners } => {
                 if self.value.activity != Activity::Working
@@ -440,10 +444,10 @@ impl AgentModel {
                         self.permission_owners.push(owner.clone());
                     }
                 }
-                if runtime == Runtime::Copilot {
+                if semantics.permission_prompt == PermissionPromptPolicy::CorrelatedOnly {
                     return false;
                 }
-                self.wait(runtime, reason, owners, now);
+                self.wait(semantics, reason, owners, now);
             }
             AgentEvent::PermissionPrompt { candidates } => {
                 if self.value.activity != Activity::Working {
@@ -455,14 +459,16 @@ impl AgentModel {
                     .filter(|owner| candidates.iter().any(|(id, _)| id == *owner))
                     .cloned()
                     .collect();
-                if runtime == Runtime::ClaudeCode {
+                if semantics.permission_prompt == PermissionPromptPolicy::VisibleCandidates {
                     for (owner, reason) in &candidates {
                         if *reason != WaitReason::Unknown && !owners.contains(owner) {
                             owners.push(owner.clone());
                         }
                     }
                 }
-                if runtime == Runtime::Copilot && owners.is_empty() {
+                if semantics.permission_prompt == PermissionPromptPolicy::CorrelatedOnly
+                    && owners.is_empty()
+                {
                     return false;
                 }
                 let reason = if !owners.is_empty()
@@ -475,8 +481,8 @@ impl AgentModel {
                 } else {
                     WaitReason::Approval
                 };
-                if runtime == Runtime::Copilot {
-                    return self.wait(runtime, reason, owners, now);
+                if semantics.deduplicate_wait_events {
+                    return self.wait(semantics, reason, owners, now);
                 }
                 if owners.is_empty()
                     || owners.iter().any(|owner| {
@@ -487,7 +493,7 @@ impl AgentModel {
                             .any(|wait| wait.owners.contains(owner))
                     })
                 {
-                    self.wait(runtime, reason, owners, now);
+                    self.wait(semantics, reason, owners, now);
                 } else {
                     return false;
                 }
@@ -522,7 +528,7 @@ impl AgentModel {
                 }
             }
             AgentEvent::ElicitationPrompt { owners } => {
-                let owners = if runtime == Runtime::ClaudeCode {
+                let owners = if semantics.elicitation_uses_requests {
                     if self.value.activity != Activity::Working {
                         return false;
                     }
@@ -533,8 +539,8 @@ impl AgentModel {
                 if owners.is_empty() {
                     return false;
                 }
-                if !self.wait(runtime, WaitReason::Answer, owners, now)
-                    && runtime == Runtime::Copilot
+                if !self.wait(semantics, WaitReason::Answer, owners, now)
+                    && semantics.deduplicate_wait_events
                 {
                     return false;
                 }
@@ -543,15 +549,15 @@ impl AgentModel {
                 if self.value.needs_you() {
                     return false;
                 }
-                if runtime == Runtime::Copilot {
-                    self.finish_compaction(runtime);
+                if semantics.finish_compaction_on_progress {
+                    self.finish_compaction(semantics);
                 }
                 self.value.activity = Activity::Ready;
-                if runtime == Runtime::ClaudeCode {
+                if semantics.idle_clears_compaction {
                     self.compacting = false;
                     self.compaction_resume = None;
                 }
-                self.update_detail(runtime);
+                self.update_detail(semantics);
             }
             AgentEvent::Outcome { outcome } => {
                 self.pending_outcome = Some(outcome);
@@ -571,7 +577,7 @@ impl AgentModel {
                     return false;
                 }
                 self.value.interactions.clear();
-                self.wait(runtime, reason, vec![owner], now);
+                self.wait(semantics, reason, vec![owner], now);
             }
             AgentEvent::ClearInteractions => {
                 if self.value.interactions.is_empty() {
@@ -586,11 +592,16 @@ impl AgentModel {
         true
     }
 
+    fn semantics(&self) -> StatusSemantics {
+        self.semantics
+            .unwrap_or_else(crate::runtimes::unbatched_status_semantics)
+    }
+
     fn work(&mut self) {
         self.value.activity = Activity::Working;
         self.value.outcome = None;
         self.cancelled_tool_result = false;
-        self.update_detail(self.runtime.unwrap_or(Runtime::ClaudeCode));
+        self.update_detail(self.semantics());
     }
     fn clear_turn(&mut self, interactions: bool) {
         self.tools = 0;
@@ -605,9 +616,9 @@ impl AgentModel {
         self.elicitations.clear();
         self.value.detail = None;
     }
-    fn update_detail(&mut self, runtime: Runtime) {
+    fn update_detail(&mut self, semantics: StatusSemantics) {
         self.value.detail = if self.value.activity != Activity::Working
-            || (runtime != Runtime::Pi && self.value.outcome.is_some())
+            || (!semantics.detail_after_outcome && self.value.outcome.is_some())
         {
             None
         } else if self.compacting {
@@ -618,16 +629,16 @@ impl AgentModel {
             None
         };
     }
-    fn finish_compaction(&mut self, runtime: Runtime) -> Option<bool> {
-        if runtime == Runtime::Copilot && !self.compacting {
+    fn finish_compaction(&mut self, semantics: StatusSemantics) -> Option<bool> {
+        if semantics.finish_compaction_on_progress && !self.compacting {
             return None;
         }
         self.compacting = false;
         let resume = self.compaction_resume.take();
         let working =
             resume.map(|(activity, outcome)| activity == Activity::Working && outcome.is_none());
-        match (runtime, resume) {
-            (Runtime::Pi, Some((activity, outcome))) => {
+        match (semantics.compaction, resume) {
+            (CompactionPolicy::RestoreExact, Some((activity, outcome))) => {
                 self.value.activity = activity;
                 self.value.outcome = outcome;
             }
@@ -635,12 +646,14 @@ impl AgentModel {
                 self.value.activity = Activity::Ready;
                 self.value.outcome = outcome;
             }
-            (Runtime::Copilot, Some(_)) => self.work(),
-            (Runtime::Codex, _) => self.value.activity = Activity::Working,
-            (Runtime::ClaudeCode, _) if self.value.outcome.is_none() => self.work(),
+            (CompactionPolicy::ResumeRecordedTurn, Some(_)) => self.work(),
+            (CompactionPolicy::KeepWorking, _) => self.value.activity = Activity::Working,
+            (CompactionPolicy::ResumeUnfinishedTurn, _) if self.value.outcome.is_none() => {
+                self.work()
+            }
             _ => {}
         }
-        self.update_detail(runtime);
+        self.update_detail(semantics);
         working
     }
     fn close(&mut self, owner: &str, reason: Option<WaitReason>) {
@@ -654,7 +667,7 @@ impl AgentModel {
     }
     fn wait(
         &mut self,
-        runtime: Runtime,
+        semantics: StatusSemantics,
         reason: WaitReason,
         owners: Vec<String>,
         now: i64,
@@ -672,13 +685,9 @@ impl AgentModel {
             return before != wait.owners.len();
         }
         self.next_interaction += 1;
-        let prefix = match runtime {
-            Runtime::ClaudeCode => "claude",
-            Runtime::Copilot => "copilot",
-            Runtime::Pi => "pi",
-            Runtime::Grok => "grok",
-            _ => unreachable!(),
-        };
+        let prefix = semantics
+            .interaction_prefix
+            .expect("runtime has no interaction events");
         self.value.interactions.push(HumanInteraction {
             id: format!("{prefix}-{}", self.next_interaction),
             reason,

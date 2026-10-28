@@ -49,6 +49,12 @@ use runner_core::protocol::runtime_metadata::antigravity::{PERMISSIONS, SKILL_DI
 
 pub struct Antigravity;
 impl RuntimeAdapter for Antigravity {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            interruption_ends_invocation: true,
+            ..Default::default()
+        }
+    }
     fn prepare_capture(&self, app_data_dir: &Path, session_id: &str) {
         agy_capture::prepare_log(app_data_dir, session_id);
     }

@@ -10,6 +10,7 @@ pub(crate) mod grok;
 mod helpers;
 pub(crate) mod opencode;
 pub(crate) mod pi;
+mod status;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
@@ -33,6 +34,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 pub use runner_core::protocol::runtime::RuntimeCatalog;
+pub use status::{CompactionPolicy, PermissionPromptPolicy, StatusSemantics, ToolEndPolicy};
 
 pub fn catalogs() -> Vec<RuntimeCatalog> {
     Runtime::ALL
@@ -162,7 +164,9 @@ pub struct TerminalInput {
 }
 pub trait TerminalAdapter: Send {
     fn on_output(&mut self, bytes: &[u8]) -> Option<TerminalEvent>;
-    fn take_codex_attention(&mut self) -> Option<bool> {
+    /// Drain the latest native wait-state change after `on_output`, independently of activity.
+    /// `true` holds delivery for human attention; `false` releases that native hold.
+    fn take_attention(&mut self) -> Option<bool> {
         None
     }
     // Called after on_output; adapters may release deferred byte evidence here.
@@ -273,7 +277,15 @@ pub struct McpConfig {
     pub supports_http: bool,
 }
 
+pub fn unbatched_status_semantics() -> StatusSemantics {
+    // Standalone reducer events historically use Claude's hook semantics.
+    claude_code::ClaudeCode.status_semantics()
+}
+
 pub trait RuntimeAdapter: Send + Sync {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics::default()
+    }
     fn catalog(&self) -> Option<RuntimeCatalog>;
     fn capabilities(&self) -> RuntimeCapabilities {
         RuntimeCapabilities::default()

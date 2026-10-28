@@ -51,6 +51,19 @@ use runner_core::protocol::runtime_metadata::copilot::{PERMISSIONS, SKILL_DIRS};
 
 pub struct Copilot;
 impl RuntimeAdapter for Copilot {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            interaction_prefix: Some("copilot"),
+            tool_end: ToolEndPolicy::ResumeAfterCompaction,
+            compaction: CompactionPolicy::ResumeRecordedTurn,
+            finish_compaction_on_progress: true,
+            preserve_manual_compaction_outcome: true,
+            interaction_close_settles_interruption: true,
+            permission_prompt: PermissionPromptPolicy::CorrelatedOnly,
+            deduplicate_wait_events: true,
+            ..Default::default()
+        }
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }

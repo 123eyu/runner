@@ -8,6 +8,12 @@ mod status;
 
 pub struct Grok;
 impl RuntimeAdapter for Grok {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            interaction_prefix: Some("grok"),
+            ..Default::default()
+        }
+    }
     fn probe_uses_shell_env(&self) -> bool {
         true
     }

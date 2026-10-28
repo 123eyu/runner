@@ -576,3 +576,14 @@ fn codex_status_args_for(key: &str, args: &[String], data: &Path, session: &str)
         Vec::new()
     }
 }
+
+#[test]
+fn native_attention_is_drained_independently_of_activity() {
+    let mut terminal = Codex.terminal_adapter(Some(false)).unwrap();
+    terminal.on_output(b"\x1b]7501;state=blocked:app=codex\x1b\\");
+    assert_eq!(terminal.take_attention(), Some(true));
+    assert_eq!(terminal.take_attention(), None);
+    terminal.on_output(b"\x1b]7501;state=idle:app=codex\x1b\\");
+    assert_eq!(terminal.take_attention(), Some(false));
+    assert_eq!(terminal.take_attention(), None);
+}
