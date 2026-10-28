@@ -1,4 +1,4 @@
-use crate::surfaces::settings_page::{settings_section_heading, SettingsPane};
+use crate::surfaces::settings::page::{settings_section_heading, SettingsPane};
 use crate::{theme, NativeRoot};
 use futures::FutureExt;
 use gpui::prelude::*;

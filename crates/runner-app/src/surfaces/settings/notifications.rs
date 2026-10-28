@@ -7,7 +7,7 @@ use runner_app::ui::{Button, ButtonSize, ButtonVariant};
 
 use crate::app_settings::NotificationSettings;
 use crate::notifications::Permission;
-use crate::surfaces::settings_page::settings_section_heading;
+use crate::surfaces::settings::page::settings_section_heading;
 use crate::{theme, NativeRoot};
 
 #[cfg(target_os = "macos")]

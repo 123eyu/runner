@@ -19,7 +19,6 @@ pub(crate) mod render_cache;
 pub(crate) mod roles;
 pub(crate) mod root;
 pub(crate) mod settings;
-pub(crate) mod settings_page;
 pub(crate) mod sidebar;
 pub(crate) mod sidebar_logic;
 pub(crate) mod start_chat;
@@ -41,7 +40,7 @@ pub(crate) use panes::{
     PaneCloseBehavior, PaneKey, SplitDecision, SplitMenuKey,
 };
 pub(crate) use roles::RoleSurfaces;
-pub(crate) use settings_page::{SettingsPane, SettingsState};
+pub(crate) use settings::page::{SettingsPane, SettingsState};
 pub(crate) use sidebar::{session_label, session_label_live, ProjectModal, Sidebar};
 pub(crate) use start_chat::StartChatModal;
 pub(crate) use start_mission::StartMissionModalState;

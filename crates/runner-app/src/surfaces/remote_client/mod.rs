@@ -430,7 +430,7 @@ impl RemoteClient {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(crate::surfaces::settings_page::settings_section_heading(
+                    .child(crate::surfaces::settings::page::settings_section_heading(
                         crate::i18n::tf(
                             "remote.computers_heading",
                             &[(
