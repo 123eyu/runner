@@ -1,0 +1,1067 @@
+//! Chat lifecycle and input: attaching sessions to terminals, tab
+//! activation/focus, key/scroll/paste routing, chat start/resume, and
+//! split resizing.
+mod actions;
+mod attachment;
+mod close;
+mod layout;
+
+use super::*;
+
+use crate::surfaces::front_page::actions::WorkspaceAction;
+
+use crate::*;
+
+use runner_core::protocol::model::Runtime;
+
+use runner_core::protocol::project::ProjectScope;
+
+pub(super) fn tab_is_terminal(
+    layout: &PaneLayout,
+    runtime: impl Fn(&str) -> Option<Runtime>,
+) -> bool {
+    let sessions = layout.session_ids();
+    !sessions.is_empty()
+        && sessions
+            .iter()
+            .all(|session_id| runtime(session_id).is_some_and(Runtime::is_shell))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum PaneRenameChange {
+    Unchanged,
+    Persist(Option<String>),
+}
+
+pub(super) fn pane_rename_change(original: &str, value: &str) -> PaneRenameChange {
+    let value = value.trim();
+    if value == original.trim() {
+        PaneRenameChange::Unchanged
+    } else if value.is_empty() {
+        PaneRenameChange::Persist(None)
+    } else {
+        PaneRenameChange::Persist(Some(value.to_owned()))
+    }
+}
+
+fn archive_chat_pane_target(
+    layout: &PaneLayout,
+    pane_id: &str,
+    session_id: &str,
+) -> TerminalCloseTarget {
+    TerminalCloseTarget::ArchiveChatPane {
+        session_id: session_id.to_owned(),
+        close: PendingPaneClose {
+            tab_id: layout.id.clone(),
+            pane_id: pane_id.to_owned(),
+        },
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TabCloseBehavior {
+    ArchiveChat,
+    CloseTerminal,
+    ArchiveDrawerShells,
+    DeleteEmptyTab,
+}
+
+fn tab_close_behavior(runtime: Option<&str>, has_drawer_shells: bool) -> TabCloseBehavior {
+    match pane_close_behavior(runtime) {
+        PaneCloseBehavior::ArchiveChat => TabCloseBehavior::ArchiveChat,
+        PaneCloseBehavior::CloseTerminal => TabCloseBehavior::CloseTerminal,
+        PaneCloseBehavior::LayoutOnly if has_drawer_shells => TabCloseBehavior::ArchiveDrawerShells,
+        PaneCloseBehavior::LayoutOnly => TabCloseBehavior::DeleteEmptyTab,
+    }
+}
+
+fn fork_confirmation(entry: Option<&DirectSessionEntry>) -> Option<ForkConfirm> {
+    entry
+        .filter(|entry| {
+            !Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell) && entry.forkable
+        })
+        .map(|entry| ForkConfirm {
+            session_id: entry.session_id.clone(),
+            pending: false,
+        })
+}
+
+fn begin_fork_submission(confirm: &mut Option<ForkConfirm>) -> Option<String> {
+    let confirm = confirm.as_mut()?;
+    if confirm.pending {
+        return None;
+    }
+    confirm.pending = true;
+    Some(confirm.session_id.clone())
+}
+
+fn cancel_fork_confirmation(confirm: &mut Option<ForkConfirm>) {
+    if confirm.as_ref().is_some_and(|confirm| !confirm.pending) {
+        *confirm = None;
+    }
+}
+
+pub(crate) fn fork_in_progress(forks: &HashMap<String, String>, session_id: &str) -> bool {
+    forks.contains_key(session_id) || forks.values().any(|fork_id| fork_id == session_id)
+}
+
+pub(crate) fn fork_materializing(forks: &HashMap<String, String>, session_id: &str) -> bool {
+    forks.values().any(|fork_id| fork_id == session_id)
+}
+
+fn accept_fork_started(
+    confirm: &mut Option<ForkConfirm>,
+    forks: &mut HashMap<String, String>,
+    source_session_id: &str,
+    fork_session_id: &str,
+) -> bool {
+    if !confirm
+        .as_ref()
+        .is_some_and(|confirm| confirm.pending && confirm.session_id == source_session_id)
+    {
+        return false;
+    }
+    *confirm = None;
+    forks.insert(source_session_id.to_owned(), fork_session_id.to_owned());
+    true
+}
+
+fn finish_fork_tracking(
+    forks: &mut HashMap<String, String>,
+    fork_session_id: &str,
+) -> Option<String> {
+    let source_session_id = forks
+        .iter()
+        .find_map(|(source_id, fork_id)| (fork_id == fork_session_id).then(|| source_id.clone()))?;
+    forks.remove(&source_session_id);
+    Some(source_session_id)
+}
+
+impl NativeRoot {
+    pub(crate) fn open_archived_chat(
+        &mut self,
+        chat: DirectSessionEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.remote_client.is_active() {
+            return;
+        }
+
+        self.dismiss_sidebar_transients(cx);
+        let session_key = chat.agent_session_key.clone();
+        self.archived_chat_detail = Some(chat);
+        self.archived_session_key_copy
+            .update(cx, |copy, copy_cx| copy.set_value(session_key, copy_cx));
+        self.set_route(AppRoute::ArchivedChat, cx);
+        self.chat_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn fork_chat(
+        &mut self,
+        session_id: &str,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.remote_client.is_active() {
+            if self.front_page_client(cx).supports(&["fork"])
+                && self
+                    .front_page_session(session_id, cx)
+                    .is_some_and(|entry| entry.native_fork)
+            {
+                self.fork_confirm = Some(ForkConfirm {
+                    session_id: session_id.into(),
+                    pending: false,
+                });
+                cx.notify();
+            }
+            return;
+        }
+
+        if self
+            .fork_confirm
+            .as_ref()
+            .is_some_and(|confirm| confirm.pending)
+        {
+            return;
+        }
+        if fork_in_progress(&self.forking_sessions, session_id) {
+            return;
+        }
+        self.fork_confirm = fork_confirmation(self.session_entry(session_id, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_fork_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let remote = self.front_page_client(cx).is_remote();
+        let (source_session_id, title, size) = if remote {
+            let Some(confirm) = self.fork_confirm.take() else {
+                return;
+            };
+            let size = self
+                .remote_client
+                .remote_terminal_size(&confirm.session_id)
+                .unwrap_or((INITIAL_COLS, INITIAL_ROWS));
+            (confirm.session_id, None, (size.0.max(20), size.1.max(8)))
+        } else {
+            let Some(id) = begin_fork_submission(&mut self.fork_confirm) else {
+                return;
+            };
+            let Some(entry) = self.session_entry(&id, cx) else {
+                self.fork_confirm = None;
+                cx.notify();
+                return;
+            };
+            let title = Some(crate::i18n::tf(
+                "format.fork",
+                &[("chat", session_label(entry).to_string())],
+            ));
+            self.chat_error = None;
+            (id, title, (INITIAL_COLS, INITIAL_ROWS))
+        };
+        cx.notify();
+        let Some(operation) =
+            WorkspaceAction::prepare(self, format!("session:{source_session_id}"), &["fork"], cx)
+        else {
+            return;
+        };
+        let core = operation.client.clone();
+        let backend_source_session_id = source_session_id.clone();
+        let fork = cx.background_spawn(async move {
+            core.fork(&backend_source_session_id, title, size)
+                .map_err(|error| error.to_string())
+        });
+        let origin_epoch = self.remote_client.ui.epoch;
+        cx.spawn_in(window, async move |weak, cx| {
+            let result = fork.await;
+            let _ = weak.update_in(cx, |this, window, cx| {
+                let Some(result) = WorkspaceAction::complete(
+                    this,
+                    operation,
+                    result,
+                    |session| crate::surfaces::front_page::actions::Completion {
+                        session: Some(session),
+                        ..Default::default()
+                    },
+                    cx,
+                ) else {
+                    return;
+                };
+                if this.remote_client.ui.epoch != origin_epoch {
+                    this.forking_sessions.remove(&source_session_id);
+                    cx.notify();
+                    return;
+                }
+                this.fork_confirm = None;
+                match result {
+                    Ok(spawned) => {
+                        let session_id = spawned;
+                        finish_fork_tracking(&mut this.forking_sessions, &session_id);
+                        let placement = (|| -> Result<()> {
+                            this.refresh_sessions(cx);
+                            this.reload_tabs(cx)?;
+                            this.tabs.activate_session(&session_id);
+                            this.sync_active_project_from_active_tab(cx);
+                            this.set_route(AppRoute::Chat, cx);
+                            this.ensure_active_tab_attached(window, cx)?;
+                            if !this.chat_transitions.contains_key(&session_id) {
+                                this.begin_chat_transition(
+                                    &session_id,
+                                    chat_lifecycle::TransitionKind::Starting,
+                                    Some(0),
+                                    window,
+                                    cx,
+                                );
+                            }
+                            this.remember_active_role(cx);
+                            this.mark_active_tab_viewed(window, cx);
+                            this.sync_active_chat_detail(cx);
+                            Ok(())
+                        })();
+                        if let Err(error) = placement {
+                            this.chat_error = Some(error.to_string().into());
+                        }
+                    }
+                    Err(error) => {
+                        let fork_session_id = this.forking_sessions.remove(&source_session_id);
+                        if let Some(fork_session_id) = fork_session_id {
+                            this.chat_transitions.remove(&fork_session_id);
+                            this.attached.remove(&fork_session_id);
+                        }
+                        this.refresh_sessions(cx);
+                        let _ = this.reload_tabs(cx);
+                        this.tabs.activate_session(&source_session_id);
+                        this.sync_active_project_from_active_tab(cx);
+                        let _ = this.ensure_active_tab_attached(window, cx);
+                        this.sync_active_chat_detail(cx);
+                        this.chat_error = Some(error.into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn cancel_fork_chat(&mut self, cx: &mut Context<Self>) {
+        cancel_fork_confirmation(&mut self.fork_confirm);
+        cx.notify();
+    }
+
+    pub(crate) fn handle_chat_lifecycle_event(
+        &mut self,
+        event: runner_core::protocol::ClientEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The sidebar also refreshes exit/updated rows; repeat it here so chat-local
+        // lifecycle state and row data land together regardless of subscriber order.
+        let session_id = event
+            .payload
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        if event.name == "session/input-error" {
+            if let Some(address) = session_id
+                .as_deref()
+                .filter(|id| runner_core::remote::terminal_target(id).is_some())
+            {
+                if let Some(message) = event
+                    .payload
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    self.remote_client
+                        .report_remote_input_error(address, message.to_owned(), cx);
+                }
+                return;
+            }
+        }
+        if event.name == "session/status"
+            && event
+                .payload
+                .get("status")
+                .and_then(|status| status.get("failed_since"))
+                .is_some_and(|failed_since| !failed_since.is_null())
+            && session_id.as_deref() == self.active_focused_session_id().as_deref()
+        {
+            self.mark_active_tab_viewed(window, cx);
+        }
+        match event.name.as_str() {
+            "session/input-error" => {
+                if self.route == AppRoute::Chat
+                    && session_id.as_deref().is_some_and(|id| {
+                        self.tabs.active().is_some_and(|layout| {
+                            layout.all_session_ids().iter().any(|session| session == id)
+                        })
+                    })
+                {
+                    self.chat_error = event
+                        .payload
+                        .get("message")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|message| message.to_owned().into());
+                }
+            }
+            "session/exit" => {
+                if let Some(session_id) = session_id {
+                    let exit_code = event
+                        .payload
+                        .get("exit_code")
+                        .and_then(serde_json::Value::as_i64)
+                        .and_then(|code| i32::try_from(code).ok());
+                    self.session_exit_codes
+                        .insert(session_id.clone(), exit_code);
+                    self.chat_transitions.remove(&session_id);
+                    self.stopping_sessions.remove(&session_id);
+                    self.refresh_sessions(cx);
+                    self.sync_active_chat_detail(cx);
+                    if self.route == AppRoute::Chat {
+                        if self
+                            .tabs
+                            .active()
+                            .filter(|layout| layout.drawer_open())
+                            .and_then(PaneLayout::active_drawer_shell)
+                            == Some(session_id.as_str())
+                        {
+                            self.drawer_focus.focus(window, cx);
+                        } else if self.active_focused_session_id().as_deref()
+                            == Some(session_id.as_str())
+                        {
+                            self.chat_focus.focus(window, cx);
+                            self.mark_active_tab_viewed(window, cx);
+                        }
+                    }
+                }
+            }
+            "session/archived" => {
+                if let Some(session_id) = session_id {
+                    self.attached.remove(&session_id);
+                    self.session_exit_codes.remove(&session_id);
+                    self.chat_transitions.remove(&session_id);
+                    self.stopping_sessions.remove(&session_id);
+                    self.refresh_sessions(cx);
+                    self.sync_active_chat_detail(cx);
+                }
+            }
+            "session/spawned" => {
+                if let Some(session_id) = session_id {
+                    self.attached.remove(&session_id);
+                    if finish_fork_tracking(&mut self.forking_sessions, &session_id).is_some() {
+                        self.begin_chat_transition(
+                            &session_id,
+                            chat_lifecycle::TransitionKind::Starting,
+                            Some(0),
+                            window,
+                            cx,
+                        );
+                    }
+                    if let Some(transition) = self.chat_transitions.get_mut(&session_id) {
+                        transition.baseline_seq = 0;
+                    }
+                    self.refresh_sessions(cx);
+                    if let Some(layout) = self.tabs.active().cloned().filter(|layout| {
+                        layout.all_session_ids().iter().any(|id| id == &session_id)
+                    }) {
+                        if let Err(error) = self.ensure_attached(&layout, &session_id, window, cx) {
+                            self.chat_error = Some(error.to_string().into());
+                        }
+                    }
+                    self.sync_active_chat_detail(cx);
+                }
+            }
+            "session/fork-started" => {
+                let source_session_id = event
+                    .payload
+                    .get("source_session_id")
+                    .and_then(serde_json::Value::as_str);
+                if let (Some(source_session_id), Some(session_id)) =
+                    (source_session_id, session_id.as_deref())
+                {
+                    if accept_fork_started(
+                        &mut self.fork_confirm,
+                        &mut self.forking_sessions,
+                        source_session_id,
+                        session_id,
+                    ) {
+                        let placement = (|| -> Result<()> {
+                            self.refresh_sessions(cx);
+                            self.reload_tabs(cx)?;
+                            self.tabs.activate_session(session_id);
+                            self.sync_active_project_from_active_tab(cx);
+                            self.set_route(AppRoute::Chat, cx);
+                            self.remember_active_role(cx);
+                            self.mark_active_tab_viewed(window, cx);
+                            self.sync_active_chat_detail(cx);
+                            Ok(())
+                        })();
+                        if let Err(error) = placement {
+                            self.chat_error = Some(error.to_string().into());
+                        }
+                    }
+                }
+            }
+            "session/warning" => {
+                let direct = event
+                    .payload
+                    .get("mission_id")
+                    .is_some_and(serde_json::Value::is_null);
+                let visible = session_id.as_deref().is_some_and(|session_id| {
+                    self.tabs.active().is_some_and(|layout| {
+                        layout.session_ids().iter().any(|id| id == session_id)
+                    })
+                });
+                if direct && visible {
+                    self.chat_warning = event
+                        .payload
+                        .get("message")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned);
+                }
+            }
+            "session/updated" => {
+                self.refresh_sessions(cx);
+                self.sync_active_chat_detail(cx);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn sync_active_chat_detail(&mut self, cx: &mut Context<Self>) {
+        if self.remote_client.is_active() {
+            return;
+        }
+        let selected = self.active_focused_session_id();
+        let Some(session_id) = selected else {
+            return;
+        };
+        self.active_chat_detail = self.core(cx).session_get(&session_id).ok().flatten();
+        let session_key = self
+            .active_chat_detail
+            .as_ref()
+            .and_then(|entry| entry.agent_session_key.clone());
+        self.session_key_copy
+            .update(cx, |copy, copy_cx| copy.set_value(session_key, copy_cx));
+    }
+
+    pub(crate) fn ensure_active_chat_detail(&mut self, cx: &mut Context<Self>) {
+        if self.remote_client.is_active() {
+            return;
+        }
+        let active = self.active_focused_session_id();
+        let loaded = self
+            .active_chat_detail
+            .as_ref()
+            .map(|entry| entry.session_id.as_str());
+        if active.as_deref() != loaded {
+            self.active_chat_detail = active
+                .as_ref()
+                .and_then(|id| self.app_store.read(cx).session_details.get(id))
+                .cloned();
+            let key = self
+                .active_chat_detail
+                .as_ref()
+                .and_then(|detail| detail.agent_session_key.clone());
+            self.session_key_copy
+                .update(cx, |copy, cx| copy.set_value(key, cx));
+        }
+    }
+
+    pub(crate) fn begin_chat_transition(
+        &mut self,
+        session_id: &str,
+        kind: chat_lifecycle::TransitionKind,
+        baseline_seq: Option<u64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.next_chat_transition_generation += 1;
+        let generation = self.next_chat_transition_generation;
+        let baseline_seq = baseline_seq.unwrap_or_else(|| {
+            self.attached
+                .get(session_id)
+                .map(|chat| chat.terminal.output_activity().last_seq)
+                .unwrap_or(0)
+        });
+        self.chat_transitions.insert(
+            session_id.to_owned(),
+            ChatTransition {
+                kind,
+                started_at: Instant::now(),
+                baseline_seq,
+                generation,
+            },
+        );
+        if self.route == AppRoute::Chat
+            && self.active_focused_session_id().as_deref() == Some(session_id)
+        {
+            self.chat_focus.focus(window, cx);
+        }
+        let tracked_id = session_id.to_owned();
+        cx.spawn_in(window, async move |weak, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            let done = weak
+                .update_in(cx, |this, window, cx| {
+                    let Some(transition) = this.chat_transitions.get(&tracked_id).copied() else {
+                        return true;
+                    };
+                    if transition.generation != generation {
+                        return true;
+                    }
+                    let now = Instant::now();
+                    let activity = this
+                        .attached
+                        .get(&tracked_id)
+                        .map(|chat| chat.terminal.output_activity());
+                    let output_seen = activity
+                        .is_some_and(|activity| activity.last_seq > transition.baseline_seq);
+                    let first_paint_seen = activity
+                        .is_some_and(|activity| activity.first_paint_seq > transition.baseline_seq);
+                    let tui_ready_seen = activity
+                        .is_some_and(|activity| activity.tui_ready_seq > transition.baseline_seq);
+                    let output_idle_for = activity
+                        .and_then(|activity| activity.last_output_at)
+                        .map(|last| now.saturating_duration_since(last));
+                    let settled = chat_lifecycle::transition_should_settle(
+                        transition.kind,
+                        now.saturating_duration_since(transition.started_at),
+                        first_paint_seen,
+                        tui_ready_seen,
+                        output_seen,
+                        output_idle_for,
+                    );
+                    if settled {
+                        this.chat_transitions.remove(&tracked_id);
+                        if this.remote_client.is_local() && this.route == AppRoute::Chat {
+                            let active_drawer = this
+                                .tabs
+                                .active()
+                                .filter(|layout| layout.drawer_open())
+                                .and_then(PaneLayout::active_drawer_shell)
+                                == Some(tracked_id.as_str());
+                            if active_drawer {
+                                this.focus_drawer_terminal(&tracked_id, window, cx);
+                            } else if this.active_focused_session_id().as_deref()
+                                == Some(tracked_id.as_str())
+                            {
+                                this.focus_active_terminal(window, cx);
+                            }
+                        }
+                        cx.notify();
+                    }
+                    settled
+                })
+                .unwrap_or(true);
+            if done {
+                break;
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        accept_fork_started, archive_chat_pane_target, begin_fork_submission,
+        cancel_fork_confirmation, finish_fork_tracking, fork_confirmation, fork_in_progress,
+        fork_materializing, pane_rename_change, tab_close_behavior, tab_is_terminal,
+        PaneRenameChange, TabCloseBehavior,
+    };
+    use crate::{PendingPaneClose, TerminalCloseTarget};
+    use runner_app::pane_layout::{PaneLayout, SplitOrientation};
+    use runner_core::protocol::model::{Runtime, SessionStatus};
+    use runner_core::protocol::session::DirectSessionEntry;
+    use std::collections::HashMap;
+
+    #[test]
+    fn queued_input_errors_reach_only_the_active_chat_tab() {
+        use crate::surfaces::start_chat::{tests::modal_harness, ChatMode};
+        use crate::AppRoute;
+        use runner_app::pane_layout::TabSet;
+        use runner_core::protocol::NodeTabUpsertInput;
+        use runner_terminal::terminal::TerminalMirror;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let mut harness = modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
+        let mut core = None;
+        harness.act(|root, _, cx| {
+            let store = root.app_store.read(cx);
+            let layout = PaneLayout::single(Some("missing-session"), &[]);
+            let row = store
+                .client
+                .node_tab_upsert(NodeTabUpsertInput {
+                    id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".into(),
+                    parent_id: None,
+                    name: "Error tab".into(),
+                    layout: layout.serialize().unwrap(),
+                })
+                .unwrap();
+            core = Some(store.test_core.clone());
+            root.tabs = TabSet::from_rows(&[row]);
+            root.route = AppRoute::Chat;
+            root.start_chat_modal = None;
+        });
+        let core = core.unwrap();
+        let client = runner_daemon::daemon::InProcessTransport::client(core.clone());
+        let events: Arc<dyn runner_daemon::session::manager::SessionEvents> =
+            Arc::new(core.session_events());
+        for id in ["other-session", "missing-session"] {
+            core.sessions
+                .prepare_unlisted_terminal(id, (80, 24), &core.db, &events)
+                .unwrap();
+            let mut received = client.subscribe();
+            let mirror =
+                TerminalMirror::attach(client.clone(), id.into(), Arc::new(|| {})).unwrap();
+            mirror.write_user_bytes(b"x").unwrap();
+            let event = futures::executor::block_on(received.recv()).unwrap();
+            assert_eq!(event.name, "session/input-error");
+            assert_eq!(event.payload["session_id"], id);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let mut visible = false;
+                harness.act(|root, _, _| {
+                    visible = root
+                        .chat_error
+                        .as_ref()
+                        .is_some_and(|error| error.resolve().contains("session not found"));
+                });
+                if id == "other-session" {
+                    assert!(!visible);
+                    break;
+                }
+                if visible {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "queued error did not reach the chat surface"
+                );
+                std::thread::yield_now();
+            }
+        }
+    }
+
+    #[test]
+    fn single_pane_tab_close_dispatches_chat_terminal_and_empty_panes() {
+        for (runtime, drawers, expected) in [
+            (Some("codex"), false, TabCloseBehavior::ArchiveChat),
+            (Some("claude"), true, TabCloseBehavior::ArchiveChat),
+            (Some("shell"), false, TabCloseBehavior::CloseTerminal),
+            (None, true, TabCloseBehavior::ArchiveDrawerShells),
+            (None, false, TabCloseBehavior::DeleteEmptyTab),
+        ] {
+            assert_eq!(tab_close_behavior(runtime, drawers), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_close_lands_on_start_unless_another_pane_session_remains() {
+        use crate::surfaces::start_chat::{tests::modal_harness, ChatMode};
+        use std::time::{Duration, Instant};
+
+        for variant in ["single", "empty-sibling", "filled-sibling"] {
+            let mut harness =
+                modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
+            let mut tab_id = String::new();
+            harness.act(|root, window, cx| {
+                root.start_chat_modal = None;
+                root.root_focus.focus(window, cx);
+                let conn = root.app_store.read(cx).test_core.db.get().unwrap();
+                for id in ["exited-shell", "other-tab-shell"]
+                    .into_iter()
+                    .chain((variant == "filled-sibling").then_some("kept-shell"))
+                {
+                    conn.execute("INSERT INTO sessions(id, status, agent_runtime, agent_command) VALUES (?1, 'stopped', 'shell', '/bin/sh')", [id]).unwrap();
+                }
+                drop(conn);
+                let mut layout = PaneLayout::single(Some("exited-shell"), &[]);
+                layout.id = "01ARZ3NDEKTSV4RRFFQ69G5FAV".into();
+                if variant != "single" {
+                    let pane = layout.split("p1", SplitOrientation::Row).unwrap();
+                    if variant == "filled-sibling" {
+                        layout.assign_session(&pane, "kept-shell").unwrap();
+                    }
+                }
+                tab_id = layout.id.clone();
+                root.core(cx).node_tab_upsert(layout.upsert_input().unwrap()).unwrap();
+                let mut other = PaneLayout::single(Some("other-tab-shell"), &[]);
+                other.id = "01ARZ3NDEKTSV4RRFFQ69G5FAX".into();
+                root.core(cx).node_tab_upsert(other.upsert_input().unwrap()).unwrap();
+                root.refresh_sessions(cx);
+                root.reload_tabs(cx).unwrap();
+                root.tabs.activate(&tab_id);
+                root.close_terminal_pane("p1", "exited-shell", window, cx);
+                assert_eq!(root.pending_tab_close.is_some(), variant != "filled-sibling");
+            });
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let mut finished = false;
+                harness.act(|root, _, cx| {
+                    finished = !root.stopping_sessions.contains("exited-shell");
+                    if finished {
+                        assert!(root.chat_error.is_none(), "{:?}", root.chat_error);
+                        root.reload_tabs(cx).unwrap();
+                        assert!(root.session_entry("exited-shell", cx).is_none());
+                        assert!(root.session_entry("other-tab-shell", cx).is_some());
+                        if variant == "filled-sibling" {
+                            let layout = root.tabs.active().unwrap();
+                            assert_eq!(layout.id, tab_id);
+                            assert_eq!(layout.root.leaves().len(), 1);
+                            assert_eq!(layout.focused_session_id(), Some("kept-shell"));
+                        } else {
+                            assert!(root.tabs.active().is_none(), "{variant}");
+                            assert_eq!(root.tabs.tabs().len(), 1);
+                            root.reload_tabs(cx).unwrap();
+                            assert!(root.tabs.active().is_none(), "{variant}");
+                        }
+                    }
+                });
+                if finished {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "terminal close did not finish: {variant}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn terminal_tabs_require_sessions_and_ignore_empty_panes() {
+        for (sessions, expected) in [
+            (vec![Some("shell")], true),
+            (vec![Some("shell"), Some("shell-2")], true),
+            (vec![Some("shell"), None], true),
+            (vec![Some("codex")], false),
+            (vec![Some("codex"), Some("shell")], false),
+            (vec![None], false),
+            (vec![None, None], false),
+            (vec![Some("unknown")], false),
+        ] {
+            let mut layout = PaneLayout::single(sessions[0], &[]);
+            for session in &sessions[1..] {
+                let pane = layout.split("p1", SplitOrientation::Row).unwrap();
+                if let Some(session) = session {
+                    layout.assign_session(&pane, session).unwrap();
+                }
+            }
+            assert_eq!(
+                tab_is_terminal(&layout, |session| match session {
+                    "shell-2" => Some(Runtime::Shell),
+                    runtime => Runtime::parse(runtime),
+                }),
+                expected,
+                "{sessions:?}"
+            );
+        }
+    }
+
+    fn direct_session(runtime: &str, forkable: bool) -> DirectSessionEntry {
+        DirectSessionEntry {
+            claude_account: None,
+            session_id: "chat-1".into(),
+            project_id: None,
+            role_id: None,
+            handle: Some("coder".into()),
+            agent_runtime: runtime.into(),
+            agent_command: runtime.into(),
+            agent_model: None,
+            agent_effort: None,
+            display_name: runtime.into(),
+            status: SessionStatus::Running,
+            title: None,
+            live_title: None,
+            cwd: None,
+            started_at: None,
+            stopped_at: None,
+            resumable: forkable,
+            native_fork: runtime != "shell",
+            forkable,
+            agent_session_key: forkable.then(|| "key".into()),
+            pinned: false,
+            archived_at: None,
+        }
+    }
+
+    #[test]
+    fn archive_chat_pane_target_pins_the_requesting_tab_before_confirm() {
+        let mut requesting = PaneLayout::single(Some("chat"), &["chat".into()]);
+        let other = requesting.split("p1", SplitOrientation::Row).unwrap();
+        requesting.assign_session(&other, "other").unwrap();
+        requesting.id = "tab-a".into();
+        let TerminalCloseTarget::ArchiveChatPane { session_id, close } =
+            archive_chat_pane_target(&requesting, "p1", "chat")
+        else {
+            panic!("× on a chat pane requests an archive");
+        };
+        assert_eq!(session_id, "chat");
+        assert_eq!(
+            close,
+            PendingPaneClose {
+                tab_id: "tab-a".into(),
+                pane_id: "p1".into(),
+            }
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn open_rename_placeholders_follow_a_peer_window_without_resetting_input() {
+        use crate::i18n::{testing::with_locale, Language, Locale};
+        use crate::{app_store, ChatRenameTarget, NativeRoot};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        with_locale(Locale::English, || {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = gpui::TestAppContext::single();
+            let store = app_store::test_lifecycle_store(&mut cx, temp.path());
+            store.update(&mut cx, |store, _| {
+                store.settings.language = Language::English;
+                let mut shell = direct_session("shell", false);
+                shell.session_id = "shell".into();
+                let mut chat = direct_session("codex", false);
+                chat.session_id = "chat".into();
+                store.sessions = vec![shell, chat];
+            });
+            let windows = ["rename-one", "rename-two"].map(|label| {
+                cx.add_window(|window, cx| {
+                    NativeRoot::new(
+                        label.into(),
+                        temp.path().join("logs"),
+                        None,
+                        None,
+                        store.clone(),
+                        window,
+                        cx,
+                    )
+                })
+            });
+            let mut visual = gpui::VisualTestContext::from_window(windows[1].into(), &cx);
+            for (target, english, chinese) in [
+                (
+                    ChatRenameTarget::Session {
+                        session_id: "shell".into(),
+                        original: "literal {count} 终端".into(),
+                    },
+                    "Terminal name",
+                    "终端名称",
+                ),
+                (
+                    ChatRenameTarget::Session {
+                        session_id: "chat".into(),
+                        original: "literal {count} 对话".into(),
+                    },
+                    "Chat name",
+                    "对话名称",
+                ),
+                (
+                    ChatRenameTarget::Tab {
+                        tab_id: "tab".into(),
+                        original: "literal {count} 标签页".into(),
+                    },
+                    "Tab name",
+                    "标签页名称",
+                ),
+            ] {
+                windows[1]
+                    .update(&mut visual, |root, window, cx| {
+                        root.route = crate::AppRoute::Chat;
+                        root.open_chat_rename(target, window, cx)
+                    })
+                    .unwrap();
+                let field = windows[1]
+                    .read_with(&visual, |root, _| {
+                        root.chat_rename_modal.as_ref().unwrap().input.clone()
+                    })
+                    .unwrap();
+                for draft in ["literal {name} 草稿", ""] {
+                    field.update(&mut visual, |field, cx| {
+                        field.set_text(draft, cx);
+                        field.select_all(cx);
+                    });
+                    let caret = field.read_with(&visual, |field, _| field.caret_offset());
+                    for (language, expected) in [
+                        (Language::SimplifiedChinese, chinese),
+                        (Language::English, english),
+                    ] {
+                        windows[0]
+                            .update(&mut visual, |root, _, cx| {
+                                root.app_store.update(cx, |store, cx| {
+                                    store.update_settings(
+                                        |settings| {
+                                            settings.language = language;
+                                            true
+                                        },
+                                        false,
+                                        cx,
+                                    )
+                                })
+                            })
+                            .unwrap();
+                        visual.run_until_parked();
+                        field.read_with(&visual, |field, _| {
+                            assert_eq!(field.placeholder(), expected);
+                            assert_eq!(field.text(), draft);
+                            assert_eq!(field.caret_offset(), caret);
+                        });
+                        windows[1]
+                            .read_with(&visual, |root, _| {
+                                assert_eq!(
+                                    root.chat_rename_modal.as_ref().unwrap().input.entity_id(),
+                                    field.entity_id()
+                                )
+                            })
+                            .unwrap();
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn pane_rename_enter_persists_titles_and_empty_restores_the_default() {
+        assert_eq!(
+            pane_rename_change("@coder", "  feature 64  "),
+            PaneRenameChange::Persist(Some("feature 64".into()))
+        );
+        assert_eq!(
+            pane_rename_change("feature 64", "   "),
+            PaneRenameChange::Persist(None)
+        );
+        assert_eq!(
+            pane_rename_change("feature 64", " feature 64 "),
+            PaneRenameChange::Unchanged
+        );
+    }
+
+    #[test]
+    fn fork_confirmation_opens_cancels_and_rejects_ineligible_sessions() {
+        let entry = direct_session("codex", true);
+        let mut confirm = fork_confirmation(Some(&entry));
+        assert_eq!(confirm.as_ref().map(|confirm| confirm.pending), Some(false));
+        cancel_fork_confirmation(&mut confirm);
+        assert!(confirm.is_none());
+
+        assert!(fork_confirmation(Some(&direct_session("codex", false))).is_none());
+        assert!(fork_confirmation(Some(&direct_session("shell", true))).is_none());
+        assert!(fork_confirmation(None).is_none());
+    }
+
+    #[test]
+    fn fork_confirmation_allows_only_one_backend_submission() {
+        let mut confirm = fork_confirmation(Some(&direct_session("claude-code", true)));
+        let mut calls = 0;
+        for _ in 0..2 {
+            if begin_fork_submission(&mut confirm).is_some() {
+                calls += 1;
+            }
+        }
+        assert_eq!(calls, 1);
+        assert!(confirm.as_ref().is_some_and(|confirm| confirm.pending));
+        cancel_fork_confirmation(&mut confirm);
+        assert!(confirm.is_some());
+    }
+
+    #[test]
+    fn fork_started_moves_busy_state_from_confirmation_to_both_sessions() {
+        let mut confirm = fork_confirmation(Some(&direct_session("codex", true)));
+        assert_eq!(
+            begin_fork_submission(&mut confirm).as_deref(),
+            Some("chat-1")
+        );
+        let mut forks = HashMap::new();
+
+        assert!(!accept_fork_started(
+            &mut confirm,
+            &mut forks,
+            "another-chat",
+            "fork-1",
+        ));
+        assert!(confirm.as_ref().is_some_and(|confirm| confirm.pending));
+        assert!(accept_fork_started(
+            &mut confirm,
+            &mut forks,
+            "chat-1",
+            "fork-1",
+        ));
+        assert!(confirm.is_none());
+        assert!(fork_in_progress(&forks, "chat-1"));
+        assert!(fork_in_progress(&forks, "fork-1"));
+        assert!(!fork_in_progress(&forks, "another-chat"));
+        assert!(!fork_materializing(&forks, "chat-1"));
+        assert!(fork_materializing(&forks, "fork-1"));
+
+        assert_eq!(
+            finish_fork_tracking(&mut forks, "fork-1").as_deref(),
+            Some("chat-1")
+        );
+        assert!(forks.is_empty());
+    }
+}

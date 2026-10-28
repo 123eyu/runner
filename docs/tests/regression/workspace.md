@@ -2,7 +2,7 @@
 
 Windows, tabs and panes are distinct: an OS window contains tabs, each tab contains panes, and each pane holds one session. Use only test-owned tabs/projects and the [procedure](../full-smoke-test.md). Menu labels and configured shortcut hints are authoritative if bindings are customized. Default macOS/Windows bindings are paired below where relevant.
 
-Current authority: [keymap](../../../crates/runner-app/src/keymap.rs), [pane layout](../../../crates/runner-app/src/pane_layout.rs), [pane actions](../../../crates/runner-app/src/surfaces/panes/), [chat](../../../crates/runner-app/src/surfaces/chat.rs), [start chat](../../../crates/runner-app/src/surfaces/start_chat/), [start mission](../../../crates/runner-app/src/surfaces/start_mission.rs) and [chat lifecycle](../../../crates/runner-app/src/surfaces/chat_lifecycle.rs), [work card](../../../crates/runner-app/src/ui/work_card.rs) and [Active sidebar](../../../crates/runner-app/src/surfaces/sidebar/active.rs). Later drawer and keyboard specs supersede older empty-pane/shell-entry recipes.
+Current authority: [keymap](../../../crates/runner-app/src/keymap.rs), [pane layout](../../../crates/runner-app/src/pane_layout.rs), [pane actions](../../../crates/runner-app/src/surfaces/panes/), [chat](../../../crates/runner-app/src/surfaces/chat/), [start chat](../../../crates/runner-app/src/surfaces/start_chat/), [start mission](../../../crates/runner-app/src/surfaces/start_mission.rs) and [chat lifecycle](../../../crates/runner-app/src/surfaces/chat_lifecycle.rs), [work card](../../../crates/runner-app/src/ui/work_card.rs) and [Active sidebar](../../../crates/runner-app/src/surfaces/sidebar/active.rs). Later drawer and keyboard specs supersede older empty-pane/shell-entry recipes.
 
 ## Creation and keyboard
 
