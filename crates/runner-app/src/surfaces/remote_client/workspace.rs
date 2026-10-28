@@ -14,13 +14,7 @@ pub(crate) enum Item {
 }
 pub(super) struct RemotePane {
     _lifetime: transport::AttachmentLifetime,
-    pub(super) terminal: Arc<TerminalMirror>,
-    _view: TerminalView,
-    interaction: Entity<TerminalInteraction>,
-    pub(super) input: Entity<TerminalInput>,
-    focus: FocusHandle,
-    scrollbar: Entity<Scrollbar>,
-    _subscription: Subscription,
+    pub(super) attachment: AttachedChat,
     control_failed: bool,
 }
 pub(crate) struct RemoteWindow {
@@ -140,7 +134,7 @@ impl NativeRoot {
                 && remote
                     .terminals
                     .get(id)
-                    .is_some_and(|pane| pane.terminal.control().desktop())
+                    .is_some_and(|pane| pane.attachment.terminal.control().desktop())
                 && self
                     .app_store
                     .read(cx)
@@ -162,7 +156,7 @@ impl NativeRoot {
         remote
             .terminals
             .get(id)
-            .map(|pane| pane.terminal.size())
+            .map(|pane| pane.attachment.terminal.size())
             .or_else(|| remote.sizes.get(id).copied())
     }
     pub(crate) fn remote_terminal_palette(
@@ -183,7 +177,7 @@ impl NativeRoot {
             return;
         };
         for pane in remote.terminals.values() {
-            app_settings::configure_terminal(&pane.terminal, self.settings(cx));
+            app_settings::configure_terminal(&pane.attachment.terminal, self.settings(cx));
         }
     }
     pub(crate) fn focus_remote_terminal(&self, id: &str, window: &mut Window, cx: &mut App) {
@@ -192,7 +186,7 @@ impl NativeRoot {
             .as_ref()
             .and_then(|remote| remote.terminals.get(id))
         {
-            pane.focus.focus(window, cx);
+            pane.attachment.terminal_focus.focus(window, cx);
         }
     }
     pub(crate) fn visit_computer(
@@ -446,7 +440,7 @@ impl NativeRoot {
         let terminal_epoch = clients.read(cx).terminal_epoch;
         if remote.terminal_epoch != terminal_epoch {
             for (id, pane) in &remote.terminals {
-                if let Some(size) = pane.interaction.read(cx).pane_size {
+                if let Some(size) = pane.attachment.terminal_interaction.read(cx).pane_size {
                     remote
                         .sizes
                         .insert(id.clone(), (size.cols.max(20), size.rows.max(8)));
@@ -646,7 +640,7 @@ impl NativeRoot {
             remote.activate_tab = None;
             remote.activate_mission = None;
             for pane in remote.terminals.values() {
-                pane.input.update(cx, |input, cx| {
+                pane.attachment.terminal_input.update(cx, |input, cx| {
                     input.cancel_composition();
                     cx.notify();
                 });
@@ -908,7 +902,8 @@ impl NativeRoot {
             cx.spawn(async move |weak, cx| {
                 let result = task.await;
                 let _ = weak.update(cx, |root, cx| {
-                    let palette = root.terminal_style(cx).palette;
+                    let style = root.terminal_style(cx);
+                    let settings = root.app_store.read(cx).settings.clone();
                     let Some(remote) = root.remote_window.as_mut().filter(|remote| {
                         remote.epoch == epoch
                             && remote.attachment_generation == attachment_generation
@@ -942,46 +937,44 @@ impl NativeRoot {
                     }
                     match result {
                         Ok(terminal) => {
-                            terminal.set_palette(palette);
-                            app_settings::configure_terminal(
-                                &terminal,
-                                &root.app_store.read(cx).settings,
-                            );
-                            let input = cx.new(|_| TerminalInput::new(terminal.clone()));
                             let input_address =
                                 runner_core::remote::terminal_address(&remote.computer.id, &id);
                             let input_id = id.clone();
                             let input_terminal = terminal.clone();
-                            let subscription = cx.observe(&input, move |root, input, cx| {
-                                if let Some(Err(error)) =
-                                    input.update(cx, |input, _| input.take_write_result())
-                                {
-                                    let current =
-                                        root.remote_window.as_ref().is_some_and(|remote| {
-                                            remote.epoch == epoch
-                                                && remote.attachment_generation
-                                                    == attachment_generation
-                                                && remote.terminals.get(&input_id).is_some_and(
-                                                    |pane| {
-                                                        Arc::ptr_eq(&pane.terminal, &input_terminal)
-                                                    },
-                                                )
-                                        });
-                                    if current {
-                                        root.report_remote_input_error(&input_address, error, cx);
+                            let attachment = AttachedChat::new(
+                                terminal,
+                                &style,
+                                &settings,
+                                cx,
+                                move |root, result, cx| {
+                                    if let Err(error) = result {
+                                        let current =
+                                            root.remote_window.as_ref().is_some_and(|remote| {
+                                                remote.epoch == epoch
+                                                    && remote.attachment_generation
+                                                        == attachment_generation
+                                                    && remote.terminals.get(&input_id).is_some_and(
+                                                        |pane| {
+                                                            Arc::ptr_eq(
+                                                                &pane.attachment.terminal,
+                                                                &input_terminal,
+                                                            )
+                                                        },
+                                                    )
+                                            });
+                                        if current {
+                                            root.report_remote_input_error(
+                                                &input_address,
+                                                error,
+                                                cx,
+                                            );
+                                        }
                                     }
-                                }
-                                cx.notify();
-                            });
+                                },
+                            );
                             let pane = RemotePane {
                                 _lifetime: lifetime,
-                                _view: terminal.view(),
-                                interaction: cx.new(|_| TerminalInteraction::new(terminal.clone())),
-                                scrollbar: cx.new(|_| Scrollbar::terminal(terminal.clone())),
-                                input,
-                                focus: cx.focus_handle(),
-                                terminal,
-                                _subscription: subscription,
+                                attachment,
                                 control_failed: false,
                             };
                             remote.recovery.remove(&id);
@@ -1061,7 +1054,7 @@ impl NativeRoot {
                 remote
                     .terminals
                     .iter()
-                    .map(|(id, pane)| (id.clone(), pane.terminal.size())),
+                    .map(|(id, pane)| (id.clone(), pane.attachment.terminal.size())),
             );
             remote.mission_workspace.update(cx, |workspace, _| {
                 workspace.set_remote_terminal_sizes(sizes)
@@ -1230,16 +1223,16 @@ impl NativeRoot {
                 .into_any_element();
         };
         let connected = remote.connection == Connection::Connected;
-        let controlled = pane.terminal.control().desktop();
+        let controlled = pane.attachment.terminal.control().desktop();
         let style = self.terminal_style(cx);
-        if pane.terminal.palette() != style.palette {
-            pane.terminal.set_palette(style.palette);
+        if pane.attachment.terminal.palette() != style.palette {
+            pane.attachment.terminal.set_palette(style.palette);
         }
-        let terminal = pane.terminal.clone();
+        let terminal = pane.attachment.terminal.clone();
         let key_terminal = terminal.clone();
         let copy_terminal = terminal.clone();
         let paste_terminal = terminal.clone();
-        let input = pane.input.clone();
+        let input = pane.attachment.terminal_input.clone();
         let take = cx.weak_entity();
         let take_id = id.to_owned();
         if !controlled {
@@ -1302,10 +1295,10 @@ impl NativeRoot {
                 div().relative().flex_1().min_h_0().min_w_0().child(
                     crate::surfaces::panes::TerminalSurface {
                         terminal,
-                        interaction: pane.interaction.clone(),
-                        input: pane.input.clone(),
-                        focus: pane.focus.clone(),
-                        scrollbar: pane.scrollbar.clone(),
+                        interaction: pane.attachment.terminal_interaction.clone(),
+                        input: pane.attachment.terminal_input.clone(),
+                        focus: pane.attachment.terminal_focus.clone(),
+                        scrollbar: pane.attachment.terminal_scrollbar.clone(),
                         style,
                         interactive,
                         resize_owner: interactive,
@@ -1354,9 +1347,10 @@ impl NativeRoot {
         let Some(pane) = remote.terminals.get_mut(id) else {
             return;
         };
-        let terminal = pane.terminal.clone();
+        let terminal = pane.attachment.terminal.clone();
         let (cols, rows) = pane
-            .interaction
+            .attachment
+            .terminal_interaction
             .read(cx)
             .pane_size
             .map(|size| (size.cols, size.rows))
@@ -1379,7 +1373,7 @@ impl NativeRoot {
                 let Some(pane) = remote
                     .terminals
                     .get_mut(&id)
-                    .filter(|pane| Arc::ptr_eq(&pane.terminal, &terminal))
+                    .filter(|pane| Arc::ptr_eq(&pane.attachment.terminal, &terminal))
                 else {
                     return;
                 };

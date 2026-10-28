@@ -261,16 +261,10 @@ pub(crate) struct CrewSurfaces {
 
 impl CrewSurfaces {
     pub(crate) fn set_library_load(&mut self, error: Option<String>) {
-        self.list.loading = error.is_none();
-        self.list.error = error;
+        self.list.set_load_error(error);
     }
     pub(crate) fn invalidate_library(&mut self) {
-        self.list.items.clear();
-        self.list.filtered_count = 0;
-        self.list.total_count = 0;
-        self.list.loaded = false;
-        self.list.loading = true;
-        self.list.error = None;
+        self.list.invalidate();
     }
     pub(crate) fn new(
         root: Entity<NativeRoot>,

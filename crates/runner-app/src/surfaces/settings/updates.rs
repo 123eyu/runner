@@ -2,12 +2,11 @@ use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Local};
 use gpui::prelude::*;
-use gpui::{div, img, rems, Context, Entity, FontWeight, Render, Subscription, Window};
+use gpui::{div, Context, Entity, Render, Subscription, Window};
 use runner_app::ui::{Button, ButtonSize, PaneHeader, SettingsCard, SettingsRow, Toggle};
 use runner_app::updater::Updater;
 
 use crate::app_store::AppStore;
-use crate::assets::app_icon_source;
 use crate::theme;
 
 pub(crate) struct UpdatesPane {
@@ -133,7 +132,6 @@ impl Render for UpdatesPane {
 
         let pane = cx.entity();
         let updater_controls_unavailable = !updater_available && available_version.is_none();
-        let installed_version = runner_app::version::display_version_label();
         let toggle_updater = self.updater.clone();
         let toggle_store = self.app_store.clone();
 
@@ -145,82 +143,45 @@ impl Render for UpdatesPane {
                 crate::i18n::text("ui.updates"),
                 crate::i18n::text("ui.check_for_new_versions_and_choose_how_runner_checks"),
             ))
-            .child(
-                div()
-                    .overflow_hidden()
-                    .rounded(rems(12. / 16.))
-                    .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
-                    .child(
+            .child(super::app_identity_card(
+                available_version
+                    .map(|version| {
                         div()
-                            .flex()
-                            .items_center()
-                            .gap_4()
-                            .p_5()
-                            .child(
-                                img(app_icon_source())
-                                    .size(rems(56. / 16.))
-                                    .flex_none()
-                                    .rounded(rems(1.)),
-                            )
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .text_size(theme::text_heading())
-                                                    .font_weight(FontWeight::BOLD)
-                                                    .text_color(theme::text())
-                                                    .child("Runner"),
-                                            )
-                                            .child(
-                                                div()
-                                                    .rounded_sm()
-                                                    .bg(theme::raised())
-                                                    .px(rems(6. / 16.))
-                                                    .py(rems(2. / 16.))
-                                                    .font_family(theme::UI_MONOSPACE_FONT)
-                                                    .text_size(theme::text_meta())
-                                                    .text_color(theme::muted())
-                                                    .child(installed_version),
-                                            ),
-                                    )
-                                    .children(available_version.map(|version| {
-                                        div()
-                                            .text_size(theme::text_ui())
-                                            .text_color(theme::muted())
-                                            .child(crate::i18n::tf("format.update_available", &[("version", (runner_app::version::version_label(&version)).to_string())]))
-                                    }))
-                                    .children(updater_controls_unavailable.then(|| {
-                                        div()
-                                            .text_size(theme::text_ui())
-                                            .text_color(theme::muted())
-                                            .child(
-                                                crate::i18n::text("ui.update_controls_are_available_in_bundled_builds"),
-                                            )
-                                    })),
-                            )
-                            .child(
-                                Button::new("updates-check", crate::i18n::text("ui.check_for_updates_action"))
-                                    .icon("refresh-cw.svg")
-                                    .size(ButtonSize::Sm)
-                                    .disabled(!updater_available)
-                                    .on_press(move |_, cx| {
-                                        pane.update(cx, |pane, cx| pane.check_for_updates(cx));
-                                    }),
-                            ),
-                    ),
-            )
+                            .text_size(theme::text_ui())
+                            .text_color(theme::muted())
+                            .child(crate::i18n::tf(
+                                "format.update_available",
+                                &[(
+                                    "version",
+                                    runner_app::version::version_label(&version).to_string(),
+                                )],
+                            ))
+                            .into_any_element()
+                    })
+                    .into_iter()
+                    .chain(updater_controls_unavailable.then(|| {
+                        div()
+                            .text_size(theme::text_ui())
+                            .text_color(theme::muted())
+                            .child(crate::i18n::text(
+                                "ui.update_controls_are_available_in_bundled_builds",
+                            ))
+                            .into_any_element()
+                    })),
+                Some(
+                    Button::new(
+                        "updates-check",
+                        crate::i18n::text("ui.check_for_updates_action"),
+                    )
+                    .icon("refresh-cw.svg")
+                    .size(ButtonSize::Sm)
+                    .disabled(!updater_available)
+                    .on_press(move |_, cx| {
+                        pane.update(cx, |pane, cx| pane.check_for_updates(cx));
+                    })
+                    .into_any_element(),
+                ),
+            ))
             .child(SettingsCard::new([
                 SettingsRow::new(
                     crate::i18n::text("ui.automatically_check_for_updates"),
@@ -245,7 +206,9 @@ impl Render for UpdatesPane {
                             });
                         }),
                 )
-                .subtitle(crate::i18n::text("ui.let_sparkle_check_github_for_a_newer_signed_release_when_due"))
+                .subtitle(crate::i18n::text(
+                    "ui.let_sparkle_check_github_for_a_newer_signed_release_when_due",
+                ))
                 .into_any_element(),
                 SettingsRow::new(
                     crate::i18n::text("ui.last_checked"),

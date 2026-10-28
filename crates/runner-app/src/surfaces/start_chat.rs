@@ -1,6 +1,4 @@
-#[path = "mission_workspace/add_role.rs"]
 mod add_role;
-#[path = "role_setup.rs"]
 mod role_setup;
 
 #[cfg(test)]

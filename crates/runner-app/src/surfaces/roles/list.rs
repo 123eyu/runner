@@ -384,26 +384,7 @@ impl NativeRoot {
             .enumerate()
             .map(|(index, item)| self.render_role_row(item, &columns, index < last, &now, cx))
             .collect::<Vec<_>>();
-        let no_matches = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap_3()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
-            .px_8()
-            .py(rems(56. / 16.))
-            .text_center()
-            .child(
-                svg()
-                    .flex_none()
-                    .path("search-x.svg")
-                    .size(rems(20. / 16.))
-                    .text_color(theme::faint()),
-            )
+        let no_matches = runner_app::ui::list::no_matches_card()
             .child(
                 div()
                     .text_size(theme::text_title())

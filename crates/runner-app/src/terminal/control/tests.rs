@@ -297,7 +297,7 @@ pub(crate) fn attached<T: 'static>(
         terminal,
         terminal_interaction: interaction,
         _terminal_input_subscription: cx.observe(&input, |_, _, _| {}),
-        _terminal_focus_subscription: cx.observe(&input, |_, _, _| {}),
+        _terminal_focus_subscription: Some(cx.observe(&input, |_, _, _| {})),
         terminal_input: input,
         terminal_focus: cx.focus_handle(),
     }
@@ -448,7 +448,7 @@ fn hidden_mission_slots_use_the_slot_pane_and_closed_drawers_keep_the_grid() {
                 terminal,
                 terminal_interaction: interaction,
                 _terminal_input_subscription: cx.observe(&input, |_, _, _| {}),
-                _terminal_focus_subscription: cx.observe(&input, |_, _, _| {}),
+                _terminal_focus_subscription: Some(cx.observe(&input, |_, _, _| {})),
                 terminal_input: input,
                 terminal_focus: cx.focus_handle(),
             }],

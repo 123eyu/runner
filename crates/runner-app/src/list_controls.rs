@@ -59,14 +59,22 @@ impl<T> ListControls<T> {
         self.query.clear();
         self.debounced_query.clear();
         self.page = 1;
+        self.invalidate();
+        self.request_id = self.request_id.wrapping_add(1);
+        self.debounce_generation = self.debounce_generation.wrapping_add(1);
+    }
+
+    pub fn set_load_error(&mut self, error: Option<String>) {
+        self.loading = error.is_none();
+        self.error = error;
+    }
+
+    pub fn invalidate(&mut self) {
         self.items.clear();
         self.filtered_count = 0;
         self.total_count = 0;
         self.loaded = false;
-        self.loading = true;
-        self.error = None;
-        self.request_id = self.request_id.wrapping_add(1);
-        self.debounce_generation = self.debounce_generation.wrapping_add(1);
+        self.set_load_error(None);
     }
 
     /// Whether the loaded counts answer a search rather than the whole list.
@@ -261,6 +269,35 @@ mod tests {
         assert!(controls.set_page(99));
         assert_eq!(controls.page, 3);
         assert!(!controls.set_page(3));
+    }
+
+    #[test]
+    fn invalidate_reloads_library_without_resetting_navigation() {
+        let mut controls = ListControls {
+            query: "needle".into(),
+            debounced_query: "needle".into(),
+            page: 2,
+            page_size: 25,
+            items: vec!["old"],
+            filtered_count: 30,
+            total_count: 50,
+            loaded: true,
+            loading: false,
+            error: Some("old error".into()),
+            ..Default::default()
+        };
+        controls.invalidate();
+        assert!(controls.items.is_empty());
+        assert_eq!((controls.filtered_count, controls.total_count), (0, 0));
+        assert!(!controls.loaded);
+        assert!(controls.loading);
+        assert_eq!(controls.error, None);
+        assert_eq!((controls.page, controls.page_size), (2, 25));
+        assert_eq!(controls.query, "needle");
+        assert_eq!(controls.debounced_query, "needle");
+        controls.set_load_error(Some("failed".into()));
+        assert!(!controls.loading);
+        assert_eq!(controls.error.as_deref(), Some("failed"));
     }
 
     #[test]

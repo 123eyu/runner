@@ -2264,6 +2264,7 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                     let terminal = window
                         .read_with(&visual, |root, _| {
                             root.remote_window.as_ref().unwrap().terminals["s"]
+                                .attachment
                                 .terminal
                                 .clone()
                         })
@@ -2277,7 +2278,9 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                         .read_with(&visual, |root, cx| {
                             assert!(Arc::ptr_eq(
                                 &terminal,
-                                &root.remote_window.as_ref().unwrap().terminals["s"].terminal
+                                &root.remote_window.as_ref().unwrap().terminals["s"]
+                                    .attachment
+                                    .terminal
                             ));
                             assert!(!root.remote_terminal_interactive("s", cx));
                         })
@@ -2372,6 +2375,7 @@ fn obsolete_remote_attach_results_cannot_replace_a_resumed_terminal() {
         let terminal = window
             .read_with(&cx, |root, _| {
                 root.remote_window.as_ref().unwrap().terminals["s"]
+                    .attachment
                     .terminal
                     .clone()
             })
@@ -2408,6 +2412,7 @@ fn daemon_recovery_replaces_closed_remote_stream_without_taking_control_and_retr
     let original = window
         .read_with(&cx, |root, _| {
             root.remote_window.as_ref().unwrap().terminals["s"]
+                .attachment
                 .terminal
                 .clone()
         })
@@ -2425,6 +2430,7 @@ fn daemon_recovery_replaces_closed_remote_stream_without_taking_control_and_retr
     let recovered = window
         .read_with(&cx, |root, _| {
             root.remote_window.as_ref().unwrap().terminals["s"]
+                .attachment
                 .terminal
                 .clone()
         })
@@ -2883,7 +2889,8 @@ fn remote_input_errors_and_late_write_callbacks_do_not_leak_to_other_targets() {
     let old_input = window
         .read_with(&cx, |root, _| {
             root.remote_window.as_ref().unwrap().terminals["s"]
-                .input
+                .attachment
+                .terminal_input
                 .clone()
         })
         .unwrap();
@@ -3328,6 +3335,7 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
             let original = window
                 .read_with(&cx, |root, _| {
                     root.remote_window.as_ref().unwrap().terminals["s"]
+                        .attachment
                         .terminal
                         .clone()
                 })
@@ -3344,7 +3352,9 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
                 .read_with(&cx, |root, _| {
                     assert!(Arc::ptr_eq(
                         &original,
-                        &root.remote_window.as_ref().unwrap().terminals["s"].terminal
+                        &root.remote_window.as_ref().unwrap().terminals["s"]
+                            .attachment
+                            .terminal
                     ))
                 })
                 .unwrap();
@@ -3403,7 +3413,10 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
                 .read_with(&cx, |root, _| {
                     let remote = root.remote_window.as_ref().unwrap();
                     assert!(remote.connection == Connection::Connected);
-                    assert!(!Arc::ptr_eq(&original, &remote.terminals["s"].terminal));
+                    assert!(!Arc::ptr_eq(
+                        &original,
+                        &remote.terminals["s"].attachment.terminal
+                    ));
                 })
                 .unwrap();
         });
@@ -3696,6 +3709,7 @@ fn pairing_again_restores_existing_windows_follow_and_replaces_its_terminal() {
         let original = window
             .read_with(&cx, |root, _| {
                 root.remote_window.as_ref().unwrap().terminals["s"]
+                    .attachment
                     .terminal
                     .clone()
             })
@@ -3738,7 +3752,10 @@ fn pairing_again_restores_existing_windows_follow_and_replaces_its_terminal() {
                 assert!(root.client_ui.pair.is_none());
                 let remote = root.remote_window.as_ref().unwrap();
                 assert!(remote.connection == Connection::Connected);
-                assert!(!Arc::ptr_eq(&original, &remote.terminals["s"].terminal));
+                assert!(!Arc::ptr_eq(
+                    &original,
+                    &remote.terminals["s"].attachment.terminal
+                ));
             })
             .unwrap();
         let mut pushed = overview();
@@ -5742,6 +5759,7 @@ fn remote_terminals_follow_the_viewer_cursor_and_selection_settings() {
         window
             .read_with(cx, |root, _| {
                 let term = root.remote_window.as_ref().unwrap().terminals["s"]
+                    .attachment
                     .terminal
                     .term
                     .lock();
@@ -5779,6 +5797,7 @@ fn remote_terminals_draw_with_the_host_palette_and_fall_back_to_the_viewer() {
             .read_with(cx, |root, cx| {
                 (
                     root.remote_window.as_ref().unwrap().terminals["s"]
+                        .attachment
                         .terminal
                         .palette(),
                     root.terminal_style(cx).palette,
@@ -5822,6 +5841,7 @@ fn remote_terminal_keyboard_copy_interrupt_and_paste_follow_platform_bindings() 
             window.activate_window();
             root.focus_remote_terminal("s", window, cx);
             root.remote_window.as_ref().unwrap().terminals["s"]
+                .attachment
                 .terminal
                 .clone()
         })
