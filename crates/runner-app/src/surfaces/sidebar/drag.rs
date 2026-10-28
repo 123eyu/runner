@@ -172,35 +172,36 @@ impl Sidebar {
             drop_target = ?target,
             "commit sidebar drop"
         );
-        if self.front_page.is_remote() {
-            self.remote_commit_drop(dragged_id, &target, cx);
+        let rows = self.resolved_sidebar_rows(cx);
+        let nodes = self.source_nodes(cx);
+        let Some(node) = nodes.iter().find(|node| node.id == dragged_id) else {
             self.clear_sidebar_drag("drop", cx);
             return;
-        }
-        let rows = self.resolved_sidebar_rows(cx);
-        let result = match target.kind {
+        };
+        let ordered = |ids: Vec<String>| {
+            ids.into_iter()
+                .filter_map(|id| nodes.iter().find(|node| node.id == id).cloned())
+                .collect::<Vec<_>>()
+        };
+        let order = match target.kind {
             DropKind::Pinned => {
                 let visible = rows
                     .iter()
                     .filter(|row| row.node().pinned_position.is_some())
                     .map(|row| row.node().id.clone())
                     .collect::<Vec<_>>();
-                let order = ordered_pinned_node_ids_after_drop(
+                ordered_pinned_node_ids_after_drop(
                     &self.source_nodes(cx),
                     &visible,
                     dragged_id,
                     target.index,
-                );
-                self.core(cx).node_reorder_pinned(order)
+                )
             }
-            DropKind::Project => {
-                let order = ordered_root_node_ids_after_project_drop(
-                    &self.source_nodes(cx),
-                    dragged_id,
-                    target.index,
-                );
-                self.core(cx).node_move(dragged_id.to_owned(), None, order)
-            }
+            DropKind::Project => ordered_root_node_ids_after_project_drop(
+                &self.source_nodes(cx),
+                dragged_id,
+                target.index,
+            ),
             DropKind::Leaf => {
                 let visible = self
                     .scope_rows(&rows, target.parent_id.as_deref())
@@ -209,18 +210,55 @@ impl Sidebar {
                     .collect::<Vec<_>>();
                 let visible =
                     ordered_visible_node_ids_after_drop(&visible, dragged_id, target.index);
-                let order = complete_unpinned_scope_order(
+                complete_unpinned_scope_order(
                     &self.source_nodes(cx),
                     target.parent_id.as_deref(),
                     dragged_id,
                     &visible,
-                );
-                self.core(cx)
-                    .node_move(dragged_id.to_owned(), target.parent_id, order)
+                )
             }
         };
+        let order = ordered(order);
+        let project = target
+            .parent_id
+            .as_ref()
+            .and_then(|id| nodes.iter().find(|node| &node.id == id));
+        let pinned = target.kind == DropKind::Pinned;
+        let feature = if pinned { "reorderPinned" } else { "move" };
+        if !self.front_page.supports(&[feature]) {
+            self.clear_sidebar_drag("drop", cx);
+            return;
+        }
+        let node = node.clone();
+        let project = project.cloned();
+        let operation = move |client: crate::surfaces::front_page::FrontPageClient| {
+            if pinned {
+                client.reorder_pinned(&order)
+            } else {
+                client.move_item(&node, project.as_ref(), &order)
+            }
+        };
+        if self.front_page.is_remote() {
+            if let Some(shell) = self.shell.upgrade() {
+                shell.update(cx, |root, cx| {
+                    root.remote_action(
+                        "sidebar-order".into(),
+                        &[feature],
+                        move |client| {
+                            operation(client)?;
+                            Ok(Default::default())
+                        },
+                        cx,
+                    )
+                });
+            }
+            self.clear_sidebar_drag("drop", cx);
+            return;
+        }
+        let result = operation(self.front_page.clone());
         match result {
             Ok(nodes) => {
+                let nodes = nodes.expect("local sidebar rows");
                 tracing::debug!(
                     target: "sidebar::drag",
                     path = "drop-result",

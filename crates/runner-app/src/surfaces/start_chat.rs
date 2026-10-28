@@ -382,33 +382,30 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
-            if let Some(layout) = self.front_page_layout().cloned() {
-                if let Some(pane) = new_terminal_empty_pane(&layout) {
-                    let size = self.estimated_terminal_size(&layout, &pane, window, cx);
-                    self.remote_start_shell(
-                        layout,
-                        Some(pane),
-                        (size.0.max(20), size.1.max(8)),
-                        cx,
-                    );
-                    return;
-                }
-            }
-            self.new_terminal_tab(
-                ProjectScope::or_root(self.active_project_id(cx)),
-                window,
-                cx,
-            );
+        let remote = self.front_page_client(cx).is_remote();
+        if !remote && self.create_modal_open() {
             return;
         }
-
-        if self.create_modal_open() {
-            return;
-        }
-        if let Some(pane_id) = self.focused_empty_chat_pane() {
-            let original = self.tabs.active().unwrap().clone();
-            let (scope, cwd) = self.terminal_start_location(cx);
+        let pane = if remote {
+            self.front_page_layout().and_then(new_terminal_empty_pane)
+        } else {
+            self.focused_empty_chat_pane()
+        };
+        if let Some(pane_id) = pane {
+            let original = self.front_page_layout().unwrap().clone();
+            let (scope, cwd) = if remote {
+                (
+                    ProjectScope::or_root(original.parent_id.clone()),
+                    original
+                        .focused_session_id()
+                        .map(str::to_owned)
+                        .or_else(|| original.session_ids().first().cloned())
+                        .and_then(|id| self.front_page_session(&id, cx))
+                        .and_then(|session| session.cwd),
+                )
+            } else {
+                self.terminal_start_location(cx)
+            };
             self.spawn_terminal_in_pane(pane_id, original, scope, cwd, window, cx);
         } else {
             self.new_terminal_tab(
@@ -507,18 +504,19 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
-            let mut draft = PaneLayout::single(None, &[]);
+        let remote = self.front_page_client(cx).is_remote();
+        let mut draft = PaneLayout::single(None, &[]);
+        if remote {
             draft.id = runner_core::event_log::UlidGen::new()
                 .next()
                 .expect("new tab ULID");
-            draft.parent_id = scope.project_id().map(str::to_owned);
-            let pane = draft.focused_pane_id.clone();
-            let size = self.estimated_terminal_size(&draft, &pane, window, cx);
-            self.remote_start_shell(draft, Some(pane), (size.0.max(20), size.1.max(8)), cx);
-            return;
         }
-
+        draft.parent_id = scope.project_id().map(str::to_owned);
+        let size = if remote {
+            self.estimated_terminal_size(&draft, &draft.focused_pane_id, window, cx)
+        } else {
+            (INITIAL_COLS, INITIAL_ROWS)
+        };
         let project_cwd = scope.project_id().and_then(|project_id| {
             self.app_store
                 .read(cx)
@@ -527,57 +525,63 @@ impl NativeRoot {
                 .find(|project| project.id == project_id)
                 .map(|project| project.cwd.as_str())
         });
-        let cwd = terminal_working_dir(
-            None,
-            project_cwd,
-            &self.settings(cx).default_working_dir,
-            runner_core::app_paths::home_dir()
-                .as_deref()
-                .and_then(|home| home.to_str()),
-        );
-        let mut spawned_id = None;
-        let result = (|| -> Result<String> {
-            let spawned = self.core(cx).session_start_shell_in(
-                scope,
-                cwd,
-                Some(INITIAL_COLS),
-                Some(INITIAL_ROWS),
-            )?;
-            spawned_id = Some(spawned.id.clone());
-            self.refresh_sessions(cx);
-            self.reload_tabs(cx)?;
-            if !self.tabs.activate_session(&spawned.id) {
-                bail!("terminal tab was not created");
-            }
-            self.sync_active_project_from_active_tab(cx);
-            self.set_route(AppRoute::Chat, cx);
-            self.ensure_active_tab_attached(window, cx)?;
-            Ok(spawned.id)
-        })();
-
-        match result {
-            Ok(session_id) => {
-                self.chat_error = None;
-                self.mark_active_tab_viewed(window, cx);
-                self.sync_active_chat_detail(cx);
-                self.begin_chat_transition(
-                    &session_id,
-                    chat_lifecycle::TransitionKind::Starting,
-                    Some(0),
-                    window,
-                    cx,
-                );
-            }
-            Err(error) => {
-                if let Some(session_id) = spawned_id {
-                    let _ = self.core(cx).session_close(&session_id);
+        let cwd = (!remote)
+            .then(|| {
+                terminal_working_dir(
+                    None,
+                    project_cwd,
+                    &self.settings(cx).default_working_dir,
+                    runner_core::app_paths::home_dir()
+                        .as_deref()
+                        .and_then(|home| home.to_str()),
+                )
+            })
+            .flatten();
+        let input = crate::surfaces::front_page::actions::ShellStart {
+            draft: draft.clone(),
+            pane: Some(draft.focused_pane_id.clone()),
+            project: scope.project_id().map(str::to_owned),
+            cwd,
+            size,
+        };
+        self.launch_workspace_shell(input, window, cx, move |this, result, window, cx| {
+            let spawned_id = result.as_ref().ok().cloned();
+            let result = result.and_then(|spawned| {
+                this.refresh_sessions(cx);
+                this.reload_tabs(cx)?;
+                if !this.tabs.activate_session(&spawned) {
+                    bail!("terminal tab was not created");
                 }
-                self.refresh_sessions(cx);
-                let _ = self.reload_tabs(cx);
-                self.chat_error = Some(error.to_string().into());
+                this.sync_active_project_from_active_tab(cx);
+                this.set_route(AppRoute::Chat, cx);
+                this.ensure_active_tab_attached(window, cx)?;
+                Ok(spawned)
+            });
+
+            match result {
+                Ok(session_id) => {
+                    this.chat_error = None;
+                    this.mark_active_tab_viewed(window, cx);
+                    this.sync_active_chat_detail(cx);
+                    this.begin_chat_transition(
+                        &session_id,
+                        chat_lifecycle::TransitionKind::Starting,
+                        Some(0),
+                        window,
+                        cx,
+                    );
+                }
+                Err(error) => {
+                    if let Some(session_id) = spawned_id {
+                        let _ = this.front_page_client(cx).close(&session_id);
+                    }
+                    this.refresh_sessions(cx);
+                    let _ = this.reload_tabs(cx);
+                    this.chat_error = Some(error.to_string().into());
+                }
             }
-        }
-        cx.notify();
+            cx.notify();
+        });
     }
 
     pub(crate) fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -587,38 +591,25 @@ impl NativeRoot {
             });
             return;
         }
-        if self.remote_window.is_some() {
-            if !self.front_page_is_chat() {
-                return;
-            }
-            let Some(layout) = self.front_page_layout().cloned() else {
-                return;
-            };
-            if self.active_tab_is_terminal(cx) {
-                if let Some(pane) = new_terminal_empty_pane(&layout) {
-                    let size = self.estimated_terminal_size(&layout, &pane, window, cx);
-                    self.remote_start_shell(
-                        layout,
-                        Some(pane),
-                        (size.0.max(20), size.1.max(8)),
-                        cx,
-                    );
-                } else {
-                    self.split_pane(&layout.focused_pane_id, SplitOrientation::Row, window, cx);
-                }
-            } else {
-                self.add_terminal_drawer_shell(window, cx);
-            }
+        let remote = self.front_page_client(cx).is_remote();
+        if remote && !self.front_page_is_chat() {
             return;
         }
-
         let mission_drawer_available = matches!(self.route, AppRoute::Mission(_))
             && self.mission_workspace.read(cx).drawer_available(cx);
-        let target = new_terminal_target(
-            &self.route,
-            mission_drawer_available,
-            self.active_tab_is_terminal(cx),
-        );
+        let target = if remote {
+            if self.active_tab_is_terminal(cx) {
+                NewTerminalTarget::Tab
+            } else {
+                NewTerminalTarget::ChatDrawer
+            }
+        } else {
+            new_terminal_target(
+                &self.route,
+                mission_drawer_available,
+                self.active_tab_is_terminal(cx),
+            )
+        };
         if target == NewTerminalTarget::MissionDrawer {
             self.mission_workspace
                 .update(cx, |workspace, workspace_cx| {
@@ -626,14 +617,16 @@ impl NativeRoot {
                 });
             return;
         }
-        let Some(original) = self.tabs.active().cloned() else {
-            self.chat_error = Some(crate::i18n::message(
-                "ui.open_a_tab_before_creating_a_terminal",
-            ));
-            cx.notify();
+        let Some(original) = self.front_page_layout().cloned() else {
+            if !remote {
+                self.chat_error = Some(crate::i18n::message(
+                    "ui.open_a_tab_before_creating_a_terminal",
+                ));
+                cx.notify();
+            }
             return;
         };
-        if self.route != AppRoute::Chat {
+        if !remote && self.route != AppRoute::Chat {
             self.set_route(AppRoute::Chat, cx);
             self.activate_tab(&original.id, window, cx);
         }
@@ -642,7 +635,19 @@ impl NativeRoot {
             return;
         }
         if let Some(pane_id) = new_terminal_empty_pane(&original) {
-            let (scope, cwd) = self.terminal_start_location(cx);
+            let (scope, cwd) = if remote {
+                (
+                    ProjectScope::or_root(original.parent_id.clone()),
+                    original
+                        .focused_session_id()
+                        .map(str::to_owned)
+                        .or_else(|| original.session_ids().first().cloned())
+                        .and_then(|id| self.front_page_session(&id, cx))
+                        .and_then(|session| session.cwd),
+                )
+            } else {
+                self.terminal_start_location(cx)
+            };
             self.spawn_terminal_in_pane(pane_id, original, scope, cwd, window, cx);
         } else {
             self.split_pane(&original.focused_pane_id, SplitOrientation::Row, window, cx);
@@ -766,69 +771,79 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
-            if let Some(layout) = self.front_page_layout().cloned() {
-                let size = self.estimated_drawer_terminal_size(&layout, window, cx);
-                self.remote_start_shell(layout, None, (size.0.max(20), size.1.max(8)), cx);
+        let remote = self.front_page_client(cx).is_remote();
+        let Some(original) = self.front_page_layout().cloned() else {
+            if !remote {
+                self.chat_error = Some(crate::i18n::message(
+                    "ui.open_a_chat_tab_before_creating_a_terminal",
+                ));
+                cx.notify();
             }
-            return;
-        }
-
-        let Some(original) = self.tabs.active().cloned() else {
-            self.chat_error = Some(crate::i18n::message(
-                "ui.open_a_chat_tab_before_creating_a_terminal",
-            ));
-            cx.notify();
             return;
         };
-        if self.active_tab_is_terminal(cx) {
+        if !remote && self.active_tab_is_terminal(cx) {
             return;
         }
-        let (scope, cwd) = self.terminal_start_location(cx);
+        let (scope, cwd) = if remote {
+            (
+                ProjectScope::or_root(original.parent_id.clone()),
+                original
+                    .focused_session_id()
+                    .map(str::to_owned)
+                    .or_else(|| original.session_ids().first().cloned())
+                    .and_then(|id| self.front_page_session(&id, cx))
+                    .and_then(|session| session.cwd),
+            )
+        } else {
+            self.terminal_start_location(cx)
+        };
         let size = self.estimated_drawer_terminal_size(&original, window, cx);
-        let mut spawned_id = None;
-        let result = (|| -> Result<String> {
-            let spawned =
-                self.core(cx)
-                    .session_start_shell_in(scope, cwd, Some(size.0), Some(size.1))?;
-            spawned_id = Some(spawned.id.clone());
-            self.refresh_sessions(cx);
-            self.tabs
-                .active_mut()
-                .context("active tab disappeared")?
-                .add_drawer_shell(spawned.id.clone());
-            self.persist_active_tab(cx)?;
-            self.reload_tabs(cx)?;
-            self.set_route(AppRoute::Chat, cx);
-            self.ensure_active_tab_attached(window, cx)?;
-            Ok(spawned.id)
-        })();
+        let input = crate::surfaces::front_page::actions::ShellStart {
+            draft: original.clone(),
+            pane: None,
+            project: scope.project_id().map(str::to_owned),
+            cwd,
+            size,
+        };
+        self.launch_workspace_shell(input, window, cx, move |this, result, window, cx| {
+            let spawned_id = result.as_ref().ok().cloned();
+            let result = result.and_then(|spawned| {
+                this.refresh_sessions(cx);
+                this.tabs
+                    .active_mut()
+                    .context("active tab disappeared")?
+                    .add_drawer_shell(spawned.clone());
+                this.persist_active_tab(cx)?;
+                this.reload_tabs(cx)?;
+                this.set_route(AppRoute::Chat, cx);
+                this.ensure_active_tab_attached(window, cx)?;
+                Ok(spawned)
+            });
 
-        match result {
-            Ok(session_id) => {
-                self.chat_error = None;
-                self.begin_chat_transition(
-                    &session_id,
-                    chat_lifecycle::TransitionKind::Starting,
-                    Some(0),
-                    window,
-                    cx,
-                );
-                self.focus_drawer_terminal(&session_id, window, cx);
-            }
-            Err(error) => {
-                if let Some(session_id) = spawned_id {
-                    let _ = self.core(cx).session_close(&session_id);
+            match result {
+                Ok(session_id) => {
+                    this.chat_error = None;
+                    this.begin_chat_transition(
+                        &session_id,
+                        chat_lifecycle::TransitionKind::Starting,
+                        Some(0),
+                        window,
+                        cx,
+                    );
+                    this.focus_drawer_terminal(&session_id, window, cx);
                 }
-                if let Ok(input) = original.upsert_input() {
-                    let _ = self.core(cx).node_tab_upsert(input);
+                Err(error) => {
+                    if let Some(session_id) = spawned_id {
+                        let _ = this.front_page_client(cx).close(&session_id);
+                    }
+                    let _ = this.front_page_client(cx).layout(&original, None);
+                    this.refresh_sessions(cx);
+                    let _ = this.reload_tabs(cx);
+                    this.chat_error = Some(error.to_string().into());
                 }
-                self.refresh_sessions(cx);
-                let _ = self.reload_tabs(cx);
-                self.chat_error = Some(error.to_string().into());
             }
-        }
-        cx.notify();
+            cx.notify();
+        });
     }
 
     fn finish_terminal_drawer_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -901,57 +916,59 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let initial_size = self
-            .tabs
-            .active()
-            .map(|layout| self.estimated_terminal_size(layout, &pane_id, window, cx))
-            .unwrap_or((INITIAL_COLS, INITIAL_ROWS));
-        let mut spawned_id = None;
-        let result = (|| -> Result<String> {
-            let spawned = self.core(cx).session_start_shell_in(
-                scope,
-                cwd,
-                Some(initial_size.0),
-                Some(initial_size.1),
-            )?;
-            spawned_id = Some(spawned.id.clone());
-            self.refresh_sessions(cx);
-            self.tabs.assign_to_active(&pane_id, &spawned.id)?;
-            self.persist_active_tab(cx)?;
-            self.reload_tabs(cx)?;
-            self.tabs.activate_session(&spawned.id);
-            self.sync_active_project_from_active_tab(cx);
-            self.set_route(AppRoute::Chat, cx);
-            self.ensure_active_tab_attached(window, cx)?;
-            Ok(spawned.id)
-        })();
+        let initial_size = if self.front_page_client(cx).is_remote() {
+            self.estimated_terminal_size(&original, &pane_id, window, cx)
+        } else {
+            self.front_page_layout()
+                .map(|layout| self.estimated_terminal_size(layout, &pane_id, window, cx))
+                .unwrap_or((INITIAL_COLS, INITIAL_ROWS))
+        };
+        let input = crate::surfaces::front_page::actions::ShellStart {
+            draft: original.clone(),
+            pane: Some(pane_id.clone()),
+            project: scope.project_id().map(str::to_owned),
+            cwd,
+            size: initial_size,
+        };
+        self.launch_workspace_shell(input, window, cx, move |this, result, window, cx| {
+            let spawned_id = result.as_ref().ok().cloned();
+            let result = result.and_then(|spawned| {
+                this.refresh_sessions(cx);
+                this.tabs.assign_to_active(&pane_id, &spawned)?;
+                this.persist_active_tab(cx)?;
+                this.reload_tabs(cx)?;
+                this.tabs.activate_session(&spawned);
+                this.sync_active_project_from_active_tab(cx);
+                this.set_route(AppRoute::Chat, cx);
+                this.ensure_active_tab_attached(window, cx)?;
+                Ok(spawned)
+            });
 
-        match result {
-            Ok(session_id) => {
-                self.chat_error = None;
-                self.mark_active_tab_viewed(window, cx);
-                self.sync_active_chat_detail(cx);
-                self.begin_chat_transition(
-                    &session_id,
-                    chat_lifecycle::TransitionKind::Starting,
-                    Some(0),
-                    window,
-                    cx,
-                );
-            }
-            Err(error) => {
-                if let Some(session_id) = spawned_id {
-                    let _ = self.core(cx).session_close(&session_id);
+            match result {
+                Ok(session_id) => {
+                    this.chat_error = None;
+                    this.mark_active_tab_viewed(window, cx);
+                    this.sync_active_chat_detail(cx);
+                    this.begin_chat_transition(
+                        &session_id,
+                        chat_lifecycle::TransitionKind::Starting,
+                        Some(0),
+                        window,
+                        cx,
+                    );
                 }
-                if let Ok(input) = original.upsert_input() {
-                    let _ = self.core(cx).node_tab_upsert(input);
+                Err(error) => {
+                    if let Some(session_id) = spawned_id {
+                        let _ = this.front_page_client(cx).close(&session_id);
+                    }
+                    let _ = this.front_page_client(cx).layout(&original, None);
+                    this.refresh_sessions(cx);
+                    let _ = this.reload_tabs(cx);
+                    this.chat_error = Some(error.to_string().into());
                 }
-                self.refresh_sessions(cx);
-                let _ = self.reload_tabs(cx);
-                self.chat_error = Some(error.to_string().into());
             }
-        }
-        cx.notify();
+            cx.notify();
+        });
     }
 
     pub(crate) fn open_new_tab_modal(
@@ -1822,197 +1839,8 @@ impl NativeRoot {
         }
     }
 
-    fn submit_remote_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(modal) = self.start_chat_modal.as_ref() else {
-            return;
-        };
-        if !modal.can_submit() || modal.is_composing(cx) {
-            return;
-        }
-        let client = modal.front_page.clone();
-        if client.target != self.front_page_client(cx).target || !client.valid() {
-            return;
-        }
-        let target = modal.target.clone();
-        let title = user_chat_title(modal.title.read(cx));
-        let mut required = vec!["startChat"];
-        if title.is_some() {
-            required.push("rename");
-        }
-        let draft = match &target {
-            ChatTarget::Pane { tab_id, pane_id } => {
-                required.push("layout");
-                let Some(layout) = self.front_page_layout().filter(|layout| {
-                    &layout.id == tab_id
-                        && layout.root.leaves().iter().any(|leaf| &leaf.id == pane_id)
-                }) else {
-                    return;
-                };
-                if self.remote_window.as_ref().is_some_and(|remote| {
-                    remote.layout_hints.contains_key(tab_id)
-                        || remote.actions_pending.contains("archive-sessions")
-                        || remote.actions_pending.contains(&format!("layout:{tab_id}"))
-                }) {
-                    return;
-                }
-                Some((layout.clone(), pane_id.clone()))
-            }
-            ChatTarget::NewTab => None,
-        };
-        if !client.supports(&required) {
-            return;
-        }
-        let size = match &draft {
-            Some((layout, pane)) => self.estimated_terminal_size(layout, pane, window, cx),
-            None => self.estimated_terminal_size(&PaneLayout::single(None, &[]), "p1", window, cx),
-        };
-        let input = crate::surfaces::front_page::client::ChatStart {
-            role: (modal.mode == ChatMode::Role)
-                .then(|| modal.role_id.clone())
-                .flatten(),
-            runtime: if modal.mode == ChatMode::Runtime {
-                modal.runtime_name.clone()
-            } else {
-                modal.role_runtime_override.clone()
-            },
-            model: modal.model_override(cx),
-            effort: modal.effort_override(),
-            speed: modal.speed_override().map(|speed| {
-                if speed == CodexSpeed::Fast {
-                    "fast".into()
-                } else {
-                    "standard".into()
-                }
-            }),
-            project: modal.scope.project_id().map(str::to_owned),
-            cwd: (!modal.cwd.read(cx).text().is_empty())
-                .then(|| modal.cwd.read(cx).text().to_owned()),
-            size: (size.0.max(20), size.1.max(8)),
-        };
-        let mut started = modal.remote_started.clone();
-        let mut renamed = modal.remote_renamed;
-        let form_id = modal.cwd.clone();
-        let before = self.remote_window.as_ref().unwrap().layouts.clone();
-        let navigation_generation = self.remote_window.as_ref().unwrap().navigation_generation;
-        let epoch = self.client_ui.epoch;
-        let guard = client.clone();
-        let modal = self.start_chat_modal.as_mut().unwrap();
-        modal.submitting = true;
-        modal.error = None;
-        set_start_chat_controls_disabled(modal, true, cx);
-        if let Some((layout, _)) = &draft {
-            self.remote_window
-                .as_mut()
-                .unwrap()
-                .actions_pending
-                .insert(format!("layout:{}", layout.id));
-        }
-        let layout_key = draft
-            .as_ref()
-            .map(|(layout, _)| format!("layout:{}", layout.id));
-        let work = cx.background_spawn(async move {
-            let result = (|| {
-                let session = match &started {
-                    Some(id) => id.clone(),
-                    None => {
-                        let id = client.start_chat(input)?;
-                        started = Some(id.clone());
-                        id
-                    }
-                };
-                if !renamed {
-                    if let Some(title) = title {
-                        client.rename(
-                            runner_core::companion::ActionTarget {
-                                kind: runner_core::companion::ActionKind::Session,
-                                id: session.clone(),
-                            },
-                            title,
-                        )?;
-                    }
-                    renamed = true;
-                }
-                let layout = if let Some((mut layout, pane)) = draft {
-                    layout.assign_session(&pane, &session).map_err(|error| {
-                        runner_core::protocol::ClientError::msg(error.to_string())
-                    })?;
-                    client.layout(&layout, layout.parent_id.clone())?;
-                    Some(layout)
-                } else {
-                    None
-                };
-                Ok::<_, runner_core::protocol::ClientError>((session, layout))
-            })();
-            (started, renamed, result)
-        });
-        cx.spawn_in(window, async move |weak, cx| {
-            let (started, renamed, result) = work.await;
-            let _ = weak.update_in(cx, |root, _, cx| {
-                if root.client_ui.epoch != epoch
-                    || !guard.valid()
-                    || root.front_page_client(cx).target != guard.target
-                {
-                    return;
-                }
-                if let Some(key) = &layout_key {
-                    root.remote_window
-                        .as_mut()
-                        .unwrap()
-                        .actions_pending
-                        .remove(key);
-                }
-                let Some(modal) = root
-                    .start_chat_modal
-                    .as_mut()
-                    .filter(|modal| modal.cwd == form_id)
-                else {
-                    cx.notify();
-                    return;
-                };
-                modal.remote_started = started;
-                modal.remote_renamed = renamed;
-                match result {
-                    Ok((session, layout)) => {
-                        root.start_chat_modal = None;
-                        root.apply_remote_completion(
-                            crate::surfaces::front_page::actions::Completion {
-                                session: Some(session),
-                                layout,
-                                ..Default::default()
-                            },
-                            &before,
-                            navigation_generation,
-                            cx,
-                        );
-                        root.sync_remote_state(cx);
-                    }
-                    Err(error) => {
-                        modal.submitting = false;
-                        modal.error = Some(error.to_string().into());
-                        set_start_chat_controls_disabled(modal, modal.remote_started.is_some(), cx);
-                        let title_saved = modal.remote_started.is_some() && modal.remote_renamed;
-                        modal
-                            .title
-                            .update(cx, |field, cx| field.set_disabled(title_saved, cx));
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
     fn submit_start_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .start_chat_modal
-            .as_ref()
-            .is_some_and(|modal| modal.front_page.is_remote())
-        {
-            self.submit_remote_chat(window, cx);
-            return;
-        }
-
+        use crate::surfaces::front_page::client::{ChatLaunch, ChatStart};
         let Some(modal) = self.start_chat_modal.as_ref() else {
             return;
         };
@@ -2023,22 +1851,76 @@ impl NativeRoot {
         if !modal.can_submit() || modal.is_composing(cx) {
             return;
         }
+        let client = modal.front_page.clone();
+        let remote = client.is_remote();
+        if remote && (client.target != self.front_page_client(cx).target || !client.valid()) {
+            return;
+        }
         let target = modal.target.clone();
-        let cwd = effective_working_dir(
-            modal.cwd.read(cx).text(),
-            modal.mode == ChatMode::Role
-                && modal
-                    .selected_role()
-                    .and_then(|role| role.working_dir.as_deref())
-                    .is_some_and(|path| !path.trim().is_empty()),
-            &self.settings(cx).default_working_dir,
-        );
-        // A control still showing its starting value is untouched.
-        let model = modal.model_override(cx);
-        let effort = modal.effort_override();
-        let speed = modal.speed_override();
         let title = user_chat_title(modal.title.read(cx));
-        let scope = modal.scope.clone();
+        let mut required = vec!["startChat"];
+        if title.is_some() {
+            required.push("rename");
+        }
+        let placement = match &target {
+            ChatTarget::NewTab => None,
+            ChatTarget::Pane { tab_id, pane_id } => {
+                required.push("layout");
+                let layout = if remote {
+                    self.front_page_layout()
+                } else {
+                    self.tabs.active()
+                };
+                let Some(layout) = layout.filter(|layout| {
+                    &layout.id == tab_id
+                        && (!remote || layout.root.leaves().iter().any(|leaf| &leaf.id == pane_id))
+                }) else {
+                    if !remote {
+                        self.start_chat_modal.as_mut().unwrap().error = Some(crate::i18n::message(
+                            "ui.the_target_tab_is_no_longer_active",
+                        ));
+                        cx.notify();
+                    }
+                    return;
+                };
+                if remote
+                    && self.remote_window.as_ref().is_some_and(|remote| {
+                        remote.layout_hints.contains_key(tab_id)
+                            || remote.actions_pending.contains("archive-sessions")
+                            || remote.actions_pending.contains(&format!("layout:{tab_id}"))
+                    })
+                {
+                    return;
+                }
+                Some((layout.clone(), pane_id.clone()))
+            }
+        };
+        if !client.supports(&required) {
+            return;
+        }
+        let mut size = if let Some((layout, pane)) = &placement {
+            self.estimated_terminal_size(layout, pane, window, cx)
+        } else if remote {
+            self.estimated_terminal_size(&PaneLayout::single(None, &[]), "p1", window, cx)
+        } else {
+            (INITIAL_COLS, INITIAL_ROWS)
+        };
+        if remote {
+            size = (size.0.max(20), size.1.max(8));
+        }
+        let cwd = if remote {
+            (!modal.cwd.read(cx).text().is_empty()).then(|| modal.cwd.read(cx).text().to_owned())
+        } else {
+            effective_working_dir(
+                modal.cwd.read(cx).text(),
+                modal.mode == ChatMode::Role
+                    && modal
+                        .selected_role()
+                        .and_then(|role| role.working_dir.as_deref())
+                        .is_some_and(|path| !path.trim().is_empty()),
+                &self.settings(cx).default_working_dir,
+            )
+        };
         let request = build_start_request(
             modal.mode,
             modal
@@ -2046,114 +1928,193 @@ impl NativeRoot {
                 .map(|role| (role.id.as_str(), role.runtime.as_str())),
             modal.selected_runtime().map(|runtime| runtime.name.key()),
             modal.role_runtime_override.as_deref(),
-            model,
-            effort,
-            speed,
+            modal.model_override(cx),
+            modal.effort_override(),
+            modal.speed_override(),
             cwd,
         )
         .expect("validated start chat selection");
-        let initial_size = match &target {
-            ChatTarget::NewTab => (INITIAL_COLS, INITIAL_ROWS),
-            ChatTarget::Pane { tab_id, pane_id }
-                if self.tabs.active_tab_id() == Some(tab_id.as_str()) =>
-            {
-                self.tabs
-                    .active()
-                    .map(|layout| self.estimated_terminal_size(layout, pane_id, window, cx))
-                    .unwrap_or((INITIAL_COLS, INITIAL_ROWS))
-            }
-            ChatTarget::Pane { .. } => {
-                if let Some(modal) = self.start_chat_modal.as_mut() {
-                    modal.error = Some(crate::i18n::message(
-                        "ui.the_target_tab_is_no_longer_active",
-                    ));
-                }
-                cx.notify();
-                return;
-            }
+        let (role, mut runtime, model, effort, speed, cwd) = match request {
+            StartRequest::Role {
+                role_id,
+                runtime,
+                model,
+                effort,
+                speed,
+                cwd,
+            } => (Some(role_id), runtime, model, effort, speed, cwd),
+            StartRequest::Runtime {
+                runtime,
+                model,
+                effort,
+                speed,
+                cwd,
+            } => (None, Some(runtime), model, effort, speed, cwd),
         };
-        if let Some(modal) = self.start_chat_modal.as_mut() {
-            modal.submitting = true;
-            modal.error = None;
-            set_start_chat_controls_disabled(modal, true, cx);
+        if remote && modal.mode == ChatMode::Role {
+            runtime = modal.role_runtime_override.clone();
+        }
+        let recent_runtime = (!remote && modal.mode == ChatMode::Runtime)
+            .then(|| runtime.clone())
+            .flatten();
+        let mut launch = ChatLaunch {
+            input: ChatStart {
+                role,
+                runtime,
+                model,
+                effort,
+                speed: speed.map(|speed| {
+                    if speed == CodexSpeed::Fast {
+                        "fast".into()
+                    } else {
+                        "standard".into()
+                    }
+                }),
+                project: modal.scope.project_id().map(str::to_owned),
+                cwd,
+                size,
+            },
+            title,
+            placement,
+            started: if remote {
+                modal.remote_started.clone()
+            } else {
+                None
+            },
+            renamed: remote && modal.remote_renamed,
+        };
+        let form_id = modal.cwd.clone();
+        let epoch = self.client_ui.epoch;
+        let guard = client.clone();
+        let remote_context = if remote {
+            self.remote_window
+                .as_ref()
+                .map(|remote| (remote.layouts.clone(), remote.navigation_generation))
+        } else {
+            None
+        };
+        let layout_key = remote
+            .then(|| {
+                launch
+                    .placement
+                    .as_ref()
+                    .map(|(layout, _)| format!("layout:{}", layout.id))
+            })
+            .flatten();
+        let modal = self.start_chat_modal.as_mut().unwrap();
+        modal.submitting = true;
+        modal.error = None;
+        set_start_chat_controls_disabled(modal, true, cx);
+        if let Some(key) = &layout_key {
+            self.remote_window
+                .as_mut()
+                .unwrap()
+                .actions_pending
+                .insert(key.clone());
+        }
+        let operation = move || {
+            let result = client.launch_chat(&mut launch);
+            (launch, result)
+        };
+        if let Some((before, navigation_generation)) = remote_context {
+            let work = cx.background_spawn(async move { operation() });
+            cx.spawn_in(window, async move |weak, cx| {
+                let (launch, result) = work.await;
+                let _ = weak.update_in(cx, |root, _, cx| {
+                    if root.client_ui.epoch != epoch
+                        || !guard.valid()
+                        || root.front_page_client(cx).target != guard.target
+                    {
+                        return;
+                    }
+                    if let Some(key) = &layout_key {
+                        root.remote_window
+                            .as_mut()
+                            .unwrap()
+                            .actions_pending
+                            .remove(key);
+                    }
+                    let Some(modal) = root
+                        .start_chat_modal
+                        .as_mut()
+                        .filter(|modal| modal.cwd == form_id)
+                    else {
+                        cx.notify();
+                        return;
+                    };
+                    modal.remote_started = launch.started;
+                    modal.remote_renamed = launch.renamed;
+                    match result {
+                        Ok(output) => {
+                            root.start_chat_modal = None;
+                            root.apply_remote_completion(
+                                crate::surfaces::front_page::actions::Completion {
+                                    session: Some(output.session),
+                                    layout: output.layout,
+                                    ..Default::default()
+                                },
+                                &before,
+                                navigation_generation,
+                                cx,
+                            );
+                            root.sync_remote_state(cx);
+                        }
+                        Err(error) => {
+                            modal.submitting = false;
+                            modal.error = Some(error.to_string().into());
+                            set_start_chat_controls_disabled(
+                                modal,
+                                modal.remote_started.is_some(),
+                                cx,
+                            );
+                            let title_saved =
+                                modal.remote_started.is_some() && modal.remote_renamed;
+                            modal
+                                .title
+                                .update(cx, |field, cx| field.set_disabled(title_saved, cx));
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        } else {
+            let (launch, result) = operation();
+            if launch.started.is_some() {
+                if let Some(runtime) = recent_runtime {
+                    let _ = record_recent_runtime(&self.app_store.read(cx).app_data_dir, &runtime);
+                }
+            }
+            self.finish_local_chat_launch(launch.started, result, window, cx);
         }
         cx.notify();
+    }
 
-        let mut spawned_id = None;
+    fn finish_local_chat_launch(
+        &mut self,
+        spawned_id: Option<String>,
+        result: runner_core::protocol::ClientResult<
+            crate::surfaces::front_page::client::ChatLaunched,
+        >,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut rename_error = None;
-        let result = (|| -> Result<String> {
-            let spawned = match request {
-                StartRequest::Role {
-                    role_id,
-                    runtime,
-                    model,
-                    effort,
-                    speed,
-                    cwd,
-                } => self.core(cx).session_start_direct_with_speed(
-                    role_id,
-                    runtime,
-                    model,
-                    effort,
-                    speed,
-                    scope,
-                    cwd,
-                    Some(initial_size.0),
-                    Some(initial_size.1),
-                )?,
-                StartRequest::Runtime {
-                    runtime,
-                    model,
-                    effort,
-                    speed,
-                    cwd,
-                } => {
-                    let spawned = self
-                        .core(cx)
-                        .session_start_runtime_with_speed(
-                            &runtime,
-                            scope,
-                            cwd,
-                            Some(initial_size.0),
-                            Some(initial_size.1),
-                            model,
-                            effort,
-                            speed,
-                        )?
-                        .session;
-                    let _ = record_recent_runtime(&self.app_store.read(cx).app_data_dir, &runtime);
-                    spawned
-                }
-            };
-            spawned_id = Some(spawned.id.clone());
-            if let Some(title) = title {
-                if let Err(error) = self.core(cx).session_rename(&spawned.id, Some(title)) {
-                    rename_error = Some(crate::i18n::messagef(
-                        "format.chat_started_but_its_title_could_not_be_saved",
-                        &[("error", (error).to_string())],
-                    ));
-                }
-            }
+        let result = result.map_err(anyhow::Error::from).and_then(|output| {
+            rename_error = output.rename_error.map(|error| {
+                crate::i18n::messagef(
+                    "format.chat_started_but_its_title_could_not_be_saved",
+                    &[("error", error)],
+                )
+            });
             self.refresh_sessions(cx);
-            match target {
-                ChatTarget::NewTab => {
-                    self.reload_tabs(cx)?;
-                    self.tabs.activate_session(&spawned.id);
-                    self.sync_active_project_from_active_tab(cx);
-                }
-                ChatTarget::Pane { pane_id, .. } => {
-                    self.tabs.assign_to_active(&pane_id, &spawned.id)?;
-                    self.persist_active_tab(cx)?;
-                    self.reload_tabs(cx)?;
-                    self.tabs.activate_session(&spawned.id);
-                    self.sync_active_project_from_active_tab(cx);
-                }
-            }
+            self.reload_tabs(cx)?;
+            self.tabs.activate_session(&output.session);
+            self.sync_active_project_from_active_tab(cx);
             self.set_route(AppRoute::Chat, cx);
             self.ensure_active_tab_attached(window, cx)?;
-            Ok(spawned.id)
-        })();
-
+            Ok(output.session)
+        });
         match result {
             Ok(session_id) => {
                 self.start_chat_modal = None;

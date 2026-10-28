@@ -1320,8 +1320,12 @@ impl MissionWorkspace {
         choice: String,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
-            self.remote_answer(question_id, choice, cx);
+        if !self.remote_supports(&["answer"])
+            || (self.client.is_remote()
+                && !self.remote_summary().is_some_and(|mission| {
+                    mission.asks.iter().any(|ask| ask.question == question_id)
+                }))
+        {
             return;
         }
         let Some(mission_id) = self.mission_id.clone() else {
@@ -1339,23 +1343,20 @@ impl MissionWorkspace {
             .insert(question_id.clone(), choice.clone());
         self.invalidate_feed_ask(&question_id);
         cx.notify();
-        let core = self.core(cx).clone();
+        let core = self.client.clone();
+        let guard = core.clone();
+        let generation = self.generation;
         let post_question = question_id.clone();
         let task = cx.background_spawn(async move {
-            core.mission_signal_impl(runner_core::protocol::mission::PostSignalInput {
-                mission_id,
-                from: None,
-                signal_type: "human_response".into(),
-                payload: serde_json::json!({
-                    "question_id": post_question,
-                    "choice": choice,
-                }),
-            })
-            .map_err(|error| error.to_string())
+            core.answer(mission_id, post_question, choice)
+                .map_err(|error| error.to_string())
         });
         cx.spawn(async move |weak, cx| {
             let result = task.await;
             let _ = weak.update(cx, |this, cx| {
+                if !guard.valid() || (guard.is_remote() && this.generation != generation) {
+                    return;
+                }
                 this.submitting_asks.remove(&question_id);
                 this.invalidate_feed_ask(&question_id);
                 if let Err(error) = result {

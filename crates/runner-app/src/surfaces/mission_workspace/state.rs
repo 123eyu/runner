@@ -178,6 +178,9 @@ impl MissionWorkspace {
         .detach();
         let store_revisions = app_store.read(cx).revisions;
         Self {
+            client: super::super::front_page::FrontPageClient::local(
+                app_store.read(cx).client.clone(),
+            ),
             remote: None,
             remote_selected_handle: None,
             render_regions: HashMap::new(),
@@ -785,16 +788,9 @@ impl MissionWorkspace {
         Ok(())
     }
 
-    pub(super) fn persist_mission_layout(&self, cx: &App) -> Result<()> {
-        if self.remote.is_some() {
-            return Ok(());
-        }
-        let node_id = self
-            .mission_node_id
-            .as_deref()
-            .context("mission node is missing")?;
-        self.core(cx)
-            .node_mission_layout_set(node_id, self.layout.serialize()?)?;
+    pub(super) fn persist_mission_layout(&self, _cx: &App) -> Result<()> {
+        self.client
+            .save_mission_presentation(self.mission_node_id.as_deref(), &self.layout)?;
         Ok(())
     }
 
@@ -811,7 +807,7 @@ impl MissionWorkspace {
                 session,
                 false,
                 false,
-                remote.client.supports(&["resume"]),
+                self.client.supports(&["resume"]),
             ));
         }
         self.app_store

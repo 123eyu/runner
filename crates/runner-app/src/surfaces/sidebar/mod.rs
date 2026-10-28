@@ -45,11 +45,7 @@ enum ArchiveErrorTarget {
     Chat,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ArchiveSessionOperation {
-    ArchiveChat { running: bool },
-    CloseTerminal,
-}
+use super::front_page::client::ArchiveSessionOperation;
 
 #[derive(Clone)]
 enum SidebarRow {

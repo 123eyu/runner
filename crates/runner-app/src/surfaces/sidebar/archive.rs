@@ -1,3 +1,4 @@
+use crate::surfaces::front_page::actions::WorkspaceAction;
 use runner_core::protocol::model::Runtime;
 
 use super::*;
@@ -152,95 +153,104 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
-            self.remote_archive_sessions(session_ids, cx);
-            return;
-        }
+        self.archive_workspace_sessions(session_ids, source, None, window, cx);
+    }
 
-        let active = self.active_focused_session_id();
-        self.prepare_tab_close(&session_ids, cx);
+    pub(crate) fn archive_workspace_sessions(
+        &mut self,
+        session_ids: Vec<String>,
+        source: ArchiveAllSource,
+        pane_close: Option<PendingPaneClose>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let remote = self.front_page_client(cx).is_remote();
         let error_target = match source {
             ArchiveAllSource::Chat => ArchiveErrorTarget::Chat,
             ArchiveAllSource::Sidebar => ArchiveErrorTarget::App,
         };
-        self.sidebar.update(cx, |sidebar, sidebar_cx| {
-            sidebar.archive_sessions(session_ids, error_target, active, window, sidebar_cx)
-        });
+        let local_plan = if !remote {
+            if let (Some(id), Some(close)) = (session_ids.first(), pane_close.clone()) {
+                self.pending_pane_closes.insert(id.clone(), close);
+            }
+            let active = self.active_focused_session_id();
+            self.prepare_tab_close(&session_ids, cx);
+            let Some(plan) = self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.prepare_archive_sessions(&session_ids, active.as_deref(), cx)
+            }) else {
+                return;
+            };
+            Some(plan)
+        } else {
+            None
+        };
+        let pending_ids = local_plan
+            .as_ref()
+            .map(|plan| plan.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let Some((action, operation)) =
+            WorkspaceAction::archive(self, session_ids, local_plan, pane_close, cx)
+        else {
+            return;
+        };
+        let task = cx.background_spawn(async move { operation() });
+        cx.spawn_in(window, async move |weak, cx| {
+            let result = task.await;
+            let _ = weak.update_in(cx, |root, window, cx| {
+                let Some(result) =
+                    WorkspaceAction::complete(root, action, result, |done| done.completion, cx)
+                else {
+                    return;
+                };
+                root.sidebar.update(cx, |sidebar, cx| {
+                    for id in &pending_ids {
+                        sidebar.archiving_sessions.remove(id);
+                    }
+                    cx.notify();
+                });
+                let (removed, error) = match result {
+                    Ok(done) => (done.removed, done.error),
+                    Err(error) => (Vec::new(), Some(error)),
+                };
+                let root = cx.entity();
+                window.defer(cx, move |window, cx| {
+                    root.update(cx, |root, cx| {
+                        root.finish_sidebar_archive(
+                            pending_ids,
+                            removed,
+                            error,
+                            error_target,
+                            window,
+                            cx,
+                        )
+                    });
+                });
+            });
+        })
+        .detach();
     }
 }
 
 impl Sidebar {
-    fn archive_sessions(
+    fn prepare_archive_sessions(
         &mut self,
-        session_ids: Vec<String>,
-        error_target: ArchiveErrorTarget,
-        active: Option<String>,
-        window: &mut Window,
+        session_ids: &[String],
+        active: Option<&str>,
         cx: &mut Context<Self>,
-    ) {
-        if session_ids.is_empty() {
-            return;
-        }
-        if session_ids
-            .iter()
-            .any(|id| self.archiving_sessions.contains(id))
+    ) -> Option<Vec<(String, ArchiveSessionOperation)>> {
+        if session_ids.is_empty()
+            || session_ids
+                .iter()
+                .any(|id| self.archiving_sessions.contains(id))
         {
-            return;
+            return None;
         }
-        let plan = archive_session_plan(
-            &session_ids,
-            &self.app_store.read(cx).sessions,
-            active.as_deref(),
-        );
-        let pending_ids = plan.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
-        self.archiving_sessions.extend(pending_ids.iter().cloned());
+        let plan = archive_session_plan(session_ids, &self.app_store.read(cx).sessions, active);
+        self.archiving_sessions
+            .extend(plan.iter().map(|(id, _)| id.clone()));
         self.schedule_shell_notify(cx);
         cx.notify();
-
-        let core = self.core(cx).clone();
-        let archive_task = cx.background_spawn(async move {
-            let mut removed = Vec::new();
-            for (session_id, operation) in plan {
-                let result = match operation {
-                    ArchiveSessionOperation::CloseTerminal => core.session_close(&session_id),
-                    ArchiveSessionOperation::ArchiveChat { running } => {
-                        if running {
-                            let _ = core.session_kill(&session_id);
-                        }
-                        core.session_archive(&session_id)
-                    }
-                };
-                if let Err(error) = result {
-                    return (removed, Some(error.to_string()));
-                }
-                removed.push(session_id);
-            }
-            (removed, None)
-        });
-        cx.spawn_in(window, async move |weak, cx| {
-            let (removed, archive_error) = archive_task.await;
-            let _ = weak.update_in(cx, |this, window, cx| {
-                for session_id in &pending_ids {
-                    this.archiving_sessions.remove(session_id);
-                }
-                cx.notify();
-                if let Some(shell) = this.shell.upgrade() {
-                    window.defer(cx, move |window, cx| {
-                        shell.update(cx, |shell, shell_cx| {
-                            shell.finish_sidebar_archive(
-                                pending_ids,
-                                removed,
-                                archive_error,
-                                error_target,
-                                window,
-                                shell_cx,
-                            )
-                        });
-                    });
-                }
-            });
-        })
-        .detach();
+        Some(plan)
     }
 }
 
@@ -313,10 +323,11 @@ impl NativeRoot {
         if !layout.close_pane(&pending.pane_id) {
             return;
         }
-        let result = layout.upsert_input().and_then(|input| {
-            self.core(cx).node_tab_upsert(input)?;
-            self.reload_tabs(cx)
-        });
+        let result = self
+            .front_page_client(cx)
+            .layout(&layout, None)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| self.reload_tabs(cx));
         if let Err(error) = result {
             self.chat_error = Some(error.to_string().into());
         }

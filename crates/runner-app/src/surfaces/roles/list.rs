@@ -521,16 +521,10 @@ impl NativeRoot {
     /// the list page's side padding.
     fn role_table_width(&self, window: &Window, cx: &App) -> f32 {
         let settings = self.settings(cx);
-        let sidebar = if let Some(remote) = &self.remote_window {
-            if remote.sidebar_collapsed {
-                0.
-            } else {
-                remote.sidebar_width
-            }
-        } else if self.sidebar_collapsed {
+        let sidebar = if self.front_page_sidebar_collapsed() {
             0.
         } else {
-            settings.sidebar_width
+            self.front_page_sidebar_width(cx)
         };
         f32::from(window.viewport_size().width) / settings.app_zoom
             - sidebar

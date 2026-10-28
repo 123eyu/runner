@@ -388,20 +388,21 @@ impl MissionWorkspace {
         );
     }
 
-    fn post_mission_composer(
+    pub(super) fn post_mission_composer(
         &mut self,
         post: ComposerPost,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
-            self.remote_post(post, window, cx);
-            return;
-        }
         let Some(mission_id) = self.mission_id.clone() else {
             return;
         };
-        if self.mission_composer_roster().is_empty()
+        if !self.remote_supports(&["post"])
+            || (self.client.is_remote()
+                && !self
+                    .mission_view()
+                    .is_some_and(|mission| mission.status == MissionStatus::Running))
+            || self.mission_composer_roster().is_empty()
             || self.composer_posting
             || self.secondary_state(cx).secondary
         {
@@ -438,18 +439,20 @@ impl MissionWorkspace {
             return;
         }
         self.composer_posting = true;
-        self.composer_input
-            .update(cx, |input, input_cx| input.set_disabled(true, input_cx));
+        if !self.client.is_remote() {
+            self.composer_input
+                .update(cx, |input, input_cx| input.set_disabled(true, input_cx));
+        }
         cx.notify();
         let generation = self.generation;
-        let core = self.core(cx).clone();
+        let core = self.client.clone();
+        let guard = core.clone();
         let task = cx.background_spawn(async move {
-            core.mission_post_impl(runner_core::protocol::mission::PostMessageInput {
-                mission_id: mission_id.clone(),
-                from: None,
-                text: resolved.text,
-                to: resolved.recipients,
-            })
+            core.post(
+                mission_id.clone(),
+                resolved.recipients.as_slice().to_vec(),
+                resolved.text,
+            )
             .map(|_| mission_id)
             .map_err(|error| error.to_string())
         });
@@ -461,13 +464,15 @@ impl MissionWorkspace {
                     .ok()
                     .is_some_and(|mission_id| this.is_current(mission_id, generation))
                     || result.is_err() && this.generation == generation;
-                if !current {
+                if !current || !guard.valid() {
                     return;
                 }
                 this.composer_posting = false;
-                this.composer_input.update(cx, |input, input_cx| {
-                    input.set_disabled(this.roster.is_empty(), input_cx)
-                });
+                if !guard.is_remote() {
+                    this.composer_input.update(cx, |input, input_cx| {
+                        input.set_disabled(this.roster.is_empty(), input_cx)
+                    });
+                }
                 match result {
                     Ok(_) => {
                         this.composer = ComposerState::default();

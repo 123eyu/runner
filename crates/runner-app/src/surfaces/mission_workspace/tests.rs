@@ -3521,3 +3521,200 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
     assert!(visual.debug_bounds("REMOTE_CONTROL_CARD").is_none());
     assert!(!right_host.sizes.lock().unwrap().is_empty());
 }
+
+struct MissionEntryTrace {
+    base: Arc<crate::surfaces::remote_client::tests::Fake>,
+    calls: std::sync::Mutex<Vec<serde_json::Value>>,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+impl runner_core::protocol::Transport for MissionEntryTrace {
+    fn call(
+        &self,
+        request: runner_core::protocol::Request,
+    ) -> runner_core::protocol::ClientResult<runner_core::protocol::Response> {
+        use std::sync::atomic::Ordering;
+        let value = serde_json::to_value(&request).unwrap();
+        self.calls.lock().unwrap().push(value.clone());
+        let local = [
+            "mission_stop_impl",
+            "session_list",
+            "mission_archive_impl",
+            "mission_rename_impl",
+            "session_kill",
+        ]
+        .iter()
+        .any(|method| value.get(method).is_some());
+        let remote = value["remote_request"]["request"]["type"]
+            .as_str()
+            .is_some_and(|method| {
+                matches!(
+                    method,
+                    "stopMission" | "resumeMission" | "archive" | "rename" | "stop"
+                )
+            });
+        if self.armed.load(Ordering::SeqCst) && (local || remote) {
+            return Err(runner_core::protocol::ClientError::msg(
+                "mission entry failure",
+            ));
+        }
+        self.base.call(request)
+    }
+    fn subscribe(&self) -> Box<dyn runner_core::protocol::EventSubscription> {
+        self.base.subscribe()
+    }
+    fn attach_remote(
+        &self,
+        config: runner_core::remote::RemoteTerminal,
+    ) -> runner_core::protocol::ClientResult<runner_core::protocol::terminal::TerminalAttachment>
+    {
+        self.base.attach_remote(config)
+    }
+}
+
+#[test]
+fn mission_lifecycle_entry_points_dispatch_once_for_both_targets() {
+    use crate::surfaces::remote_client::{tests as remote_test, RemoteItem};
+    use runner_core::protocol::DaemonClient;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    for remote in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = gpui::TestAppContext::single();
+        let (store, fake, _) = remote_test::fixture(&mut cx, temp.path());
+        remote_test::enable_missions(&fake);
+        fake.set_overview(serde_json::from_value(serde_json::json!({"projects":[],"tabs":[],"missions":[{"id":"remote-mission","project":null,"title":"Host mission","crew":"Duo","state":"running","pinned":false,"members":[{"handle":"coder","session":"member","lead":false}],"asks":[],"shells":[]}],"sessions":{"member":{"kind":"missionSlot","title":"Member","runtime":"codex","status":"stopped","unread":false}}})).unwrap());
+        let trace = Arc::new(MissionEntryTrace {
+            base: fake,
+            calls: Default::default(),
+            armed: AtomicBool::new(false),
+        });
+        store.update(&mut cx, |store, _| {
+            store.client = DaemonClient::new(trace.clone());
+            if !remote {
+                crate::app_store::seed_mixed_working_sessions(store);
+            }
+        });
+        let window = remote_test::add_window(&mut cx, &store, temp.path(), "mission-entry-points");
+        if remote {
+            window
+                .update(&mut cx, |root, window, cx| {
+                    remote_test::choose_host(root, window, cx)
+                })
+                .unwrap();
+            cx.run_until_parked();
+            window
+                .update(&mut cx, |root, _, cx| {
+                    root.select_remote_item(RemoteItem::Mission("remote-mission".into()), cx)
+                })
+                .unwrap();
+        }
+        cx.run_until_parked();
+        let workspace = window
+            .read_with(&cx, |root, _| {
+                if remote {
+                    root.remote_window
+                        .as_ref()
+                        .unwrap()
+                        .mission_workspace
+                        .clone()
+                } else {
+                    root.mission_workspace.clone()
+                }
+            })
+            .unwrap();
+        let mut visual = gpui::VisualTestContext::from_window(window.into(), &cx);
+        for (command, local_method, remote_method) in [
+            ("stop", "mission_stop_impl", "stopMission"),
+            ("resume", "session_list", "resumeMission"),
+            ("archive", "mission_archive_impl", "archive"),
+            ("rename", "mission_rename_impl", "rename"),
+            ("slot", "session_kill", "stop"),
+        ] {
+            workspace.update(&mut cx, |workspace, cx| {
+                if !remote {
+                    let core = &workspace.app_store.read(cx).test_core;
+                    workspace.mission = Some(
+                        runner_daemon::ops::mission::mission_get(core, "test-mission").unwrap(),
+                    );
+                    workspace.sessions =
+                        runner_daemon::ops::session::session_list(core, "test-mission").unwrap();
+                    for row in &mut workspace.sessions {
+                        row.session.status = SessionStatus::Stopped;
+                    }
+                    workspace.mission_id = Some("test-mission".into());
+                    workspace.active = true;
+                }
+                workspace.stopping = false;
+                workspace.resuming = false;
+                workspace.archiving = false;
+                workspace.slot_actions.clear();
+                workspace.transitions.clear();
+                workspace.error = None;
+                if command == "rename" {
+                    let input =
+                        cx.new(|cx| TextField::new(cx.focus_handle(), "New title", "", false));
+                    workspace.rename_modal = Some(MissionRenameModal {
+                        mission_id: workspace.mission_id.clone().unwrap(),
+                        original: "Old title".into(),
+                        input,
+                        close_focus: cx.focus_handle(),
+                        cancel_focus: cx.focus_handle(),
+                        submit_focus: cx.focus_handle(),
+                        submitting: false,
+                        error: None,
+                    });
+                }
+            });
+            trace.calls.lock().unwrap().clear();
+            trace.armed.store(true, Ordering::SeqCst);
+            visual.update(|window, cx| {
+                workspace.update(cx, |workspace, cx| match command {
+                    "stop" => workspace.stop_open_mission(window, cx),
+                    "resume" => workspace.resume_open_mission(window, cx),
+                    "archive" => workspace.archive_open_mission(window, cx),
+                    "rename" => workspace.submit_mission_rename(window, cx),
+                    _ => workspace.act_on_slot(
+                        if remote { "member" } else { "mission-agent" },
+                        SessionControlKind::Stop,
+                        window,
+                        cx,
+                    ),
+                })
+            });
+            cx.run_until_parked();
+            trace.armed.store(false, Ordering::SeqCst);
+            let calls = trace.calls.lock().unwrap();
+            let count = calls
+                .iter()
+                .filter(|value| {
+                    if remote {
+                        value["remote_request"]["request"]["type"] == remote_method
+                    } else {
+                        value.get(local_method).is_some()
+                    }
+                })
+                .count();
+            assert_eq!(count, 1, "{remote}/{command}: {calls:?}");
+            workspace.read_with(&cx, |workspace, _| {
+                let error = if command == "rename" {
+                    workspace
+                        .rename_modal
+                        .as_ref()
+                        .and_then(|modal| modal.error.clone())
+                } else {
+                    workspace
+                        .error
+                        .as_ref()
+                        .map(|error| error.resolve().to_string())
+                };
+                assert!(
+                    error
+                        .as_deref()
+                        .is_some_and(|error| error.contains("mission entry failure")),
+                    "{remote}/{command}: {error:?}"
+                );
+            });
+        }
+    }
+}

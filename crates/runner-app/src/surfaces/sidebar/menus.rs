@@ -232,30 +232,6 @@ impl Sidebar {
         }
         if self.front_page.is_remote() {
             match &action {
-                SidebarMenuAction::TogglePin { node_id, pinned } => {
-                    let Some(node) = self
-                        .source_nodes(cx)
-                        .into_iter()
-                        .find(|node| &node.id == node_id)
-                    else {
-                        return;
-                    };
-                    if let Some(shell) = self.shell.upgrade() {
-                        let pinned = !pinned;
-                        shell.update(cx, |root, cx| {
-                            root.remote_action(
-                                format!("pin:{}", node.id),
-                                &["pin"],
-                                move |client| {
-                                    client.pin(&node, pinned)?;
-                                    Ok(Default::default())
-                                },
-                                cx,
-                            )
-                        });
-                    }
-                    return;
-                }
                 SidebarMenuAction::DeleteProject(id) => {
                     if let Some(shell) = self.shell.upgrade() {
                         let id = id.clone();
@@ -270,9 +246,7 @@ impl Sidebar {
                     }
                     return;
                 }
-                SidebarMenuAction::ArchiveMission(id)
-                | SidebarMenuAction::StopMission(id)
-                | SidebarMenuAction::ResumeMission(id) => {
+                SidebarMenuAction::StopMission(id) | SidebarMenuAction::ResumeMission(id) => {
                     let id = id.clone();
                     let action = action.clone();
                     if let Some(shell) = self.shell.upgrade() {
@@ -296,12 +270,7 @@ impl Sidebar {
                                             done.reopened_sessions = client
                                                 .resume_mission(id, (INITIAL_COLS, INITIAL_ROWS))?
                                         }
-                                        _ => client.archive(
-                                            runner_core::companion::ActionTarget {
-                                                kind: runner_core::companion::ActionKind::Mission,
-                                                id,
-                                            },
-                                        )?,
+                                        _ => unreachable!(),
                                     }
                                     Ok(done)
                                 },
@@ -369,9 +338,35 @@ impl Sidebar {
                 }
             }
             SidebarMenuAction::TogglePin { node_id, pinned } => {
-                match self.core(cx).node_set_pinned(node_id, !pinned) {
-                    Ok(_) => self.refresh_store(StoreRefreshKind::All, cx),
-                    Err(error) => self.report_error(error.to_string(), cx),
+                let Some(node) = self
+                    .source_nodes(cx)
+                    .into_iter()
+                    .find(|node| node.id == node_id)
+                else {
+                    return;
+                };
+                let operation = move |client: crate::surfaces::front_page::FrontPageClient| {
+                    client.pin(&node, !pinned)
+                };
+                if self.front_page.is_remote() {
+                    if let Some(shell) = self.shell.upgrade() {
+                        shell.update(cx, |root, cx| {
+                            root.remote_action(
+                                format!("pin:{node_id}"),
+                                &["pin"],
+                                move |client| {
+                                    operation(client)?;
+                                    Ok(Default::default())
+                                },
+                                cx,
+                            )
+                        });
+                    }
+                } else {
+                    match operation(self.front_page.clone()) {
+                        Ok(()) => self.refresh_store(StoreRefreshKind::All, cx),
+                        Err(error) => self.report_error(error.to_string(), cx),
+                    }
                 }
             }
             SidebarMenuAction::Rename(target) => {
@@ -442,16 +437,33 @@ impl Sidebar {
                 }
             }
             SidebarMenuAction::ArchiveMission(mission_id) => {
-                if self.archiving_missions.contains(&mission_id) {
+                if !self.front_page.is_remote() && self.archiving_missions.contains(&mission_id) {
+                    return;
+                }
+                let archive_id = mission_id.clone();
+                let operation = move |client: crate::surfaces::front_page::FrontPageClient| {
+                    client.archive_mission_state(archive_id).map(drop)
+                };
+                if self.front_page.is_remote() {
+                    if let Some(shell) = self.shell.upgrade() {
+                        shell.update(cx, |root, cx| {
+                            root.remote_action(
+                                format!("mission:{mission_id}"),
+                                &["archive"],
+                                move |client| {
+                                    operation(client)?;
+                                    Ok(Default::default())
+                                },
+                                cx,
+                            )
+                        });
+                    }
                     return;
                 }
                 self.set_mission_archiving(mission_id.clone(), true, cx);
-                let core = self.core(cx).clone();
-                let archive_id = mission_id.clone();
+                let core = self.front_page.clone();
                 let archive_task = cx.background_spawn(async move {
-                    core.mission_archive_impl(archive_id)
-                        .map(drop)
-                        .map_err(|error| error.to_string())
+                    operation(core).map_err(|error| error.to_string())
                 });
                 cx.spawn_in(window, async move |weak, cx| {
                     let result = archive_task.await;

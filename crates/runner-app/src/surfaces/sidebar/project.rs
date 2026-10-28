@@ -121,13 +121,13 @@ impl NativeRoot {
         }
         modal.submitting = true;
         modal.error = None;
-        match self.core(cx).project_create(name, cwd) {
+        match self.front_page_client(cx).create_project(name, cwd) {
             Ok(project) => {
                 self.project_modal = None;
                 self._project_cwd_subscription = None;
                 self.refresh_store(StoreRefreshKind::All, cx);
                 self.sidebar.update(cx, |sidebar, sidebar_cx| {
-                    sidebar.set_active_project(Some(project.id), sidebar_cx)
+                    sidebar.set_active_project(Some(project), sidebar_cx)
                 });
                 self.focus_active_terminal(window, cx);
             }
@@ -158,55 +158,103 @@ impl NativeRoot {
     }
 
     fn confirm_delete_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
-            self.delete_remote_project(cx);
+        let client = self.front_page_client(cx);
+        if !client.supports(&["deleteProject"]) {
             return;
         }
-
-        let Some(project_id) = self.project_delete_confirm.clone() else {
-            return;
+        let remote_target = client.is_remote();
+        let (project_id, force) = if let Some(remote) = &mut self.remote_window {
+            let Some(project) = remote.delete_project.clone() else {
+                return;
+            };
+            if remote.delete_project_busy {
+                return;
+            }
+            remote.delete_project_busy = true;
+            remote.delete_project_error = None;
+            (project, remote.delete_project_force)
+        } else {
+            let Some(project) = self.project_delete_confirm.clone() else {
+                return;
+            };
+            (project, true)
         };
-        let deleting_active_chat = self
-            .tabs
-            .active_tab_id()
-            .and_then(|tab_id| {
-                self.app_store
-                    .read(cx)
-                    .nodes
-                    .iter()
-                    .find(|node| node.id == tab_id)
-            })
-            .and_then(|node| node_project_id(&self.app_store.read(cx).nodes, node))
-            .as_deref()
-            == Some(project_id.as_str());
-        if deleting_active_chat {
-            self.set_route(AppRoute::Roles, cx);
-            self.load_role_page(cx);
-            window.focus(&self.root_focus, cx);
+        if !remote_target {
+            let deleting_active_chat = self
+                .tabs
+                .active_tab_id()
+                .and_then(|tab_id| {
+                    self.app_store
+                        .read(cx)
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == tab_id)
+                })
+                .and_then(|node| node_project_id(&self.app_store.read(cx).nodes, node))
+                .as_deref()
+                == Some(project_id.as_str());
+            if deleting_active_chat {
+                self.set_route(AppRoute::Roles, cx);
+                self.load_role_page(cx);
+                window.focus(&self.root_focus, cx);
+            }
+            self.project_delete_busy = true;
         }
-        self.project_delete_busy = true;
-        let core = self.core(cx).clone();
+        let epoch = self.client_ui.epoch;
+        let guard = client.clone();
+        let id = project_id.clone();
         let deleting_project_id = project_id.clone();
-        cx.spawn(async move |weak, cx| {
-            let result = core.project_delete(project_id);
-            let _ = weak.update(cx, |this, cx| {
-                this.project_delete_busy = false;
-                if let Err(error) = result {
-                    this.error = Some(error.to_string().into());
-                } else {
-                    this.project_delete_confirm = None;
-                    this.sidebar.update(cx, |sidebar, sidebar_cx| {
-                        if sidebar.active_project_id.as_deref()
-                            == Some(deleting_project_id.as_str())
-                        {
-                            sidebar.set_active_project(None, sidebar_cx);
+        let operation = move || client.delete_project(project_id, force);
+        if remote_target {
+            let work = cx.background_spawn(async move { operation() });
+            cx.spawn(async move |weak, cx| {
+                let result = work.await;
+                let _ = weak.update(cx, |root, cx| {
+                    if root.client_ui.epoch != epoch || !guard.valid() {
+                        return;
+                    }
+                    let Some(remote) = root.remote_window.as_mut().filter(|remote| {
+                        remote.front_page.target == guard.target
+                            && remote.delete_project.as_ref() == Some(&id)
+                    }) else {
+                        return;
+                    };
+                    remote.delete_project_busy = false;
+                    match result {
+                        Ok(()) => remote.delete_project = None,
+                        Err(error) => {
+                            remote.delete_project_force =
+                                error.message.to_ascii_lowercase().contains("running");
+                            remote.delete_project_error = Some(error.to_string());
                         }
-                    });
-                }
-                this.refresh_store(StoreRefreshKind::All, cx);
-            });
-        })
-        .detach();
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+            cx.notify();
+        } else {
+            cx.spawn(async move |weak, cx| {
+                let result = operation();
+                let _ = weak.update(cx, |this, cx| {
+                    this.project_delete_busy = false;
+                    if let Err(error) = result {
+                        this.error = Some(error.to_string().into());
+                    } else {
+                        this.project_delete_confirm = None;
+                        this.sidebar.update(cx, |sidebar, sidebar_cx| {
+                            if sidebar.active_project_id.as_deref()
+                                == Some(deleting_project_id.as_str())
+                            {
+                                sidebar.set_active_project(None, sidebar_cx);
+                            }
+                        });
+                    }
+                    this.refresh_store(StoreRefreshKind::All, cx);
+                });
+            })
+            .detach();
+        }
     }
 }
 
@@ -484,55 +532,6 @@ impl NativeRoot {
             picker.return_focus(window.focused(cx));
             picker.browse(window, cx);
         });
-        cx.notify();
-    }
-
-    fn delete_remote_project(&mut self, cx: &mut Context<Self>) {
-        let client = self.front_page_client(cx);
-        if !client.supports(&["deleteProject"]) {
-            return;
-        }
-        let Some(remote) = self.remote_window.as_mut() else {
-            return;
-        };
-        let Some(project) = remote.delete_project.clone() else {
-            return;
-        };
-        if remote.delete_project_busy {
-            return;
-        }
-        let force = remote.delete_project_force;
-        remote.delete_project_busy = true;
-        remote.delete_project_error = None;
-        let epoch = self.client_ui.epoch;
-        let guard = client.clone();
-        let id = project.clone();
-        let work = cx.background_spawn(async move { client.delete_project(project, force) });
-        cx.spawn(async move |weak, cx| {
-            let result = work.await;
-            let _ = weak.update(cx, |root, cx| {
-                if root.client_ui.epoch != epoch || !guard.valid() {
-                    return;
-                }
-                let Some(remote) = root.remote_window.as_mut().filter(|remote| {
-                    remote.front_page.target == guard.target
-                        && remote.delete_project.as_ref() == Some(&id)
-                }) else {
-                    return;
-                };
-                remote.delete_project_busy = false;
-                match result {
-                    Ok(()) => remote.delete_project = None,
-                    Err(error) => {
-                        remote.delete_project_force =
-                            error.message.to_ascii_lowercase().contains("running");
-                        remote.delete_project_error = Some(error.to_string());
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
         cx.notify();
     }
 }

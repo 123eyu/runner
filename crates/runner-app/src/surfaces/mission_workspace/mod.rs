@@ -31,6 +31,7 @@ use runner_core::protocol::model::{
 };
 use runner_core::protocol::session::SessionRow;
 
+use super::front_page::client::is_concurrent_resume_error;
 use super::*;
 use crate::surfaces::mission_composer::ComposerState;
 use crate::surfaces::mission_feed::{message_text, FeedBlock};
@@ -115,15 +116,6 @@ fn transition_to_begin_on_spawn(
     existing
         .is_none()
         .then_some(MissionTransitionKind::Starting)
-}
-
-fn is_concurrent_resume_error(error: &str) -> bool {
-    [
-        "is already being resumed",
-        "is already running — attach instead",
-    ]
-    .iter()
-    .any(|fragment| error.contains(fragment))
 }
 
 fn mission_slot_actions_available(
@@ -321,6 +313,7 @@ struct DeliveryBlocked {
 
 pub(crate) struct MissionWorkspace {
     pub(super) render_regions: HashMap<String, Entity<super::render_cache::CachedRegion<Self>>>,
+    client: super::front_page::FrontPageClient,
     remote: Option<remote::RemoteMission>,
     remote_selected_handle: Option<String>,
     window_label: String,

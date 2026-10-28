@@ -148,6 +148,9 @@ impl FrontPageClient {
     }
 
     pub(crate) fn mark_viewed(&self, session: String) -> ClientResult<()> {
+        if !self.is_remote() {
+            return self.daemon.mark_direct_sessions_viewed(&[session]);
+        }
         self.action("markViewed", ActionRequest::MarkViewed { id: 0, session })
     }
 
@@ -222,6 +225,43 @@ impl FrontPageClient {
         .map(|s| s.session)
     }
 
+    pub(crate) fn launch_chat(&self, launch: &mut ChatLaunch) -> ClientResult<ChatLaunched> {
+        let session = if let Some(session) = &launch.started {
+            session.clone()
+        } else {
+            let session = self.start_chat(launch.input.clone())?;
+            launch.started = Some(session.clone());
+            session
+        };
+        let mut rename_error = None;
+        if !launch.renamed {
+            if let Some(title) = &launch.title {
+                if let Err(error) = self.rename_session(&session, Some(title.clone())) {
+                    if self.is_remote() {
+                        return Err(error);
+                    }
+                    rename_error = Some(error.to_string());
+                }
+            }
+            launch.renamed = true;
+        }
+        let layout = if let Some((layout, pane)) = &launch.placement {
+            let mut layout = layout.clone();
+            layout
+                .assign_session(pane, &session)
+                .map_err(|error| ClientError::msg(error.to_string()))?;
+            self.layout(&layout, layout.parent_id.clone())?;
+            Some(layout)
+        } else {
+            None
+        };
+        Ok(ChatLaunched {
+            session,
+            layout,
+            rename_error,
+        })
+    }
+
     pub(crate) fn start_shell(
         &self,
         project: Option<String>,
@@ -250,6 +290,39 @@ impl FrontPageClient {
             },
         )
         .map(|s| s.session)
+    }
+
+    pub(crate) fn start_role_chat(
+        &self,
+        role: String,
+        cwd: Option<String>,
+        size: (u16, u16),
+    ) -> ClientResult<String> {
+        if !self.is_remote() {
+            return self
+                .daemon
+                .session_start_direct(
+                    role,
+                    None,
+                    None,
+                    None,
+                    runner_core::protocol::project::ProjectScope::Root,
+                    cwd,
+                    Some(size.0),
+                    Some(size.1),
+                )
+                .map(|session| session.id);
+        }
+        self.start_chat(ChatStart {
+            role: Some(role),
+            runtime: None,
+            model: None,
+            effort: None,
+            speed: None,
+            project: None,
+            cwd,
+            size,
+        })
     }
 
     pub(crate) fn layout(
@@ -294,11 +367,24 @@ impl FrontPageClient {
     }
 
     pub(crate) fn resume(&self, session: &str, size: (u16, u16)) -> ClientResult<String> {
+        self.resume_session(session, size, false)
+    }
+
+    pub(crate) fn resume_session(
+        &self,
+        session: &str,
+        size: (u16, u16),
+        launch_claim: bool,
+    ) -> ClientResult<String> {
         if !self.is_remote() {
-            return self
-                .daemon
-                .session_resume(session, Some(size.0), Some(size.1))
-                .map(|s| s.id);
+            return if launch_claim {
+                self.daemon
+                    .session_resume_on_launch(session, Some(size.0), Some(size.1))
+            } else {
+                self.daemon
+                    .session_resume(session, Some(size.0), Some(size.1))
+            }
+            .map(|session| session.id);
         }
         self.action::<SessionResult>(
             "resume",
@@ -370,12 +456,29 @@ impl FrontPageClient {
     }
 
     pub(crate) fn rename(&self, target: ActionTarget, name: String) -> ClientResult<()> {
+        self.rename_title(target, Some(name))
+    }
+
+    pub(crate) fn rename_title(
+        &self,
+        target: ActionTarget,
+        name: Option<String>,
+    ) -> ClientResult<()> {
         if !self.is_remote() {
             return match target.kind {
-                ActionKind::Session => self.daemon.session_rename(&target.id, Some(name)),
-                ActionKind::Tab => self.daemon.node_rename(target.id, name).map(drop),
-                ActionKind::Mission => self.daemon.mission_rename_impl(target.id, name).map(drop),
-                ActionKind::Project => self.daemon.project_rename(target.id, name).map(drop),
+                ActionKind::Session => self.daemon.session_rename(&target.id, name),
+                ActionKind::Tab => self
+                    .daemon
+                    .node_rename(target.id, name.unwrap_or_default())
+                    .map(drop),
+                ActionKind::Mission => self
+                    .daemon
+                    .mission_rename_impl(target.id, name.unwrap_or_default())
+                    .map(drop),
+                ActionKind::Project => self
+                    .daemon
+                    .project_rename(target.id, name.unwrap_or_default())
+                    .map(drop),
             };
         }
         self.action(
@@ -383,7 +486,7 @@ impl FrontPageClient {
             ActionRequest::Rename {
                 id: 0,
                 target,
-                name,
+                name: name.unwrap_or_default(),
             },
         )
     }
@@ -414,45 +517,47 @@ impl FrontPageClient {
         node: &super::model::SidebarNodeDisplay,
         project: Option<&super::model::SidebarNodeDisplay>,
         order: &[super::model::SidebarNodeDisplay],
-    ) -> ClientResult<()> {
+    ) -> ClientResult<Option<Vec<runner_core::protocol::node::NodeRow>>> {
         if !self.is_remote() {
             return self
                 .daemon
                 .node_move(
                     node.id.clone(),
-                    project.map(|p| p.id.clone()),
-                    order.iter().map(|item| item.id.clone()).collect(),
+                    project.map(|project| project.id.clone()),
+                    order.iter().map(|node| node.id.clone()).collect(),
                 )
-                .map(drop);
+                .map(Some);
         }
-        self.action(
+        self.action::<()>(
             "move",
             ActionRequest::Move {
                 id: 0,
                 target: node.target(),
-                project: project.map(|p| p.target().id),
-                order: order.iter().map(|item| item.target()).collect(),
+                project: project.map(|project| project.target().id),
+                order: order.iter().map(|node| node.target()).collect(),
             },
         )
+        .map(|()| None)
     }
 
     pub(crate) fn reorder_pinned(
         &self,
         order: &[super::model::SidebarNodeDisplay],
-    ) -> ClientResult<()> {
+    ) -> ClientResult<Option<Vec<runner_core::protocol::node::NodeRow>>> {
         if !self.is_remote() {
             return self
                 .daemon
-                .node_reorder_pinned(order.iter().map(|item| item.id.clone()).collect())
-                .map(drop);
+                .node_reorder_pinned(order.iter().map(|node| node.id.clone()).collect())
+                .map(Some);
         }
-        self.action(
+        self.action::<()>(
             "reorderPinned",
             ActionRequest::ReorderPinned {
                 id: 0,
-                order: order.iter().map(|item| item.target()).collect(),
+                order: order.iter().map(|node| node.target()).collect(),
             },
         )
+        .map(|()| None)
     }
 
     pub(crate) fn create_project(&self, name: String, path: String) -> ClientResult<String> {
@@ -475,7 +580,11 @@ impl FrontPageClient {
 
     pub(crate) fn delete_project(&self, project: String, force: bool) -> ClientResult<()> {
         if !self.is_remote() {
-            return self.daemon.project_delete_checked(project, force).map(drop);
+            return if force {
+                self.daemon.project_delete(project).map(drop)
+            } else {
+                self.daemon.project_delete_checked(project, false).map(drop)
+            };
         }
         self.action::<serde_json::Value>(
             "deleteProject",
@@ -489,10 +598,133 @@ impl FrontPageClient {
     }
 
     pub(crate) fn stop_mission(&self, mission: String) -> ClientResult<()> {
+        self.stop_mission_state(mission).map(drop)
+    }
+
+    pub(crate) fn stop_mission_state(&self, mission: String) -> ClientResult<MissionStop> {
         if !self.is_remote() {
-            return self.daemon.mission_stop_impl(mission).map(drop);
+            let state = self.daemon.mission_stop_impl(mission.clone())?;
+            let sessions = self.daemon.session_list(&mission)?;
+            return Ok(MissionStop {
+                mission: Some(state),
+                sessions,
+            });
         }
-        self.action("stopMission", ActionRequest::StopMission { id: 0, mission })
+        self.action::<()>("stopMission", ActionRequest::StopMission { id: 0, mission })
+            .map(|()| MissionStop {
+                mission: None,
+                sessions: Vec::new(),
+            })
+    }
+
+    pub(crate) fn rename_mission_state(
+        &self,
+        mission: String,
+        title: String,
+    ) -> ClientResult<Option<runner_core::protocol::model::Mission>> {
+        if !self.is_remote() {
+            return self.daemon.mission_rename_impl(mission, title).map(Some);
+        }
+        self.rename(
+            ActionTarget {
+                kind: ActionKind::Mission,
+                id: mission,
+            },
+            title,
+        )
+        .map(|()| None)
+    }
+
+    pub(crate) fn archive_mission_state(
+        &self,
+        mission: String,
+    ) -> ClientResult<Option<runner_core::protocol::model::Mission>> {
+        if !self.is_remote() {
+            return self.daemon.mission_archive_impl(mission).map(Some);
+        }
+        self.archive(ActionTarget {
+            kind: ActionKind::Mission,
+            id: mission,
+        })
+        .map(|()| None)
+    }
+
+    pub(crate) fn pin_mission_state(
+        &self,
+        mission: String,
+        pinned: bool,
+    ) -> ClientResult<Option<runner_core::protocol::model::Mission>> {
+        if !self.is_remote() {
+            return self.daemon.mission_pin_impl(mission, pinned).map(Some);
+        }
+        self.action::<()>(
+            "pin",
+            ActionRequest::Pin {
+                id: 0,
+                target: ActionTarget {
+                    kind: ActionKind::Mission,
+                    id: mission,
+                },
+                pinned,
+            },
+        )
+        .map(|()| None)
+    }
+
+    pub(crate) fn rename_session(&self, session: &str, title: Option<String>) -> ClientResult<()> {
+        self.rename_title(
+            ActionTarget {
+                kind: ActionKind::Session,
+                id: session.into(),
+            },
+            title,
+        )
+    }
+
+    pub(crate) fn pin_chat(
+        &self,
+        session: &str,
+        pinned: bool,
+        tab: Option<&super::model::SidebarNodeDisplay>,
+    ) -> ClientResult<()> {
+        if !self.is_remote() {
+            return self.daemon.session_pin(session, pinned);
+        }
+        let tab = tab.ok_or_else(|| ClientError::msg("The chat tab is no longer available."))?;
+        self.pin(tab, pinned)
+    }
+
+    pub(crate) fn archive_chat(&self, session: &str, running: bool) -> ClientResult<()> {
+        if !self.is_remote() {
+            if running {
+                let _ = self.daemon.session_kill(session);
+            }
+            return self.daemon.session_archive(session);
+        }
+        self.archive(ActionTarget {
+            kind: ActionKind::Session,
+            id: session.into(),
+        })
+    }
+
+    pub(crate) fn archive_sessions(
+        &self,
+        plan: Vec<(String, ArchiveSessionOperation)>,
+    ) -> (Vec<String>, Option<String>) {
+        let mut removed = Vec::new();
+        for (session, operation) in plan {
+            let result = match operation {
+                ArchiveSessionOperation::CloseTerminal => self.close(&session),
+                ArchiveSessionOperation::ArchiveChat { running } => {
+                    self.archive_chat(&session, running)
+                }
+            };
+            if let Err(error) = result {
+                return (removed, Some(error.to_string()));
+            }
+            removed.push(session);
+        }
+        (removed, None)
     }
 
     pub(crate) fn resume_mission(
@@ -500,8 +732,20 @@ impl FrontPageClient {
         mission: String,
         size: (u16, u16),
     ) -> ClientResult<Vec<String>> {
+        let result = self.resume_mission_state(mission, size)?;
+        if let Some(error) = result.error {
+            return Err(ClientError::msg(error));
+        }
+        Ok(result.sessions)
+    }
+
+    pub(crate) fn resume_mission_state(
+        &self,
+        mission: String,
+        size: (u16, u16),
+    ) -> ClientResult<MissionResume> {
         if !self.is_remote() {
-            return self.daemon.mission_resume(&mission).map(|_| Vec::new());
+            return super::local::resume_mission(&self.daemon, &mission, size);
         }
         #[derive(serde::Deserialize)]
         struct Resumed {
@@ -516,7 +760,11 @@ impl FrontPageClient {
                 rows: size.1,
             },
         )
-        .map(|result| result.sessions)
+        .map(|result| MissionResume {
+            sessions: result.sessions,
+            local_sessions: Vec::new(),
+            error: None,
+        })
     }
 
     pub(crate) fn archive(&self, target: ActionTarget) -> ClientResult<()> {
@@ -540,6 +788,21 @@ impl FrontPageClient {
         cwd: Option<String>,
         size: (u16, u16),
     ) -> ClientResult<String> {
+        if !self.is_remote() {
+            return self
+                .daemon
+                .mission_start_impl_with_size(
+                    runner_core::protocol::mission::MissionStart {
+                        crew_id: (!crew.is_empty()).then_some(crew),
+                        scope: runner_core::protocol::project::ProjectScope::or_root(project),
+                        title,
+                        goal_override: goal,
+                        cwd,
+                    },
+                    Some(size),
+                )
+                .map(|output| output.mission.id);
+        }
         #[derive(serde::Deserialize)]
         struct Started {
             mission: String,
@@ -561,6 +824,34 @@ impl FrontPageClient {
     }
 
     pub(crate) fn mission_layout(&self, mission: String, shells: Vec<String>) -> ClientResult<()> {
+        if !self.is_remote() {
+            let row = self
+                .daemon
+                .node_list()?
+                .into_iter()
+                .find(|row| {
+                    row.node_type == runner_core::protocol::node::NodeType::Mission
+                        && row.ref_id.as_deref() == Some(&mission)
+                })
+                .ok_or_else(|| ClientError::msg("mission node is missing"))?;
+            let mut layout = runner_app::pane_layout::MissionLayout::from_node_row(&row)
+                .map_err(|error| ClientError::msg(error.to_string()))?;
+            let open = layout.drawer.open();
+            let active = layout.drawer.active_shell().map(str::to_owned);
+            let height = layout.drawer.height();
+            layout.drawer = Default::default();
+            for shell in shells {
+                layout.drawer.add(shell);
+            }
+            if let Some(active) = active {
+                layout.drawer.activate(&active);
+            }
+            layout.drawer.set_height(height);
+            layout
+                .drawer
+                .set_open(open && !layout.drawer.shells().is_empty());
+            return self.save_mission_presentation(Some(&row.id), &layout);
+        }
         self.action::<serde_json::Value>(
             "layout",
             ActionRequest::Layout {
@@ -579,20 +870,6 @@ impl FrontPageClient {
             },
         )
         .map(drop)
-    }
-
-    pub(crate) fn mission_pin(&self, mission: String, pinned: bool) -> ClientResult<()> {
-        self.action(
-            "pin",
-            ActionRequest::Pin {
-                id: 0,
-                target: ActionTarget {
-                    kind: ActionKind::Mission,
-                    id: mission,
-                },
-                pinned,
-            },
-        )
     }
 
     fn message<T: DeserializeOwned>(
@@ -633,6 +910,9 @@ impl FrontPageClient {
     }
 
     pub(crate) fn follow_feed(&self, mission: String) -> ClientResult<()> {
+        if !self.is_remote() {
+            return Ok(());
+        }
         self.message(
             "follow",
             ClientMessage::Follow(runner_core::companion::MissionRequest { id: 0, mission }),
@@ -640,6 +920,9 @@ impl FrontPageClient {
     }
 
     pub(crate) fn unfollow_feed(&self, mission: String) -> ClientResult<()> {
+        if !self.is_remote() {
+            return Ok(());
+        }
         self.message(
             "unfollow",
             ClientMessage::Unfollow(runner_core::companion::MissionRequest { id: 0, mission }),
@@ -652,6 +935,17 @@ impl FrontPageClient {
         question: String,
         text: String,
     ) -> ClientResult<()> {
+        if !self.is_remote() {
+            return self
+                .daemon
+                .mission_signal_impl(runner_core::protocol::mission::PostSignalInput {
+                    mission_id: mission,
+                    from: None,
+                    signal_type: "human_response".into(),
+                    payload: serde_json::json!({"question_id": question, "choice": text}),
+                })
+                .map(drop);
+        }
         self.message(
             "answer",
             ClientMessage::Answer(runner_core::companion::AnswerRequest {
@@ -664,6 +958,17 @@ impl FrontPageClient {
     }
 
     pub(crate) fn post(&self, mission: String, to: Vec<String>, text: String) -> ClientResult<()> {
+        if !self.is_remote() {
+            return self
+                .daemon
+                .mission_post_impl(runner_core::protocol::mission::PostMessageInput {
+                    mission_id: mission,
+                    from: None,
+                    to: runner_core::model::Recipients::new(to),
+                    text,
+                })
+                .map(drop);
+        }
         self.message(
             "post",
             ClientMessage::Post(runner_core::companion::PostRequest {
@@ -673,6 +978,21 @@ impl FrontPageClient {
                 text,
             }),
         )
+    }
+
+    pub(crate) fn save_mission_presentation(
+        &self,
+        node: Option<&str>,
+        layout: &runner_app::pane_layout::MissionLayout,
+    ) -> ClientResult<()> {
+        if self.is_remote() {
+            return Ok(());
+        }
+        let node = node.ok_or_else(|| ClientError::msg("mission node is missing"))?;
+        let layout = layout
+            .serialize()
+            .map_err(|error| ClientError::msg(error.to_string()))?;
+        self.daemon.node_mission_layout_set(node, layout).map(drop)
     }
 }
 
@@ -691,4 +1011,44 @@ pub(crate) struct ChatStart {
     pub(crate) project: Option<String>,
     pub(crate) cwd: Option<String>,
     pub(crate) size: (u16, u16),
+}
+
+pub(crate) struct MissionResume {
+    pub(crate) sessions: Vec<String>,
+    pub(crate) local_sessions: Vec<runner_core::protocol::session::SessionRow>,
+    pub(crate) error: Option<String>,
+}
+
+pub(crate) fn is_concurrent_resume_error(error: &str) -> bool {
+    [
+        "is already being resumed",
+        "is already running — attach instead",
+    ]
+    .iter()
+    .any(|fragment| error.contains(fragment))
+}
+
+pub(crate) struct MissionStop {
+    pub(crate) mission: Option<runner_core::protocol::model::Mission>,
+    pub(crate) sessions: Vec<runner_core::protocol::session::SessionRow>,
+}
+
+pub(crate) struct ChatLaunch {
+    pub(crate) input: ChatStart,
+    pub(crate) title: Option<String>,
+    pub(crate) placement: Option<(runner_app::pane_layout::PaneLayout, String)>,
+    pub(crate) started: Option<String>,
+    pub(crate) renamed: bool,
+}
+
+pub(crate) struct ChatLaunched {
+    pub(crate) session: String,
+    pub(crate) layout: Option<runner_app::pane_layout::PaneLayout>,
+    pub(crate) rename_error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ArchiveSessionOperation {
+    ArchiveChat { running: bool },
+    CloseTerminal,
 }
