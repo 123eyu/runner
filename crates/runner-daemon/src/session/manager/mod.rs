@@ -43,13 +43,23 @@ use crate::session::runtime::{
     OutputStream, RuntimeOutput, RuntimeSession, SessionRuntime, SpawnSpec,
 };
 
+mod capture;
+mod direct_spawn;
+mod fork;
 mod lifecycle;
+mod mission_spawn;
 mod output;
+mod resume;
+mod shell;
 mod spawn;
+mod spawn_spec;
 mod startup;
 pub mod terminal;
 #[cfg(windows)]
 pub(crate) mod windows_shutdown;
+
+use shell::{is_terminal_shell, resolve_shell_resume_cwd};
+use spawn::delete_session_row;
 
 #[cfg(test)]
 use super::state::ObservedInput;
