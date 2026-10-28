@@ -3842,6 +3842,108 @@ pub(crate) fn action_trace(fake: &Fake, kind: &str) -> Vec<serde_json::Value> {
 }
 
 #[test]
+fn remote_chat_project_menu_and_directory_submit_host_membership_or_explicit_root() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    for action in ["project", "root", "directory", "browse"] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let (store, fake, _) = fixture(&mut cx, temp.path());
+        enable_front_page(&fake);
+        let window = add_window(&mut cx, &store, temp.path(), "project-field");
+        window
+            .update(&mut cx, |root, window, cx| {
+                root.choose_computer(computers()[1].clone(), false, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |root, window, cx| {
+                root.open_sidebar_chat_modal(
+                    runner_core::protocol::project::ProjectScope::Root,
+                    window,
+                    cx,
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        fake.local_requests.lock().unwrap().clear();
+        let mut visual = VisualTestContext::from_window(window.into(), &cx);
+        window
+            .update(&mut visual, |root, window, cx| {
+                let form = root.start_chat_modal.as_ref().unwrap();
+                assert_eq!(
+                    form.test_project().scope(),
+                    runner_core::protocol::project::ProjectScope::Root
+                );
+                if action == "directory" {
+                    let (_, cwd) = form.test_inputs();
+                    cwd.update(cx, |input, cx| input.set_text(r"C:\work\subfolder", cx));
+                    cwd.read(cx).focus_handle().focus(window, cx);
+                    window.activate_window();
+                } else {
+                    form.test_project().focus_handle(cx).focus(window, cx);
+                }
+            })
+            .unwrap();
+        visual.run_until_parked();
+        if action == "directory" {
+            visual.simulate_keystrokes("tab");
+        } else {
+            visual.simulate_keystrokes("enter down enter");
+            if action == "root" || action == "browse" {
+                visual.simulate_keystrokes("enter up enter");
+            }
+        }
+        visual.run_until_parked();
+        if action == "browse" {
+            window
+                .update(&mut visual, |root, window, cx| {
+                    root.start_chat_modal
+                        .as_ref()
+                        .unwrap()
+                        .test_folder_picker()
+                        .unwrap()
+                        .update(cx, |picker, cx| picker.toggle(window, cx));
+                })
+                .unwrap();
+            visual.run_until_parked();
+            visual.simulate_keystrokes("enter");
+            visual.run_until_parked();
+        }
+        fake.local_requests.lock().unwrap().clear();
+        window
+            .update(&mut visual, |root, window, cx| {
+                let form = root.start_chat_modal.as_ref().unwrap();
+                let expected = if action == "root" {
+                    runner_core::protocol::project::ProjectScope::Root
+                } else {
+                    runner_core::protocol::project::ProjectScope::Project("host-project".into())
+                };
+                assert_eq!(form.test_project().scope(), expected);
+                window.dispatch_action(Box::new(ConfirmStartChat), cx);
+            })
+            .unwrap();
+        visual.run_until_parked();
+        let starts = action_trace(&fake, "startChat");
+        assert_eq!(starts.len(), 1);
+        if action == "root" {
+            assert!(starts[0]["project"].is_null());
+        } else {
+            assert_eq!(starts[0]["project"], "host-project");
+        }
+        assert_eq!(
+            starts[0]["cwd"],
+            if action == "directory" {
+                r"C:\work\subfolder"
+            } else {
+                r"C:\work"
+            }
+        );
+        assert!(fake.local_requests.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
 fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() {
     let _theme = crate::theme_snapshot::ThemeGuard::new();
     let temp = tempfile::tempdir().unwrap();
@@ -3855,6 +3957,8 @@ fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() 
         })
         .unwrap();
     cx.run_until_parked();
+    let catalog = serde_json::json!({"roles":[],"runtimes":[{"name":"codex","label":"Host Codex","available":true,"nativeFork":true,"defaultModel":null,"defaultEffort":null,"models":[],"efforts":[],"speeds":["standard","fast"]}],"accounts":[],"activeAccount":"","crews":[],"projects":[{"id":"p","name":"Active host project","path":"C:\\active"},{"id":"other-project","name":"Other host project","path":"C:\\other"}],"recentFolders":[]});
+    fake.queue_result("catalog", Ok(catalog.clone()));
     let local_settings = store.read_with(&cx, |store, _| store.settings.clone());
     fake.local_requests.lock().unwrap().clear();
     let mut visual = VisualTestContext::from_window(window.into(), &cx);
@@ -3865,7 +3969,7 @@ fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() 
     window
         .read_with(&visual, |root, cx| {
             let (_, cwd) = root.start_chat_modal.as_ref().unwrap().test_inputs();
-            assert_eq!(cwd.read(cx).text(), "");
+            assert_eq!(cwd.read(cx).text(), r"C:\active");
         })
         .unwrap();
     visual.update(|window, cx| window.dispatch_action(Box::new(ConfirmStartChat), cx));
@@ -3873,7 +3977,8 @@ fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() 
     let starts = action_trace(&fake, "startChat");
     assert_eq!(starts.len(), 1);
     assert_eq!(starts[0]["runtime"], "codex");
-    for key in ["cwd", "model", "effort", "speed", "role"] {
+    assert_eq!(starts[0]["cwd"], r"C:\active");
+    for key in ["model", "effort", "speed", "role"] {
         assert!(starts[0][key].is_null(), "{key}");
     }
     assert_eq!(starts[0]["project"], "p");
@@ -3929,6 +4034,7 @@ fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() 
         .unwrap();
     visual.simulate_click(project.center(), Default::default());
     visual.run_until_parked();
+    fake.queue_result("catalog", Ok(catalog));
     window
         .update(&mut visual, |root, window, cx| {
             root.open_new_tab_modal(&NewTab, window, cx)

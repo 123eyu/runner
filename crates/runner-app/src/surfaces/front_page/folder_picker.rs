@@ -80,6 +80,10 @@ pub(crate) struct FolderPicker {
     pub(crate) path_error: Option<String>,
 }
 
+pub(crate) struct FolderChosen;
+
+impl gpui::EventEmitter<FolderChosen> for FolderPicker {}
+
 impl FolderPicker {
     pub(crate) fn new(
         client: FrontPageClient,
@@ -181,6 +185,7 @@ impl FolderPicker {
         });
         self.path_error = None;
         self.dismiss(window, cx);
+        cx.emit(FolderChosen);
     }
 
     fn load(&mut self, path: Option<String>, cx: &mut Context<Self>) {

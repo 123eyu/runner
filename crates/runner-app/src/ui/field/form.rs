@@ -135,6 +135,7 @@ pub struct Field {
     hint: Option<(SharedString, FocusHandle)>,
     tag: Option<SharedString>,
     subtitle: Option<SharedString>,
+    warning: bool,
     error: Option<SharedString>,
     focus_target: Option<FocusHandle>,
     child: AnyElement,
@@ -153,6 +154,7 @@ impl Field {
             hint: None,
             tag: None,
             subtitle: None,
+            warning: false,
             error: None,
             focus_target: None,
             child: child.into_any_element(),
@@ -178,6 +180,14 @@ impl Field {
 
     pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
         self.subtitle = Some(subtitle.into());
+        self.warning = false;
+        self
+    }
+
+    /// A subtitle in the warning colour: allowed, but worth a second look.
+    pub fn warning(mut self, warning: impl Into<SharedString>) -> Self {
+        self.subtitle = Some(warning.into());
+        self.warning = true;
         self
     }
 
@@ -222,9 +232,17 @@ impl RenderOnce for Field {
             })
             .child(self.child)
             .children(self.subtitle.map(|subtitle| {
+                let debug_subtitle = subtitle.clone();
                 div()
+                    .when(cfg!(test), |hint| {
+                        hint.debug_selector(move || format!("FIELD_SUBTITLE {debug_subtitle}"))
+                    })
                     .text_size(theme::text_meta())
-                    .text_color(theme::faint())
+                    .text_color(if self.warning {
+                        theme::warning()
+                    } else {
+                        theme::faint()
+                    })
                     .child(subtitle)
             }))
             .children(self.error.map(FieldError::new))

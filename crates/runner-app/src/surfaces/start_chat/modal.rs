@@ -201,7 +201,7 @@ impl NativeRoot {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<RoleChoice>>();
-        let (scope, project_cwd) = project_start_scope(project.as_ref());
+        let scope = ProjectScope::or_root(project.map(|project| project.id));
         let default_runtime = self.settings(cx).default_runtime.clone();
         let default_working_dir = self.settings(cx).default_working_dir.clone();
         let front_page = self.front_page_client(cx);
@@ -212,7 +212,6 @@ impl NativeRoot {
             runtimes,
             recent_runtimes,
             scope,
-            project_cwd,
             default_runtime,
             default_working_dir,
             agents_checking,
@@ -234,7 +233,6 @@ impl NativeRoot {
         runtimes: Vec<RuntimeChoice>,
         recent_runtimes: Vec<String>,
         scope: ProjectScope,
-        project_cwd: String,
         default_runtime: String,
         default_working_dir: String,
         agents_checking: bool,
@@ -262,6 +260,22 @@ impl NativeRoot {
                 .map(|runtime| default_title_for_runtime(&runtime.display_name))
                 .unwrap_or_default(),
         };
+        let project = ProjectField::new(
+            "start-chat-project",
+            match &host_catalog {
+                Some(catalog) => ProjectChoice::host(catalog),
+                None => ProjectChoice::local(&self.app_store.read(cx).projects),
+            },
+            host_catalog.is_none(),
+            scope.project_id().map(str::to_owned),
+            matches!(target, ChatTarget::Pane { .. }),
+            selection_handler(&cx.entity(), StartChatSelection::Project),
+            cx,
+        );
+        let project_cwd = project
+            .chosen()
+            .map(|project| project.path.clone())
+            .unwrap_or_default();
         let cwd_placeholder = if front_page.is_remote() {
             crate::i18n::text("ui.blank_starts_in_your_default_directory").to_owned()
         } else {
@@ -403,9 +417,11 @@ impl NativeRoot {
                     .map(|account| account.name.clone())
             }),
             _folder_subscription: None,
+            _folder_choice: None,
             _cwd_blur: None,
+            _cwd_follow: None,
             target,
-            scope,
+            project,
             mode,
             roles,
             runtimes,
@@ -456,6 +472,16 @@ impl NativeRoot {
                 )
             });
             let subscription = cx.observe(&picker, |_, _, cx| cx.notify());
+            let choice = cx.subscribe(
+                &picker,
+                |this, _, _: &crate::surfaces::front_page::folder_picker::FolderChosen, cx| {
+                    if let Some(modal) = this.start_chat_modal.as_mut() {
+                        let directory = modal.cwd.read(cx).text().to_owned();
+                        modal.project.picked(&directory, cx);
+                        cx.notify();
+                    }
+                },
+            );
             let blur_picker = picker.clone();
             let blur = cx.on_focus_out(
                 &input.read(cx).focus_handle(),
@@ -465,9 +491,22 @@ impl NativeRoot {
             let modal = self.start_chat_modal.as_mut().unwrap();
             modal.folder_picker = Some(picker);
             modal._folder_subscription = Some(subscription);
+            modal._folder_choice = Some(choice);
             modal._cwd_blur = Some(blur);
         }
+        let cwd_focus = self
+            .start_chat_modal
+            .as_ref()
+            .unwrap()
+            .cwd
+            .read(cx)
+            .focus_handle();
+        let follow = cx.on_blur(&cwd_focus, window, |_, window, cx| {
+            // Focus callbacks run during drawing, when notifications cannot schedule a frame.
+            cx.defer_in(window, |this, _, cx| this.follow_start_chat_cwd(cx));
+        });
         if let Some(modal) = self.start_chat_modal.as_mut() {
+            modal._cwd_follow = Some(follow);
             restore_baseline(modal, cx);
         }
         self.start_chat_modal
@@ -666,6 +705,14 @@ impl NativeRoot {
             return;
         };
         match selection {
+            StartChatSelection::Project => {
+                let directory = modal.cwd.read(cx).text().to_owned();
+                if let Some(directory) = modal.project.choose(value, &directory) {
+                    modal
+                        .cwd
+                        .update(cx, |input, input_cx| input.reset(directory, input_cx));
+                }
+            }
             StartChatSelection::Role => {
                 modal.role_id = Some(value.to_owned());
                 let derived = modal
@@ -718,6 +765,16 @@ impl NativeRoot {
         cx.notify();
     }
 
+    /// The working directory was committed: let it choose its project.
+    pub(super) fn follow_start_chat_cwd(&mut self, cx: &mut Context<Self>) {
+        let Some(modal) = self.start_chat_modal.as_mut() else {
+            return;
+        };
+        let directory = modal.cwd.read(cx).text().to_owned();
+        modal.project.follow(&directory, cx);
+        cx.notify();
+    }
+
     pub(super) fn browse_start_chat_cwd(&mut self, cx: &mut Context<Self>) {
         if self.remote_client.is_active() {
             return;
@@ -761,6 +818,8 @@ impl NativeRoot {
                             modal.cwd.update(cx, |input, input_cx| {
                                 input.reset(path.to_string_lossy().into_owned(), input_cx)
                             });
+                            let directory = modal.cwd.read(cx).text().to_owned();
+                            modal.project.picked(&directory, cx);
                         }
                     }
                     Ok(None) => {}

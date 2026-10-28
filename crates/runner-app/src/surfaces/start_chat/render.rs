@@ -101,6 +101,22 @@ impl NativeRoot {
             }))
             .child(
                 Field::new(
+                    "start-chat-project-field",
+                    crate::i18n::text("ui.project"),
+                    modal.project.select(),
+                )
+                .focus_target(modal.project.focus_handle(cx))
+                .emphasized(true)
+                .map(|field| {
+                    if modal.project.locked() {
+                        field.subtitle(crate::i18n::text("ui.chats_in_a_pane_file_with_their_tab"))
+                    } else {
+                        field
+                    }
+                }),
+            )
+            .child(
+                Field::new(
                     "start-chat-working-dir-field",
                     crate::i18n::text("ui.working_directory"),
                     div()
@@ -145,6 +161,10 @@ impl NativeRoot {
                         .and_then(|picker| picker.read(cx).path_error.clone())
                     {
                         field.error(error)
+                    } else if let Some(hint) =
+                        modal.project.directory_hint(modal.cwd.read(cx).text())
+                    {
+                        hint.apply(field)
                     } else {
                         field.subtitle(working_dir_hint(mode, modal.selected_role()))
                     }

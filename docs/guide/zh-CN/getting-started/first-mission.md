@@ -22,7 +22,7 @@
    Create a short PROJECT-TOUR.md explaining the top-level folders in this repository. Inspect the files before writing. The reviewer should check every claim against the repository and send corrections to the coder. Make no code changes, commits, pushes or pull requests. Leave the final diff for me to inspect.
    ```
 
-5. 将 **工作目录（Working directory）** 设为仓库路径，然后点击 **启动任务（Start mission）** ，或按 **⌘Enter** / **Ctrl+Enter** 。
+5. 选择 **项目（Project）**，或选择 **无项目（No project）** 将任务归入最近记录。检查下方的 **工作目录（Working directory）**：选择项目会填入其目录，目录位于其他项目内时，离开字段后项目选择会随之更新。点击 **启动任务（Start mission）**，或按 **⌘Enter** / **Ctrl+Enter**。
 
 每个成员都会收到目标、角色指令和团队约定。coder 开始实现；reviewer 按约定等待 coder 交接。目标可以留空，以便先建立任务，但第一次尝试时在启动前写好目标更容易跟进。
 

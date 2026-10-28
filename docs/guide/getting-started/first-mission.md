@@ -22,7 +22,7 @@ Choose a small repository or a disposable project for the first task. Runner sta
    Create a short PROJECT-TOUR.md explaining the top-level folders in this repository. Inspect the files before writing. The reviewer should check every claim against the repository and send corrections to the coder. Make no code changes, commits, pushes or pull requests. Leave the final diff for me to inspect.
    ```
 
-5. Set **Working directory** to the repository, then click **Start mission** or press **⌘Enter** / **Ctrl+Enter**.
+5. Choose **Project**, or **No project** to list the mission under Recents. Check **Working directory** below it; choosing a project fills its folder, and a directory inside another project updates the selection when you leave the field. Click **Start mission** or press **⌘Enter** / **Ctrl+Enter**.
 
 Every member receives the goal, its role and the team conventions. The coder starts implementation; the reviewer waits for the coder’s handoff as the conventions require. An optional blank goal is useful for setting up a mission first, but a first task is easier to follow with the goal written at launch.
 

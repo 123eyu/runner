@@ -13,6 +13,8 @@ impl NativeRoot {
         if !modal.can_submit() || modal.is_composing(cx) {
             return;
         }
+        self.follow_start_chat_cwd(cx);
+        let modal = self.start_chat_modal.as_ref().unwrap();
         let client = modal.front_page.clone();
         let remote = client.is_remote();
         if remote && (client.target != self.front_page_client(cx).target || !client.valid()) {
@@ -126,7 +128,7 @@ impl NativeRoot {
                         "standard".into()
                     }
                 }),
-                project: modal.scope.project_id().map(str::to_owned),
+                project: modal.project.scope().project_id().map(str::to_owned),
                 cwd,
                 size,
             },

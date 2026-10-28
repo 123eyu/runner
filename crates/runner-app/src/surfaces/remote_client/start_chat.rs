@@ -74,7 +74,6 @@ impl RemoteClient {
                             scope,
                             String::new(),
                             String::new(),
-                            String::new(),
                             false,
                             None,
                             None,

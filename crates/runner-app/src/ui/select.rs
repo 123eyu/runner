@@ -249,6 +249,7 @@ pub struct StyledSelect {
     full_width: bool,
     runtime_style: bool,
     monospace: bool,
+    mono_descriptions: bool,
     disabled: bool,
     error: Option<SharedString>,
     menu_scroll: ScrollHandle,
@@ -286,6 +287,7 @@ impl StyledSelect {
             full_width: false,
             runtime_style: false,
             monospace: false,
+            mono_descriptions: false,
             disabled: false,
             error: None,
             menu_scroll,
@@ -376,6 +378,13 @@ impl StyledSelect {
 
     pub fn monospace(mut self, monospace: bool) -> Self {
         self.monospace = monospace;
+        self
+    }
+
+    /// Menu descriptions in the monospace font, as pickers show them: for
+    /// options described by a path.
+    pub fn mono_descriptions(mut self, mono: bool) -> Self {
+        self.mono_descriptions = mono;
         self
     }
 
@@ -519,7 +528,7 @@ impl StyledSelect {
                 compact: self.compact,
                 monospace: self.monospace,
                 runtime_style: self.runtime_style,
-                mono_description: self.picker,
+                mono_description: self.picker || self.mono_descriptions,
                 wrapped: self.wrapped_menu_width.is_some(),
             },
             &self.menu_scroll,
@@ -572,7 +581,10 @@ impl Render for StyledSelect {
         } else {
             34.
         };
+        let debug_id = self.id.clone();
+        let debug_value_id = self.id.clone();
         let mut root = div()
+            .debug_selector(move || format!("STYLED_SELECT_{debug_id}"))
             .id(self.id.clone())
             .relative()
             .when(self.picker || self.full_width, |root| root.w_full())
@@ -679,6 +691,9 @@ impl Render for StyledSelect {
                             .justify_center()
                             .child(
                                 div()
+                                    .debug_selector(move || {
+                                        format!("STYLED_SELECT_VALUE_{debug_value_id}")
+                                    })
                                     .truncate()
                                     .text_size(if compact {
                                         theme::text_ui()

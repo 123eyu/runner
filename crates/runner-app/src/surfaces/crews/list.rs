@@ -671,7 +671,9 @@ impl NativeRoot {
             {
                 self.open_start_mission_modal(
                     Some(crew.id),
-                    runner_core::protocol::project::ProjectScope::Root,
+                    runner_core::protocol::project::ProjectScope::or_root(
+                        self.active_project_id(cx),
+                    ),
                     window,
                     cx,
                 );
@@ -683,7 +685,7 @@ impl NativeRoot {
     fn start_crew_mission(&mut self, crew_id: String, window: &mut Window, cx: &mut Context<Self>) {
         self.open_start_mission_modal(
             Some(crew_id),
-            runner_core::protocol::project::ProjectScope::Root,
+            runner_core::protocol::project::ProjectScope::or_root(self.active_project_id(cx)),
             window,
             cx,
         );
@@ -938,5 +940,38 @@ impl CrewSurfaces {
                 filtered_count,
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod project_tests {
+    use crate::surfaces::start_chat::{
+        tests::{modal_harness, project_fixture},
+        ChatMode,
+    };
+    use runner_core::protocol::project::ProjectScope;
+
+    #[test]
+    fn crew_page_start_uses_the_active_project_or_recents() {
+        let mut harness = modal_harness(1200., 1000., Vec::new(), Vec::new(), ChatMode::Runtime);
+        let projects = project_fixture(&mut harness);
+        for chosen in [Some(projects[0].id.clone()), None] {
+            harness.act(|root, window, cx| {
+                root.start_chat_modal = None;
+                root.start_mission_modal = None;
+                root.front_page_sidebar().update(cx, |sidebar, cx| {
+                    sidebar.test_set_active_project(chosen.clone(), cx)
+                });
+                root.start_crew_mission("crew".into(), window, cx);
+                assert_eq!(
+                    root.start_mission_modal
+                        .as_ref()
+                        .unwrap()
+                        .test_project()
+                        .scope(),
+                    ProjectScope::or_root(chosen)
+                );
+            });
+        }
     }
 }
