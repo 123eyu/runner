@@ -468,6 +468,29 @@ fn pager_icon_button(
     button.into_any_element()
 }
 
+pub fn no_matches_card() -> gpui::Div {
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_3()
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::panel())
+        .px_8()
+        .py(rems(56. / 16.))
+        .text_center()
+        .child(
+            svg()
+                .flex_none()
+                .path("search-x.svg")
+                .size(rems(20. / 16.))
+                .text_color(theme::faint()),
+        )
+}
+
 #[derive(IntoElement)]
 pub struct EmptyStateCard {
     icon: AnyElement,

@@ -1,8 +1,8 @@
 use gpui::prelude::*;
-use gpui::{div, img, rems, svg, Context, CursorStyle, FontWeight, KeyDownEvent, Render, Window};
+use gpui::{div, rems, svg, Context, CursorStyle, KeyDownEvent, Render, Window};
 use runner_app::ui::{PaneHeader, SettingsCard};
 
-use crate::{assets::app_icon_source, theme};
+use crate::theme;
 
 pub(super) const DISCORD_URL: &str = "https://discord.gg/6BrfZdHKNf";
 pub(super) const WECHAT_README_URL: &str = "https://github.com/yicheng47/runner#community";
@@ -17,7 +17,6 @@ impl AboutPane {
 
 impl Render for AboutPane {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let installed_version = runner_app::version::display_version_label();
         div()
             .flex()
             .flex_col()
@@ -26,68 +25,15 @@ impl Render for AboutPane {
                 crate::i18n::text("ui.about"),
                 crate::i18n::text("ui.version_credits_and_links"),
             ))
-            .child(
-                div()
-                    .overflow_hidden()
-                    .rounded(rems(12. / 16.))
-                    .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_4()
-                            .p_5()
-                            .child(
-                                img(app_icon_source())
-                                    .size(rems(56. / 16.))
-                                    .flex_none()
-                                    .rounded(rems(1.)),
-                            )
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .text_size(theme::text_heading())
-                                                    .font_weight(FontWeight::BOLD)
-                                                    .text_color(theme::text())
-                                                    .child("Runner"),
-                                            )
-                                            .child(
-                                                div()
-                                                    .rounded_sm()
-                                                    .bg(theme::raised())
-                                                    .px(rems(6. / 16.))
-                                                    .py(rems(2. / 16.))
-                                                    .font_family(theme::UI_MONOSPACE_FONT)
-                                                    .text_size(theme::text_meta())
-                                                    .text_color(theme::muted())
-                                                    .child(installed_version),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .truncate()
-                                            .text_size(theme::text_ui())
-                                            .text_color(theme::muted())
-                                            .child(crate::i18n::text(
-                                                "ui.local_cockpit_for_coding_agents",
-                                            )),
-                                    ),
-                            ),
-                    ),
-            )
+            .child(super::app_identity_card(
+                [div()
+                    .truncate()
+                    .text_size(theme::text_ui())
+                    .text_color(theme::muted())
+                    .child(crate::i18n::text("ui.local_cockpit_for_coding_agents"))
+                    .into_any_element()],
+                None,
+            ))
             .child(SettingsCard::new([
                 link_row(
                     "about-github",
