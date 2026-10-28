@@ -33,6 +33,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [dev-dependencies]
 regex = "1"
+runner-daemon = { path = "../runner-daemon", features = ["test-support"] }
 runner-terminal = { path = "../runner-terminal" }
 tempfile = "3"
 toml_edit = "0.25"

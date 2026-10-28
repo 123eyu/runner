@@ -56,7 +56,7 @@ fn seeded_store(
     use runner_daemon::{db, session, shell_path};
     use std::sync::RwLock;
 
-    let pool = Arc::new(db::open_pool(&temp.join("runner.db")).unwrap());
+    let pool = Arc::new(db::open_fixture_pool(&temp.join("runner.db")).unwrap());
     let conn = pool.get().unwrap();
     conn.execute_batch(
         "INSERT INTO crews (id, name, created_at, updated_at)

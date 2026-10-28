@@ -14,6 +14,76 @@ use super::seed::{
 use super::{open_in_memory, open_pool};
 
 #[test]
+fn fixture_pool_preserves_file_backing_schema_and_connection_guards() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("fixture.db");
+    let pool = super::open_fixture_pool(&path).unwrap();
+    assert_eq!(pool.max_size(), 8);
+    assert_eq!(
+        pool.connection_timeout(),
+        std::time::Duration::from_secs(30)
+    );
+    let connections = (0..8).map(|_| pool.get().unwrap()).collect::<Vec<_>>();
+    for conn in &connections {
+        assert_eq!(
+            conn.pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                .unwrap(),
+            "wal"
+        );
+        assert!(conn
+            .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+            .unwrap());
+        assert_eq!(
+            conn.pragma_query_value(None, "busy_timeout", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            5000
+        );
+    }
+    assert_eq!(
+        connections[0]
+            .query_row("SELECT MAX(version) FROM _migrations", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        MIGRATIONS.last().unwrap().0
+    );
+    assert_eq!(
+        connections[0]
+            .query_row(
+                "SELECT COUNT(*) FROM crews WHERE id = ?1",
+                [SEED_CREW_ID],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    insert_crew(&connections[0], "fixture-persisted");
+    drop(connections);
+    drop(pool);
+
+    let production = open_pool(&path).unwrap();
+    let conn = production.get().unwrap();
+    assert_eq!(
+        conn.pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT name FROM crews WHERE id = 'fixture-persisted'",
+            [],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap(),
+        "crew-fixture-persisted"
+    );
+}
+
+#[test]
 fn invalid_database_fails_fast_without_shortening_pool_checkout_timeout() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("runner.db");

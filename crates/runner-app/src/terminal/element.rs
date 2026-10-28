@@ -1613,7 +1613,7 @@ mod tests {
     fn test_core(root: &std::path::Path, runtime: Arc<RecordingRuntime>) -> AppCore {
         let app_data_dir = root.join("app-data");
         std::fs::create_dir_all(&app_data_dir).unwrap();
-        let pool = Arc::new(db::open_pool(&app_data_dir.join("runner.db")).unwrap());
+        let pool = Arc::new(db::open_fixture_pool(&app_data_dir.join("runner.db")).unwrap());
         let runtime_shell_env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
         let runtime_discovery =
             Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));

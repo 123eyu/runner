@@ -1268,7 +1268,7 @@ mod tests {
         let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
         let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
         let core = crate::test_support::core(
-            Arc::new(db::open_pool(&root.path().join("runner.db")).unwrap()),
+            Arc::new(db::open_fixture_pool(&root.path().join("runner.db")).unwrap()),
             root.path().into(),
             session::SessionManager::new(
                 env.clone(),
@@ -1611,7 +1611,7 @@ pub(crate) fn test_lifecycle_store(
     let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
     let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
     let core = crate::test_support::core(
-        Arc::new(db::open_pool(&root.join("runner.db")).unwrap()),
+        Arc::new(db::open_fixture_pool(&root.join("runner.db")).unwrap()),
         root.to_owned(),
         session::SessionManager::new(
             env.clone(),

@@ -35,6 +35,29 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        let mut fixture = Self::for_help();
+        fixture.cli = fixture
+            .data
+            .join("bin")
+            .join(runner_core::cli_install::AGENT_DEST_BIN_NAME);
+        let source = Path::new(env!("CARGO_BIN_EXE_runner-agent-cli"));
+        for destination in [&fixture.cli, &fixture.daemon] {
+            std::fs::hard_link(source, destination)
+                .or_else(|_| std::fs::copy(source, destination).map(|_| ()))
+                .unwrap();
+        }
+        #[cfg(windows)]
+        for name in ["conpty.dll", "OpenConsole.exe"] {
+            let companion = source.parent().unwrap().join(name);
+            if companion.exists() {
+                std::fs::copy(companion, fixture.data.join("bin").join(name)).unwrap();
+            }
+        }
+        fixture.seed();
+        fixture
+    }
+
+    fn for_help() -> Self {
         #[cfg(unix)]
         let root = tempfile::Builder::new()
             .prefix("821-")
@@ -55,21 +78,8 @@ impl Fixture {
         let data = home.join("AppData/Roaming/com.wycstudios.runner-dev");
         let bin = data.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let cli = bin.join(runner_core::cli_install::AGENT_DEST_BIN_NAME);
         let daemon = bin.join(runner_core::cli_install::DAEMON_DEST_BIN_NAME);
-        let source = Path::new(env!("CARGO_BIN_EXE_runner-agent-cli"));
-        for destination in [&cli, &daemon] {
-            std::fs::hard_link(source, destination)
-                .or_else(|_| std::fs::copy(source, destination).map(|_| ()))
-                .unwrap();
-        }
-        #[cfg(windows)]
-        for name in ["conpty.dll", "OpenConsole.exe"] {
-            let companion = source.parent().unwrap().join(name);
-            if companion.exists() {
-                std::fs::copy(companion, bin.join(name)).unwrap();
-            }
-        }
+        let cli = PathBuf::from(env!("CARGO_BIN_EXE_runner-agent-cli"));
         #[cfg(unix)]
         let (endpoint, mcp) = (
             IpcEndpoint(data.join("runnerd.sock")),
@@ -89,7 +99,7 @@ impl Fixture {
             .join("missions")
             .join(MISSION)
             .join("events.ndjson");
-        let fixture = Self {
+        Self {
             _root: root,
             directory,
             home,
@@ -100,14 +110,12 @@ impl Fixture {
             mcp,
             log,
             child: None,
-        };
-        fixture.seed();
-        fixture
+        }
     }
 
     fn seed(&self) {
         std::fs::write(self.directory.as_path().join("not-a-directory"), b"fixture").unwrap();
-        let pool = runner_daemon::db::open_pool(&self.data.join("runner.db")).unwrap();
+        let pool = runner_daemon::db::open_fixture_pool(&self.data.join("runner.db")).unwrap();
         let conn = pool.get().unwrap();
         conn.execute_batch("DELETE FROM sessions; DELETE FROM missions; DELETE FROM slots; DELETE FROM crews; DELETE FROM roles; DELETE FROM nodes; DELETE FROM projects;").unwrap();
         conn.execute(
@@ -625,100 +633,137 @@ fn variants(args: Vec<&'static str>, inside: bool, running: bool) -> Vec<Case> {
         .collect()
 }
 
-fn inside_cases() -> Vec<Case> {
-    let args = [
-        vec!["mission", "add-role", "mission-running", "reviewer"],
-        vec!["mission", "remove-role", "mission-running", "reviewer"],
-        vec!["msg", "read"],
-        vec!["msg", "post", "Direct message", "--to", "reviewer"],
-        vec![
-            "signal",
-            "ask_lead",
-            "--payload",
-            r#"{"question":"Review?"}"#,
-        ],
-        vec!["ask", "Review?"],
-        vec!["ask", "--human", "Ship?", "--choices", "yes,no"],
-    ];
-    args.into_iter()
-        .flat_map(|args| variants(args, true, false))
-        .collect()
-}
-
-fn offline_cases() -> Vec<Case> {
-    let args = [
-        vec!["status"],
-        vec!["status", "--json"],
-        vec!["role", "list"],
-        vec!["role", "list", "--json"],
-        vec!["daemon", "status"],
-        vec!["daemon", "stop"],
-        vec!["unknown-command"],
-    ];
-    args.into_iter()
-        .map(|args| Case {
+fn offline_variants(args: Vec<&'static str>, inside: bool, json: bool) -> Vec<Case> {
+    if json {
+        variants(args, inside, false)
+    } else {
+        vec![Case {
             args,
-            inside: false,
+            inside,
             running: false,
-        })
-        .collect()
-}
-
-fn help_cases() -> Vec<Case> {
-    let mut help_cases = vec![
-        vec!["help"],
-        vec!["help", "agents"],
-        vec!["help", "mission"],
-        vec!["mission", "add-role", "--help"],
-        vec!["mission", "remove-role", "--help"],
-        vec!["--help"],
-        vec!["daemon", "--help"],
-        vec!["remote", "--help"],
-        vec!["remote", "computers", "--help"],
-        vec!["remote", "pair", "--help"],
-        vec!["remote", "forget", "--help"],
-        vec!["remote", "overview", "--help"],
-        vec!["remote", "status", "--help"],
-        vec!["remote", "login", "--help"],
-        vec!["remote", "logout", "--help"],
-        vec!["remote", "pin", "--help"],
-        vec!["remote", "devices", "--help"],
-        vec!["remote", "revoke", "--help"],
-        vec!["remote", "reset-identity", "--help"],
-        vec!["project", "--help"],
-        vec!["role", "--help"],
-        vec!["crew", "--help"],
-        vec!["mission", "--help"],
-        vec!["chat", "--help"],
-        vec!["session", "--help"],
-        vec!["msg", "--help"],
-        vec!["help", "--help"],
-    ];
-    for args in cases()
-        .into_iter()
-        .filter(|args| !matches!(args.get(1), Some(&"add-role" | &"remove-role")))
-    {
-        let count = if matches!(args.first(), Some(&"status" | &"signal" | &"ask" | &"call")) {
-            1
-        } else {
-            2
-        };
-        let mut help = args.into_iter().take(count).collect::<Vec<_>>();
-        help.push("--help");
-        if !help_cases.contains(&help) {
-            help_cases.push(help);
-        }
+        }]
     }
-    help_cases
-        .into_iter()
-        .map(|args| Case {
-            args,
-            inside: false,
-            running: false,
-        })
-        .collect()
 }
 
+macro_rules! offline_goldens {
+    ($cases:ident, $tests:ident, $inside:literal, $json:literal; $($name:ident => $args:expr),+ $(,)?) => {
+        fn $cases() -> Vec<Case> {
+            vec![$($args),+].into_iter()
+                .flat_map(|args| offline_variants(args, $inside, $json))
+                .collect()
+        }
+
+        mod $tests {
+            use super::*;
+
+            $(#[test]
+            fn $name() {
+                check_cases(offline_variants($args, $inside, $json));
+            })+
+        }
+    };
+}
+
+offline_goldens! {
+    inside_cases, built_cli_goldens_inside_mission, true, true;
+    mission_add_role => vec!["mission", "add-role", "mission-running", "reviewer"],
+    mission_remove_role => vec!["mission", "remove-role", "mission-running", "reviewer"],
+    msg_read => vec!["msg", "read"],
+    msg_post => vec!["msg", "post", "Direct message", "--to", "reviewer"],
+    signal_ask_lead => vec!["signal", "ask_lead", "--payload", "{\"question\":\"Review?\"}"],
+    ask => vec!["ask", "Review?"],
+    ask_human => vec!["ask", "--human", "Ship?", "--choices", "yes,no"],
+}
+
+offline_goldens! {
+    offline_cases, built_cli_goldens_not_running, false, false;
+    status => vec!["status"],
+    status_json => vec!["status", "--json"],
+    role_list => vec!["role", "list"],
+    role_list_json => vec!["role", "list", "--json"],
+    daemon_status => vec!["daemon", "status"],
+    daemon_stop => vec!["daemon", "stop"],
+    unknown_command => vec!["unknown-command"],
+}
+
+offline_goldens! {
+    help_cases, built_cli_goldens_help, false, false;
+    help => vec!["help"],
+    help_agents => vec!["help", "agents"],
+    help_mission => vec!["help", "mission"],
+    mission_add_role => vec!["mission", "add-role", "--help"],
+    mission_remove_role => vec!["mission", "remove-role", "--help"],
+    root => vec!["--help"],
+    daemon => vec!["daemon", "--help"],
+    remote => vec!["remote", "--help"],
+    remote_computers => vec!["remote", "computers", "--help"],
+    remote_pair => vec!["remote", "pair", "--help"],
+    remote_forget => vec!["remote", "forget", "--help"],
+    remote_overview => vec!["remote", "overview", "--help"],
+    remote_status => vec!["remote", "status", "--help"],
+    remote_login => vec!["remote", "login", "--help"],
+    remote_logout => vec!["remote", "logout", "--help"],
+    remote_pin => vec!["remote", "pin", "--help"],
+    remote_devices => vec!["remote", "devices", "--help"],
+    remote_revoke => vec!["remote", "revoke", "--help"],
+    remote_reset_identity => vec!["remote", "reset-identity", "--help"],
+    project => vec!["project", "--help"],
+    role => vec!["role", "--help"],
+    crew => vec!["crew", "--help"],
+    mission => vec!["mission", "--help"],
+    chat => vec!["chat", "--help"],
+    session => vec!["session", "--help"],
+    msg => vec!["msg", "--help"],
+    help_help => vec!["help", "--help"],
+    status => vec!["status", "--help"],
+    daemon_status => vec!["daemon", "status", "--help"],
+    daemon_stop => vec!["daemon", "stop", "--help"],
+    project_list => vec!["project", "list", "--help"],
+    project_show => vec!["project", "show", "--help"],
+    project_create => vec!["project", "create", "--help"],
+    project_rename => vec!["project", "rename", "--help"],
+    project_delete => vec!["project", "delete", "--help"],
+    role_list => vec!["role", "list", "--help"],
+    role_show => vec!["role", "show", "--help"],
+    role_create => vec!["role", "create", "--help"],
+    role_update => vec!["role", "update", "--help"],
+    role_delete => vec!["role", "delete", "--help"],
+    crew_list => vec!["crew", "list", "--help"],
+    crew_show => vec!["crew", "show", "--help"],
+    crew_create => vec!["crew", "create", "--help"],
+    crew_update => vec!["crew", "update", "--help"],
+    crew_delete => vec!["crew", "delete", "--help"],
+    crew_add => vec!["crew", "add", "--help"],
+    crew_set => vec!["crew", "set", "--help"],
+    crew_remove => vec!["crew", "remove", "--help"],
+    crew_lead => vec!["crew", "lead", "--help"],
+    crew_order => vec!["crew", "order", "--help"],
+    mission_list => vec!["mission", "list", "--help"],
+    mission_show => vec!["mission", "show", "--help"],
+    mission_start => vec!["mission", "start", "--help"],
+    mission_stop => vec!["mission", "stop", "--help"],
+    mission_resume => vec!["mission", "resume", "--help"],
+    mission_archive => vec!["mission", "archive", "--help"],
+    mission_unarchive => vec!["mission", "unarchive", "--help"],
+    mission_rename => vec!["mission", "rename", "--help"],
+    mission_pin => vec!["mission", "pin", "--help"],
+    mission_unpin => vec!["mission", "unpin", "--help"],
+    mission_move => vec!["mission", "move", "--help"],
+    mission_feed => vec!["mission", "feed", "--help"],
+    mission_answer => vec!["mission", "answer", "--help"],
+    chat_start => vec!["chat", "start", "--help"],
+    session_list => vec!["session", "list", "--help"],
+    session_show => vec!["session", "show", "--help"],
+    session_stop => vec!["session", "stop", "--help"],
+    session_archive => vec!["session", "archive", "--help"],
+    session_resume => vec!["session", "resume", "--help"],
+    session_restart => vec!["session", "restart", "--help"],
+    msg_post => vec!["msg", "post", "--help"],
+    msg_read => vec!["msg", "read", "--help"],
+    signal => vec!["signal", "--help"],
+    ask => vec!["ask", "--help"],
+    call => vec!["call", "--help"],
+}
 fn golden_cases() -> Vec<Case> {
     cases()
         .into_iter()
@@ -779,9 +824,14 @@ fn assert_manifest(expected: &str, cases: &[Case]) {
 }
 
 fn render_case(case: &Case) -> String {
-    let mut fixture = Fixture::new();
-    if case.args.starts_with(&["mission", "remove-role"]) {
-        let pool = runner_daemon::db::open_pool(&fixture.data.join("runner.db")).unwrap();
+    let help = case.args.first() == Some(&"help") || case.args.last() == Some(&"--help");
+    let mut fixture = if help {
+        Fixture::for_help()
+    } else {
+        Fixture::new()
+    };
+    if !help && case.args.starts_with(&["mission", "remove-role"]) {
+        let pool = runner_daemon::db::open_fixture_pool(&fixture.data.join("runner.db")).unwrap();
         let conn = pool.get().unwrap();
         conn.execute("INSERT INTO sessions (id,mission_id,role_id,slot_id,status,started_at) VALUES ('session-remove','mission-running','role-reviewer','slot-reviewer','stopped',?1)", [STAMP]).unwrap();
     }
@@ -824,21 +874,6 @@ fn check_cases(selected: Vec<Case>) {
     }
 }
 
-#[test]
-fn built_cli_goldens_inside_mission() {
-    check_cases(inside_cases());
-}
-
-#[test]
-fn built_cli_goldens_not_running() {
-    check_cases(offline_cases());
-}
-
-#[test]
-fn built_cli_goldens_help() {
-    check_cases(help_cases());
-}
-
 fn visible_help_cases(fixture: &Fixture, args: Vec<String>) -> Vec<Vec<String>> {
     let output = fixture.command(false).args(&args).output().unwrap();
     assert!(output.status.success(), "help failed for {args:?}");
@@ -872,7 +907,7 @@ fn assert_help_coverage(visible: &[Vec<String>], cases: &[Case]) {
 
 #[test]
 fn help_goldens_cover_every_visible_command() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::for_help();
     let visible = visible_help_cases(&fixture, vec!["--help".to_owned()]);
     assert!(visible.contains(&vec!["ask".to_owned(), "--help".to_owned()]));
     assert!(visible.contains(&vec![
@@ -1121,7 +1156,7 @@ fn session_show_text_and_json_keep_launch_values_after_role_edit() {
     const MISSION_SESSION: &str = "01M4R000000000000000000000";
     let mut fixture = Fixture::new();
     {
-        let pool = runner_daemon::db::open_pool(&fixture.data.join("runner.db")).unwrap();
+        let pool = runner_daemon::db::open_fixture_pool(&fixture.data.join("runner.db")).unwrap();
         let conn = pool.get().unwrap();
         conn.execute("UPDATE roles SET runtime = 'pi', command = 'edited-command', model = 'edited-model', effort = 'max', runtime_options_json = NULL WHERE id = 'role-coder'", []).unwrap();
         conn.execute(

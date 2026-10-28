@@ -301,7 +301,7 @@ fn role_page_harness(label: &str) -> RolePageHarness {
     let theme = ThemeGuard::new();
     theme::set_active_variant(theme::ThemeVariant::Carbon);
     let temp = tempfile::tempdir().unwrap();
-    let pool = Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap());
+    let pool = Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap());
     let runtime_shell_env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
     let runtime_discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
     let core = crate::test_support::core(

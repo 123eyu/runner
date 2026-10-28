@@ -34,6 +34,16 @@ pub fn open_pool(db_path: &Path) -> Result<DbPool> {
     build_pool(manager, 8, true)
 }
 
+/// Disposable fixtures need file-backed WAL visibility, not power-loss durability per commit.
+#[cfg(any(test, feature = "test-support"))]
+pub fn open_fixture_pool(db_path: &Path) -> Result<DbPool> {
+    let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+        init_connection(conn)?;
+        conn.pragma_update(None, "synchronous", "NORMAL")
+    });
+    build_pool(manager, 8, true)
+}
+
 #[cfg(test)]
 pub fn open_in_memory() -> Result<DbPool> {
     // Tests get schema only — the default-crew seed would pollute the
