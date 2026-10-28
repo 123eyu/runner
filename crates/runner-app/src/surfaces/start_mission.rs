@@ -433,44 +433,98 @@ impl NativeRoot {
     }
 
     fn submit_start_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
-            self.submit_remote_mission(window, cx);
-            return;
-        }
-        let Some(modal) = self.start_mission_modal.as_mut() else {
+        let Some(modal) = self.start_mission_modal.as_ref() else {
             return;
         };
         if !modal.can_submit(cx) || modal.is_composing(cx) {
             return;
         }
-        let input = runner_core::protocol::mission::MissionStart {
-            crew_id: nonempty(&modal.crew_id),
-            scope: ProjectScope::or_root(modal.project.as_ref().map(|project| project.id.clone())),
-            title: modal.title.read(cx).text().trim().to_owned(),
-            goal_override: nonempty(modal.goal.read(cx).text()),
-            cwd: nonempty(modal.cwd.read(cx).text()),
+        let client = self.front_page_client(cx);
+        if client.is_remote() != modal.remote.is_some() {
+            return;
+        }
+        let remote_form = modal
+            .remote
+            .as_ref()
+            .map(|remote| (remote.navigation, remote.form));
+        if let Some((navigation, form)) = remote_form {
+            if !self.remote_mission_form_current(&client.target, navigation, form) {
+                return;
+            }
+        }
+        let crew = modal.crew_id.clone();
+        let title = modal.title.read(cx).text().trim().to_owned();
+        let goal = nonempty(modal.goal.read(cx).text());
+        let cwd = nonempty(modal.cwd.read(cx).text());
+        let project = modal
+            .remote
+            .as_ref()
+            .map(|remote| remote.project.clone())
+            .unwrap_or_else(|| modal.project.as_ref().map(|project| project.id.clone()));
+        let size = if let Some(remote) = &self.remote_window {
+            let size = remote
+                .mission_workspace
+                .read(cx)
+                .estimated_mission_terminal_size(window, cx);
+            (size.0.max(20), size.1.max(8))
+        } else {
+            self.estimated_mission_terminal_size(window, cx)
         };
+        let modal = self.start_mission_modal.as_mut().unwrap();
         modal.submitting = true;
         modal.error = None;
         set_start_mission_fields_disabled(modal, true, cx);
-        let size = self.estimated_mission_terminal_size(window, cx);
-        let core = self.core(cx).clone();
+        let target = client.target.clone();
         let task = cx.background_spawn(async move {
-            core.mission_start_impl_with_size(input, Some(size))
+            client
+                .start_mission(crew, title, goal, project, cwd, size)
                 .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, window, cx| {
+                if let Some((navigation, form)) = remote_form {
+                    if !this.remote_mission_form_current(&target, navigation, form) {
+                        return;
+                    }
+                }
                 match result {
-                    Ok(output) => {
+                    Ok(mission) => {
                         this.start_mission_modal = None;
-                        this.refresh_store(StoreRefreshKind::All, cx);
-                        this.open_mission(output.mission.id, window, cx);
+                        if remote_form.is_some() {
+                            this.remote_window.as_mut().unwrap().activate_mission = Some(mission);
+                            this.sync_remote_state(cx);
+                        } else {
+                            this.refresh_store(StoreRefreshKind::All, cx);
+                            this.open_mission(mission, window, cx);
+                        }
                     }
                     Err(error) => {
+                        let computer = remote_form.and_then(|_| {
+                            this.remote_window
+                                .as_ref()
+                                .map(|remote| remote.computer.name.clone())
+                        });
                         if let Some(modal) = this.start_mission_modal.as_mut() {
                             modal.submitting = false;
+                            if let Some(computer) = computer
+                                .filter(|_| error == "Choose an accessible folder on the host.")
+                            {
+                                if let Some(picker) = modal
+                                    .remote
+                                    .as_ref()
+                                    .and_then(|remote| remote.folder_picker.clone())
+                                {
+                                    picker.update(cx, |picker, cx| {
+                                        picker.path_error =
+                                            Some(crate::surfaces::remote_client::label(
+                                                "client.folder_invalid",
+                                                &computer,
+                                            ));
+                                        cx.notify();
+                                    });
+                                }
+                            }
                             modal.error = Some(error);
                             set_start_mission_fields_disabled(modal, false, cx);
                         }
@@ -794,88 +848,6 @@ impl NativeRoot {
                         modal._subscriptions.extend([subscription, blur]);
                     }
                     Err(error) => modal.error = Some(error),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
-    fn submit_remote_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(modal) = self.start_mission_modal.as_ref() else {
-            return;
-        };
-        if !modal.can_submit(cx) || modal.is_composing(cx) {
-            return;
-        }
-        let Some(remote) = &modal.remote else {
-            return;
-        };
-        let client = remote.client.clone();
-        let target = client.target.clone();
-        let navigation = remote.navigation;
-        let form = remote.form;
-        if !self.remote_mission_form_current(&target, navigation, form) {
-            return;
-        }
-        let crew = modal.crew_id.clone();
-        let title = modal.title.read(cx).text().trim().to_owned();
-        let goal = nonempty(modal.goal.read(cx).text());
-        let cwd = nonempty(modal.cwd.read(cx).text());
-        let project = remote.project.clone();
-        let size = self
-            .remote_window
-            .as_ref()
-            .unwrap()
-            .mission_workspace
-            .read(cx)
-            .estimated_mission_terminal_size(window, cx);
-        let size = (size.0.max(20), size.1.max(8));
-        let modal = self.start_mission_modal.as_mut().unwrap();
-        modal.submitting = true;
-        modal.error = None;
-        set_start_mission_fields_disabled(modal, true, cx);
-        let task = cx.background_spawn(async move {
-            client
-                .start_mission(crew, title, goal, project, cwd, size)
-                .map_err(|error| error.to_string())
-        });
-        cx.spawn(async move |weak, cx| {
-            let result = task.await;
-            let _ = weak.update(cx, |this, cx| {
-                if !this.remote_mission_form_current(&target, navigation, form) {
-                    return;
-                }
-                match result {
-                    Ok(mission) => {
-                        this.start_mission_modal = None;
-                        this.remote_window.as_mut().unwrap().activate_mission = Some(mission);
-                        this.sync_remote_state(cx);
-                    }
-                    Err(error) => {
-                        let computer = this.remote_window.as_ref().unwrap().computer.name.clone();
-                        let modal = this.start_mission_modal.as_mut().unwrap();
-                        modal.submitting = false;
-                        if error == "Choose an accessible folder on the host." {
-                            if let Some(picker) = modal
-                                .remote
-                                .as_ref()
-                                .and_then(|remote| remote.folder_picker.clone())
-                            {
-                                picker.update(cx, |picker, cx| {
-                                    picker.path_error =
-                                        Some(crate::surfaces::remote_client::label(
-                                            "client.folder_invalid",
-                                            &computer,
-                                        ));
-                                    cx.notify();
-                                });
-                            }
-                        }
-                        modal.error = Some(error);
-                        set_start_mission_fields_disabled(modal, false, cx);
-                    }
                 }
                 cx.notify();
             });

@@ -98,20 +98,11 @@ impl NativeRoot {
         } else {
             None
         };
-        let core = self.core(cx).clone();
+        let core = self.front_page_client(cx);
         let role_id = role.id.clone();
         let task = cx.background_spawn(async move {
-            core.session_start_direct(
-                role_id,
-                None,
-                None,
-                None,
-                runner_core::protocol::project::ProjectScope::Root,
-                cwd,
-                Some(INITIAL_COLS),
-                Some(INITIAL_ROWS),
-            )
-            .map_err(|error| error.to_string())
+            core.start_role_chat(role_id, cwd, (INITIAL_COLS, INITIAL_ROWS))
+                .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
@@ -122,7 +113,7 @@ impl NativeRoot {
                         let attach = (|| -> Result<()> {
                             this.refresh_sessions(cx);
                             this.reload_tabs(cx)?;
-                            this.tabs.activate_session(&spawned.id);
+                            this.tabs.activate_session(&spawned);
                             this.sync_active_project_from_active_tab(cx);
                             this.set_route(AppRoute::Chat, cx);
                             this.ensure_active_tab_attached(window, cx)?;
@@ -134,7 +125,7 @@ impl NativeRoot {
                                 this.mark_active_tab_viewed(window, cx);
                                 this.sync_active_chat_detail(cx);
                                 this.begin_chat_transition(
-                                    &spawned.id,
+                                    &spawned,
                                     chat_lifecycle::TransitionKind::Starting,
                                     Some(0),
                                     window,

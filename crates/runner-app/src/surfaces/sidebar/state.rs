@@ -84,10 +84,6 @@ impl Sidebar {
         }
     }
 
-    pub(super) fn core<'a>(&self, cx: &'a App) -> &'a DaemonClient {
-        &self.app_store.read(cx).client
-    }
-
     pub(super) fn settings<'a>(&'a self, cx: &'a App) -> &'a AppSettings {
         self.remote_settings
             .as_ref()

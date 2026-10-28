@@ -698,7 +698,7 @@ impl MissionWorkspace {
         let Some(shell) = self.shell.upgrade() else {
             return;
         };
-        let target = self.remote.as_ref().unwrap().client.target.clone();
+        let target = self.client.target.clone();
         let generation = self.generation;
         window.defer(cx, move |window, cx| {
             shell.update(cx, |shell, cx| {

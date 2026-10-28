@@ -428,24 +428,27 @@ impl Sidebar {
     }
 
     pub(super) fn submit_sidebar_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.front_page.is_remote() {
-            let Some(rename) = self.rename.as_ref() else {
-                return;
-            };
-            if rename.pending
+        let Some(rename) = self.rename.as_ref() else {
+            return;
+        };
+        let client = self.front_page.clone();
+        let remote = client.is_remote();
+        if remote
+            && (rename.pending
                 || rename.input.read(cx).is_composing()
-                || !self.front_page.supports(&["rename"])
-            {
-                return;
-            }
-            let input = rename.input.clone();
-            let name = input.read(cx).text().trim().to_owned();
-            let target = match &rename.target {
-                SidebarRenameTarget::Tab {
-                    node_id,
-                    session_id,
-                    ..
-                } => runner_core::companion::ActionTarget {
+                || !client.supports(&["rename"]))
+        {
+            return;
+        }
+        let input = rename.input.clone();
+        let name = input.read(cx).text().trim().to_owned();
+        let (target, original) = match &rename.target {
+            SidebarRenameTarget::Tab {
+                node_id,
+                session_id,
+                original,
+            } => (
+                runner_core::companion::ActionTarget {
                     kind: if session_id.is_some() {
                         runner_core::companion::ActionKind::Session
                     } else {
@@ -453,23 +456,50 @@ impl Sidebar {
                     },
                     id: session_id.clone().unwrap_or_else(|| node_id.clone()),
                 },
-                SidebarRenameTarget::Mission { mission_id, .. } => {
-                    runner_core::companion::ActionTarget {
-                        kind: runner_core::companion::ActionKind::Mission,
-                        id: mission_id.clone(),
-                    }
-                }
-                SidebarRenameTarget::Project { project_id, .. } => {
-                    runner_core::companion::ActionTarget {
-                        kind: runner_core::companion::ActionKind::Project,
-                        id: project_id.clone(),
-                    }
-                }
-            };
+                original,
+            ),
+            SidebarRenameTarget::Mission {
+                mission_id,
+                original,
+            } => (
+                runner_core::companion::ActionTarget {
+                    kind: runner_core::companion::ActionKind::Mission,
+                    id: mission_id.clone(),
+                },
+                original,
+            ),
+            SidebarRenameTarget::Project {
+                project_id,
+                original,
+            } => (
+                runner_core::companion::ActionTarget {
+                    kind: runner_core::companion::ActionKind::Project,
+                    id: project_id.clone(),
+                },
+                original,
+            ),
+        };
+        let unchanged = !remote
+            && (name == original.trim()
+                || (name.is_empty()
+                    && matches!(
+                        target.kind,
+                        runner_core::companion::ActionKind::Mission
+                            | runner_core::companion::ActionKind::Project
+                    )));
+        let guard = client.clone();
+        let operation = move || {
+            if unchanged {
+                Ok(())
+            } else {
+                client
+                    .rename(target, name)
+                    .map_err(|error| error.to_string())
+            }
+        };
+        if remote {
             self.rename.as_mut().unwrap().pending = true;
-            let client = self.front_page.clone();
-            let guard = client.clone();
-            let work = cx.background_spawn(async move { client.rename(target, name) });
+            let work = cx.background_spawn(async move { operation() });
             cx.spawn_in(window, async move |weak, cx| {
                 let result = work.await;
                 let _ = weak.update_in(cx, |sidebar, window, cx| {
@@ -490,64 +520,23 @@ impl Sidebar {
                         }
                         Err(error) => {
                             sidebar.rename.as_mut().unwrap().pending = false;
-                            sidebar.report_error(error.to_string(), cx);
+                            sidebar.report_error(error, cx);
                         }
                     }
                     cx.notify();
                 });
             })
             .detach();
-            return;
+        } else {
+            self.rename = None;
+            self._rename_focus_subscription = None;
+            match operation() {
+                Ok(()) => self.refresh_store(StoreRefreshKind::All, cx),
+                Err(error) => self.report_error(error, cx),
+            }
+            self.focus_shell_terminal(window, cx);
+            cx.notify();
         }
-
-        let Some(rename) = self.rename.take() else {
-            return;
-        };
-        self._rename_focus_subscription = None;
-        let next = rename.input.read(cx).text().trim().to_owned();
-        let result = match rename.target {
-            SidebarRenameTarget::Tab {
-                node_id,
-                original,
-                session_id,
-            } => {
-                if next == original.trim() {
-                    Ok(())
-                } else if let Some(session_id) = session_id {
-                    self.core(cx).session_rename(&session_id, Some(next))
-                } else {
-                    self.core(cx).node_rename(node_id, next).map(drop)
-                }
-            }
-            SidebarRenameTarget::Project {
-                project_id,
-                original,
-            } => {
-                if next.is_empty() || next == original.trim() {
-                    Ok(())
-                } else {
-                    self.core(cx).project_rename(project_id, next).map(drop)
-                }
-            }
-            SidebarRenameTarget::Mission {
-                mission_id,
-                original,
-            } => {
-                if next.is_empty() || next == original.trim() {
-                    Ok(())
-                } else {
-                    self.core(cx)
-                        .mission_rename_impl(mission_id, next)
-                        .map(drop)
-                }
-            }
-        };
-        match result {
-            Ok(()) => self.refresh_store(StoreRefreshKind::All, cx),
-            Err(error) => self.report_error(error.to_string(), cx),
-        }
-        self.focus_shell_terminal(window, cx);
-        cx.notify();
     }
 
     pub(super) fn cancel_sidebar_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {

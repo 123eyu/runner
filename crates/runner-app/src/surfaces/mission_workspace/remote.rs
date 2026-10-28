@@ -16,7 +16,6 @@ struct MissionPresentation {
 }
 
 pub(super) struct RemoteMission {
-    pub(super) client: FrontPageClient,
     pub(super) settings: Entity<AppSettings>,
     pub(super) terminal_sizes: HashMap<String, (u16, u16)>,
     pub(super) overview: Option<Overview>,
@@ -44,8 +43,8 @@ impl MissionWorkspace {
         let settings = app_store.read(cx).settings.clone();
         let mut workspace = Self::new(window_label, shell, app_store, window, cx);
         workspace.sidebar_collapsed = false;
+        workspace.client = client;
         workspace.remote = Some(RemoteMission {
-            client,
             settings: cx.new(|_| settings),
             terminal_sizes: HashMap::new(),
             overview: None,
@@ -98,10 +97,7 @@ impl MissionWorkspace {
             })
             .collect::<Vec<_>>();
         let changed = self.mission_id != mission_id;
-        let target_changed = self
-            .remote
-            .as_ref()
-            .is_some_and(|remote| remote.client.target != client.target);
+        let target_changed = self.client.target != client.target;
         if changed || target_changed {
             let had_dialog = self.rename_modal.is_some()
                 || self.stop_all_confirm
@@ -176,7 +172,7 @@ impl MissionWorkspace {
             self.submitting_asks.clear();
             self.slot_actions.clear();
         }
-        remote.client = client.clone();
+        self.client = client.clone();
         remote.overview = overview;
         self.active = mission_id.is_some();
         self.loading = false;
@@ -373,9 +369,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn remote_supports(&self, features: &[&str]) -> bool {
-        self.remote
-            .as_ref()
-            .is_none_or(|remote| self.active && remote.client.supports(features))
+        self.client.supports(features) && (!self.client.is_remote() || self.active)
     }
 
     pub(crate) fn remote_visible_sessions(&self) -> Vec<String> {
@@ -537,366 +531,125 @@ fn remote_event(mission: &str, entry: &FeedEntry) -> Option<Event> {
     })
 }
 
+pub(super) struct MissionAction {
+    client: FrontPageClient,
+    generation: u64,
+    key: String,
+    remote: bool,
+}
+
 impl MissionWorkspace {
-    pub(super) fn remote_action(
+    pub(super) fn prepare_mission_action(
         &mut self,
-        feature: &'static str,
+        feature: &str,
         key: String,
-        operation: impl FnOnce(FrontPageClient) -> runner_core::protocol::ClientResult<Vec<String>>
-            + Send
-            + 'static,
-        cx: &mut Context<Self>,
-    ) {
+    ) -> Option<MissionAction> {
         if !self.remote_supports(&[feature]) {
-            return;
+            return None;
         }
-        let remote = self.remote.as_mut().unwrap();
-        if !remote.pending.insert(key.clone()) {
-            return;
-        }
-        let client = remote.client.clone();
-        let guard = client.clone();
-        let generation = self.generation;
-        let task = cx
-            .background_spawn(async move { operation(client).map_err(|error| error.to_string()) });
-        cx.spawn(async move |weak, cx| {
-            let result = task.await;
-            let _ = weak.update(cx, |this: &mut Self, cx| {
-                if this.generation != generation || !guard.valid() {
-                    return;
-                }
-                let Some(remote) = this
-                    .remote
-                    .as_mut()
-                    .filter(|remote| remote.client.target == guard.target)
-                else {
-                    return;
-                };
-                remote.pending.remove(&key);
-                match key.as_str() {
-                    "stopMission" => this.stopping = false,
-                    "resumeMission" => this.resuming = false,
-                    "archive" => this.archiving = false,
-                    "rename" => {
-                        if let Some(modal) = &mut this.rename_modal {
-                            modal.submitting = false;
-                            modal.error = result.as_ref().err().cloned();
-                        }
-                        if result.is_ok() {
-                            this.rename_modal = None;
-                        }
-                    }
-                    id => {
-                        this.slot_actions.remove(id);
-                    }
-                }
-                if let Some(id) = key.strip_prefix("shell-close:").filter(|_| result.is_ok()) {
-                    if let Some(before) = this
-                        .remote_summary()
-                        .map(|mission| mission.shells.clone())
-                        .filter(|shells| shells.iter().any(|shell| shell == id))
-                    {
-                        let after = before
-                            .iter()
-                            .filter(|shell| shell.as_str() != id)
-                            .cloned()
-                            .collect();
-                        this.remote.as_mut().unwrap().drawer_expected = Some((before, after));
-                    }
-                }
-                if let Ok(ids) = &result {
-                    if !ids.is_empty() {
-                        let ids = ids.clone();
-                        let shell = this.shell.clone();
-                        let workspace = cx.weak_entity();
-                        cx.defer(move |cx| {
-                            if !workspace.upgrade().is_some_and(|workspace| {
-                                workspace.read(cx).generation == generation
-                            }) {
-                                return;
-                            }
-                            let _ = shell.update(cx, |shell, cx| {
-                                if let Some(remote) = shell
-                                    .remote_window
-                                    .as_mut()
-                                    .filter(|remote| remote.front_page.target == guard.target)
-                                {
-                                    remote.reopen_sessions.extend(ids);
-                                    shell.sync_remote_state(cx);
-                                }
-                            });
-                        });
-                    }
-                }
-                if key != "rename" {
-                    if let Err(error) = result {
-                        this.error = Some(action_failure(
-                            crate::i18n::message("mission.update_action"),
-                            error,
-                        ));
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
-    pub(super) fn remote_slot_action(
-        &mut self,
-        session: &str,
-        action: runner_app::ui::SessionControlKind,
-        size: (u16, u16),
-        cx: &mut Context<Self>,
-    ) {
-        use runner_app::ui::SessionControlKind;
-        let feature = match action {
-            SessionControlKind::Stop => "stop",
-            SessionControlKind::Restart => "restart",
-            _ => "resume",
-        };
-        if !self.remote_supports(&[feature])
-            || !self
-                .mission_view()
-                .is_some_and(|mission| mission.status == MissionStatus::Running)
-            || !self
-                .members()
-                .iter()
-                .any(|member| member.session.id == session)
-            || self.slot_actions.contains(session)
-            || self.lifecycle_busy()
-        {
-            return;
-        }
-        let session = session.to_owned();
-        self.slot_actions.insert(session.clone());
-        self.remote_action(
-            feature,
-            session.clone(),
-            move |client| match action {
-                SessionControlKind::Stop => client.stop(&session).map(|_| Vec::new()),
-                SessionControlKind::Restart => client.restart(&session, size).map(|id| vec![id]),
-                _ => client.resume(&session, size).map(|id| vec![id]),
-            },
-            cx,
-        );
-    }
-
-    pub(super) fn remote_answer(
-        &mut self,
-        question: String,
-        choice: String,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.remote_supports(&["answer"])
-            || !self
-                .remote_summary()
-                .is_some_and(|mission| mission.asks.iter().any(|ask| ask.question == question))
-            || !self.submitting_asks.insert(question.clone())
-        {
-            return;
-        }
-        self.pending_ask_choices
-            .insert(question.clone(), choice.clone());
-        self.invalidate_feed_ask(&question);
-        let remote = self.remote.as_ref().unwrap();
-        let client = remote.client.clone();
-        let guard = client.clone();
-        let mission = self.mission_id.clone().unwrap();
-        let generation = self.generation;
-        let task_question = question.clone();
-        let task = cx.background_spawn(async move {
-            client
-                .answer(mission, task_question, choice)
-                .map_err(|error| error.to_string())
-        });
-        cx.spawn(async move |weak, cx| {
-            let result = task.await;
-            let _ = weak.update(cx, |this: &mut Self, cx| {
-                if this.generation != generation || !guard.valid() {
-                    return;
-                }
-                this.submitting_asks.remove(&question);
-                if let Err(error) = result {
-                    this.pending_ask_choices.remove(&question);
-                    this.error = Some(action_failure(crate::i18n::message("action.answer"), error));
-                }
-                this.invalidate_feed_ask(&question);
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
-    pub(super) fn remote_post(
-        &mut self,
-        post: crate::surfaces::mission_composer::ComposerPost,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.composer_posting
-            || !self.remote_supports(&["post"])
-            || !self
-                .mission_view()
-                .is_some_and(|mission| mission.status == MissionStatus::Running)
-        {
-            return;
-        }
-        let handles = self
-            .members()
-            .into_iter()
-            .map(|member| member.handle)
-            .collect::<Vec<_>>();
-        if handles.is_empty() {
-            return;
-        }
-        let resolved =
-            match runner_core::addressing::resolve(&post.text, post.to.as_slice(), &handles) {
-                Ok(resolved) => resolved,
-                Err(error) => {
-                    self.error = Some(action_failure(
-                        crate::i18n::message("action.send_message"),
-                        error.to_string(),
-                    ));
-                    cx.notify();
-                    return;
-                }
-            };
-        let client = self.remote.as_ref().unwrap().client.clone();
-        let guard = client.clone();
-        let mission = self.mission_id.clone().unwrap();
-        let generation = self.generation;
-        self.composer_posting = true;
-        let task = cx.background_spawn(async move {
-            client
-                .post(
-                    mission,
-                    resolved.recipients.as_slice().to_vec(),
-                    resolved.text,
-                )
-                .map_err(|error| error.to_string())
-        });
-        cx.spawn_in(window, async move |weak, cx| {
-            let result = task.await;
-            let _ = weak.update_in(cx, |this: &mut Self, window, cx| {
-                if this.generation != generation || !guard.valid() {
-                    return;
-                }
-                this.composer_posting = false;
-                match result {
-                    Ok(()) => {
-                        this.composer = ComposerState::default();
-                        this.composer_input
-                            .update(cx, |input, cx| input.reset("", cx));
-                    }
-                    Err(error) => {
-                        this.error = Some(action_failure(
-                            crate::i18n::message("action.send_message"),
-                            error,
-                        ))
-                    }
-                }
-                this.composer_input
-                    .read(cx)
-                    .focus_handle()
-                    .focus(window, cx);
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-}
-
-impl MissionWorkspace {
-    pub(super) fn add_remote_mission_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.remote_supports(&["startShell", "layout"]) {
-            return;
-        }
-        let Some(mission) = self.mission_view() else {
-            return;
-        };
-        let Some(summary) = self.remote_summary().cloned() else {
-            return;
-        };
-        let size = self.estimated_mission_drawer_terminal_size(window, cx);
-        let remote = self.remote.as_mut().unwrap();
-        if remote.shell_pending || remote.drawer_expected.is_some() {
-            return;
-        }
-        remote.shell_pending = true;
-        let stage = remote.shell_started.clone();
-        let client = remote.client.clone();
-        let guard = client.clone();
-        let generation = self.generation;
-        let before = summary.shells;
-        let mut shells = before.clone();
-        let task = cx.background_spawn(async move {
-            let existing = stage.lock().unwrap().clone();
-            let id = match existing {
-                Some(id) => id,
-                None => {
-                    let id = client.start_shell(mission.project_id, mission.cwd, size)?;
-                    *stage.lock().unwrap() = Some(id.clone());
-                    id
-                }
-            };
-            if !shells.contains(&id) {
-                shells.push(id.clone());
+        if let Some(remote) = &mut self.remote {
+            if !remote.pending.insert(key.clone()) {
+                return None;
             }
-            client.mission_layout(mission.id, shells.clone())?;
-            Ok::<_, runner_core::protocol::ClientError>((id, shells))
-        });
-        cx.spawn(async move |weak, cx| {
-            let result = task.await;
-            let _ = weak.update(cx, |this: &mut Self, cx| {
-                if this.generation != generation || !guard.valid() {
-                    return;
-                }
-                let current = this.remote_summary().map(|summary| summary.shells.clone());
-                let Some(remote) = this
-                    .remote
-                    .as_mut()
-                    .filter(|remote| remote.client.target == guard.target)
-                else {
-                    return;
-                };
-                remote.shell_pending = false;
-                match result {
-                    Ok((id, shells)) => {
-                        *remote.shell_started.lock().unwrap() = None;
-                        remote.activate_shell = Some(id);
-                        if current.as_ref() == Some(&before) && before != shells {
-                            remote.drawer_expected = Some((before, shells));
-                        }
-                        this.error = None;
-                        if let Some(shell) = remote
-                            .activate_shell
-                            .clone()
-                            .filter(|id| this.layout.drawer.shells().contains(id))
-                        {
-                            this.layout.drawer.activate(&shell);
-                            this.layout.drawer.set_open(true);
-                            remote.activate_shell = None;
-                        }
-                        this.remote_navigation_changed(cx);
-                    }
-                    Err(error) => {
-                        this.error = Some(action_failure(
-                            crate::i18n::message("mission.shell_action"),
-                            error.to_string(),
-                        ))
-                    }
-                }
-                cx.notify();
-            });
+        }
+        Some(MissionAction {
+            client: self.client.clone(),
+            generation: self.generation,
+            key,
+            remote: self.remote.is_some(),
         })
-        .detach();
+    }
+
+    pub(super) fn complete_mission_action<T>(
+        &mut self,
+        action: MissionAction,
+        result: Result<T, String>,
+        remote_ids: impl FnOnce(T) -> Vec<String>,
+        cx: &mut Context<Self>,
+    ) -> Option<Result<T, String>> {
+        if !action.remote {
+            return Some(result);
+        }
+        let guard = action.client;
+        let generation = action.generation;
+        let key = action.key;
+        if self.generation != generation || !guard.valid() || self.client.target != guard.target {
+            return None;
+        }
+        let remote = self.remote.as_mut()?;
+        let result = result.map(remote_ids);
+        remote.pending.remove(&key);
+        match key.as_str() {
+            "stopMission" => self.stopping = false,
+            "resumeMission" => self.resuming = false,
+            "archive" => self.archiving = false,
+            "rename" => {
+                if let Some(modal) = &mut self.rename_modal {
+                    modal.submitting = false;
+                    modal.error = result.as_ref().err().cloned();
+                }
+                if result.is_ok() {
+                    self.rename_modal = None;
+                }
+            }
+            id => {
+                self.slot_actions.remove(id);
+            }
+        }
+        if let Some(id) = key.strip_prefix("shell-close:").filter(|_| result.is_ok()) {
+            if let Some(before) = self
+                .remote_summary()
+                .map(|mission| mission.shells.clone())
+                .filter(|shells| shells.iter().any(|shell| shell == id))
+            {
+                let after = before
+                    .iter()
+                    .filter(|shell| shell.as_str() != id)
+                    .cloned()
+                    .collect();
+                self.remote.as_mut().unwrap().drawer_expected = Some((before, after));
+            }
+        }
+        if let Ok(ids) = &result {
+            if !ids.is_empty() {
+                let ids = ids.clone();
+                let shell = self.shell.clone();
+                let workspace = cx.weak_entity();
+                cx.defer(move |cx| {
+                    if !workspace
+                        .upgrade()
+                        .is_some_and(|workspace| workspace.read(cx).generation == generation)
+                    {
+                        return;
+                    }
+                    let _ = shell.update(cx, |shell, cx| {
+                        if let Some(remote) = shell
+                            .remote_window
+                            .as_mut()
+                            .filter(|remote| remote.front_page.target == guard.target)
+                        {
+                            remote.reopen_sessions.extend(ids);
+                            shell.sync_remote_state(cx);
+                        }
+                    });
+                });
+            }
+        }
+        if key != "rename" {
+            if let Err(error) = result {
+                self.error = Some(action_failure(
+                    crate::i18n::message("mission.update_action"),
+                    error,
+                ));
+            }
+        }
+
         cx.notify();
+        None
     }
 }
+
+impl MissionWorkspace {}
 
 impl NativeRoot {
     pub(crate) fn remote_mission_workspace(&self) -> Option<Entity<MissionWorkspace>> {

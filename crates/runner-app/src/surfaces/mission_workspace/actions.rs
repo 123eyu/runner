@@ -106,39 +106,33 @@ impl MissionWorkspace {
     }
 
     fn toggle_mission_pin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            if let Some(mission) = self.mission_view() {
-                self.remote_action(
-                    "pin",
-                    "pin".into(),
-                    move |client| {
-                        client
-                            .mission_pin(mission.id, !mission.pinned)
-                            .map(|_| Vec::new())
-                    },
-                    cx,
-                );
-            }
-            return;
-        }
-        let Some(mission) = self.mission.clone() else {
+        let Some(mission) = self.mission_view() else {
             return;
         };
         let mission_id = mission.id.clone();
-        let core = self.core(cx).clone();
+        let Some(operation) = self.prepare_mission_action("pin", "pin".into()) else {
+            return;
+        };
+        let client = self.client.clone();
         let task = cx.background_spawn(async move {
-            core.mission_pin_impl(mission.id, mission.pinned_at.is_none())
+            client
+                .pin_mission_state(mission.id, !mission.pinned)
                 .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, _, cx| {
+                let Some(result) =
+                    this.complete_mission_action(operation, result, |_| Vec::new(), cx)
+                else {
+                    return;
+                };
                 if this.mission_id.as_deref() != Some(mission_id.as_str()) {
                     return;
                 }
                 match result {
                     Ok(mission) => {
-                        this.mission = Some(mission);
+                        this.mission = mission;
                         this.refresh_store(StoreRefreshKind::All, cx);
                     }
                     Err(error) => {
@@ -346,9 +340,19 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
-            let size = self.current_mission_terminal_size(window, cx);
-            self.remote_slot_action(session_id, action, size, cx);
+        let remote = self.client.is_remote();
+        let feature = match action {
+            SessionControlKind::Stop => "stop",
+            SessionControlKind::Restart => "restart",
+            _ => "resume",
+        };
+        if !self.remote_supports(&[feature])
+            || (remote
+                && !self
+                    .members()
+                    .iter()
+                    .any(|member| member.session.id == session_id))
+        {
             return;
         }
         if self.stopping
@@ -360,7 +364,7 @@ impl MissionWorkspace {
                 self.secondary_state(cx).secondary,
             )
             || self.slot_actions.contains(session_id)
-            || self.transitions.contains_key(session_id)
+            || (!remote && self.transitions.contains_key(session_id))
         {
             return;
         }
@@ -369,7 +373,7 @@ impl MissionWorkspace {
         };
         self.slot_actions.insert(session_id.to_owned());
         let generation = self.generation;
-        if action != SessionControlKind::Stop {
+        if !remote && action != SessionControlKind::Stop {
             self.begin_mission_transition(
                 session_id,
                 if action == SessionControlKind::Restart {
@@ -382,20 +386,21 @@ impl MissionWorkspace {
                 cx,
             );
         }
-        let core = self.core(cx).clone();
+        let Some(operation) = self.prepare_mission_action(feature, session_id.to_owned()) else {
+            return;
+        };
+        let client = self.client.clone();
         let target = session_id.to_owned();
         let size = self.current_mission_terminal_size(window, cx);
         cx.notify();
         let task_target = target.clone();
         let task = cx.background_spawn(async move {
             let result = match action {
-                SessionControlKind::Stop => core.session_kill(&task_target),
-                SessionControlKind::Resume => core
-                    .session_resume(&task_target, Some(size.0), Some(size.1))
-                    .map(|_| ()),
-                SessionControlKind::Restart => core
-                    .session_restart(&task_target, Some(size.0), Some(size.1))
-                    .map(|_| ()),
+                SessionControlKind::Stop => client.stop(&task_target).map(|()| Vec::new()),
+                SessionControlKind::Resume => client.resume(&task_target, size).map(|id| vec![id]),
+                SessionControlKind::Restart => {
+                    client.restart(&task_target, size).map(|id| vec![id])
+                }
                 _ => unreachable!(),
             };
             result.map_err(|error| error.to_string())
@@ -403,6 +408,10 @@ impl MissionWorkspace {
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, window, cx| {
+                let Some(result) = this.complete_mission_action(operation, result, |ids| ids, cx)
+                else {
+                    return;
+                };
                 if !this.is_current(&mission_id, generation) {
                     return;
                 }
@@ -477,56 +486,52 @@ impl MissionWorkspace {
     }
 
     pub(super) fn stop_open_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            if !self.lifecycle_busy()
-                && self.remote_supports(&["stopMission"])
-                && self
-                    .mission_view()
-                    .is_some_and(|mission| mission.status == MissionStatus::Running)
-            {
-                if let Some(id) = self.mission_id.clone() {
-                    self.stopping = true;
-                    self.remote_action(
-                        "stopMission",
-                        "stopMission".into(),
-                        move |client| client.stop_mission(id).map(|_| Vec::new()),
-                        cx,
-                    );
-                }
-            }
-            return;
-        }
         let Some(mission_id) = self.mission_id.clone() else {
             return;
         };
         if self.lifecycle_busy() || self.secondary_state(cx).secondary {
             return;
         }
+        let remote = self.client.is_remote();
+        if remote
+            && !self
+                .mission_view()
+                .is_some_and(|mission| mission.status == MissionStatus::Running)
+        {
+            return;
+        }
+        let Some(operation) = self.prepare_mission_action("stopMission", "stopMission".into())
+        else {
+            return;
+        };
         self.stopping = true;
-        self.root_focus.focus(window, cx);
+        if !remote {
+            self.root_focus.focus(window, cx);
+        }
         cx.notify();
-        let core = self.core(cx).clone();
+        let client = self.client.clone();
         let stop_id = mission_id.clone();
         let task = cx.background_spawn(async move {
-            let mission = core
-                .mission_stop_impl(stop_id.clone())
-                .map_err(|error| error.to_string())?;
-            let sessions = core
-                .session_list(&stop_id)
-                .map_err(|error| error.to_string())?;
-            Ok::<_, String>((mission, sessions))
+            client
+                .stop_mission_state(stop_id)
+                .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, window, cx| {
+                let Some(result) =
+                    this.complete_mission_action(operation, result, |_| Vec::new(), cx)
+                else {
+                    return;
+                };
                 if this.mission_id.as_deref() != Some(mission_id.as_str()) {
                     return;
                 }
                 this.stopping = false;
                 match result {
-                    Ok((mission, sessions)) => {
-                        this.mission = Some(mission);
-                        this.sessions = sessions;
+                    Ok(output) => {
+                        this.mission = output.mission;
+                        this.sessions = output.sessions;
                         let drawer_ids = this
                             .layout
                             .drawer
@@ -554,30 +559,18 @@ impl MissionWorkspace {
     }
 
     pub(super) fn resume_open_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            if !self.lifecycle_busy()
-                && self.remote_supports(&["resumeMission"])
-                && self
-                    .mission_view()
-                    .is_some_and(|mission| mission.status == MissionStatus::Running)
-            {
-                if let Some(id) = self.mission_id.clone() {
-                    let size = self.current_mission_terminal_size(window, cx);
-                    self.resuming = true;
-                    self.remote_action(
-                        "resumeMission",
-                        "resumeMission".into(),
-                        move |client| client.resume_mission(id, size),
-                        cx,
-                    );
-                }
-            }
-            return;
-        }
         let Some(mission_id) = self.mission_id.clone() else {
             return;
         };
         if self.lifecycle_busy() || self.secondary_state(cx).secondary {
+            return;
+        }
+        let remote = self.client.is_remote();
+        if remote
+            && !self
+                .mission_view()
+                .is_some_and(|mission| mission.status == MissionStatus::Running)
+        {
             return;
         }
         let stopped = self
@@ -586,10 +579,14 @@ impl MissionWorkspace {
             .filter(|session| session.session.status != SessionStatus::Running)
             .map(|session| session.session.id.clone())
             .collect::<Vec<_>>();
-        if stopped.is_empty() {
+        if !remote && stopped.is_empty() {
             return;
         }
         let size = self.current_mission_terminal_size(window, cx);
+        let Some(operation) = self.prepare_mission_action("resumeMission", "resumeMission".into())
+        else {
+            return;
+        };
         self.resuming = true;
         for session_id in &stopped {
             self.begin_mission_transition(
@@ -600,63 +597,38 @@ impl MissionWorkspace {
                 cx,
             );
         }
-        self.root_focus.focus(window, cx);
+        if !remote {
+            self.root_focus.focus(window, cx);
+        }
         cx.notify();
-        let core = self.core(cx).clone();
+        let client = self.client.clone();
         let resume_id = mission_id.clone();
         let task = cx.background_spawn(async move {
-            let mut sessions = core
-                .session_list(&resume_id)
-                .map_err(|error| error.to_string())?;
-            let mut first_error = None;
-            for candidate in sessions.clone() {
-                let already_running = sessions
-                    .iter()
-                    .find(|session| session.session.id == candidate.session.id)
-                    .is_some_and(|session| session.session.status == SessionStatus::Running);
-                if already_running {
-                    continue;
-                }
-                if let Err(error) =
-                    core.session_resume(&candidate.session.id, Some(size.0), Some(size.1))
-                {
-                    let message = error.to_string();
-                    if is_concurrent_resume_error(&message) {
-                        match core.session_list(&resume_id) {
-                            Ok(refreshed) => sessions = refreshed,
-                            Err(error) => {
-                                first_error.get_or_insert_with(|| error.to_string());
-                            }
-                        }
-                    } else {
-                        first_error.get_or_insert(message);
-                    }
-                }
-            }
-            match core.session_list(&resume_id) {
-                Ok(refreshed) => sessions = refreshed,
-                Err(error) => {
-                    first_error.get_or_insert_with(|| error.to_string());
-                }
-            }
-            Ok::<_, String>((sessions, first_error))
+            client
+                .resume_mission_state(resume_id, size)
+                .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, window, cx| {
+                let Some(result) =
+                    this.complete_mission_action(operation, result, |output| output.sessions, cx)
+                else {
+                    return;
+                };
                 if this.mission_id.as_deref() != Some(mission_id.as_str()) {
                     return;
                 }
                 this.resuming = false;
                 match result {
-                    Ok((sessions, error)) => {
-                        this.sessions = sessions;
+                    Ok(output) => {
+                        this.sessions = output.local_sessions;
                         for session in &this.sessions {
                             if !this.open_tabs.contains(&session.session.id) {
                                 this.open_tabs.push(session.session.id.clone());
                             }
                         }
-                        if let Some(error) = error {
+                        if let Some(error) = output.error {
                             this.error = Some(action_failure(
                                 crate::i18n::message("action.resume_mission"),
                                 error,
@@ -685,46 +657,36 @@ impl MissionWorkspace {
     }
 
     pub(super) fn archive_open_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            if !self.lifecycle_busy() && self.remote_supports(&["archive"]) {
-                if let Some(id) = self.mission_id.clone() {
-                    self.archiving = true;
-                    self.remote_action(
-                        "archive",
-                        "archive".into(),
-                        move |client| {
-                            client
-                                .archive(runner_core::companion::ActionTarget {
-                                    kind: runner_core::companion::ActionKind::Mission,
-                                    id,
-                                })
-                                .map(|_| Vec::new())
-                        },
-                        cx,
-                    );
-                }
-            }
-            return;
-        }
         let Some(mission_id) = self.mission_id.clone() else {
             return;
         };
         if self.lifecycle_busy() || self.secondary_state(cx).secondary {
             return;
         }
+        let Some(operation) = self.prepare_mission_action("archive", "archive".into()) else {
+            return;
+        };
         self.archiving = true;
-        self.set_sidebar_archiving(&mission_id, true, cx);
-        self.root_focus.focus(window, cx);
+        if !self.client.is_remote() {
+            self.set_sidebar_archiving(&mission_id, true, cx);
+            self.root_focus.focus(window, cx);
+        }
         cx.notify();
-        let core = self.core(cx).clone();
+        let client = self.client.clone();
         let archive_id = mission_id.clone();
         let task = cx.background_spawn(async move {
-            core.mission_archive_impl(archive_id)
+            client
+                .archive_mission_state(archive_id)
                 .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, window, cx| {
+                let Some(result) =
+                    this.complete_mission_action(operation, result, |_| Vec::new(), cx)
+                else {
+                    return;
+                };
                 this.set_sidebar_archiving(&mission_id, false, cx);
                 if this.mission_id.as_deref() != Some(mission_id.as_str()) {
                     return;
@@ -802,40 +764,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn submit_mission_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            if !self.remote_supports(&["rename"]) {
-                return;
-            }
-            let Some(modal) = self.rename_modal.as_mut() else {
-                return;
-            };
-            if modal.submitting || modal.input.read(cx).is_composing() {
-                return;
-            }
-            let title = modal.input.read(cx).text().trim().to_owned();
-            if title.is_empty() || title == modal.original.trim() {
-                self.close_mission_rename(window, cx);
-                return;
-            }
-            modal.submitting = true;
-            modal.error = None;
-            let id = modal.mission_id.clone();
-            self.remote_action(
-                "rename",
-                "rename".into(),
-                move |client| {
-                    client
-                        .rename(
-                            runner_core::companion::ActionTarget {
-                                kind: runner_core::companion::ActionKind::Mission,
-                                id,
-                            },
-                            title,
-                        )
-                        .map(|_| Vec::new())
-                },
-                cx,
-            );
+        if !self.remote_supports(&["rename"]) {
             return;
         }
         let Some(modal) = self.rename_modal.as_mut() else {
@@ -853,21 +782,30 @@ impl MissionWorkspace {
         modal.error = None;
         let mission_id = modal.mission_id.clone();
         cx.notify();
-        let core = self.core(cx).clone();
+        let Some(operation) = self.prepare_mission_action("rename", "rename".into()) else {
+            return;
+        };
+        let client = self.client.clone();
         let rename_id = mission_id.clone();
         let task = cx.background_spawn(async move {
-            core.mission_rename_impl(rename_id, title)
+            client
+                .rename_mission_state(rename_id, title)
                 .map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |weak, cx| {
             let result = task.await;
             let _ = weak.update_in(cx, |this, window, cx| {
+                let Some(result) =
+                    this.complete_mission_action(operation, result, |_| Vec::new(), cx)
+                else {
+                    return;
+                };
                 if this.mission_id.as_deref() != Some(mission_id.as_str()) {
                     return;
                 }
                 match result {
                     Ok(mission) => {
-                        this.mission = Some(mission);
+                        this.mission = mission;
                         this.rename_modal = None;
                         this.refresh_store(StoreRefreshKind::All, cx);
                         this.focus_active_mission_terminal(window, cx);

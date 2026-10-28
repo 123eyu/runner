@@ -3,9 +3,9 @@ use crate::*;
 use runner_core::companion::{ActionKind, ActionTarget};
 use runner_core::protocol::ClientResult;
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(crate) enum SessionAction {
-    Stop,
     Resume,
     Fork,
 }
@@ -19,73 +19,408 @@ pub(crate) struct Completion {
     pub(crate) activate_tab: Option<String>,
 }
 
+pub(crate) struct WorkspaceAction {
+    pub(crate) client: FrontPageClient,
+    key: String,
+    epoch: u64,
+    remote: Option<(HashMap<String, PaneLayout>, u64)>,
+}
+
+pub(crate) struct ShellStart {
+    pub(crate) draft: PaneLayout,
+    pub(crate) pane: Option<String>,
+    pub(crate) project: Option<String>,
+    pub(crate) cwd: Option<String>,
+    pub(crate) size: (u16, u16),
+}
+
+pub(crate) struct ArchiveCompletion {
+    pub(crate) removed: Vec<String>,
+    pub(crate) error: Option<String>,
+    pub(crate) completion: Completion,
+}
+
+impl WorkspaceAction {
+    pub(crate) fn prepare(
+        root: &mut NativeRoot,
+        key: String,
+        required: &[&str],
+        cx: &mut Context<NativeRoot>,
+    ) -> Option<WorkspaceAction> {
+        let client = root.front_page_client(cx);
+        if !client.supports(required) {
+            return None;
+        }
+        let remote = if let Some(remote) = root.remote_window.as_mut() {
+            if key.starts_with("layout:") && remote.actions_pending.contains("archive-sessions") {
+                return None;
+            }
+            if !remote.actions_pending.insert(key.clone()) {
+                return None;
+            }
+            remote.action_error = None;
+            cx.notify();
+            Some((remote.layouts.clone(), remote.navigation_generation))
+        } else {
+            None
+        };
+        Some(WorkspaceAction {
+            client,
+            key,
+            epoch: root.client_ui.epoch,
+            remote,
+        })
+    }
+
+    pub(crate) fn complete<T>(
+        root: &mut NativeRoot,
+        action: WorkspaceAction,
+        result: Result<T, String>,
+        remote_completion: impl FnOnce(T) -> Completion,
+        cx: &mut Context<NativeRoot>,
+    ) -> Option<Result<T, String>> {
+        let Some((before, navigation_generation)) = action.remote else {
+            return Some(result);
+        };
+        if root.client_ui.epoch != action.epoch
+            || root.front_page_client(cx).target != action.client.target
+            || !action.client.valid()
+        {
+            return None;
+        }
+        let remote = root.remote_window.as_mut()?;
+        remote.actions_pending.remove(&action.key);
+        match result {
+            Ok(done) => root.apply_remote_completion(
+                remote_completion(done),
+                &before,
+                navigation_generation,
+                cx,
+            ),
+            Err(error) => {
+                if remote.navigation_generation == navigation_generation {
+                    remote.action_error = Some(error);
+                }
+                if let Some(tab) = action.key.strip_prefix("layout:") {
+                    remote.layout_hints.remove(tab);
+                    if remote.navigation_generation != navigation_generation {
+                        let mut staged = remote.shell_placement.lock().unwrap();
+                        if staged.as_ref().is_some_and(|(_, layout)| layout.id == tab) {
+                            *staged = None;
+                        }
+                    }
+                }
+            }
+        }
+        root.sync_remote_state(cx);
+        cx.notify();
+        None
+    }
+
+    pub(crate) fn close(
+        root: &mut NativeRoot,
+        session: &str,
+        pane: Option<&str>,
+        drawer: bool,
+        cx: &mut Context<NativeRoot>,
+    ) -> Option<(
+        WorkspaceAction,
+        impl FnOnce() -> Result<Completion, String> + Send + 'static,
+    )> {
+        let client = root.front_page_client(cx);
+        let (draft, shell) = if client.is_remote() {
+            let mut draft = root.front_page_layout()?.clone();
+            if root
+                .remote_window
+                .as_ref()
+                .is_some_and(|remote| remote.layout_hints.contains_key(&draft.id))
+            {
+                return None;
+            }
+            let shell = root.front_page_session(session, cx)?.agent_runtime == "shell";
+            if drawer {
+                draft.remove_drawer_shell(session);
+            } else if let Some(pane) = pane {
+                draft.close_pane(pane);
+                draft.remove_session(session);
+            } else {
+                draft.remove_session(session);
+            }
+            (Some(draft), shell)
+        } else {
+            (None, true)
+        };
+        let mut required = vec![if shell { "close" } else { "archive" }];
+        if draft
+            .as_ref()
+            .is_some_and(|draft| !draft.all_session_ids().is_empty())
+        {
+            required.push("layout");
+        }
+        let key = draft
+            .as_ref()
+            .map(|draft| format!("layout:{}", draft.id))
+            .unwrap_or_else(|| format!("session:{session}"));
+        let action = WorkspaceAction::prepare(root, key, &required, cx)?;
+        let session = session.to_owned();
+        let operation = move || {
+            if shell {
+                client.close(&session)
+            } else {
+                client.archive(ActionTarget {
+                    kind: ActionKind::Session,
+                    id: session,
+                })
+            }
+            .map_err(|error| error.to_string())?;
+            if let Some(draft) = &draft {
+                if !draft.all_session_ids().is_empty() {
+                    client
+                        .layout(draft, draft.parent_id.clone())
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            Ok(Completion {
+                layout: draft,
+                ..Default::default()
+            })
+        };
+        Some((action, operation))
+    }
+
+    pub(crate) fn shell(
+        root: &mut NativeRoot,
+        mut input: ShellStart,
+        cx: &mut Context<NativeRoot>,
+    ) -> Option<(
+        WorkspaceAction,
+        impl FnOnce() -> Result<Completion, String> + Send + 'static,
+    )> {
+        let client = root.front_page_client(cx);
+        let remote_target = client.is_remote();
+        let staged = root
+            .remote_window
+            .as_ref()
+            .map(|remote| remote.shell_placement.clone());
+        let pending = staged
+            .as_ref()
+            .and_then(|staged| staged.lock().unwrap().clone());
+        if let Some(remote) = &root.remote_window {
+            if remote.actions_pending.contains("archive-sessions")
+                || remote
+                    .actions_pending
+                    .iter()
+                    .any(|key| key.starts_with("layout:"))
+            {
+                return None;
+            }
+            if let Some((_, draft)) = &pending {
+                input.draft = draft.clone();
+            }
+            if remote.layout_hints.contains_key(&input.draft.id) {
+                return None;
+            }
+            input.project = input.draft.parent_id.clone();
+            input.size = (input.size.0.max(20), input.size.1.max(8));
+        }
+        let required = if remote_target && pending.is_some() {
+            vec!["layout"]
+        } else if remote_target {
+            vec!["startShell", "layout"]
+        } else {
+            vec!["startShell"]
+        };
+        let action =
+            WorkspaceAction::prepare(root, format!("layout:{}", input.draft.id), &required, cx)?;
+        let operation = move || {
+            let session = if let Some((session, _)) = pending {
+                session
+            } else {
+                let session = client
+                    .start_shell(input.project, input.cwd, input.size)
+                    .map_err(|error| error.to_string())?;
+                if remote_target {
+                    if let Some(pane) = input.pane {
+                        input
+                            .draft
+                            .assign_session(&pane, &session)
+                            .map_err(|error| error.to_string())?;
+                    } else {
+                        input.draft.add_drawer_shell(session.clone());
+                    }
+                    *staged.as_ref().unwrap().lock().unwrap() =
+                        Some((session.clone(), input.draft.clone()));
+                }
+                session
+            };
+            let layout = if remote_target {
+                client
+                    .layout(&input.draft, input.draft.parent_id.clone())
+                    .map_err(|error| error.to_string())?;
+                Some(input.draft)
+            } else {
+                None
+            };
+            Ok(Completion {
+                session: Some(session),
+                layout,
+                ..Default::default()
+            })
+        };
+        Some((action, operation))
+    }
+
+    pub(crate) fn archive(
+        root: &mut NativeRoot,
+        ids: Vec<String>,
+        local_plan: Option<Vec<(String, super::client::ArchiveSessionOperation)>>,
+        pane_close: Option<PendingPaneClose>,
+        cx: &mut Context<NativeRoot>,
+    ) -> Option<(
+        WorkspaceAction,
+        impl FnOnce() -> Result<ArchiveCompletion, String> + Send + 'static,
+    )> {
+        use super::client::ArchiveSessionOperation;
+        let client = root.front_page_client(cx);
+        let remote_target = client.is_remote();
+        let mut layouts = root
+            .remote_window
+            .as_ref()
+            .map(|remote| {
+                remote
+                    .layouts
+                    .values()
+                    .filter(|layout| layout.all_session_ids().iter().any(|id| ids.contains(id)))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if let Some(remote) = &root.remote_window {
+            if layouts.iter().any(|layout| {
+                remote.layout_hints.contains_key(&layout.id)
+                    || remote
+                        .actions_pending
+                        .contains(&format!("layout:{}", layout.id))
+            }) {
+                return None;
+            }
+        }
+        let plan = if let Some(plan) = local_plan {
+            plan
+        } else {
+            let mut plan = ids
+                .iter()
+                .filter_map(|id| {
+                    root.front_page_session(id, cx).map(|session| {
+                        (
+                            id.clone(),
+                            if session.agent_runtime == "shell" {
+                                ArchiveSessionOperation::CloseTerminal
+                            } else {
+                                ArchiveSessionOperation::ArchiveChat {
+                                    running: session.status == SessionStatus::Running,
+                                }
+                            },
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            plan.sort_by_key(|(id, operation)| {
+                (
+                    *operation == ArchiveSessionOperation::CloseTerminal,
+                    root.active_focused_session_id().as_ref() == Some(id),
+                )
+            });
+            plan
+        };
+        if let Some(close) = &pane_close {
+            for layout in &mut layouts {
+                if layout.id == close.tab_id {
+                    layout.close_pane(&close.pane_id);
+                }
+            }
+        }
+        let mut required = vec!["archive"];
+        if pane_close.is_none()
+            || layouts.iter().any(|layout| {
+                layout
+                    .all_session_ids()
+                    .iter()
+                    .any(|session| !ids.contains(session))
+            })
+        {
+            required.push("layout");
+        }
+        if plan
+            .iter()
+            .any(|(_, operation)| *operation == ArchiveSessionOperation::CloseTerminal)
+        {
+            required.push("close");
+        }
+        let key = pane_close
+            .as_ref()
+            .map(|close| format!("layout:{}", close.tab_id))
+            .unwrap_or_else(|| "archive-sessions".into());
+        let action = WorkspaceAction::prepare(root, key, &required, cx)?;
+        let operation = move || {
+            let (removed, error) = client.archive_sessions(plan);
+            if remote_target {
+                if let Some(error) = &error {
+                    return Err(error.clone());
+                }
+            }
+            let mut completed = Vec::new();
+            for mut layout in layouts {
+                for id in &ids {
+                    layout.remove_session(id);
+                    layout.remove_drawer_shell(id);
+                }
+                if !layout.all_session_ids().is_empty() {
+                    client
+                        .layout(&layout, layout.parent_id.clone())
+                        .map_err(|error| error.to_string())?;
+                }
+                completed.push(layout);
+            }
+            Ok(ArchiveCompletion {
+                removed,
+                error,
+                completion: Completion {
+                    layouts: completed,
+                    ..Default::default()
+                },
+            })
+        };
+        Some((action, operation))
+    }
+}
+
 impl NativeRoot {
     pub(crate) fn remote_action(
         &mut self,
         key: String,
         required: &[&str],
-        action: impl FnOnce(FrontPageClient) -> ClientResult<Completion> + Send + 'static,
+        operation: impl FnOnce(FrontPageClient) -> ClientResult<Completion> + Send + 'static,
         cx: &mut Context<Self>,
     ) {
-        let client = self.front_page_client(cx);
-        let Some(remote) = self.remote_window.as_mut() else {
+        if self.remote_window.is_none() {
+            return;
+        }
+        let Some(action) = WorkspaceAction::prepare(self, key, required, cx) else {
             return;
         };
-        if key.starts_with("layout:") && remote.actions_pending.contains("archive-sessions") {
-            return;
-        }
-        if !client.supports(required) || !remote.actions_pending.insert(key.clone()) {
-            return;
-        }
-        remote.action_error = None;
-        let before = remote.layouts.clone();
-        let navigation_generation = remote.navigation_generation;
-        let epoch = self.client_ui.epoch;
-        let target = client.target.clone();
-        let guard = client.clone();
+        let client = action.client.clone();
         let required = required.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let work = cx.background_spawn(async move {
             if !client.supports(&required.iter().map(String::as_str).collect::<Vec<_>>()) {
-                return Err(runner_core::protocol::ClientError::msg(
-                    "The selected computer changed.",
-                ));
+                return Err("The selected computer changed.".to_owned());
             }
-            action(client)
+            operation(client).map_err(|error| error.to_string())
         });
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |root, cx| {
-                if root.client_ui.epoch != epoch
-                    || root.front_page_client(cx).target != target
-                    || !guard.valid()
-                {
-                    return;
-                }
-                let Some(remote) = root.remote_window.as_mut() else {
-                    return;
-                };
-                remote.actions_pending.remove(&key);
-                match result {
-                    Ok(done) => {
-                        root.apply_remote_completion(done, &before, navigation_generation, cx);
-                    }
-                    Err(error) => {
-                        if remote.navigation_generation == navigation_generation {
-                            remote.action_error = Some(error.to_string());
-                        }
-                        if let Some(tab) = key.strip_prefix("layout:") {
-                            remote.layout_hints.remove(tab);
-                            if remote.navigation_generation != navigation_generation {
-                                let mut staged = remote.shell_placement.lock().unwrap();
-                                if staged.as_ref().is_some_and(|(_, layout)| layout.id == tab) {
-                                    *staged = None;
-                                }
-                            }
-                        }
-                    }
-                }
-                root.sync_remote_state(cx);
-                cx.notify();
+                WorkspaceAction::complete(root, action, result, |done| done, cx);
             });
         })
         .detach();
@@ -170,6 +505,7 @@ impl NativeRoot {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn remote_session_action(
         &mut self,
         session: &str,
@@ -179,7 +515,6 @@ impl NativeRoot {
     ) {
         let size = (size.0.max(20), size.1.max(8));
         let feature = match action {
-            SessionAction::Stop => "stop",
             SessionAction::Resume => "resume",
             SessionAction::Fork => "fork",
         };
@@ -189,10 +524,6 @@ impl NativeRoot {
             &[feature],
             move |client| {
                 let next = match action {
-                    SessionAction::Stop => {
-                        client.stop(&session)?;
-                        None
-                    }
                     SessionAction::Resume => Some(client.resume(&session, size)?),
                     SessionAction::Fork => Some(client.fork(&session, None, size)?),
                 };
@@ -205,48 +536,70 @@ impl NativeRoot {
         );
     }
 
+    pub(crate) fn save_workspace_layout(
+        &mut self,
+        draft: PaneLayout,
+        activate: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<()> {
+        let remote_target = self.front_page_client(cx).is_remote();
+        if let Some(remote) = &self.remote_window {
+            let key = format!("layout:{}", draft.id);
+            if remote.actions_pending.contains("archive-sessions")
+                || remote.layout_hints.contains_key(&draft.id)
+                || remote.actions_pending.contains(&key)
+                || !remote.front_page.supports(&["layout"])
+            {
+                return Ok(());
+            }
+        }
+        let Some(action) =
+            WorkspaceAction::prepare(self, format!("layout:{}", draft.id), &["layout"], cx)
+        else {
+            return Ok(());
+        };
+        if let Some(remote) = &mut self.remote_window {
+            remote.layout_hints.insert(draft.id.clone(), draft.clone());
+        }
+        let client = action.client.clone();
+        let operation = move || {
+            client
+                .layout(&draft, draft.parent_id.clone())
+                .map_err(|error| error.to_string())?;
+            Ok(Completion {
+                activate_tab: activate.then(|| draft.id.clone()),
+                layout: Some(draft),
+                ..Default::default()
+            })
+        };
+        if remote_target {
+            let task = cx.background_spawn(async move { operation() });
+            cx.spawn(async move |weak, cx| {
+                let result = task.await;
+                let _ = weak.update(cx, |root, cx| {
+                    WorkspaceAction::complete(root, action, result, |done| done, cx);
+                });
+            })
+            .detach();
+            cx.notify();
+            Ok(())
+        } else {
+            operation().map(drop).map_err(anyhow::Error::msg)
+        }
+    }
+
     pub(crate) fn remote_layout(
         &mut self,
         draft: PaneLayout,
         activate: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some(remote) = &self.remote_window else {
-            return;
-        };
-        if remote.actions_pending.contains("archive-sessions") {
-            return;
+        if self.remote_window.is_some() {
+            let _ = self.save_workspace_layout(draft, activate, cx);
         }
-        if remote.layout_hints.contains_key(&draft.id) {
-            return;
-        }
-        let project = draft.parent_id.clone();
-        let key = format!("layout:{}", draft.id);
-        if !self.front_page_client(cx).supports(&["layout"])
-            || remote.actions_pending.contains(&key)
-        {
-            return;
-        }
-        self.remote_window
-            .as_mut()
-            .unwrap()
-            .layout_hints
-            .insert(draft.id.clone(), draft.clone());
-        self.remote_action(
-            key,
-            &["layout"],
-            move |client| {
-                client.layout(&draft, project)?;
-                Ok(Completion {
-                    activate_tab: activate.then(|| draft.id.clone()),
-                    layout: Some(draft),
-                    ..Default::default()
-                })
-            },
-            cx,
-        );
     }
 
+    #[cfg(test)]
     pub(crate) fn remote_close_session(
         &mut self,
         session: &str,
@@ -254,59 +607,22 @@ impl NativeRoot {
         drawer: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some(mut draft) = self.front_page_layout().cloned() else {
-            return;
-        };
-        if self
-            .remote_window
-            .as_ref()
-            .is_some_and(|remote| remote.layout_hints.contains_key(&draft.id))
-        {
+        if self.remote_window.is_none() {
             return;
         }
-        let Some(display) = self.front_page_session(session, cx) else {
+        let Some((action, operation)) = WorkspaceAction::close(self, session, pane, drawer, cx)
+        else {
             return;
         };
-        let shell = display.agent_runtime == "shell";
-        let session = session.to_owned();
-        if drawer {
-            draft.remove_drawer_shell(&session);
-        } else if let Some(pane) = pane {
-            draft.close_pane(pane);
-            draft.remove_session(&session);
-        } else {
-            draft.remove_session(&session);
-        }
-        let mut required = if shell {
-            vec!["close"]
-        } else {
-            vec!["archive"]
-        };
-        if !draft.all_session_ids().is_empty() {
-            required.push("layout");
-        }
-        self.remote_action(
-            format!("layout:{}", draft.id),
-            &required,
-            move |client| {
-                if shell {
-                    client.close(&session)?;
-                } else {
-                    client.archive(ActionTarget {
-                        kind: ActionKind::Session,
-                        id: session,
-                    })?;
-                }
-                if !draft.all_session_ids().is_empty() {
-                    client.layout(&draft, draft.parent_id.clone())?;
-                }
-                Ok(Completion {
-                    layout: Some(draft),
-                    ..Default::default()
-                })
-            },
-            cx,
-        );
+        let task = cx.background_spawn(async move { operation() });
+        cx.spawn(async move |weak, cx| {
+            let result = task.await;
+            let _ = weak.update(cx, |root, cx| {
+                WorkspaceAction::complete(root, action, result, |done| done, cx);
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(crate) fn remote_start_shell(
@@ -325,81 +641,76 @@ impl NativeRoot {
         self.remote_start_shell_in(draft, pane, cwd, size, cx);
     }
 
+    pub(crate) fn launch_workspace_shell(
+        &mut self,
+        input: ShellStart,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        finish_local: impl FnOnce(&mut Self, Result<String>, &mut Window, &mut Context<Self>),
+    ) {
+        let Some((action, operation)) = WorkspaceAction::shell(self, input, cx) else {
+            return;
+        };
+        if action.client.is_remote() {
+            let task = cx.background_spawn(async move { operation() });
+            cx.spawn(async move |weak, cx| {
+                let result = task.await;
+                let _ = weak.update(cx, |root, cx| {
+                    WorkspaceAction::complete(root, action, result, |done| done, cx);
+                });
+            })
+            .detach();
+            cx.notify();
+        } else {
+            let result = operation()
+                .map(|done| done.session.unwrap())
+                .map_err(anyhow::Error::msg);
+            finish_local(self, result, window, cx);
+        }
+    }
+
     pub(crate) fn remote_start_shell_in(
         &mut self,
-        mut draft: PaneLayout,
+        draft: PaneLayout,
         pane: Option<String>,
         cwd: Option<String>,
         size: (u16, u16),
         cx: &mut Context<Self>,
     ) {
-        let Some(remote) = &self.remote_window else {
+        if self.remote_window.is_none() {
+            return;
+        }
+        let input = ShellStart {
+            project: draft.parent_id.clone(),
+            draft,
+            pane,
+            cwd,
+            size,
+        };
+        let Some((action, operation)) = WorkspaceAction::shell(self, input, cx) else {
             return;
         };
-        if remote.actions_pending.contains("archive-sessions")
-            || remote
-                .actions_pending
-                .iter()
-                .any(|key| key.starts_with("layout:"))
-        {
-            return;
-        }
-        let staged = remote.shell_placement.clone();
-        let pending = staged.lock().unwrap().clone();
-        if let Some((_, pending)) = &pending {
-            draft = pending.clone();
-        }
-        if remote.layout_hints.contains_key(&draft.id) {
-            return;
-        }
-        let required = if pending.is_some() {
-            vec!["layout"]
-        } else {
-            vec!["startShell", "layout"]
-        };
-        self.remote_action(
-            format!("layout:{}", draft.id),
-            &required,
-            move |client| {
-                let session = if let Some((session, _)) = pending {
-                    session
-                } else {
-                    let session = client.start_shell(
-                        draft.parent_id.clone(),
-                        cwd,
-                        (size.0.max(20), size.1.max(8)),
-                    )?;
-                    if let Some(pane) = pane {
-                        draft
-                            .assign_session(&pane, &session)
-                            .map_err(|e| runner_core::protocol::ClientError::msg(e.to_string()))?;
-                    } else {
-                        draft.add_drawer_shell(session.clone());
-                    }
-                    *staged.lock().unwrap() = Some((session.clone(), draft.clone()));
-                    session
-                };
-                client.layout(&draft, draft.parent_id.clone())?;
-                Ok(Completion {
-                    session: Some(session),
-                    layout: Some(draft),
-                    ..Default::default()
-                })
-            },
-            cx,
-        );
+        let task = cx.background_spawn(async move { operation() });
+        cx.spawn(async move |weak, cx| {
+            let result = task.await;
+            let _ = weak.update(cx, |root, cx| {
+                WorkspaceAction::complete(root, action, result, |done| done, cx);
+            });
+        })
+        .detach();
+        cx.notify();
     }
 }
 
 impl NativeRoot {
-    pub(crate) fn submit_remote_rename(
+    pub(crate) fn submit_workspace_rename(
         &mut self,
         pane: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (input, target) = if pane {
-            let Some(rename) = self.pane_rename.as_ref() else {
+        let (input, target, original) = if pane {
+            let Some(rename) = &self.pane_rename else {
                 return;
             };
             (
@@ -408,25 +719,35 @@ impl NativeRoot {
                     kind: ActionKind::Session,
                     id: rename.session_id.clone(),
                 },
+                rename.original.clone(),
             )
         } else {
-            let Some(modal) = self.chat_rename_modal.as_mut() else {
+            let Some(modal) = &self.chat_rename_modal else {
                 return;
             };
             if modal.submitting {
                 return;
             }
-            let target = match &modal.target {
-                ChatRenameTarget::Session { session_id, .. } => ActionTarget {
-                    kind: ActionKind::Session,
-                    id: session_id.clone(),
-                },
-                ChatRenameTarget::Tab { tab_id, .. } => ActionTarget {
-                    kind: ActionKind::Tab,
-                    id: tab_id.clone(),
-                },
+            let (target, original) = match &modal.target {
+                ChatRenameTarget::Session {
+                    session_id,
+                    original,
+                } => (
+                    ActionTarget {
+                        kind: ActionKind::Session,
+                        id: session_id.clone(),
+                    },
+                    original.clone(),
+                ),
+                ChatRenameTarget::Tab { tab_id, original } => (
+                    ActionTarget {
+                        kind: ActionKind::Tab,
+                        id: tab_id.clone(),
+                    },
+                    original.clone(),
+                ),
             };
-            (modal.input.clone(), target)
+            (modal.input.clone(), target, original)
         };
         if input.read(cx).is_composing() {
             return;
@@ -435,12 +756,26 @@ impl NativeRoot {
         if !client.supports(&["rename"]) {
             return;
         }
-        let key = format!("rename:{}", target.id);
-        let remote = self.remote_window.as_mut().unwrap();
-        if !remote.actions_pending.insert(key.clone()) {
+        let remote = client.is_remote();
+        let name = input.read(cx).text().trim().to_owned();
+        let (unchanged, title) = if pane && !remote {
+            match crate::surfaces::chat::pane_rename_change(&original, &name) {
+                crate::surfaces::chat::PaneRenameChange::Unchanged => (true, None),
+                crate::surfaces::chat::PaneRenameChange::Persist(title) => (false, title),
+            }
+        } else {
+            (!remote && name == original.trim(), Some(name))
+        };
+        if unchanged && !pane {
+            self.close_chat_rename(window, cx);
             return;
         }
-        let name = input.read(cx).text().trim().to_owned();
+        let key = format!("rename:{}", target.id);
+        if let Some(remote) = self.remote_window.as_mut() {
+            if !remote.actions_pending.insert(key.clone()) {
+                return;
+            }
+        }
         if let Some(modal) = self
             .chat_rename_modal
             .as_mut()
@@ -451,126 +786,131 @@ impl NativeRoot {
         }
         let epoch = self.client_ui.epoch;
         let guard = client.clone();
-        let work = cx.background_spawn(async move { client.rename(target, name) });
-        cx.spawn_in(window, async move |weak, cx| {
-            let result = work.await;
-            let _ = weak.update_in(cx, |root, window, cx| {
-                if root.client_ui.epoch != epoch
-                    || !guard.valid()
-                    || root.front_page_client(cx).target != guard.target
-                {
-                    return;
-                }
-                let remote = root.remote_window.as_mut().unwrap();
-                remote.actions_pending.remove(&key);
-                match result {
-                    Ok(()) => {
-                        if root
+        let operation = move || {
+            if unchanged {
+                Ok(())
+            } else {
+                client
+                    .rename_title(target, title)
+                    .map_err(|error| error.to_string())
+            }
+        };
+        if pane && !remote {
+            let result = operation();
+            self.finish_workspace_rename(pane, input, remote.then_some(key), result, window, cx);
+        } else {
+            let task = cx.background_spawn(async move { operation() });
+            cx.spawn_in(window, async move |weak, cx| {
+                let result = task.await;
+                let _ = weak.update_in(cx, |root, window, cx| {
+                    if root.client_ui.epoch != epoch
+                        || (remote
+                            && (!guard.valid()
+                                || root.front_page_client(cx).target != guard.target))
+                    {
+                        return;
+                    }
+                    root.finish_workspace_rename(
+                        pane,
+                        input,
+                        remote.then_some(key),
+                        result,
+                        window,
+                        cx,
+                    );
+                });
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn finish_workspace_rename(
+        &mut self,
+        pane: bool,
+        input: Entity<runner_app::ui::TextField>,
+        remote_key: Option<String>,
+        result: Result<(), String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let remote = remote_key.is_some();
+        if let Some(key) = remote_key {
+            self.remote_window
+                .as_mut()
+                .unwrap()
+                .actions_pending
+                .remove(&key);
+        }
+        match result {
+            Ok(()) => {
+                if pane
+                    && (!remote
+                        || self
                             .pane_rename
                             .as_ref()
-                            .is_some_and(|rename| rename.input == input)
-                        {
-                            root.pane_rename = None;
-                            root._pane_rename_focus_subscription = None;
-                        }
-                        if root
+                            .is_some_and(|rename| rename.input == input))
+                {
+                    self.pane_rename = None;
+                    self._pane_rename_focus_subscription = None;
+                }
+                if !pane
+                    && (!remote
+                        || self
                             .chat_rename_modal
                             .as_ref()
-                            .is_some_and(|modal| modal.input == input)
-                        {
-                            root.chat_rename_modal = None;
-                        }
-                        root.focus_active_terminal(window, cx);
+                            .is_some_and(|modal| modal.input == input))
+                {
+                    self.chat_rename_modal = None;
+                }
+                if !remote {
+                    self.refresh_sessions(cx);
+                    if let Err(error) = self.reload_tabs(cx) {
+                        self.chat_error = Some(error.to_string().into());
                     }
-                    Err(error) => {
-                        if let Some(modal) = root
-                            .chat_rename_modal
-                            .as_mut()
-                            .filter(|modal| modal.input == input)
-                        {
-                            modal.submitting = false;
-                            modal.error = Some(error.to_string());
-                        } else {
-                            remote.action_error = Some(error.to_string());
-                        }
+                    self.sync_active_chat_detail(cx);
+                }
+                self.focus_active_terminal(window, cx);
+            }
+            Err(error) => {
+                if let Some(modal) = self
+                    .chat_rename_modal
+                    .as_mut()
+                    .filter(|modal| (remote && modal.input == input) || (!remote && !pane))
+                {
+                    modal.submitting = false;
+                    modal.error = Some(error);
+                } else if remote {
+                    self.remote_window.as_mut().unwrap().action_error = Some(error);
+                } else {
+                    self.chat_error = Some(error.into());
+                    if let Some(rename) = &self.pane_rename {
+                        rename.input.read(cx).focus_handle().focus(window, cx);
                     }
                 }
-                cx.notify();
-            });
-        })
-        .detach();
+            }
+        }
         cx.notify();
     }
 }
 
 impl NativeRoot {
     pub(crate) fn remote_archive_sessions(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
-        let Some(remote) = &self.remote_window else {
+        if self.remote_window.is_none() {
+            return;
+        }
+        let Some((action, operation)) = WorkspaceAction::archive(self, ids, None, None, cx) else {
             return;
         };
-        let layouts = remote
-            .layouts
-            .values()
-            .filter(|layout| layout.all_session_ids().iter().any(|id| ids.contains(id)))
-            .cloned()
-            .collect::<Vec<_>>();
-        if layouts.iter().any(|layout| {
-            remote.layout_hints.contains_key(&layout.id)
-                || remote
-                    .actions_pending
-                    .contains(&format!("layout:{}", layout.id))
-        }) {
-            return;
-        }
-        let mut plan = ids
-            .iter()
-            .filter_map(|id| {
-                self.front_page_session(id, cx)
-                    .map(|session| (id.clone(), session.agent_runtime == "shell"))
-            })
-            .collect::<Vec<_>>();
-        plan.sort_by_key(|(id, shell)| {
-            (
-                *shell,
-                self.active_focused_session_id().as_ref() == Some(id),
-            )
-        });
-        let mut required = vec!["archive", "layout"];
-        if plan.iter().any(|(_, shell)| *shell) {
-            required.push("close");
-        }
-        self.remote_action(
-            "archive-sessions".into(),
-            &required,
-            move |client| {
-                for (id, shell) in &plan {
-                    if *shell {
-                        client.close(id)?;
-                    } else {
-                        client.archive(ActionTarget {
-                            kind: ActionKind::Session,
-                            id: id.clone(),
-                        })?;
-                    }
-                }
-                let mut completed = Vec::new();
-                for mut layout in layouts {
-                    for id in &ids {
-                        layout.remove_session(id);
-                        layout.remove_drawer_shell(id);
-                    }
-                    if !layout.all_session_ids().is_empty() {
-                        client.layout(&layout, layout.parent_id.clone())?;
-                    }
-                    completed.push(layout);
-                }
-                Ok(Completion {
-                    layouts: completed,
-                    ..Default::default()
-                })
-            },
-            cx,
-        );
+        let task = cx.background_spawn(async move { operation() });
+        cx.spawn(async move |weak, cx| {
+            let result = task.await;
+            let _ = weak.update(cx, |root, cx| {
+                WorkspaceAction::complete(root, action, result, |done| done.completion, cx);
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(crate) fn close_remote_front_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {

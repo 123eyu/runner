@@ -471,7 +471,7 @@ impl MissionWorkspace {
                                 .is_some_and(|remote| remote.shell_pending),
                     )
                     .on_press(move |window, cx| {
-                        root.update(cx, |this, cx| this.add_remote_mission_shell(window, cx))
+                        root.update(cx, |this, cx| this.add_terminal_drawer_shell(window, cx))
                     })
                     .into_any_element(),
             );

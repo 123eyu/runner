@@ -362,7 +362,7 @@ fn remote_answers_use_question_ids_and_posts_preserve_failed_drafts_without_synt
                 workspace
                     .composer_input
                     .update(cx, |input, cx| input.reset("Keep draft", cx));
-                workspace.remote_post(
+                workspace.post_mission_composer(
                     ComposerPost {
                         text: "@coder Keep draft".into(),
                         to: Default::default(),
@@ -386,7 +386,7 @@ fn remote_answers_use_question_ids_and_posts_preserve_failed_drafts_without_synt
     window
         .update(&mut cx, |_, window, cx| {
             workspace.update(cx, |workspace, cx| {
-                workspace.remote_post(
+                workspace.post_mission_composer(
                     ComposerPost {
                         text: "Keep draft".into(),
                         to: runner_core::Recipients::new(vec!["coder".into()]),
@@ -639,15 +639,12 @@ fn absent_mission_capabilities_hide_controls_and_refuse_dispatch_at_the_boundary
     let _theme = crate::theme_snapshot::ThemeGuard::new();
     let (_temp, mut cx, window, store, fake) = setup();
     let workspace = workspace(window, &cx);
-    let target = workspace.read_with(&cx, |workspace, _| {
-        workspace.remote.as_ref().unwrap().client.target.clone()
-    });
+    let target = workspace.read_with(&cx, |workspace, _| workspace.client.target.clone());
     let access = crate::surfaces::front_page::RemoteAccess::new(target);
     access.set_features(vec!["feed".into(), "follow".into(), "unfollow".into()]);
     let client = store.read_with(&cx, |store, _| store.client.clone());
     workspace.update(&mut cx, |workspace, cx| {
-        workspace.remote.as_mut().unwrap().client =
-            crate::surfaces::front_page::FrontPageClient::remote(client, access);
+        workspace.client = crate::surfaces::front_page::FrontPageClient::remote(client, access);
         cx.notify();
     });
     window
@@ -661,7 +658,7 @@ fn absent_mission_capabilities_hide_controls_and_refuse_dispatch_at_the_boundary
                 workspace.archive_open_mission(window, cx);
                 workspace.add_terminal_drawer_shell(window, cx);
                 workspace.answer_mission_question("q1".into(), "yes".into(), cx);
-                workspace.remote_post(
+                workspace.post_mission_composer(
                     ComposerPost {
                         text: "Message".into(),
                         to: Default::default(),
@@ -714,7 +711,7 @@ fn stopped_host_missions_keep_the_feed_read_only_and_hide_slot_controls() {
             workspace.update(cx, |workspace, cx| {
                 workspace.stop_open_mission(window, cx);
                 workspace.resume_open_mission(window, cx);
-                workspace.remote_post(
+                workspace.post_mission_composer(
                     ComposerPost {
                         text: "Stale composer".into(),
                         to: Default::default(),
