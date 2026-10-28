@@ -327,3 +327,115 @@ impl SessionManager {
             .and_then(|status| status.pid)
     }
 }
+
+pub(super) fn resolve_spawn_cwd(
+    explicit: Option<&str>,
+    role_default: Option<&str>,
+) -> Option<String> {
+    [explicit, role_default]
+        .into_iter()
+        .flatten()
+        .find(|cwd| !cwd.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            runner_core::app_paths::home_dir()
+                .and_then(|home| home.into_os_string().into_string().ok())
+        })
+}
+
+/// Resolve the role config a spawn should actually use (feature 41).
+/// Layering is role template, then runtime override, then model/effort
+/// overrides. `None` means the role row applies unchanged; a runtime
+/// override naming the role's own runtime is no override.
+pub(crate) fn resolve_runtime_override(
+    role: &Role,
+    runtime_override: Option<&str>,
+    model_override: Option<&str>,
+    effort_override: Option<&str>,
+) -> Result<Option<Role>> {
+    let runtime_override = runtime_override
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && *name != role.runtime.as_str());
+    let model_override = model_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let effort_override = effort_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if runtime_override.is_none() && model_override.is_none() && effort_override.is_none() {
+        return Ok(None);
+    }
+    let mut effective = role.clone();
+    if let Some(name) = runtime_override {
+        let def = crate::runtimes::for_key(name)
+            .catalog()
+            .ok_or_else(|| Error::msg(format!("unknown runtime: {name}")))?;
+        effective.runtime = def.name.to_string();
+        effective.command = def.command.to_string();
+        effective.args = crate::runtimes::adapter(def.name)
+            .permissions()
+            .apply(&[], crate::ops::role::default_permission_mode());
+        // A differing engine starts from its own defaults; the
+        // role's model/effort belong to the original runtime.
+        effective.model = None;
+        effective.effort = None;
+        effective.codex_speed = None;
+    }
+    if model_override.is_some() {
+        effective.model = model_override.map(ToOwned::to_owned);
+    }
+    if effort_override.is_some() {
+        effective.effort = effort_override.map(ToOwned::to_owned);
+    }
+    Ok(Some(effective))
+}
+
+pub(crate) fn runtime_direct_role(
+    runtime: &str,
+    command: Option<&str>,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<Role> {
+    let runtime = runtime.trim();
+    if runtime.is_empty() {
+        return Err(Error::msg("runtime is required"));
+    }
+    let registry = crate::runtimes::for_key(runtime).catalog();
+    let command = command
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| registry.as_ref().map(|r| r.command))
+        .ok_or_else(|| Error::msg(format!("unknown runtime: {runtime}")))?;
+    let now = Utc::now();
+    let args = if Runtime::parse(runtime).is_some_and(Runtime::is_shell) {
+        crate::shell_path::shell_login_args(command)
+    } else {
+        crate::runtimes::for_key(runtime)
+            .permissions()
+            .apply(&[], crate::ops::role::default_permission_mode())
+    };
+    Ok(Role {
+        id: format!("runtime:{runtime}"),
+        handle: runtime.to_string(),
+        display_name: registry
+            .map(|r| r.display_name.to_string())
+            .unwrap_or_else(|| runtime.to_string()),
+        runtime: runtime.to_string(),
+        command: command.to_string(),
+        args,
+        working_dir: None,
+        system_prompt: None,
+        env: HashMap::new(),
+        model: model
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        effort: effort
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        codex_speed: None,
+        created_at: now,
+        updated_at: now,
+    })
+}

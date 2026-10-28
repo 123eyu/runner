@@ -64,3 +64,54 @@ impl SessionManager {
         }
     }
 }
+
+impl SessionManager {
+    pub(super) fn rollout_capture_context(
+        &self,
+        session_id: &str,
+    ) -> Option<RolloutCaptureContext> {
+        let state = self.session_state(session_id)?;
+        let state = state.lock().unwrap();
+        state
+            .handle
+            .as_ref()
+            .and_then(|handle| handle.rollout_capture.clone())
+    }
+
+    pub(super) fn spawn_rollout_capture_if_unkeyed(
+        &self,
+        session_id: &str,
+        ctx: &RolloutCaptureContext,
+    ) {
+        let Ok(conn) = ctx.pool.get() else { return };
+        let should_capture = conn
+            .query_row(
+                "SELECT agent_session_key IS NULL
+                   FROM sessions
+                  WHERE id = ?1
+                    AND started_at = ?2",
+                params![session_id, ctx.row_started_at],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap_or(false);
+        drop(conn);
+        if !should_capture {
+            return;
+        }
+        crate::runtimes::for_key(&ctx.runtime).start_rollout_capture(
+            crate::runtimes::RolloutCaptureRequest {
+                manager: ctx.manager.clone(),
+                session_id: session_id.to_string(),
+                mission_id: ctx.mission_id.clone(),
+                sessions_root: ctx.sessions_root.clone(),
+                spawn_cwd: ctx.spawn_cwd.clone(),
+                started_at: ctx.started_at,
+                expected_row_started_at: ctx.row_started_at.clone(),
+                spawn_pid: ctx.spawn_pid,
+                prompt_marker: ctx.prompt_marker.clone(),
+                pool: Arc::clone(&ctx.pool),
+                events: Arc::clone(&ctx.events),
+            },
+        );
+    }
+}
