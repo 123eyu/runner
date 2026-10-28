@@ -49,6 +49,33 @@ use runner_core::protocol::runtime_metadata::antigravity::{PERMISSIONS, SKILL_DI
 
 pub struct Antigravity;
 impl RuntimeAdapter for Antigravity {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            interruption_ends_invocation: true,
+            ..Default::default()
+        }
+    }
+    fn prepare_capture(&self, app_data_dir: &Path, session_id: &str) {
+        agy_capture::prepare_log(app_data_dir, session_id);
+    }
+    fn start_capture(&self, ctx: CaptureContext) {
+        agy_capture::spawn_capture(agy_capture::CaptureRequest {
+            log_path: agy_capture::log_path(&ctx.app_data_dir, &ctx.session_id),
+            manager: ctx.manager,
+            session_id: ctx.session_id,
+            mission_id: ctx.mission_id,
+            expected_row_started_at: ctx.row_started_at,
+            stop: ctx.stop,
+            pool: ctx.pool,
+            events: ctx.events,
+        });
+    }
+    fn cleanup_capture(&self, app_data_dir: &Path, pool: &crate::db::DbPool) {
+        agy_capture::clear_orphans(app_data_dir, pool);
+    }
+    fn remove_capture(&self, app_data_dir: &Path, session_id: &str) {
+        agy_capture::remove_log(app_data_dir, session_id);
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }

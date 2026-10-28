@@ -9,6 +9,16 @@ use runner_core::protocol::runtime_metadata::trae::{PERMISSIONS, SKILL_DIRS};
 
 pub struct Trae;
 impl RuntimeAdapter for Trae {
+    fn capture_prompt(
+        &self,
+        session_id: &str,
+        first_turn: Option<String>,
+    ) -> (Option<String>, Option<String>) {
+        super::codex::capture::mark_prompt(session_id, first_turn)
+    }
+    fn start_rollout_capture(&self, request: RolloutCaptureRequest) {
+        super::codex::capture::spawn_capture(request);
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }

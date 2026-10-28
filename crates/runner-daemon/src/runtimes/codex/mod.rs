@@ -1,5 +1,7 @@
+pub(crate) mod capture;
 pub(crate) mod codex_status;
 pub(crate) mod codex_trust;
+pub(crate) mod fork;
 pub(crate) mod models;
 mod program_status;
 pub(crate) mod skills;
@@ -147,6 +149,55 @@ use runner_core::protocol::runtime_metadata::codex::{PERMISSIONS, SKILL_DIRS};
 
 pub struct Codex;
 impl RuntimeAdapter for Codex {
+    fn skill_roots_with_env(
+        &self,
+        home: &Path,
+        codex_home: Option<&Path>,
+        _env: &std::collections::BTreeMap<String, String>,
+    ) -> Option<Vec<PathBuf>> {
+        let codex_home = codex_home?;
+        Some(
+            SKILL_DIRS
+                .iter()
+                .map(
+                    |relative| match Path::new(relative).strip_prefix(".codex") {
+                        Ok(suffix) => codex_home.join(suffix),
+                        Err(_) => home.join(relative),
+                    },
+                )
+                .collect(),
+        )
+    }
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            startup_ready_batch: true,
+            native_attention: true,
+            reject_events_after_interruption: true,
+            reject_completions_after_outcome: true,
+            compaction: CompactionPolicy::KeepWorking,
+            interrupted_turn_unavailable: true,
+            ended_session_keeps_ready: true,
+            ..Default::default()
+        }
+    }
+    fn capture_prompt(
+        &self,
+        session_id: &str,
+        first_turn: Option<String>,
+    ) -> (Option<String>, Option<String>) {
+        capture::mark_prompt(session_id, first_turn)
+    }
+    fn start_rollout_capture(&self, request: RolloutCaptureRequest) {
+        capture::spawn_capture(request);
+    }
+    fn materialize_fork(
+        &self,
+        spec: &SpawnSpec,
+        plan: &ForkPlan,
+        timeout: Duration,
+    ) -> crate::error::Result<String> {
+        fork::materialize(spec, plan, timeout)
+    }
     fn mcp(&self) -> Option<&'static McpConfig> {
         Some(&MCP)
     }

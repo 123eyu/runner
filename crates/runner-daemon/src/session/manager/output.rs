@@ -712,8 +712,8 @@ impl SessionManager {
     }
 
     fn capture_codex_session_key(&self, session_id: &str) {
-        if let Some(ctx) = self.codex_capture_context(session_id) {
-            self.spawn_codex_capture_if_unkeyed(session_id, &ctx);
+        if let Some(ctx) = self.rollout_capture_context(session_id) {
+            self.spawn_rollout_capture_if_unkeyed(session_id, &ctx);
         }
     }
 
@@ -749,8 +749,8 @@ impl SessionManager {
                 .map_err(Into::into)
         };
         if result.is_ok() {
-            if let Some(ctx) = self.codex_capture_context(session_id) {
-                self.spawn_codex_capture_if_unkeyed(session_id, &ctx);
+            if let Some(ctx) = self.rollout_capture_context(session_id) {
+                self.spawn_rollout_capture_if_unkeyed(session_id, &ctx);
             }
         }
         result

@@ -265,7 +265,7 @@ fn direct_input_gate_timeout_is_bounded_and_does_not_pin_the_queue() {
             runtime: "fake".into(),
             session_id: session_id.into(),
         },
-        codex_capture: None,
+        rollout_capture: None,
         forwarder: None,
         stop: Arc::new(AtomicBool::new(false)),
     });

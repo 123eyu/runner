@@ -13,6 +13,9 @@ mod tests;
 
 pub struct OpenCode;
 impl RuntimeAdapter for OpenCode {
+    fn probe_uses_shell_env(&self) -> bool {
+        true
+    }
     fn catalog(&self) -> Option<RuntimeCatalog> {
         runner_core::protocol::runtime_metadata::opencode::catalog()
     }

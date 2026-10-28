@@ -806,10 +806,10 @@ impl IdleDetector {
                 .map(TerminalEvent::Activity)
         }
     }
-    pub(crate) fn take_codex_attention(&mut self) -> Option<crate::runtimes::TerminalEvent> {
+    pub(crate) fn take_attention(&mut self) -> Option<crate::runtimes::TerminalEvent> {
         self.adapter
             .as_mut()?
-            .take_codex_attention()
+            .take_attention()
             .map(crate::runtimes::TerminalEvent::CodexAttention)
     }
     #[cfg(test)]
@@ -1110,7 +1110,7 @@ fn reader_thread(
                 let (transition, attention) = {
                     let mut detector = detector.lock().expect("idle detector poisoned");
                     let transition = detector.on_output(&buf[..n], in_resize_grace);
-                    (transition, detector.take_codex_attention())
+                    (transition, detector.take_attention())
                 };
                 for event in attention.into_iter().chain(transition) {
                     if tx.send(RuntimeOutput::TerminalEvent(event)).is_err() && !cfg!(windows) {
@@ -1941,7 +1941,7 @@ mod tests {
             ] {
                 detector.on_output_event_at(report, true, start);
                 assert_eq!(
-                    detector.take_codex_attention(),
+                    detector.take_attention(),
                     Some(TerminalEvent::CodexAttention(blocked))
                 );
                 assert_eq!(detector.current, SessionActivityState::Busy);
@@ -1967,10 +1967,7 @@ mod tests {
                 detector.on_output_event_at(payload, false, start + Duration::from_secs(4)),
                 Some(T::Activity(SessionActivityState::Busy))
             );
-            assert_eq!(
-                detector.take_codex_attention(),
-                Some(T::CodexAttention(false))
-            );
+            assert_eq!(detector.take_attention(), Some(T::CodexAttention(false)));
             assert_eq!(detector.current, SessionActivityState::Busy);
         }
         let mut detector = codex_detector(Duration::from_secs(2), false);
@@ -1983,10 +1980,7 @@ mod tests {
             ),
             Some(T::Ready(SessionActivityState::Idle))
         );
-        assert_eq!(
-            detector.take_codex_attention(),
-            Some(T::CodexAttention(true))
-        );
+        assert_eq!(detector.take_attention(), Some(T::CodexAttention(true)));
         let mut detector = codex_detector(Duration::from_secs(2), false);
         detector.hooks_unavailable();
         detector.on_output_event_at(&osc_title("⠋ project"), false, start);
@@ -2000,10 +1994,7 @@ mod tests {
             detector.on_output_event_at(&combined, false, start),
             Some(T::Title(SessionActivityState::Idle))
         );
-        assert_eq!(
-            detector.take_codex_attention(),
-            Some(T::CodexAttention(true))
-        );
+        assert_eq!(detector.take_attention(), Some(T::CodexAttention(true)));
     }
 
     #[test]

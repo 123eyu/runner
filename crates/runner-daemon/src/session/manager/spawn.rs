@@ -1,23 +1,7 @@
 use super::*;
 use crate::model::{CodexSpeed, Runtime};
 
-use std::io::{BufRead, BufReader, Read};
-use std::process::{Command, Stdio};
-
 use runner_core::protocol::socket::FORK_MATERIALIZE_TIMEOUT;
-const FORK_MATERIALIZE_POLL: Duration = Duration::from_millis(25);
-const CODEX_FORK_ROLLOUT_TIMEOUT: Duration = Duration::from_secs(5);
-
-fn claude_permission_arg(args: &[String]) -> String {
-    args.windows(2)
-        .find(|pair| pair[0] == "--permission-mode")
-        .map(|pair| pair[1].clone())
-        .or_else(|| {
-            args.iter()
-                .find_map(|arg| arg.strip_prefix("--permission-mode=").map(str::to_owned))
-        })
-        .unwrap_or_else(|| "default".into())
-}
 
 const LOCALE_VARS: [&str; 3] = ["LANG", "LC_ALL", "LC_CTYPE"];
 
@@ -80,258 +64,10 @@ pub(super) fn run_headless_fork(
     plan: &router::runtime::ForkPlan,
     timeout: Duration,
 ) -> Result<String> {
-    let router::runtime::ForkPlan::Headless { args, source_key } = plan else {
-        return Err(Error::msg(
-            "direct fork plan cannot run as a headless materializer",
-        ));
-    };
-    let codex_sessions_root = codex_fork_sessions_root(spec)?;
-    let inherited_path = std::env::var("PATH").ok();
-    let home = runner_core::app_paths::home_dir();
-    let path = crate::session::launch::compose_path(
-        spec.shim_dir.as_deref(),
-        spec.bundled_bin_dir.as_deref(),
-        spec.shell_path.as_deref(),
-        home.as_deref(),
-        inherited_path.as_deref(),
-    );
-    let mut command = Command::new(&spec.command);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("PATH", path);
-    if let Some(cwd) = spec.cwd.as_deref() {
-        command.current_dir(cwd);
-    }
-    for (name, value) in &spec.env {
-        if crate::session::launch::is_reserved_env_name(name) {
-            continue;
-        }
-        if !crate::session::launch::is_valid_env_name(name) {
-            return Err(Error::msg(format!(
-                "invalid env var name {name:?}: must match [A-Za-z_][A-Za-z0-9_]*"
-            )));
-        }
-        command.env(name, value);
-    }
-    if let Some((cols, rows)) = spec.initial_size {
-        command.env("COLUMNS", cols.to_string());
-        command.env("LINES", rows.to_string());
-    }
-    crate::session::process::prepare_headless_fork(&mut command);
-
-    let mut child = command
-        .spawn()
-        .map_err(|error| Error::msg(format!("fork materialization spawn: {error}")))?;
-    #[cfg(windows)]
-    let process_tree =
-        crate::session::process::ProcessTree::adopt(child.id()).map_err(|error| {
-            let _ = child.kill();
-            let _ = child.wait();
-            Error::msg(format!("fork materialization adopt process tree: {error}"))
-        })?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| Error::msg("fork materialization stdout unavailable"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| Error::msg("fork materialization stderr unavailable"))?;
-
-    run_thread_started_headless_fork(
-        child,
-        stdout,
-        stderr,
-        codex_sessions_root,
-        source_key,
-        timeout,
-        #[cfg(windows)]
-        process_tree,
-    )
-}
-
-fn run_thread_started_headless_fork(
-    mut child: std::process::Child,
-    stdout: std::process::ChildStdout,
-    stderr: std::process::ChildStderr,
-    sessions_root: PathBuf,
-    source_key: &str,
-    timeout: Duration,
-    #[cfg(windows)] process_tree: crate::session::process::ProcessTree,
-) -> Result<String> {
-    let (key_tx, key_rx) = std::sync::mpsc::sync_channel(1);
-    let stdout_reader = thread::spawn(move || {
-        let mut stdout = BufReader::new(stdout);
-        let _ = key_tx.send(read_thread_started_event(&mut stdout));
-        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
-    });
-    let stderr_reader = thread::spawn(move || {
-        let mut stderr = stderr;
-        let mut bytes = Vec::new();
-        let _ = stderr.read_to_end(&mut bytes);
-        bytes
-    });
-
-    let deadline = Instant::now() + timeout;
-    let mut key = None;
-    let mut rollout_deadline = None;
-    let mut child_status = None;
-    let mut failed_status = None;
-    let mut terminate = false;
-    let result = loop {
-        if key.is_none() {
-            match key_rx.try_recv() {
-                Ok(Ok(received)) => {
-                    key = Some(received);
-                    rollout_deadline = Some(std::cmp::min(
-                        deadline,
-                        Instant::now() + CODEX_FORK_ROLLOUT_TIMEOUT,
-                    ));
-                }
-                Ok(Err(error)) => {
-                    terminate = child_status.is_none();
-                    break Err(error);
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    terminate = child_status.is_none();
-                    break Err(Error::msg(
-                        "fork materialization stdout reader stopped before thread.started",
-                    ));
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
-
-        if child_status.is_none() {
-            match child.try_wait() {
-                Ok(Some(status)) => child_status = Some(status),
-                Ok(None) => {}
-                Err(error) => {
-                    terminate = true;
-                    break Err(Error::msg(format!(
-                        "fork materialization wait failed: {error}"
-                    )));
-                }
-            }
-        }
-        if child_status
-            .as_ref()
-            .is_some_and(|status| !status.success())
-        {
-            failed_status = child_status.take();
-            break Err(Error::msg("fork materialization exited unsuccessfully"));
-        }
-
-        if let Some(key) = key.as_deref() {
-            if crate::session::codex_capture::fork_rollout_is_ready(&sessions_root, key, source_key)
-            {
-                terminate = child_status.is_none();
-                break Ok(key.to_string());
-            }
-            if rollout_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                terminate = child_status.is_none();
-                break Err(Error::msg(format!(
-                    "fork materialization rollout for thread {key} did not appear before the deadline"
-                )));
-            }
-        }
-
-        if Instant::now() >= deadline {
-            terminate = child_status.is_none();
-            break Err(Error::msg(format!(
-                "fork materialization timed out after {} seconds",
-                timeout.as_secs()
-            )));
-        }
-
-        thread::sleep(FORK_MATERIALIZE_POLL);
-    };
-
-    if terminate {
-        #[cfg(unix)]
-        crate::session::process::kill_headless_fork(&mut child);
-        #[cfg(windows)]
-        crate::session::process::kill_headless_fork(&mut child, &process_tree);
-    }
-    // Close descendant pipe writers before joining readers, even if the launcher already exited.
-    #[cfg(windows)]
-    drop(process_tree);
-    stdout_reader
-        .join()
-        .map_err(|_| Error::msg("fork materialization stdout reader panicked"))?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| Error::msg("fork materialization stderr reader panicked"))?;
-    if let Some(status) = failed_status {
-        let stderr = String::from_utf8_lossy(&stderr);
-        return Err(Error::msg(format!(
-            "fork materialization exited with {status}: {}",
-            stderr.trim()
-        )));
-    }
-    result
-}
-
-fn read_thread_started_event(reader: &mut impl BufRead) -> Result<String> {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|error| Error::msg(format!("fork materialization output: {error}")))?;
-        if read == 0 {
-            return Err(Error::msg(
-                "fork materialization missing thread.started event",
-            ));
-        }
-        if !line.trim().is_empty() {
-            break;
-        }
-    }
-    let event: serde_json::Value = serde_json::from_str(line.trim_end()).map_err(|error| {
-        Error::msg(format!(
-            "fork materialization first event is invalid JSON: {error}"
-        ))
-    })?;
-    if event.get("type").and_then(serde_json::Value::as_str) != Some("thread.started") {
-        return Err(Error::msg(
-            "fork materialization first event is not thread.started",
-        ));
-    }
-    let key = event
-        .get("thread_id")
-        .and_then(serde_json::Value::as_str)
-        .filter(|key| uuid::Uuid::parse_str(key).is_ok())
-        .ok_or_else(|| Error::msg("fork materialization thread.started has no valid thread_id"))?;
-    Ok(key.to_string())
-}
-
-fn codex_fork_sessions_root(spec: &SpawnSpec) -> Result<PathBuf> {
-    let codex_home = spec
-        .env
-        .get("CODEX_HOME")
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("CODEX_HOME")
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-        })
-        .or_else(|| runner_core::app_paths::home_dir().map(|home| home.join(".codex")))
-        .ok_or_else(|| Error::msg("fork materialization cannot resolve Codex sessions root"))?;
-    let codex_home = if codex_home.is_absolute() {
-        codex_home
-    } else if let Some(cwd) = spec.cwd.as_deref() {
-        cwd.join(codex_home)
-    } else {
-        std::env::current_dir()
-            .map_err(|error| Error::msg(format!("fork materialization cwd: {error}")))?
-            .join(codex_home)
-    };
-    Ok(codex_home.join("sessions"))
+    spec.agent_runtime
+        .map(crate::runtimes::adapter)
+        .unwrap_or(&crate::runtimes::NoAgent)
+        .materialize_fork(spec, plan, timeout)
 }
 
 fn delete_failed_fork(pool: &DbPool, session_id: &str) -> Result<()> {
@@ -387,46 +123,8 @@ impl SessionManager {
         Ok(resolved)
     }
 
-    /// Gate a fresh `claude-code` spawn before calling
-    /// `runtime.spawn()`. No-op for any other runtime — those
-    /// bypass the gate.
-    ///
-    /// Fresh and fork spawn call sites invoke this. The ordinary resume
-    /// path is intentionally unguarded:
-    /// `claude --resume` / `--session-id` loads the local
-    /// conversation file and puts up the TUI without touching the
-    /// network until the user's next turn, so concurrent resumes
-    /// can't race on the refresh-token rotation.
-    ///
-    /// Deadline-based: reads `last_spawn_at`, sleeps the remainder
-    /// of `CLAUDE_LAUNCH_GATE_GRACE`, updates the timestamp, then
-    /// releases the mutex. The first claude-code spawn through (or
-    /// any spawn arriving after the grace window has elapsed) pays
-    /// zero — so single direct chats and cold mission starts feel
-    /// instant. Subsequent concurrent claudes serialize 1.5s apart,
-    /// which is what prevents the OAuth refresh-token race.
-    ///
-    /// The mutex is held across the sleep so concurrent callers
-    /// queue up correctly: B arrives mid-A-sleep → blocks on mutex
-    /// → after A wakes and updates `last`, B observes A's
-    /// just-recorded timestamp and waits its own full grace.
-    pub(super) fn enter_claude_launch_gate(&self, session_id: &str, runtime_key: &str) {
-        let Some(grace) = crate::runtimes::for_key(runtime_key).launch_gate() else {
-            return;
-        };
-        let mut last = self
-            .claude_launch_gate
-            .lock()
-            .expect("claude_launch_gate poisoned");
-        let wait = compute_gate_wait(*last, Instant::now(), grace);
-        if !wait.is_zero() {
-            log::info!(
-                "claude-code launch gate: session={session_id} sleep_ms={}",
-                wait.as_millis()
-            );
-            thread::sleep(wait);
-        }
-        *last = Some(Instant::now());
+    pub(super) fn enter_launch_gate(&self, session_id: &str, runtime_key: &str) {
+        crate::runtimes::for_key(runtime_key).launch_gate(session_id, &self.launch_gate);
     }
 
     fn seed_runtime_project_trust(
@@ -546,7 +244,7 @@ impl SessionManager {
                 mission_id: None,
                 role_id: None,
                 runtime_session: rt_session.clone(),
-                codex_capture: None,
+                rollout_capture: None,
                 forwarder: None,
                 stop: Arc::clone(&stop),
             },
@@ -651,9 +349,7 @@ impl SessionManager {
         } else {
             first_turn
         };
-        if let crate::runtimes::KeyCapture::LogTail = adapter.key_capture() {
-            crate::runtimes::antigravity::agy_capture::prepare_log(app_data_dir, &spec.session_id)
-        }
+        adapter.prepare_capture(app_data_dir, &spec.session_id);
         if let Some(hooks) = adapter.status_hooks() {
             let env = hooks.env(&role.args, plan, app_data_dir, spec);
             spec.env.extend(env);
@@ -715,33 +411,16 @@ impl SessionManager {
         delivered_via_argv
     }
 
-    pub(super) fn codex_capture_prompt_marker(
+    pub(super) fn capture_prompt_marker(
         runtime_key: &str,
         session_id: &str,
         first_turn: Option<String>,
     ) -> (Option<String>, Option<String>) {
-        if !matches!(
-            crate::runtimes::for_key(runtime_key).key_capture(),
-            crate::runtimes::KeyCapture::RolloutScan { .. }
-        ) {
-            return (first_turn, None);
-        }
-        let Some(first_turn) = first_turn else {
-            return (None, None);
-        };
-        let marker = crate::session::codex_capture::prompt_marker(session_id);
-        let marked_first_turn = format!("{first_turn}\n\n{marker}");
-        if marked_first_turn.len() > router::runtime::FIRST_TURN_ARGV_MAX_BYTES {
-            return (Some(first_turn), None);
-        }
-        (Some(marked_first_turn), Some(marker))
+        crate::runtimes::for_key(runtime_key).capture_prompt(session_id, first_turn)
     }
 
-    /// Tails an Antigravity spawn's `--log-file` for the conversation id agy
-    /// assigns on the first message (spec 644 decision 1). Every agy spawn
-    /// gets one, a resume included: agy may still start a new conversation.
     #[allow(clippy::too_many_arguments)]
-    fn start_antigravity_capture(
+    fn start_runtime_capture(
         self: &Arc<Self>,
         runtime_key: &str,
         session_id: &str,
@@ -752,27 +431,16 @@ impl SessionManager {
         pool: &Arc<DbPool>,
         events: &Arc<dyn SessionEvents>,
     ) {
-        if !matches!(
-            crate::runtimes::for_key(runtime_key).key_capture(),
-            crate::runtimes::KeyCapture::LogTail
-        ) {
-            return;
-        }
-        crate::runtimes::antigravity::agy_capture::spawn_capture(
-            crate::runtimes::antigravity::agy_capture::CaptureRequest {
-                manager: Arc::downgrade(self),
-                session_id: session_id.to_owned(),
-                mission_id,
-                log_path: crate::runtimes::antigravity::agy_capture::log_path(
-                    app_data_dir,
-                    session_id,
-                ),
-                expected_row_started_at: row_started_at.to_owned(),
-                stop,
-                pool: Arc::clone(pool),
-                events: Arc::clone(events),
-            },
-        );
+        crate::runtimes::for_key(runtime_key).start_capture(crate::runtimes::CaptureContext {
+            manager: Arc::downgrade(self),
+            session_id: session_id.to_owned(),
+            mission_id,
+            app_data_dir: app_data_dir.to_path_buf(),
+            row_started_at: row_started_at.to_owned(),
+            stop,
+            pool: Arc::clone(pool),
+            events: Arc::clone(events),
+        });
     }
 
     /// Sync part of a mission-slot spawn: validates inputs, composes
@@ -838,7 +506,9 @@ impl SessionManager {
             true,
         )?;
         if let Some(account) = &mut launch_definition.claude_account {
-            account.permission_mode = claude_permission_arg(&role.args);
+            account.permission_mode = crate::runtimes::for_key(&role.runtime)
+                .native_permission_mode(&role.args)
+                .expect("account runtime has a native permission mode");
         }
 
         // Agent-native session resume: this is a *fresh* session row, so
@@ -897,8 +567,8 @@ impl SessionManager {
             .as_deref()
             .map(|body| crate::session::system_prompt::write(app_data_dir, &session_id, body))
             .transpose()?;
-        let (first_turn, codex_prompt_marker) =
-            Self::codex_capture_prompt_marker(&role.runtime, &session_id, first_turn);
+        let (first_turn, capture_prompt_marker) =
+            Self::capture_prompt_marker(&role.runtime, &session_id, first_turn);
         let mut spec = self.base_spawn_spec(
             session_id.clone(),
             &role,
@@ -994,7 +664,7 @@ impl SessionManager {
             first_turn,
             resolved_cwd,
             row_started_at: started_at,
-            codex_prompt_marker,
+            capture_prompt_marker,
             app_data_dir: app_data_dir.to_path_buf(),
             pool,
         })
@@ -1041,7 +711,7 @@ impl SessionManager {
             first_turn,
             resolved_cwd,
             row_started_at,
-            codex_prompt_marker,
+            capture_prompt_marker,
             app_data_dir,
             pool,
         } = pending;
@@ -1065,8 +735,8 @@ impl SessionManager {
         // Gate claude-code spawns so N parallel mission slots don't
         // race the OAuth refresh-token rotation. No-op for other
         // runtimes; zero-wait for the first claude through. See
-        // `enter_claude_launch_gate` + issue #171.
-        self.enter_claude_launch_gate(&session_id, &role.runtime);
+        // `enter_launch_gate` + issue #171.
+        self.enter_launch_gate(&session_id, &role.runtime);
 
         // Post-gate cancellation: covers a Stop that fires while we
         // were asleep in the gate. The wake-up still races with the
@@ -1171,9 +841,10 @@ impl SessionManager {
                 crate::repo::session::record_process(&conn, &session_id, spawn_pid, &role.command);
         }
 
-        let codex_capture = if plan.assigned_key.is_none() {
+        let rollout_capture = if plan.assigned_key.is_none() {
             capture_root.and_then(|sessions_root| {
-                resolved_cwd.clone().map(|cwd| CodexCaptureContext {
+                resolved_cwd.clone().map(|cwd| RolloutCaptureContext {
+                    runtime: role.runtime.clone(),
                     manager: Arc::downgrade(self),
                     mission_id: Some(mission.id.clone()),
                     sessions_root,
@@ -1181,7 +852,7 @@ impl SessionManager {
                     started_at: spawn_started_at_dt,
                     row_started_at: row_started_at.clone(),
                     spawn_pid,
-                    prompt_marker: codex_prompt_marker.clone(),
+                    prompt_marker: capture_prompt_marker.clone(),
                     pool: Arc::clone(&pool),
                     events: Arc::clone(&events),
                 })
@@ -1200,7 +871,7 @@ impl SessionManager {
                 },
             );
         let stop = output.stop_flag();
-        self.start_antigravity_capture(
+        self.start_runtime_capture(
             &role.runtime,
             &session_id,
             Some(mission.id.clone()),
@@ -1225,7 +896,7 @@ impl SessionManager {
                 mission_id: Some(mission.id.clone()),
                 role_id: Some(role.id.clone()),
                 runtime_session: rt_session.clone(),
-                codex_capture: codex_capture.clone(),
+                rollout_capture: rollout_capture.clone(),
                 forwarder: None,
                 stop,
             },
@@ -1269,8 +940,8 @@ impl SessionManager {
         );
         self.install_forwarder(&session_id, forwarder);
 
-        if let Some(ctx) = codex_capture.as_ref() {
-            self.spawn_codex_capture_if_unkeyed(&session_id, ctx);
+        if let Some(ctx) = rollout_capture.as_ref() {
+            self.spawn_rollout_capture_if_unkeyed(&session_id, ctx);
         }
 
         emit_role_activity(&pool, &role, events.as_ref());
@@ -1567,7 +1238,9 @@ impl SessionManager {
             true,
         )?;
         if let Some(account) = &mut launch_definition.claude_account {
-            account.permission_mode = claude_permission_arg(&role.args);
+            account.permission_mode = crate::runtimes::for_key(&role.runtime)
+                .native_permission_mode(&role.args)
+                .expect("account runtime has a native permission mode");
         }
 
         // Agent-native session resume: `spawn_direct` always opens a *new*
@@ -1609,8 +1282,8 @@ impl SessionManager {
             .as_deref()
             .map(|body| crate::session::system_prompt::write(app_data_dir, &session_id, body))
             .transpose()?;
-        let (first_turn, codex_prompt_marker) =
-            Self::codex_capture_prompt_marker(&role.runtime, &session_id, first_turn);
+        let (first_turn, capture_prompt_marker) =
+            Self::capture_prompt_marker(&role.runtime, &session_id, first_turn);
         let started_at_dt = Utc::now();
         let started_at = started_at_dt.to_rfc3339();
 
@@ -1679,8 +1352,8 @@ impl SessionManager {
         // Same gate as the mission spawn path — direct chats are
         // also fresh claude-code spawns and proactively refresh the
         // OAuth token, so a rapid burst of new chats can race. See
-        // `enter_claude_launch_gate` + issue #171.
-        self.enter_claude_launch_gate(&session_id, &role.runtime);
+        // `enter_launch_gate` + issue #171.
+        self.enter_launch_gate(&session_id, &role.runtime);
 
         // Post-gate row check: `role_delete` can remove the role's
         // sessions while we were asleep in the gate. The
@@ -1744,9 +1417,10 @@ impl SessionManager {
                 crate::repo::session::record_process(&conn, &session_id, spawn_pid, &role.command);
         }
 
-        let codex_capture = if plan.assigned_key.is_none() {
+        let rollout_capture = if plan.assigned_key.is_none() {
             capture_root.and_then(|sessions_root| {
-                resolved_cwd.clone().map(|cwd| CodexCaptureContext {
+                resolved_cwd.clone().map(|cwd| RolloutCaptureContext {
+                    runtime: role.runtime.clone(),
                     manager: Arc::downgrade(self),
                     mission_id: None,
                     sessions_root,
@@ -1754,7 +1428,7 @@ impl SessionManager {
                     started_at: spawn_started_at_dt,
                     row_started_at: started_at.clone(),
                     spawn_pid,
-                    prompt_marker: codex_prompt_marker.clone(),
+                    prompt_marker: capture_prompt_marker.clone(),
                     pool: Arc::clone(&pool),
                     events: Arc::clone(&events),
                 })
@@ -1763,7 +1437,7 @@ impl SessionManager {
             None
         };
 
-        self.start_antigravity_capture(
+        self.start_runtime_capture(
             &role.runtime,
             &session_id,
             None,
@@ -1783,7 +1457,7 @@ impl SessionManager {
                 mission_id: None,
                 role_id: persisted_role_id.map(str::to_string),
                 runtime_session: rt_session.clone(),
-                codex_capture: codex_capture.clone(),
+                rollout_capture: rollout_capture.clone(),
                 forwarder: None,
                 stop: output.stop_flag(),
             },
@@ -1827,8 +1501,8 @@ impl SessionManager {
         );
         self.install_forwarder(&session_id, forwarder);
 
-        if let Some(ctx) = codex_capture.as_ref() {
-            self.spawn_codex_capture_if_unkeyed(&session_id, ctx);
+        if let Some(ctx) = rollout_capture.as_ref() {
+            self.spawn_rollout_capture_if_unkeyed(&session_id, ctx);
         }
 
         if emit_activity {
@@ -2094,7 +1768,7 @@ impl SessionManager {
         // as a fresh chat. This is a no-op for Codex; its visible phase-2
         // process is an ordinary resume and remains deliberately ungated.
         let gate_started_at = Instant::now();
-        self.enter_claude_launch_gate(&session_id, &role.runtime);
+        self.enter_launch_gate(&session_id, &role.runtime);
         let gate_elapsed = gate_started_at.elapsed();
         if !Self::session_row_exists(&pool, &session_id) {
             return Err(Error::msg(format!(
@@ -2219,7 +1893,7 @@ impl SessionManager {
                         mission_id: None,
                         role_id: source.role_id.clone(),
                         runtime_session: rt_session.clone(),
-                        codex_capture: None,
+                        rollout_capture: None,
                         forwarder: None,
                         stop: output.stop_flag(),
                     },
@@ -2634,10 +2308,7 @@ impl SessionManager {
         let adapter = crate::runtimes::for_key(&role.runtime);
         let missing = adapter.missing_conversation();
         let mut probe_env = role.env.clone();
-        if matches!(
-            Runtime::parse(&role.runtime),
-            Some(Runtime::Cursor | Runtime::Grok | Runtime::OpenCode)
-        ) {
+        if adapter.probe_uses_shell_env() {
             probe_env = self
                 .shell_env
                 .read()
@@ -2888,8 +2559,8 @@ impl SessionManager {
         }
         // A new marker prevents the reused row from capturing its previous rollout.
         let marker_id = ulid::Ulid::new().to_string();
-        let (first_turn, codex_prompt_marker) =
-            Self::codex_capture_prompt_marker(&role.runtime, &marker_id, first_turn);
+        let (first_turn, capture_prompt_marker) =
+            Self::capture_prompt_marker(&role.runtime, &marker_id, first_turn);
 
         if fresh && matches!(snap.status, crate::model::SessionStatus::Running) {
             self.kill(session_id)?;
@@ -2944,7 +2615,7 @@ impl SessionManager {
         }
 
         if !plan.resuming {
-            self.enter_claude_launch_gate(session_id, &role.runtime);
+            self.enter_launch_gate(session_id, &role.runtime);
         }
         let spawn_started_at_dt = Utc::now();
         #[cfg(windows)]
@@ -3004,9 +2675,10 @@ impl SessionManager {
                 crate::repo::session::record_process(&conn, session_id, spawn_pid, &role.command);
         }
 
-        let codex_capture = if plan.assigned_key.is_none() {
+        let rollout_capture = if plan.assigned_key.is_none() {
             capture_root.and_then(|sessions_root| {
-                resolved_cwd.clone().map(|cwd| CodexCaptureContext {
+                resolved_cwd.clone().map(|cwd| RolloutCaptureContext {
+                    runtime: role.runtime.clone(),
                     manager: Arc::downgrade(self),
                     mission_id: snap.mission_id.clone(),
                     sessions_root,
@@ -3014,7 +2686,7 @@ impl SessionManager {
                     started_at: spawn_started_at_dt,
                     row_started_at: started_at.clone(),
                     spawn_pid,
-                    prompt_marker: codex_prompt_marker.clone(),
+                    prompt_marker: capture_prompt_marker.clone(),
                     pool: Arc::clone(&pool),
                     events: Arc::clone(&events),
                 })
@@ -3033,7 +2705,7 @@ impl SessionManager {
                 },
             )
         });
-        self.start_antigravity_capture(
+        self.start_runtime_capture(
             &role.runtime,
             session_id,
             snap.mission_id.clone(),
@@ -3059,7 +2731,7 @@ impl SessionManager {
                 mission_id: snap.mission_id.clone(),
                 role_id: snap.role_id.clone(),
                 runtime_session: rt_session.clone(),
-                codex_capture: codex_capture.clone(),
+                rollout_capture: rollout_capture.clone(),
                 forwarder: None,
                 stop: output.stop_flag(),
             },
@@ -3113,8 +2785,8 @@ impl SessionManager {
         );
         self.install_forwarder(session_id, forwarder);
 
-        if let Some(ctx) = codex_capture.as_ref() {
-            self.spawn_codex_capture_if_unkeyed(session_id, ctx);
+        if let Some(ctx) = rollout_capture.as_ref() {
+            self.spawn_rollout_capture_if_unkeyed(session_id, ctx);
         }
 
         if snap.role_id.is_some() {

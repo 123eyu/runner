@@ -233,7 +233,7 @@ fn codex_restart_clears_prior_key_and_uses_a_new_capture_marker_each_time() {
                 .handle
                 .as_ref()
                 .unwrap()
-                .codex_capture
+                .rollout_capture
                 .as_ref()
                 .unwrap();
             assert!(body.contains(capture.prompt_marker.as_deref().unwrap()));

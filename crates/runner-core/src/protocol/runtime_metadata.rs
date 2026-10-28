@@ -832,6 +832,13 @@ static NO_PERMISSIONS: Permissions = Permissions {
 };
 pub struct RuntimeMetadata(Runtime);
 impl RuntimeMetadata {
+    pub fn image_paste_shortcut(&self, windows: bool) -> &'static [u8] {
+        if windows && self.0 == Runtime::ClaudeCode {
+            b"\x1bv"
+        } else {
+            b"\x16"
+        }
+    }
     pub fn catalog(&self) -> Option<RuntimeCatalog> {
         catalog_for(self.0)
     }
@@ -878,4 +885,24 @@ pub fn model_discovery_runtimes() -> Vec<Runtime> {
         Runtime::Grok,
         Runtime::OpenCode,
     ]
+}
+
+#[cfg(test)]
+mod input_tests {
+    #[test]
+    fn image_paste_shortcut_covers_both_platforms_and_unknown_runtime() {
+        assert_eq!(
+            super::for_key("claude-code").image_paste_shortcut(true),
+            b"\x1bv"
+        );
+        assert_eq!(
+            super::for_key("claude-code").image_paste_shortcut(false),
+            b"\x16"
+        );
+        for key in ["codex", "shell", "unknown"] {
+            for windows in [true, false] {
+                assert_eq!(super::for_key(key).image_paste_shortcut(windows), b"\x16");
+            }
+        }
+    }
 }

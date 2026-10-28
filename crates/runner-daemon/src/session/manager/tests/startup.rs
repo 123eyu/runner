@@ -109,7 +109,7 @@ impl StartupFixture {
                 mission_id: Some("mission".into()),
                 role_id: None,
                 runtime_session,
-                codex_capture: None,
+                rollout_capture: None,
                 forwarder: None,
                 stop: output.stop_flag(),
             },

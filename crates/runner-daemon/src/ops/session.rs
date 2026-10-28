@@ -521,7 +521,9 @@ pub fn session_delete(state: &AppCore, session_id: &str) -> Result<()> {
     }
     delete_rows(&tx, &[session_id.to_owned()])?;
     tx.commit()?;
-    crate::runtimes::antigravity::agy_capture::remove_log(&state.app_data_dir, session_id);
+    for runtime in Runtime::ALL {
+        crate::runtimes::adapter(runtime).remove_capture(&state.app_data_dir, session_id);
+    }
     Ok(())
 }
 

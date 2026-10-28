@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtimes::claude_code::launch::compute_gate_wait;
 
 #[test]
 fn compute_gate_wait_returns_zero_when_no_prior_spawn() {
@@ -54,40 +55,40 @@ fn compute_gate_wait_handles_clock_skew_without_panic() {
 }
 
 #[test]
-fn enter_claude_launch_gate_records_timestamp_only_for_claude_code() {
+fn enter_launch_gate_records_timestamp_only_for_claude_code() {
     // Non-claude runtimes must not touch `last_spawn_at` —
     // otherwise a codex spawn would unnecessarily delay a
     // subsequent claude. Sanity-check that the runtime-string
     // discriminator is wired correctly.
     let mgr = mgr_with_fake(None, fake_runtime());
-    assert!(mgr.claude_launch_gate.lock().unwrap().is_none());
+    assert!(mgr.launch_gate.lock().unwrap().is_none());
 
     // Shell / codex / empty string: state stays None.
-    mgr.enter_claude_launch_gate("s1", Runtime::Shell.key());
-    mgr.enter_claude_launch_gate("s2", Runtime::Codex.key());
-    mgr.enter_claude_launch_gate("s3", "");
+    mgr.enter_launch_gate("s1", Runtime::Shell.key());
+    mgr.enter_launch_gate("s2", Runtime::Codex.key());
+    mgr.enter_launch_gate("s3", "");
     assert!(
-        mgr.claude_launch_gate.lock().unwrap().is_none(),
+        mgr.launch_gate.lock().unwrap().is_none(),
         "non-claude runtimes must not advance the gate"
     );
 
     // claude-code stamps the field.
-    mgr.enter_claude_launch_gate("s4", Runtime::ClaudeCode.key());
+    mgr.enter_launch_gate("s4", Runtime::ClaudeCode.key());
     assert!(
-        mgr.claude_launch_gate.lock().unwrap().is_some(),
+        mgr.launch_gate.lock().unwrap().is_some(),
         "claude-code spawn must advance the gate"
     );
 }
 
 #[test]
-fn enter_claude_launch_gate_first_claude_does_not_sleep() {
+fn enter_launch_gate_first_claude_does_not_sleep() {
     // First claude-code spawn through the gate (no prior) must
     // return nearly immediately — the deadline-based design's
     // whole point. Even at the production GRACE (1500ms), a
     // cold start should take << 100ms here.
     let mgr = mgr_with_fake(None, fake_runtime());
     let started = Instant::now();
-    mgr.enter_claude_launch_gate("first", Runtime::ClaudeCode.key());
+    mgr.enter_launch_gate("first", Runtime::ClaudeCode.key());
     let elapsed = started.elapsed();
     assert!(
         elapsed < ci_scaled_budget(Duration::from_millis(100)),

@@ -10,12 +10,8 @@ pub enum TerminalPaste {
 /// The agent reads the image from the system clipboard itself, as it would in
 /// any terminal, so Runner only sends the agent's image-paste shortcut.
 pub fn image_paste_shortcut(runtime: Option<Runtime>) -> &'static [u8] {
-    // Claude Code binds image paste to Alt+V on Windows.
-    if cfg!(windows) && runtime == Some(Runtime::ClaudeCode) {
-        b"\x1bv"
-    } else {
-        b"\x16"
-    }
+    runner_core::protocol::runtime_metadata::for_key(runtime.map(Runtime::key).unwrap_or_default())
+        .image_paste_shortcut(cfg!(windows))
 }
 
 pub fn resolve_terminal_paste(

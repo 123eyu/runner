@@ -845,7 +845,7 @@ fn codex_native_attention_publication_holds_delivery_and_preserves_drafts() {
             .unwrap();
         terminal.accept_event(&AgentEvent::TurnStarted);
         terminal.on_output(b"\x1b]7501;state=blocked:app=codex\x1b\\");
-        let blocked = TerminalEvent::CodexAttention(terminal.take_codex_attention().unwrap());
+        let blocked = TerminalEvent::CodexAttention(terminal.take_attention().unwrap());
         assert_eq!(blocked, TerminalEvent::CodexAttention(true));
         publish(blocked);
         let wait = manager.agent_status(id).observation.interactions[0].clone();
@@ -884,7 +884,7 @@ fn codex_native_attention_publication_holds_delivery_and_preserves_drafts() {
         ] {
             terminal.on_output(report);
             publish(TerminalEvent::CodexAttention(
-                terminal.take_codex_attention().unwrap(),
+                terminal.take_attention().unwrap(),
             ));
             assert!(!manager.agent_status(id).observation.needs_you());
             assert_eq!(
@@ -1262,11 +1262,7 @@ fn codex_native_only_output_does_not_fabricate_completion_but_mixed_output_keeps
             let chunk_size = if split_bytes { 1 } else { control.len() };
             for chunk in control.chunks(chunk_size) {
                 let transition = detector.on_output_event_at(chunk, false, time);
-                for event in detector
-                    .take_codex_attention()
-                    .into_iter()
-                    .chain(transition)
-                {
+                for event in detector.take_attention().into_iter().chain(transition) {
                     publish(event);
                 }
             }
@@ -1302,11 +1298,7 @@ fn codex_native_only_output_does_not_fabricate_completion_but_mixed_output_keeps
         let chunk_size = if split_bytes { 1 } else { mixed.len() };
         for chunk in mixed.chunks(chunk_size) {
             let transition = detector.on_output_event_at(chunk, false, time);
-            for event in detector
-                .take_codex_attention()
-                .into_iter()
-                .chain(transition)
-            {
+            for event in detector.take_attention().into_iter().chain(transition) {
                 publish(event);
             }
         }

@@ -143,6 +143,17 @@ fn pi_resolve_path(path: &OsStr, cwd: Option<&Path>, home: Option<&Path>) -> Opt
 use runner_core::protocol::runtime_metadata::pi::{PERMISSIONS, SKILL_DIRS};
 pub struct Pi;
 impl RuntimeAdapter for Pi {
+    fn status_semantics(&self) -> StatusSemantics {
+        StatusSemantics {
+            interaction_prefix: Some("pi"),
+            preserve_turn_interactions: true,
+            tool_end: ToolEndPolicy::KeepWorking,
+            compaction: CompactionPolicy::RestoreExact,
+            compaction_requires_start: true,
+            detail_after_outcome: true,
+            ..Default::default()
+        }
+    }
     fn skills(&self) -> SkillSupport {
         SkillSupport {
             roots: SKILL_DIRS,
