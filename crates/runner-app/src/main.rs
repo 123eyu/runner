@@ -286,7 +286,7 @@ fn close_target(
 
 #[cfg(not(test))]
 fn close_tab(this: &mut NativeRoot, window: &mut Window, cx: &mut Context<NativeRoot>) {
-    if this.remote_window.is_some() {
+    if this.remote_client.is_active() {
         this.close_remote_front_page(window, cx);
         return;
     }
@@ -522,9 +522,7 @@ impl SidebarVisibilityTransition {
 
 struct NativeRoot {
     composition: Entity<surfaces::render_cache::ShellComposition>,
-    client_ui: surfaces::remote_client::ClientUi,
-    remote_window: Option<surfaces::remote_client::RemoteWindow>,
-    _remote_subscription: Subscription,
+    remote_client: surfaces::remote_client::RemoteClient,
     render_regions: HashMap<String, Entity<surfaces::render_cache::CachedRegion<Self>>>,
     window_label: String,
     log_dir: PathBuf,
@@ -921,12 +919,10 @@ impl NativeRoot {
         let updater = global_updater(cx);
         let root_entity = cx.entity().downgrade();
         let composition = cx.new(|_| surfaces::render_cache::ShellComposition::new(root_entity));
-        let clients = app_store.read(cx).remote_clients.clone();
-        let remote_subscription = cx.observe(&clients, |root, _, cx| root.sync_remote_state(cx));
+        let remote_client =
+            surfaces::remote_client::RemoteClient::new(app_store.clone(), root_focus.clone(), cx);
         let mut root = Self {
-            client_ui: surfaces::remote_client::ClientUi::new(cx),
-            remote_window: None,
-            _remote_subscription: remote_subscription,
+            remote_client,
             composition,
             render_regions: HashMap::new(),
             window_label: window_label.clone(),

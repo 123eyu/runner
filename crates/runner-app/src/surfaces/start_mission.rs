@@ -128,15 +128,14 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let remote_form = if let Some(remote) = self.remote_window.as_mut() {
-            if !remote.front_page.supports(&["catalog", "startMission"]) {
+        let remote_form = if self.remote_client.is_active() {
+            let Some((client, navigation, form)) = self.remote_client.begin_mission_form() else {
                 return;
-            }
-            remote.form_generation = remote.form_generation.wrapping_add(1);
+            };
             Some(RemoteMissionForm {
-                client: remote.front_page.clone(),
-                navigation: remote.navigation_generation,
-                form: remote.form_generation,
+                client,
+                navigation,
+                form,
                 project: scope.project_id().map(str::to_owned),
                 catalog: None,
                 folder_picker: None,
@@ -238,7 +237,7 @@ impl NativeRoot {
         crew_focus.focus(window, cx);
         cx.notify();
 
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.load_remote_mission_catalog(window, cx);
             return;
         }
@@ -319,7 +318,7 @@ impl NativeRoot {
     }
 
     fn load_start_mission_roster(&mut self, crew_id: String, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let core = self.core(cx).clone();
@@ -368,7 +367,7 @@ impl NativeRoot {
     }
 
     fn browse_start_mission_cwd(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let Some(cwd) = self
@@ -461,9 +460,8 @@ impl NativeRoot {
             .as_ref()
             .map(|remote| remote.project.clone())
             .unwrap_or_else(|| modal.project.as_ref().map(|project| project.id.clone()));
-        let size = if let Some(remote) = &self.remote_window {
-            let size = remote
-                .mission_workspace
+        let size = if let Some(workspace) = self.remote_client.mission_workspace() {
+            let size = workspace
                 .read(cx)
                 .estimated_mission_terminal_size(window, cx);
             (size.0.max(20), size.1.max(8))
@@ -492,7 +490,7 @@ impl NativeRoot {
                     Ok(mission) => {
                         this.start_mission_modal = None;
                         if remote_form.is_some() {
-                            this.remote_window.as_mut().unwrap().activate_mission = Some(mission);
+                            this.remote_client.activate_mission(mission);
                             this.sync_remote_state(cx);
                         } else {
                             this.refresh_store(StoreRefreshKind::All, cx);
@@ -501,9 +499,9 @@ impl NativeRoot {
                     }
                     Err(error) => {
                         let computer = remote_form.and_then(|_| {
-                            this.remote_window
-                                .as_ref()
-                                .map(|remote| remote.computer.name.clone())
+                            this.remote_client
+                                .computer()
+                                .map(|computer| computer.name.clone())
                         });
                         if let Some(modal) = this.start_mission_modal.as_mut() {
                             modal.submitting = false;
@@ -743,20 +741,17 @@ impl NativeRoot {
         navigation: u64,
         form: u64,
     ) -> bool {
-        self.remote_window.as_ref().is_some_and(|remote| {
-            remote.front_page.target == *target
-                && remote.front_page.valid()
-                && remote.navigation_generation == navigation
-                && remote.form_generation == form
-        }) && self
-            .start_mission_modal
-            .as_ref()
-            .and_then(|modal| modal.remote.as_ref())
-            .is_some_and(|remote| {
-                remote.client.target == *target
-                    && remote.navigation == navigation
-                    && remote.form == form
-            })
+        self.remote_client
+            .mission_form_current(target, navigation, form)
+            && self
+                .start_mission_modal
+                .as_ref()
+                .and_then(|modal| modal.remote.as_ref())
+                .is_some_and(|remote| {
+                    remote.client.target == *target
+                        && remote.navigation == navigation
+                        && remote.form == form
+                })
     }
 
     fn load_remote_mission_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -785,9 +780,9 @@ impl NativeRoot {
                 if !this.remote_mission_form_current(&target, navigation, form) {
                     return;
                 }
-                let host = this.remote_window.as_ref().unwrap();
-                let computer = host.computer.name.clone();
-                let platform = host.computer.info.platform.clone();
+                let host = this.remote_client.computer().unwrap();
+                let computer = host.name.clone();
+                let platform = host.info.platform.clone();
                 let modal = this.start_mission_modal.as_mut().unwrap();
                 modal.loading = false;
                 match result {
@@ -1446,8 +1441,8 @@ mod remote_tests {
             window
                 .update(&mut cx, |root, window, cx| {
                     size = root
-                        .remote_window
-                        .as_ref()
+                        .remote_client
+                        .workspace()
                         .unwrap()
                         .mission_workspace
                         .read(cx)
@@ -1465,8 +1460,8 @@ mod remote_tests {
                     root.confirm_start_mission(&ConfirmStartMission, window, cx);
                     assert!(root.start_mission_modal.as_ref().unwrap().submitting);
                     assert!(root
-                        .remote_window
-                        .as_ref()
+                        .remote_client
+                        .workspace()
                         .unwrap()
                         .activate_mission
                         .is_none());
@@ -1478,7 +1473,7 @@ mod remote_tests {
                         });
                         root.sync_remote_state(cx);
                         assert!(matches!(
-                            root.remote_window.as_ref().unwrap().active,
+                            root.remote_client.workspace().unwrap().active,
                             Some(RemoteItem::Tab(_))
                         ));
                     }
@@ -1496,7 +1491,7 @@ mod remote_tests {
             assert_eq!(request["rows"], size.1.max(8));
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(root.start_mission_modal.is_none());
                     if push_before_result {
                         assert!(
@@ -1513,7 +1508,7 @@ mod remote_tests {
             cx.run_until_parked();
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(remote.active == Some(RemoteItem::Mission("created-mission".into())));
                     assert!(remote.activate_mission.is_none());
                 })
@@ -1685,7 +1680,7 @@ mod remote_tests {
             cx.run_until_parked();
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(remote.active == Some(RemoteItem::Tab("first".into())));
                     assert!(remote.activate_mission.is_none());
                     assert!(root.start_mission_modal.is_none());

@@ -241,7 +241,7 @@ impl Sidebar {
         if self.front_page.is_remote() {
             if let Some(shell) = self.shell.upgrade() {
                 shell.update(cx, |root, cx| {
-                    root.remote_action(
+                    root.remote_client.remote_action(
                         "sidebar-order".into(),
                         &[feature],
                         move |client| {

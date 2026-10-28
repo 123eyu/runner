@@ -174,7 +174,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn confirm_sign_out(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         self.settings_page.remote.reset_identity = false;

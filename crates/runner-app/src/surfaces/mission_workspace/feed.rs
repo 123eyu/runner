@@ -19,13 +19,8 @@ impl MissionWorkspace {
         session: &crate::surfaces::front_page::model::MissionMemberDisplay,
         cx: &App,
     ) -> String {
-        if self.remote.is_some() {
-            return session
-                .live_title
-                .as_ref()
-                .filter(|title| !title.is_empty())
-                .map(|title| format!("@{} · {title}", session.handle))
-                .unwrap_or_else(|| format!("@{}", session.handle));
+        if let Some(title) = self.presentation.remote_title_tooltip(session) {
+            return title;
         }
         let title = self
             .attached
@@ -246,7 +241,7 @@ impl MissionWorkspace {
         let pill_root = root.clone();
         let feed_up_root = root.clone();
         let feed_out_root = root.clone();
-        let remote_feed = self.remote.as_ref().and_then(|remote| remote.feed.clone());
+        let remote_feed = self.presentation.feed();
         let feed_state = remote_feed.as_ref().map(|feed| {
             let feed = feed.read(cx);
             (
@@ -586,7 +581,7 @@ impl MissionWorkspace {
                     .text_color(theme::muted())
                     .child(description),
             )
-            .when(self.remote.is_none(), |panel| {
+            .when(!self.presentation.is_remote(), |panel| {
                 panel.child(
                     Button::new("empty-mission-add-role", crate::i18n::text("ui.add_role"))
                         .variant(ButtonVariant::Primary)
@@ -1153,7 +1148,7 @@ impl MissionWorkspace {
         if !self.remote_supports(&["answer"]) {
             choices.clear();
         }
-        let available = self.remote.is_none()
+        let available = !self.presentation.is_remote()
             || self
                 .remote_summary()
                 .is_some_and(|mission| mission.asks.iter().any(|ask| ask.question == question_id));
@@ -1367,5 +1362,24 @@ impl MissionWorkspace {
             });
         })
         .detach();
+    }
+}
+
+impl remote::MissionPresentation {
+    pub(super) fn remote_title_tooltip(
+        &self,
+        session: &crate::surfaces::front_page::model::MissionMemberDisplay,
+    ) -> Option<String> {
+        if self.is_remote() {
+            return Some(
+                session
+                    .live_title
+                    .as_ref()
+                    .filter(|title| !title.is_empty())
+                    .map(|title| format!("@{} · {title}", session.handle))
+                    .unwrap_or_else(|| format!("@{}", session.handle)),
+            );
+        }
+        None
     }
 }

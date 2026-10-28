@@ -181,8 +181,7 @@ impl MissionWorkspace {
             client: super::super::front_page::FrontPageClient::local(
                 app_store.read(cx).client.clone(),
             ),
-            remote: None,
-            remote_selected_handle: None,
+            presentation: remote::MissionPresentation::Local,
             render_regions: HashMap::new(),
             window_label,
             shell,
@@ -345,9 +344,7 @@ impl MissionWorkspace {
 
     pub(crate) fn release_window(&mut self, cx: &mut Context<Self>) {
         self.active = false;
-        if let Some(remote) = &mut self.remote {
-            remote.feed = None;
-            remote.feed_subscription = None;
+        if self.presentation.release_feed() {
             self.generation += 1;
         }
         self.feed_list.scrollbar_drag_ended();
@@ -387,7 +384,7 @@ impl MissionWorkspace {
         &self,
         cx: &App,
     ) -> runner_core::protocol::window::SecondaryState {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return Default::default();
         }
         let Some(mission_id) = self.mission_id.as_ref() else {
@@ -527,27 +524,11 @@ impl MissionWorkspace {
         }
         self.askers_by_question = asks.askers_by_question;
         self.resolved_asks = asks.resolved_asks;
-        if self.remote.is_some() {
-            for event in &self.events {
-                if let (Some(id), Some(from)) = (
-                    event
-                        .payload
-                        .get("question_id")
-                        .and_then(serde_json::Value::as_str),
-                    event
-                        .payload
-                        .get("remote_from")
-                        .and_then(serde_json::Value::as_str),
-                ) {
-                    self.askers_by_question.insert(id.into(), from.into());
-                }
-            }
-            if let Some(mission) = self.remote_summary().cloned() {
-                for ask in mission.asks {
-                    self.askers_by_question.insert(ask.question, ask.from);
-                }
-            }
-        }
+        self.presentation.add_remote_askers(
+            self.mission_id.as_deref(),
+            &self.events,
+            &mut self.askers_by_question,
+        );
         self.pending_ask_choices
             .retain(|question_id, _| !self.resolved_asks.contains_key(question_id));
         self.goal = if self.events.is_empty() {
@@ -579,13 +560,8 @@ impl MissionWorkspace {
         session_id: &str,
         cx: &App,
     ) -> runner_core::protocol::status::AgentStatus {
-        if let Some(remote) = &self.remote {
-            return remote
-                .overview
-                .as_ref()
-                .and_then(|overview| overview.sessions.get(session_id))
-                .map(|session| crate::surfaces::remote_client::model::agent_status(&session.status))
-                .unwrap_or_default();
+        if let Some(status) = self.presentation.slot_status(session_id) {
+            return status;
         }
         use runner_core::protocol::status::{Activity, AgentStatus, Lifecycle, ObservationSource};
         let Some(session) = self
@@ -722,10 +698,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn settings<'a>(&self, cx: &'a App) -> &'a AppSettings {
-        self.remote
-            .as_ref()
-            .map(|remote| remote.settings.read(cx))
-            .unwrap_or(&self.app_store.read(cx).settings)
+        self.presentation.settings(&self.app_store, cx)
     }
 
     pub(super) fn update_app_settings(
@@ -734,12 +707,8 @@ impl MissionWorkspace {
         persist: bool,
         update: impl FnOnce(&mut AppSettings) -> bool,
     ) -> bool {
-        if let Some(remote) = &self.remote {
-            return remote.settings.update(cx, |settings, _| update(settings));
-        }
-        self.app_store.update(cx, |store, store_cx| {
-            store.update_settings(update, persist, store_cx)
-        })
+        self.presentation
+            .update_app_settings(&self.app_store, cx, persist, update)
     }
 
     pub(crate) fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
@@ -750,13 +719,13 @@ impl MissionWorkspace {
     }
 
     pub(super) fn save_settings(&self, cx: &App) {
-        if self.remote.is_none() {
+        if !self.presentation.is_remote() {
             self.app_store.read(cx).save_settings();
         }
     }
 
     pub(super) fn refresh_store(&self, refresh: StoreRefreshKind, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         self.app_store
@@ -764,7 +733,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn load_mission_layout(&mut self, cx: &App) -> Result<()> {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return Ok(());
         }
         let Some(mission_id) = self.mission_id.as_deref() else {
@@ -799,23 +768,8 @@ impl MissionWorkspace {
         session_id: &str,
         cx: &App,
     ) -> Option<crate::surfaces::front_page::model::SessionDisplay> {
-        use crate::surfaces::front_page::model::SessionDisplay;
-        if let Some(remote) = &self.remote {
-            let session = remote.overview.as_ref()?.sessions.get(session_id)?;
-            return Some(SessionDisplay::remote(
-                session_id,
-                session,
-                false,
-                false,
-                self.client.supports(&["resume"]),
-            ));
-        }
-        self.app_store
-            .read(cx)
-            .sessions
-            .iter()
-            .find(|entry| entry.session_id == session_id)
-            .map(SessionDisplay::local)
+        self.presentation
+            .drawer_session_entry(&self.app_store, &self.client, session_id, cx)
     }
 
     pub(super) fn is_active(&self, _: &App) -> bool {
@@ -823,15 +777,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn terminal_style(&self, cx: &App) -> crate::terminal::element::TerminalStyle {
-        let host = self
-            .remote
-            .as_ref()
-            .and_then(|remote| remote.overview.as_ref()?.terminal_palette.clone());
-        let mut style = crate::surfaces::app_shell::terminal_style_for(self.settings(cx));
-        if let Some(palette) = host {
-            style.palette = runner_terminal::terminal::palette_from_wire(palette.into());
-        }
-        style
+        self.presentation.terminal_style(self.settings(cx))
     }
 
     pub(crate) fn apply_terminal_settings(&self, cx: &App) {
@@ -849,20 +795,7 @@ impl MissionWorkspace {
         let reactions = revisions.reactions_since(previous);
         self.store_revisions = revisions;
         if revisions.settings != previous.settings || revisions.locale != previous.locale {
-            if let Some(remote) = &self.remote {
-                let mut global = self.app_store.read(cx).settings.clone();
-                let own = remote.settings.read(cx);
-                global.sidebar_width = own.sidebar_width;
-                global.mission_rail_width = own.mission_rail_width;
-                global.mission_rail_open = own.mission_rail_open;
-                global
-                    .last_mission_terminal_ids
-                    .clone_from(&own.last_mission_terminal_ids);
-                remote.settings.update(cx, |settings, cx| {
-                    *settings = global;
-                    cx.notify();
-                });
-            }
+            self.presentation.refresh_settings(&self.app_store, cx);
             let count = self.feed_list.item_count();
             self.feed_empty_panel_min_height.set(px(0.));
             self.splice_feed_items(0..count, count);
@@ -873,7 +806,7 @@ impl MissionWorkspace {
         if reactions.apply_terminal_settings {
             self.apply_terminal_settings(cx);
         }
-        if self.remote.is_none()
+        if !self.presentation.is_remote()
             && reactions.reload_tabs
             && self.mission.is_some()
             && !self.archived()
@@ -979,4 +912,35 @@ pub(super) fn project_session_statuses(
         }
     }
     (statuses, observations)
+}
+
+impl remote::MissionPresentation {
+    pub(super) fn add_remote_askers(
+        &self,
+        mission_id: Option<&str>,
+        events: &[Event],
+        askers: &mut HashMap<String, String>,
+    ) {
+        if self.is_remote() {
+            for event in events {
+                if let (Some(id), Some(from)) = (
+                    event
+                        .payload
+                        .get("question_id")
+                        .and_then(serde_json::Value::as_str),
+                    event
+                        .payload
+                        .get("remote_from")
+                        .and_then(serde_json::Value::as_str),
+                ) {
+                    askers.insert(id.into(), from.into());
+                }
+            }
+            if let Some(mission) = self.summary(mission_id).cloned() {
+                for ask in mission.asks {
+                    askers.insert(ask.question, ask.from);
+                }
+            }
+        }
+    }
 }

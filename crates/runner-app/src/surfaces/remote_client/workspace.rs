@@ -35,7 +35,7 @@ pub(crate) struct RemoteWindow {
     pub(crate) layout_hints: HashMap<String, PaneLayout>,
     pub(crate) actions_pending: HashSet<String>,
     pub(crate) action_error: Option<String>,
-    pub(crate) shell_placement: Arc<Mutex<Option<(String, PaneLayout)>>>,
+    pub(crate) shell_placement: super::actions::ShellPlacement,
     pub(crate) catalog: Option<runner_core::companion::Catalog>,
     pub(crate) library_catalog: Option<runner_core::companion::Catalog>,
     pub(crate) library_request: u64,
@@ -97,18 +97,18 @@ impl RemoteWindow {
     }
 }
 
-impl NativeRoot {
+impl RemoteClient {
     pub(crate) fn report_remote_input_error(
         &mut self,
         address: &str,
         message: String,
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) {
         let Some((computer, session)) = runner_core::remote::terminal_target(address) else {
             return;
         };
         let clients = state(&self.app_store, cx);
-        let Some(remote) = self.remote_window.as_mut().filter(|remote| {
+        let Some(remote) = self.workspace.as_mut().filter(|remote| {
             remote.computer.id == computer && remote.terminals.contains_key(session)
         }) else {
             return;
@@ -128,8 +128,9 @@ impl NativeRoot {
             cx.notify();
         }
     }
+
     pub(crate) fn remote_terminal_interactive(&self, id: &str, cx: &App) -> bool {
-        self.remote_window.as_ref().is_some_and(|remote| {
+        self.workspace.as_ref().is_some_and(|remote| {
             remote.connection == Connection::Connected
                 && remote
                     .terminals
@@ -151,19 +152,21 @@ impl NativeRoot {
                     })
         })
     }
+
     pub(crate) fn remote_terminal_size(&self, id: &str) -> Option<(u16, u16)> {
-        let remote = self.remote_window.as_ref()?;
+        let remote = self.workspace.as_ref()?;
         remote
             .terminals
             .get(id)
             .map(|pane| pane.attachment.terminal.size())
             .or_else(|| remote.sizes.get(id).copied())
     }
+
     pub(crate) fn remote_terminal_palette(
         &self,
         cx: &App,
     ) -> Option<runner_terminal::palette::TerminalPalette> {
-        let remote = self.remote_window.as_ref()?;
+        let remote = self.workspace.as_ref()?;
         state(&self.app_store, cx)
             .read(cx)
             .overviews
@@ -172,45 +175,49 @@ impl NativeRoot {
             .clone()
             .map(|palette| runner_terminal::terminal::palette_from_wire(palette.into()))
     }
+
     pub(crate) fn configure_remote_terminals(&self, cx: &App) {
-        let Some(remote) = self.remote_window.as_ref() else {
+        let Some(remote) = self.workspace.as_ref() else {
             return;
         };
         for pane in remote.terminals.values() {
             app_settings::configure_terminal(&pane.attachment.terminal, self.settings(cx));
         }
     }
+
     pub(crate) fn focus_remote_terminal(&self, id: &str, window: &mut Window, cx: &mut App) {
         if let Some(pane) = self
-            .remote_window
+            .workspace
             .as_ref()
             .and_then(|remote| remote.terminals.get(id))
         {
             pane.attachment.terminal_focus.focus(window, cx);
         }
     }
+
     pub(crate) fn visit_computer(
         &mut self,
         computer: Computer,
+        window_label: &str,
         window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+        cx: &mut Context<NativeRoot>,
+    ) -> bool {
         if !self.app_store.read(cx).remote_access_enabled() {
-            return;
+            return false;
         }
         if let Some(remote) = self
-            .remote_window
+            .workspace
             .as_mut()
             .filter(|remote| remote.computer.id == computer.id)
         {
             remote.computer = computer.clone();
-            self.client_ui.picker_open = false;
+            self.ui.picker_open = false;
             if !matches!(
                 remote.connection,
                 Connection::Unreachable | Connection::Revoked | Connection::Forgotten
             ) {
                 cx.notify();
-                return;
+                return false;
             }
             remote.terminals.clear();
             remote.pending.clear();
@@ -220,24 +227,16 @@ impl NativeRoot {
             state(&self.app_store, cx)
                 .read(cx)
                 .send(Command::Retry(computer.id));
-            return;
+            return false;
         }
         self.remember_remote_selection(cx);
-        if let Some(remote) = &self.remote_window {
+        if let Some(remote) = &self.workspace {
             remote
                 .mission_workspace
                 .update(cx, |workspace, cx| workspace.release_window(cx));
         }
-        self.start_chat_modal = None;
-        self.start_mission_modal = None;
-        self.chat_rename_modal = None;
-        self.pane_rename = None;
-        self.fork_confirm = None;
-        self.terminal_close_confirm = None;
-        self.command_palette
-            .update(cx, |palette, cx| palette.close_for_target_change(cx));
-        self.client_ui.epoch += 1;
-        let epoch = self.client_ui.epoch;
+        self.ui.epoch += 1;
+        let epoch = self.ui.epoch;
         let clients = state(&self.app_store, cx);
         let follow = clients.read(cx).follow(computer.id.clone());
         let (wake, mut wakes) = futures::channel::mpsc::unbounded();
@@ -246,7 +245,8 @@ impl NativeRoot {
                 if weak
                     .update(cx, |root, cx| {
                         if root
-                            .remote_window
+                            .remote_client
+                            .workspace
                             .as_ref()
                             .is_some_and(|remote| remote.epoch == epoch)
                         {
@@ -275,7 +275,7 @@ impl NativeRoot {
         let front_page =
             crate::surfaces::front_page::FrontPageClient::remote(self.core(cx).clone(), access);
         let selection = self
-            .client_ui
+            .ui
             .selections
             .remove(&computer.id)
             .filter(|_| clients.read(cx).overviews.contains_key(&computer.id))
@@ -297,7 +297,7 @@ impl NativeRoot {
         let shell = cx.weak_entity();
         let mission_workspace = cx.new(|workspace_cx| {
             MissionWorkspace::new_remote(
-                self.window_label.clone(),
+                window_label.to_owned(),
                 shell,
                 self.app_store.clone(),
                 front_page.clone(),
@@ -305,7 +305,7 @@ impl NativeRoot {
                 workspace_cx,
             )
         });
-        self.remote_window = Some(RemoteWindow {
+        self.workspace = Some(RemoteWindow {
             mission_workspace,
             sidebar,
             sidebar_collapsed: false,
@@ -367,38 +367,32 @@ impl NativeRoot {
             epoch,
             wake,
         });
-        self.client_ui.picker_open = false;
-        self.mission_workspace
-            .update(cx, |workspace, cx| workspace.release_window(cx));
+        self.ui.picker_open = false;
         self.root_focus.focus(window, cx);
-        self.report_current_subjects(cx);
-        self.sync_remote_state(cx);
         cx.notify();
+        true
     }
-    pub(crate) fn return_to_this_computer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.start_chat_modal = None;
-        self.start_mission_modal = None;
-        self.chat_rename_modal = None;
-        self.pane_rename = None;
-        self.fork_confirm = None;
-        self.terminal_close_confirm = None;
-        self.command_palette
-            .update(cx, |palette, cx| palette.close_for_target_change(cx));
+
+    pub(crate) fn return_to_this_computer(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<NativeRoot>,
+    ) {
         self.remember_remote_selection(cx);
-        if let Some(remote) = &self.remote_window {
+        if let Some(remote) = &self.workspace {
             remote
                 .mission_workspace
                 .update(cx, |workspace, cx| workspace.release_window(cx));
         }
-        self.remote_window = None;
-        self.client_ui.picker_open = false;
+        self.workspace = None;
+        self.ui.picker_open = false;
         self.root_focus.focus(window, cx);
-        self.sync_window_activation(window, cx);
         cx.notify();
     }
+
     pub(crate) fn remember_remote_selection(&mut self, cx: &App) {
-        if let Some(remote) = &self.remote_window {
-            self.client_ui.selections.insert(
+        if let Some(remote) = &self.workspace {
+            self.ui.selections.insert(
                 remote.computer.id.clone(),
                 RemoteSelection {
                     active: remote.active.clone(),
@@ -408,12 +402,13 @@ impl NativeRoot {
             );
         }
     }
-    pub(crate) fn sync_remote_state(&mut self, cx: &mut Context<Self>) {
+
+    pub(crate) fn sync_remote_state(&mut self, cx: &mut Context<NativeRoot>) -> bool {
         self.sync_computer_pair(cx);
         let clients = state(&self.app_store, cx);
-        let Some(remote) = self.remote_window.as_mut() else {
+        let Some(remote) = self.workspace.as_mut() else {
             cx.notify();
-            return;
+            return false;
         };
         if let Some(computer) = clients
             .read(cx)
@@ -622,12 +617,6 @@ impl NativeRoot {
             remote.role_surfaces.invalidate_library();
             remote.crew_surfaces.invalidate_library();
             remote.catalog_target = None;
-            self.start_chat_modal = None;
-            self.start_mission_modal = None;
-            self.chat_rename_modal = None;
-            self.pane_rename = None;
-            self.fork_confirm = None;
-            self.terminal_close_confirm = None;
             remote.project_picker = None;
             remote.project_picker_subscription = None;
             remote.delete_project = None;
@@ -714,12 +703,13 @@ impl NativeRoot {
         });
         self.ensure_remote_library(cx);
         self.load_remote_metadata(cx);
-        self.refresh_remote_palette(cx);
         self.attach_remote_panes(cx);
         cx.notify();
+        connection != Connection::Connected
     }
-    fn load_remote_metadata(&mut self, cx: &mut Context<Self>) {
-        let Some(remote) = self.remote_window.as_mut() else {
+
+    fn load_remote_metadata(&mut self, cx: &mut Context<NativeRoot>) {
+        let Some(remote) = self.workspace.as_mut() else {
             return;
         };
         if !remote.front_page.supports(&["catalog"])
@@ -731,16 +721,17 @@ impl NativeRoot {
         remote.catalog_target = Some(remote.front_page.target.clone());
         let client = remote.front_page.clone();
         let guard = client.clone();
-        let epoch = self.client_ui.epoch;
+        let epoch = self.ui.epoch;
         let work = cx.background_spawn(async move { client.catalog() });
         cx.spawn(async move |weak, cx| {
             let result = work.await;
             let _ = weak.update(cx, |root, cx| {
-                if root.client_ui.epoch != epoch || !guard.valid() {
+                if root.remote_client.ui.epoch != epoch || !guard.valid() {
                     return;
                 }
                 if let Some(remote) = root
-                    .remote_window
+                    .remote_client
+                    .workspace
                     .as_mut()
                     .filter(|remote| remote.front_page.target == guard.target)
                 {
@@ -754,11 +745,12 @@ impl NativeRoot {
         })
         .detach();
     }
-    pub(crate) fn select_remote_item(&mut self, item: Item, cx: &mut Context<Self>) {
-        if let Some(remote) = self.remote_window.as_mut() {
+
+    pub(crate) fn select_remote_item(&mut self, item: RemoteItem) -> bool {
+        let mut changed = false;
+        if let Some(remote) = self.workspace.as_mut() {
             if remote.active.as_ref() != Some(&item) {
-                self.start_chat_modal = None;
-                self.start_mission_modal = None;
+                changed = true;
                 remote.form_generation = remote.form_generation.wrapping_add(1);
                 remote.navigation_generation = remote.navigation_generation.wrapping_add(1);
                 remote.activate_session = None;
@@ -777,14 +769,12 @@ impl NativeRoot {
             remote.active = Some(item);
             remote.errors.clear();
         }
-        self.sync_remote_state(cx);
-        self.mark_remote_stopped_sessions_viewed(cx);
-        cx.notify();
+        changed
     }
 
-    pub(crate) fn mark_remote_stopped_sessions_viewed(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn mark_remote_stopped_sessions_viewed(&mut self, cx: &mut Context<NativeRoot>) {
         let clients = state(&self.app_store, cx);
-        let Some(remote) = self.remote_window.as_ref() else {
+        let Some(remote) = self.workspace.as_ref() else {
             return;
         };
         if remote.connection != Connection::Connected
@@ -820,9 +810,9 @@ impl NativeRoot {
         }
     }
 
-    pub(crate) fn attach_remote_panes(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn attach_remote_panes(&mut self, cx: &mut Context<NativeRoot>) {
         let clients = state(&self.app_store, cx);
-        let Some(remote) = self.remote_window.as_mut() else {
+        let Some(remote) = self.workspace.as_mut() else {
             return;
         };
         let overview = clients.read(cx).overviews.get(&remote.computer.id).cloned();
@@ -904,7 +894,7 @@ impl NativeRoot {
                 let _ = weak.update(cx, |root, cx| {
                     let style = root.terminal_style(cx);
                     let settings = root.app_store.read(cx).settings.clone();
-                    let Some(remote) = root.remote_window.as_mut().filter(|remote| {
+                    let Some(remote) = root.remote_client.workspace.as_mut().filter(|remote| {
                         remote.epoch == epoch
                             && remote.attachment_generation == attachment_generation
                     }) else {
@@ -948,8 +938,11 @@ impl NativeRoot {
                                 cx,
                                 move |root, result, cx| {
                                     if let Err(error) = result {
-                                        let current =
-                                            root.remote_window.as_ref().is_some_and(|remote| {
+                                        let current = root
+                                            .remote_client
+                                            .workspace
+                                            .as_ref()
+                                            .is_some_and(|remote| {
                                                 remote.epoch == epoch
                                                     && remote.attachment_generation
                                                         == attachment_generation
@@ -963,7 +956,7 @@ impl NativeRoot {
                                                     )
                                             });
                                         if current {
-                                            root.report_remote_input_error(
+                                            root.remote_client.report_remote_input_error(
                                                 &input_address,
                                                 error,
                                                 cx,
@@ -990,8 +983,9 @@ impl NativeRoot {
             .detach();
         }
     }
-    pub(crate) fn render_remote_connection(&self, _cx: &mut Context<Self>) -> AnyElement {
-        let remote = self.remote_window.as_ref().unwrap();
+
+    pub(crate) fn render_remote_connection(&self, _cx: &mut Context<NativeRoot>) -> AnyElement {
+        let remote = self.workspace.as_ref().unwrap();
         let (key, glyph, color) = match remote.connection {
             Connection::Connected => ("client.connection_live", "shield-check.svg", theme::muted()),
             Connection::Opening => (
@@ -1030,40 +1024,28 @@ impl NativeRoot {
             )
             .into_any_element()
     }
+
+    pub(crate) fn mission_surface(&self, cx: &mut Context<NativeRoot>) -> Entity<MissionWorkspace> {
+        let remote = self.workspace.as_ref().unwrap();
+        let mut sizes = remote.sizes.clone();
+        sizes.extend(
+            remote
+                .terminals
+                .iter()
+                .map(|(id, pane)| (id.clone(), pane.attachment.terminal.size())),
+        );
+        remote.mission_workspace.update(cx, |workspace, _| {
+            workspace.set_remote_terminal_sizes(sizes)
+        });
+        remote.mission_workspace.clone()
+    }
+
     pub(crate) fn render_remote_workspace(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        &self,
+        body: AnyElement,
+        cx: &mut Context<NativeRoot>,
     ) -> AnyElement {
-        let mission = self
-            .remote_window
-            .as_ref()
-            .is_some_and(|remote| matches!(remote.active, Some(Item::Mission(_))));
-        let library = self
-            .remote_window
-            .as_ref()
-            .and_then(|remote| remote.active.clone());
-        let body = if matches!(library, Some(Item::Roles)) {
-            self.render_roles_page(window, cx)
-        } else if matches!(library, Some(Item::Crews)) {
-            self.render_crews_page(window, cx)
-        } else if mission {
-            let remote = self.remote_window.as_ref().unwrap();
-            let mut sizes = remote.sizes.clone();
-            sizes.extend(
-                remote
-                    .terminals
-                    .iter()
-                    .map(|(id, pane)| (id.clone(), pane.attachment.terminal.size())),
-            );
-            remote.mission_workspace.update(cx, |workspace, _| {
-                workspace.set_remote_terminal_sizes(sizes)
-            });
-            remote.mission_workspace.clone().into_any_element()
-        } else {
-            self.render_active_tab(window, cx)
-        };
-        let remote = self.remote_window.as_ref().unwrap();
+        let remote = self.workspace.as_ref().unwrap();
         let retry_shell = remote
             .shell_placement
             .lock()
@@ -1122,12 +1104,13 @@ impl NativeRoot {
             )
             .into_any_element()
     }
+
     pub(crate) fn render_remote_terminal_content(
         &self,
         id: &str,
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) -> AnyElement {
-        let remote = self.remote_window.as_ref().unwrap();
+        let remote = self.workspace.as_ref().unwrap();
         let clients = state(&self.app_store, cx);
         let running = clients
             .read(cx)
@@ -1171,13 +1154,14 @@ impl NativeRoot {
                         cx.defer(move |cx| {
                             let _ = owner.update(cx, |root, cx| {
                                 if let Some(remote) = root
-                                    .remote_window
+                                    .remote_client
+                                    .workspace
                                     .as_mut()
                                     .filter(|remote| remote.epoch == epoch)
                                 {
                                     let measured = (size.cols.max(20), size.rows.max(8));
                                     if remote.sizes.insert(session, measured) != Some(measured) {
-                                        root.attach_remote_panes(cx);
+                                        root.remote_client.attach_remote_panes(cx);
                                         cx.notify();
                                     }
                                 }
@@ -1271,8 +1255,9 @@ impl NativeRoot {
                         .variant(ButtonVariant::Secondary)
                         .disabled(!connected)
                         .on_press(move |_, cx| {
-                            let _ =
-                                take.update(cx, |root, cx| root.take_remote_control(&take_id, cx));
+                            let _ = take.update(cx, |root, cx| {
+                                root.remote_client.take_remote_control(&take_id, cx)
+                            });
                         }),
                     ),
             );
@@ -1340,8 +1325,9 @@ impl NativeRoot {
             )
             .into_any_element()
     }
-    pub(super) fn take_remote_control(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(remote) = self.remote_window.as_mut() else {
+
+    pub(super) fn take_remote_control(&mut self, id: &str, cx: &mut Context<NativeRoot>) {
+        let Some(remote) = self.workspace.as_mut() else {
             return;
         };
         let Some(pane) = remote.terminals.get_mut(id) else {
@@ -1364,7 +1350,8 @@ impl NativeRoot {
             let result = task.await;
             let _ = weak.update(cx, |root, cx| {
                 let Some(remote) = root
-                    .remote_window
+                    .remote_client
+                    .workspace
                     .as_mut()
                     .filter(|remote| remote.epoch == epoch)
                 else {
@@ -1384,8 +1371,9 @@ impl NativeRoot {
         .detach();
         cx.notify();
     }
-    fn remote_connection_card(&self, cx: &mut Context<Self>) -> AnyElement {
-        let remote = self.remote_window.as_ref().unwrap();
+
+    fn remote_connection_card(&self, cx: &mut Context<NativeRoot>) -> AnyElement {
+        let remote = self.workspace.as_ref().unwrap();
         let revoked = remote.connection == Connection::Revoked;
         let forgotten = remote.connection == Connection::Forgotten;
         let pair = revoked || forgotten;
@@ -1477,7 +1465,7 @@ impl NativeRoot {
                                 .on_press(move |window, cx| {
                                     let _ = retry.update(cx, |root, cx| {
                                         if pair {
-                                            root.open_computer_pair(
+                                            root.remote_client.open_computer_pair(
                                                 computer.clone(),
                                                 pairing::Purpose::Open { new_window: false },
                                                 window,
@@ -1510,7 +1498,36 @@ impl NativeRoot {
             )
             .into_any_element()
     }
+
+    pub(crate) fn remote_mission_workspace(&self) -> Option<Entity<MissionWorkspace>> {
+        let remote = self.workspace.as_ref()?;
+        matches!(
+            remote.active,
+            Some(crate::surfaces::remote_client::RemoteItem::Mission(_))
+        )
+        .then(|| remote.mission_workspace.clone())
+    }
+
+    pub(crate) fn refresh_remote_palette(
+        &self,
+        palette: &Entity<crate::surfaces::command_palette::CommandPaletteState>,
+        cx: &mut Context<NativeRoot>,
+    ) {
+        let data = self.workspace.as_ref().map(|remote| {
+            let overview = self
+                .app_store
+                .read(cx)
+                .remote_clients
+                .read(cx)
+                .overviews
+                .get(&remote.computer.id)
+                .cloned();
+            (overview, remote.front_page.clone())
+        });
+        palette.update(cx, |palette, cx| palette.set_remote_data(data, cx));
+    }
 }
+
 pub(crate) fn sidebar_nodes(overview: &Overview) -> Vec<SidebarNode> {
     let nodes = overview.sidebar.clone().unwrap_or_else(|| {
         let mut nodes = overview
@@ -1547,4 +1564,245 @@ pub(crate) fn sidebar_nodes(overview: &Overview) -> Vec<SidebarNode> {
         nodes
     });
     nodes
+}
+
+impl RemoteClient {
+    pub(crate) fn layout(&self) -> Option<&PaneLayout> {
+        let remote = self.workspace.as_ref()?;
+        let Some(Item::Tab(id)) = &remote.active else {
+            return None;
+        };
+        remote
+            .resize_draft
+            .as_ref()
+            .filter(|layout| &layout.id == id)
+            .or_else(|| remote.layouts.get(id))
+    }
+    pub(crate) fn layout_mut(&mut self) -> Option<&mut PaneLayout> {
+        let remote = self.workspace.as_mut()?;
+        let Some(Item::Tab(id)) = &remote.active else {
+            return None;
+        };
+        remote.layouts.get_mut(id)
+    }
+    pub(crate) fn pane_bounds_mut(&mut self) -> Option<&mut HashMap<PaneKey, gpui::Size<Pixels>>> {
+        self.workspace
+            .as_mut()
+            .map(|remote| &mut remote.pane_bounds)
+    }
+    pub(crate) fn resize_split(&mut self, id: &str, ratio: f32, cx: &mut Context<NativeRoot>) {
+        let draft = self.layout().cloned();
+        let Some(remote) = self.workspace.as_mut() else {
+            return;
+        };
+        if remote.resize_draft.is_none() {
+            remote.resize_draft = draft;
+        }
+        if let Some(draft) = &mut remote.resize_draft {
+            draft.set_split_sizes(id, [ratio, 100. - ratio]);
+        }
+        remote.resizing_split = Some(id.into());
+        cx.notify();
+    }
+    pub(crate) fn finish_split_resize(&mut self) -> Option<PaneLayout> {
+        let remote = self.workspace.as_mut()?;
+        remote.resizing_split = None;
+        remote.resize_draft.take()
+    }
+    pub(crate) fn resize_drawer(&mut self, height: f32, cx: &mut Context<NativeRoot>) {
+        if let Some(layout) = self.layout_mut() {
+            layout.set_drawer_height(height);
+        }
+        self.workspace.as_mut().unwrap().drawer_resizing = true;
+        cx.notify();
+    }
+    pub(crate) fn finish_drawer_resize(&mut self, cx: &mut Context<NativeRoot>) {
+        if self
+            .workspace
+            .as_mut()
+            .is_some_and(|remote| std::mem::take(&mut remote.drawer_resizing))
+        {
+            cx.notify();
+        }
+    }
+    pub(crate) fn set_sidebar_width(&mut self, width: f32, cx: &mut Context<NativeRoot>) {
+        let Some(remote) = self.workspace.as_mut() else {
+            return;
+        };
+        remote.sidebar_width = width;
+        remote.mission_workspace.update(cx, |workspace, cx| {
+            workspace.set_remote_sidebar_width(width, cx)
+        });
+        cx.notify();
+    }
+    pub(crate) fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<NativeRoot>) {
+        let Some(remote) = self.workspace.as_mut() else {
+            return;
+        };
+        remote.sidebar_collapsed = collapsed;
+        remote.mission_workspace.update(cx, |workspace, cx| {
+            workspace.set_sidebar_collapsed(collapsed, cx)
+        });
+        cx.notify();
+    }
+    pub(crate) fn focus_session_layout(&mut self, session: &str) -> Option<String> {
+        let remote = self.workspace.as_mut()?;
+        let tab = remote
+            .layouts
+            .values()
+            .find(|layout| layout.all_session_ids().iter().any(|id| id == session))
+            .map(|layout| layout.id.clone())?;
+        if let Some(layout) = remote.layouts.get_mut(&tab) {
+            if layout.drawer_shells().iter().any(|id| id == session) {
+                layout.activate_drawer_shell(session);
+            } else {
+                layout.focus_session(session);
+            }
+        }
+        Some(tab)
+    }
+    pub(crate) fn set_error(&mut self, error: String) {
+        if let Some(remote) = self.workspace.as_mut() {
+            remote.action_error = Some(error);
+        }
+    }
+    pub(crate) fn activate_mission(&mut self, id: String) {
+        if let Some(remote) = self.workspace.as_mut() {
+            remote.activate_mission = Some(id);
+        }
+    }
+    pub(crate) fn reopen_sessions(
+        &mut self,
+        target: &crate::surfaces::front_page::FrontPageTarget,
+        ids: Vec<String>,
+    ) -> bool {
+        let Some(remote) = self
+            .workspace
+            .as_mut()
+            .filter(|remote| &remote.front_page.target == target)
+        else {
+            return false;
+        };
+        remote.reopen_sessions.extend(ids);
+        true
+    }
+}
+
+impl RemoteClient {
+    pub(crate) fn session(
+        &self,
+        id: &str,
+        cx: &App,
+    ) -> Option<crate::surfaces::front_page::model::SessionDisplay> {
+        let remote = self.workspace.as_ref()?;
+        let state = self.app_store.read(cx).remote_clients.read(cx);
+        let overview = state.overviews.get(&remote.computer.id)?;
+        let session = overview.sessions.get(id)?;
+        let pinned = overview.tabs.iter().any(|tab| {
+            tab.pinned
+                && remote
+                    .layouts
+                    .get(&tab.id)
+                    .is_some_and(|layout| layout.contains_session(id))
+        });
+        let native_fork = remote.catalog.as_ref().is_some_and(|catalog| {
+            catalog.runtimes.iter().any(|runtime| {
+                Some(&runtime.name) == session.runtime.as_ref() && runtime.native_fork
+            })
+        });
+        Some(crate::surfaces::front_page::model::SessionDisplay::remote(
+            id,
+            session,
+            pinned,
+            native_fork,
+            remote.front_page.supports(&["resume"]),
+        ))
+    }
+}
+
+impl RemoteClient {
+    pub(crate) fn computer(&self) -> Option<&Computer> {
+        self.workspace.as_ref().map(|remote| &remote.computer)
+    }
+    pub(crate) fn active_item(&self) -> Option<&Item> {
+        self.workspace.as_ref()?.active.as_ref()
+    }
+    pub(crate) fn mission_workspace(&self) -> Option<Entity<MissionWorkspace>> {
+        self.workspace
+            .as_ref()
+            .map(|remote| remote.mission_workspace.clone())
+    }
+    pub(crate) fn sidebar(&self) -> Option<Entity<Sidebar>> {
+        self.workspace.as_ref().map(|remote| remote.sidebar.clone())
+    }
+    pub(crate) fn tab_layout(&self, id: &str) -> Option<&PaneLayout> {
+        self.workspace.as_ref()?.layouts.get(id)
+    }
+    pub(crate) fn session_tab(&self, session: &str) -> Option<String> {
+        self.workspace
+            .as_ref()?
+            .layouts
+            .values()
+            .find(|layout| layout.contains_session(session))
+            .map(|layout| layout.id.clone())
+    }
+    pub(crate) fn session_pending(&self, id: &str) -> bool {
+        self.workspace
+            .as_ref()
+            .is_some_and(|remote| remote.actions_pending.contains(&format!("session:{id}")))
+    }
+    pub(crate) fn pane_bounds(&self) -> Option<&HashMap<PaneKey, gpui::Size<Pixels>>> {
+        self.workspace.as_ref().map(|remote| &remote.pane_bounds)
+    }
+    pub(crate) fn resizing_split(&self) -> Option<Option<&str>> {
+        self.workspace
+            .as_ref()
+            .map(|remote| remote.resizing_split.as_deref())
+    }
+    pub(crate) fn drawer_resizing(&self) -> Option<bool> {
+        self.workspace.as_ref().map(|remote| remote.drawer_resizing)
+    }
+    pub(crate) fn sidebar_collapsed(&self) -> Option<bool> {
+        self.workspace
+            .as_ref()
+            .map(|remote| remote.sidebar_collapsed)
+    }
+    pub(crate) fn sidebar_width(&self) -> Option<f32> {
+        self.workspace.as_ref().map(|remote| remote.sidebar_width)
+    }
+    pub(crate) fn mission_form_current(
+        &self,
+        target: &crate::surfaces::front_page::FrontPageTarget,
+        navigation: u64,
+        form: u64,
+    ) -> bool {
+        self.workspace.as_ref().is_some_and(|remote| {
+            remote.front_page.target == *target
+                && remote.front_page.valid()
+                && remote.navigation_generation == navigation
+                && remote.form_generation == form
+        })
+    }
+    pub(crate) fn status(
+        &self,
+        id: &str,
+        cx: &App,
+    ) -> Option<runner_app::ui::agent_status::StatusPresentation> {
+        let remote = self.workspace.as_ref()?;
+        let state = self.app_store.read(cx).remote_clients.read(cx);
+        let session = state.overviews.get(&remote.computer.id)?.sessions.get(id)?;
+        let status = model::agent_status(&session.status);
+        let mut display = runner_app::ui::agent_status::StatusPresentation::new(&status);
+        display.waiting_since = None;
+        display.estimated = false;
+        Some(display)
+    }
+    pub(crate) fn archive_targets(&self, ids: Vec<String>) -> Vec<String> {
+        let layouts = self
+            .workspace
+            .as_ref()
+            .map(|remote| remote.layouts.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        crate::surfaces::sidebar::archive_targets_for_chats(ids, &layouts)
+    }
 }

@@ -819,7 +819,7 @@ impl NativeRoot {
             self.show_toast(error, ToastTone::Error, cx);
         }
 
-        let workspace = if self.remote_window.is_some() {
+        let workspace = if self.remote_client.is_active() {
             self.render_remote_workspace(window, cx)
         } else {
             self.render_entity_surface(window, cx)
@@ -836,39 +836,37 @@ impl NativeRoot {
             .start_mission_modal
             .is_some()
             .then(|| self.render_start_mission_modal(cx));
-        let chat_rename_modal = (self.remote_window.is_some() || self.route == AppRoute::Chat)
+        let chat_rename_modal = (self.remote_client.is_active() || self.route == AppRoute::Chat)
             .then_some(self.chat_rename_modal.as_ref())
             .flatten()
             .map(|_| self.render_chat_rename_modal(cx));
-        let terminal_close_confirm = (self.remote_window.is_some()
+        let terminal_close_confirm = (self.remote_client.is_active()
             || matches!(self.route, AppRoute::Chat | AppRoute::Mission(_)))
         .then_some(self.terminal_close_confirm.as_ref())
         .flatten()
         .map(|_| self.render_terminal_close_confirm(cx));
-        let fork_confirm = (self.remote_window.is_some() || self.route == AppRoute::Chat)
+        let fork_confirm = (self.remote_client.is_active() || self.route == AppRoute::Chat)
             .then_some(self.fork_confirm.as_ref())
             .flatten()
             .map(|_| self.render_fork_confirm(cx));
-        let sidebar_overlays = if self.route != AppRoute::Settings || self.remote_window.is_some() {
+        let sidebar_overlays = if self.route != AppRoute::Settings || self.remote_client.is_active()
+        {
             self.render_sidebar_overlays(cx)
         } else {
             Vec::new()
         };
-        let entity_overlays = if let Some(remote) = &self.remote_window {
+        let entity_overlays = if let Some(workspace) = self.remote_client.mission_workspace() {
             let fallback = (!self.create_modal_open()
                 && self.chat_rename_modal.is_none()
                 && self.fork_confirm.is_none()
                 && self.terminal_close_confirm.is_none()
-                && self.client_ui.pair.is_none()
-                && !self.client_ui.picker_open)
+                && self.remote_client.ui.pair.is_none()
+                && !self.remote_client.ui.picker_open)
                 .then(|| self.root_focus.clone());
-            remote
-                .mission_workspace
-                .clone()
-                .update(cx, |workspace, cx| {
-                    workspace.restore_remote_dialog_focus(fallback.as_ref(), window, cx);
-                    workspace.render_mission_overlays(cx)
-                })
+            workspace.update(cx, |workspace, cx| {
+                workspace.restore_remote_dialog_focus(fallback.as_ref(), window, cx);
+                workspace.render_mission_overlays(cx)
+            })
         } else if self.route != AppRoute::Settings {
             self.render_entity_overlays(window, cx)
         } else {
@@ -912,18 +910,20 @@ impl NativeRoot {
             .children(fork_confirm)
             .children(sidebar_overlays)
             .children(entity_overlays);
-        let settings = (self.remote_window.is_none() && self.route == AppRoute::Settings)
+        let settings = (self.remote_client.is_local() && self.route == AppRoute::Settings)
             .then(|| self.render_settings_takeover(window, cx));
         let settings_confirm = self
-            .remote_window
-            .is_none()
+            .remote_client
+            .is_local()
             .then(|| self.settings_confirm_overlay(cx))
             .flatten()
             .map(|overlay| deferred(overlay).with_priority(100));
         let computer_pair = self
+            .remote_client
             .render_computer_pair(cx)
             .map(|dialog| deferred(dialog).with_priority(110));
         let computer_picker = self
+            .remote_client
             .render_computer_picker(window, cx)
             .map(|picker| deferred(picker).with_priority(80));
         let command_palette = Some(deferred(self.command_palette.clone()).with_priority(50));
@@ -949,7 +949,7 @@ impl NativeRoot {
             .bg(theme::chrome())
             .text_color(theme::text())
             .children(
-                (self.remote_window.is_some() || self.route != AppRoute::Settings)
+                (self.remote_client.is_active() || self.route != AppRoute::Settings)
                     .then_some(chrome),
             )
             .children(settings)
@@ -1009,12 +1009,8 @@ impl NativeRoot {
                         this.sidebar_resizing = true;
                         cx.notify();
                     }
-                    if let Some(remote) = this.remote_window.as_mut() {
-                        remote.sidebar_width = width;
-                        remote.mission_workspace.update(cx, |workspace, cx| {
-                            workspace.set_remote_sidebar_width(width, cx)
-                        });
-                        cx.notify();
+                    if this.remote_client.is_active() {
+                        this.remote_client.set_sidebar_width(width, cx);
                         return;
                     }
                     this.update_app_settings(cx, false, |settings| {
@@ -1028,7 +1024,7 @@ impl NativeRoot {
             ))
             .on_drop(cx.listener(|this, _: &SidebarResizeDrag, _, cx| {
                 this.finish_sidebar_resize(cx);
-                if this.remote_window.is_none() {
+                if this.remote_client.is_local() {
                     this.save_settings(cx);
                 }
             }))
@@ -1174,7 +1170,7 @@ impl NativeRoot {
         let zoom = self.settings(cx).app_zoom;
         let updater = global_updater(cx);
         let update_hint = update_version
-            .filter(|_| self.remote_window.is_none())
+            .filter(|_| self.remote_client.is_local())
             .map(|version| {
                 let click_updater = updater.clone();
                 let click_root = cx.weak_entity();
@@ -1210,7 +1206,7 @@ impl NativeRoot {
                             cx.stop_propagation();
                             if !click_root
                                 .upgrade()
-                                .is_some_and(|root| root.read(cx).remote_window.is_none())
+                                .is_some_and(|root| root.read(cx).remote_client.is_local())
                             {
                                 return;
                             }
@@ -1246,7 +1242,7 @@ impl NativeRoot {
                 move |_, cx| {
                     owner.update(cx, |this, cx| {
                         this.clear_sidebar_drag("change-view", cx);
-                        if this.remote_window.is_some() {
+                        if this.remote_client.is_active() {
                             this.front_page_sidebar()
                                 .update(cx, |sidebar, cx| sidebar.toggle_active_only(cx));
                             this.sync_sidebar_shortcut_rows(cx);
@@ -1394,7 +1390,7 @@ impl NativeRoot {
         let brand = self.render_sidebar_brand(update_version, cx);
         let enabled = self.settings(cx).model_runtimes();
         let visible_usage_runtimes = visible_usage_runtimes(&self.usage_installed, &enabled);
-        let show_usage = self.remote_window.is_none()
+        let show_usage = self.remote_client.is_local()
             && !visible_usage_runtimes.is_empty()
             && !self.front_page_sidebar_collapsed();
         let anchor_owner = cx.entity();
@@ -1461,11 +1457,11 @@ impl NativeRoot {
                     .items_center()
                     .children(usage)
                     .children(
-                        self.remote_window
-                            .as_ref()
-                            .map(|_| self.render_remote_connection(cx)),
+                        self.remote_client
+                            .is_active()
+                            .then(|| self.remote_client.render_remote_connection(cx)),
                     )
-                    .when(self.remote_window.is_none(), |footer| {
+                    .when(self.remote_client.is_local(), |footer| {
                         footer.child(div().flex_1())
                     })
                     .child(self.render_account_avatar(cx)),
@@ -1490,7 +1486,7 @@ impl NativeRoot {
                         .remote_status
                         .as_ref()
                         .is_some_and(crate::surfaces::settings::remote::account::signed_in),
-                |sidebar| sidebar.child(self.render_computer_trigger(cx)),
+                |sidebar| sidebar.child(self.remote_client.render_computer_trigger(cx)),
             )
             .child(self.front_page_sidebar())
             .child(footer)
@@ -1555,7 +1551,7 @@ impl NativeRoot {
 
     fn render_sidebar_preview_trigger(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         (self.front_page_sidebar_collapsed()
-            && (self.route != AppRoute::Settings || self.remote_window.is_some()))
+            && (self.route != AppRoute::Settings || self.remote_client.is_active()))
         .then(|| {
             div()
                 .id("sidebar-preview-trigger")
@@ -1866,7 +1862,7 @@ impl NativeRoot {
 
     pub(crate) fn terminal_style(&self, cx: &App) -> crate::terminal::element::TerminalStyle {
         let mut style = terminal_style_for(self.settings(cx));
-        if let Some(palette) = self.remote_terminal_palette(cx) {
+        if let Some(palette) = self.remote_client.remote_terminal_palette(cx) {
             style.palette = palette;
         }
         style
@@ -1884,7 +1880,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn page_navigation_state(&self) -> (bool, bool) {
-        let in_settings = self.route == AppRoute::Settings || self.remote_window.is_some();
+        let in_settings = self.route == AppRoute::Settings || self.remote_client.is_active();
         let can_go_back =
             !in_settings && self.runtime_navigation_index.is_some_and(|index| index > 0);
         let can_go_forward = !in_settings
@@ -1952,12 +1948,8 @@ impl NativeRoot {
         persist: bool,
         cx: &mut Context<Self>,
     ) {
-        if let Some(remote) = self.remote_window.as_mut() {
-            remote.sidebar_collapsed = collapsed;
-            remote.mission_workspace.update(cx, |workspace, cx| {
-                workspace.set_sidebar_collapsed(collapsed, cx)
-            });
-            cx.notify();
+        if self.remote_client.is_active() {
+            self.remote_client.set_sidebar_collapsed(collapsed, cx);
             return;
         }
 
@@ -2079,7 +2071,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn toggle_window_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.route == AppRoute::Settings && self.remote_window.is_none() {
+        if self.route == AppRoute::Settings && self.remote_client.is_local() {
             return;
         }
         let collapsed = !self.front_page_sidebar_collapsed();
@@ -2087,11 +2079,11 @@ impl NativeRoot {
         self.sidebar_preview_peeking = false;
         if !collapsed {
             self.sidebar_preview_open = false;
-            if let Some(workspace) = self.remote_mission_workspace() {
+            if let Some(workspace) = self.remote_client.remote_mission_workspace() {
                 workspace.update(cx, |workspace, cx| {
                     workspace.focus_active_mission_terminal(window, cx)
                 });
-            } else if self.remote_window.is_none() && matches!(self.route, AppRoute::Mission(_)) {
+            } else if self.remote_client.is_local() && matches!(self.route, AppRoute::Mission(_)) {
                 self.mission_workspace.update(cx, |workspace, cx| {
                     workspace.focus_active_mission_terminal(window, cx);
                 });
@@ -2103,7 +2095,7 @@ impl NativeRoot {
     }
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        if self.route == AppRoute::Settings && self.remote_window.is_none() {
+        if self.route == AppRoute::Settings && self.remote_client.is_local() {
             return;
         }
         let collapsed = !self.front_page_sidebar_collapsed();
@@ -2168,10 +2160,11 @@ impl NativeRoot {
     }
 
     fn show_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.route == AppRoute::Settings && self.remote_window.is_none() {
+        if self.route == AppRoute::Settings && self.remote_client.is_local() {
             return;
         }
-        self.refresh_remote_palette(cx);
+        self.remote_client
+            .refresh_remote_palette(&self.command_palette, cx);
         self.command_palette
             .update(cx, |palette, palette_cx| palette.open(window, palette_cx));
     }

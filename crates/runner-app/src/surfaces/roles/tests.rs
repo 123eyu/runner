@@ -2454,8 +2454,8 @@ fn remote_libraries_preserve_local_list_query_page_size_and_pending_search() {
     cx.run_until_parked();
     let old_search = window
         .read_with(&cx, |root, _| {
-            root.remote_window
-                .as_ref()
+            root.remote_client
+                .workspace()
                 .unwrap()
                 .role_surfaces
                 .search
@@ -2499,8 +2499,8 @@ fn remote_libraries_preserve_local_list_query_page_size_and_pending_search() {
     window
         .read_with(&cx, |root, _| {
             assert!(root
-                .remote_window
-                .as_ref()
+                .remote_client
+                .workspace()
                 .unwrap()
                 .role_surfaces
                 .list

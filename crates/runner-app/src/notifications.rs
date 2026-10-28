@@ -328,8 +328,8 @@ fn visible(cx: &mut App) -> Visible {
         };
         if let Ok(Some(visible)) = window.update(cx, |root, window, cx| {
             window.is_window_active().then(|| Visible {
-                app_active: root.remote_window.is_none(),
-                chats: if root.remote_window.is_none() && root.route == AppRoute::Chat {
+                app_active: root.remote_client.is_local(),
+                chats: if root.remote_client.is_local() && root.route == AppRoute::Chat {
                     root.tabs
                         .active()
                         .map(|tab| tab.session_ids())
@@ -338,7 +338,7 @@ fn visible(cx: &mut App) -> Visible {
                     Vec::new()
                 },
                 mission: match &root.route {
-                    AppRoute::Mission(id) if root.remote_window.is_none() => root
+                    AppRoute::Mission(id) if root.remote_client.is_local() => root
                         .mission_workspace
                         .read(cx)
                         .notification_tab(id)
@@ -832,7 +832,7 @@ pub(crate) fn open(tag: &str, cx: &mut App) {
             .copied()
             .filter(|window| {
                 window.read(cx).is_ok_and(|root| {
-                    root.remote_window.is_none()
+                    root.remote_client.is_local()
                         && match target {
                             Target::Chat(id) => {
                                 root.route == AppRoute::Chat
@@ -891,10 +891,10 @@ pub(crate) fn open(tag: &str, cx: &mut App) {
     if let Some(window) = window {
         let _ = window.update(cx, |root, window, cx| {
             window.activate_window();
-            if target.is_some() && root.remote_window.is_some() {
-                root.remember_remote_selection(cx);
-                root.remote_window = None;
-                root.client_ui.picker_open = false;
+            if target.is_some() && root.remote_client.is_active() {
+                root.remote_client.remember_remote_selection(cx);
+                root.remote_client.disconnect();
+                root.remote_client.ui.picker_open = false;
                 cx.notify();
             }
             match target {

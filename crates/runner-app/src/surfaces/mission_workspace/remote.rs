@@ -7,7 +7,7 @@ use crate::surfaces::remote_client::{feed::MissionFeed, model::ClientState};
 use runner_core::companion::{FeedContent, FeedEntry, MissionState, Overview};
 
 #[derive(Clone)]
-struct MissionPresentation {
+struct SavedPresentation {
     layout: MissionLayout,
     active: MissionTab,
     open_handles: Vec<String>,
@@ -19,7 +19,7 @@ pub(super) struct RemoteMission {
     pub(super) settings: Entity<AppSettings>,
     pub(super) terminal_sizes: HashMap<String, (u16, u16)>,
     pub(super) overview: Option<Overview>,
-    presentations: HashMap<String, MissionPresentation>,
+    presentations: HashMap<String, SavedPresentation>,
     pub(super) feed: Option<Entity<MissionFeed>>,
     pub(super) feed_subscription: Option<Subscription>,
     feed_ids: Vec<String>,
@@ -29,6 +29,7 @@ pub(super) struct RemoteMission {
     pub(super) drawer_expected: Option<(Vec<String>, Vec<String>)>,
     pub(super) activate_shell: Option<String>,
     dialog_focus_reset: bool,
+    selected_handle: Option<String>,
 }
 
 impl MissionWorkspace {
@@ -44,37 +45,17 @@ impl MissionWorkspace {
         let mut workspace = Self::new(window_label, shell, app_store, window, cx);
         workspace.sidebar_collapsed = false;
         workspace.client = client;
-        workspace.remote = Some(RemoteMission {
-            settings: cx.new(|_| settings),
-            terminal_sizes: HashMap::new(),
-            overview: None,
-            presentations: HashMap::new(),
-            feed: None,
-            feed_subscription: None,
-            feed_ids: Vec::new(),
-            pending: HashSet::new(),
-            shell_pending: false,
-            shell_started: Arc::new(std::sync::Mutex::new(None)),
-            drawer_expected: None,
-            activate_shell: None,
-            dialog_focus_reset: false,
-        });
+        workspace.presentation = MissionPresentation::new_remote(settings, cx);
         workspace
     }
 
     pub(crate) fn set_remote_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
-        if let Some(remote) = &self.remote {
-            remote
-                .settings
-                .update(cx, |settings, _| settings.sidebar_width = width);
-        }
+        self.presentation.set_sidebar_width(width, cx);
         cx.notify();
     }
 
     pub(crate) fn set_remote_terminal_sizes(&mut self, sizes: HashMap<String, (u16, u16)>) {
-        if let Some(remote) = &mut self.remote {
-            remote.terminal_sizes = sizes;
-        }
+        self.presentation.set_terminal_sizes(sizes);
     }
 
     pub(crate) fn sync_remote(
@@ -107,45 +88,28 @@ impl MissionWorkspace {
             self.stop_all_confirm = false;
             self.restart_confirm = None;
             self.remove_confirm = None;
-            self.remote.as_mut().unwrap().dialog_focus_reset |= had_dialog;
+            self.presentation.reset_dialog_focus(had_dialog);
         }
         let mut restored = false;
         if changed {
-            if let (Some(id), Some(remote)) = (self.mission_id.clone(), self.remote.as_mut()) {
-                remote.presentations.insert(
-                    id,
-                    MissionPresentation {
-                        layout: self.layout.clone(),
-                        active: self.active_tab.clone(),
-                        open_handles: open_handles.clone(),
-                        selected_handle: self.remote_selected_handle.clone(),
-                        rail: self.rail_view,
-                    },
-                );
-            }
-            if let Some(remote) = self.remote.as_mut() {
-                remote.feed = None;
-                remote.feed_subscription = None;
-                remote.feed_ids.clear();
-                remote.pending.clear();
-                remote.shell_pending = false;
-                remote.shell_started = Arc::new(std::sync::Mutex::new(None));
-                remote.drawer_expected = None;
-                remote.activate_shell = None;
-            }
-            self.remote_selected_handle = None;
+            let saved = self.presentation.switch_mission(
+                self.mission_id.as_deref(),
+                mission_id.as_deref(),
+                SavedPresentation {
+                    layout: self.layout.clone(),
+                    active: self.active_tab.clone(),
+                    open_handles: open_handles.clone(),
+                    selected_handle: None,
+                    rail: self.rail_view,
+                },
+            );
             if let Some(id) = mission_id.clone() {
                 self.prepare_mission(id.clone(), MissionRailView::Roles);
-                if let Some(saved) = self
-                    .remote
-                    .as_ref()
-                    .and_then(|remote| remote.presentations.get(&id))
-                    .cloned()
-                {
+                if let Some(saved) = saved {
                     self.layout = saved.layout;
                     self.active_tab = saved.active;
                     self.rail_view = saved.rail;
-                    self.remote_selected_handle = saved.selected_handle;
+                    self.presentation.set_selected_handle(saved.selected_handle);
                     open_handles = saved.open_handles;
                     restored = true;
                 }
@@ -155,16 +119,11 @@ impl MissionWorkspace {
                 self.mission_id = None;
             }
         }
-        let Some(remote) = self.remote.as_mut() else {
+        if !self.presentation.is_remote() {
             return;
-        };
+        }
         if target_changed {
             self.generation += 1;
-            remote.pending.clear();
-            remote.shell_pending = false;
-            remote.drawer_expected = None;
-            remote.shell_started = Arc::new(std::sync::Mutex::new(None));
-            remote.activate_shell = None;
             self.stopping = false;
             self.resuming = false;
             self.archiving = false;
@@ -173,7 +132,7 @@ impl MissionWorkspace {
             self.slot_actions.clear();
         }
         self.client = client.clone();
-        remote.overview = overview;
+        self.presentation.update_overview(overview, target_changed);
         self.active = mission_id.is_some();
         self.loading = false;
         let members = self.members();
@@ -205,64 +164,24 @@ impl MissionWorkspace {
         if let MissionTab::Session(id) = &self.active_tab {
             if !members.iter().any(|member| &member.session.id == id) {
                 self.active_tab = self
-                    .remote_selected_handle
-                    .as_ref()
+                    .presentation
+                    .selected_handle()
                     .and_then(|handle| members.iter().find(|member| &member.handle == handle))
                     .map(|member| MissionTab::Session(member.session.id.clone()))
                     .unwrap_or(MissionTab::Feed);
             }
         }
-        self.remote_selected_handle = match &self.active_tab {
+        let selected_handle = match &self.active_tab {
             MissionTab::Session(id) => members
                 .iter()
                 .find(|member| &member.session.id == id)
                 .map(|member| member.handle.clone()),
             MissionTab::Feed => None,
         };
-        if let Some(summary) = self.remote_summary().cloned() {
-            let remote = self.remote.as_mut().unwrap();
-            if remote
-                .drawer_expected
-                .as_ref()
-                .is_some_and(|(before, expected)| {
-                    summary.shells == *expected || summary.shells != *before
-                })
-            {
-                remote.drawer_expected = None;
-            }
-
-            let was_open = self.layout.drawer.open();
-            let active = self.layout.drawer.active_shell().map(str::to_owned);
-            let height = self.layout.drawer.height();
-            let mut drawer = MissionLayout::default().drawer;
-            for shell in summary.shells {
-                drawer.add(shell);
-            }
-            if let Some(active) = active {
-                drawer.activate(&active);
-            }
-            drawer.set_height(height);
-            drawer.set_open(was_open && !drawer.shells().is_empty());
-            self.layout.drawer = drawer;
-            let activate = self
-                .remote
-                .as_ref()
-                .and_then(|remote| remote.activate_shell.clone());
-            if let Some(id) = activate.filter(|id| self.layout.drawer.shells().contains(id)) {
-                self.layout.drawer.activate(&id);
-                self.layout.drawer.set_open(true);
-                self.remote.as_mut().unwrap().activate_shell = None;
-            }
-        }
-        if let Some(id) = mission_id.filter(|_| client.supports(&["feed", "follow", "unfollow"])) {
-            let feed = clients.update(cx, |state, cx| state.mission_feed(client, id, cx));
-            if self.remote.as_ref().unwrap().feed.as_ref() != Some(&feed) {
-                let subscription = cx.observe(&feed, |this, _, cx| this.sync_remote_feed(cx));
-                let remote = self.remote.as_mut().unwrap();
-                remote.feed = Some(feed);
-                remote.feed_subscription = Some(subscription);
-            }
-        }
+        self.presentation.set_selected_handle(selected_handle);
+        self.presentation
+            .sync_drawer(self.mission_id.as_deref(), &mut self.layout);
+        self.presentation.bind_feed(client, mission_id, clients, cx);
         self.sync_remote_feed(cx);
         cx.notify();
     }
@@ -273,10 +192,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self
-            .remote
-            .as_mut()
-            .is_some_and(|remote| std::mem::take(&mut remote.dialog_focus_reset))
+        if !self.presentation.take_dialog_focus_reset()
             || self.rename_modal.is_some()
             || self.stop_all_confirm
             || self.restart_confirm.is_some()
@@ -295,77 +211,20 @@ impl MissionWorkspace {
     }
 
     pub(super) fn remote_summary(&self) -> Option<&runner_core::companion::Mission> {
-        let id = self.mission_id.as_ref()?;
-        self.remote
-            .as_ref()?
-            .overview
-            .as_ref()?
-            .missions
-            .iter()
-            .find(|mission| &mission.id == id)
+        self.presentation.summary(self.mission_id.as_deref())
     }
 
     pub(super) fn mission_view(&self) -> Option<WorkspaceMission> {
-        if self.remote.is_none() {
-            return self.mission.as_ref().map(WorkspaceMission::from);
-        }
-        let mission = self.remote_summary()?;
-        let members = self.members();
-        Some(WorkspaceMission {
-            id: mission.id.clone(),
-            title: mission.title.clone(),
-            status: match mission.state {
-                MissionState::Running => MissionStatus::Running,
-                MissionState::Stopped | MissionState::Unrecognized(_) => MissionStatus::Completed,
-            },
-            cwd: members.iter().find_map(|member| member.session.cwd.clone()),
-            project_id: mission.project.clone(),
-            started_at: None,
-            archived: false,
-            pinned: mission.pinned,
-        })
+        self.presentation.mission_view(
+            self.mission_id.as_deref(),
+            self.mission.as_ref(),
+            &self.sessions,
+        )
     }
 
     pub(super) fn members(&self) -> Vec<MissionMemberDisplay> {
-        let Some(remote) = &self.remote else {
-            return self
-                .sessions
-                .iter()
-                .map(MissionMemberDisplay::from)
-                .collect();
-        };
-        let Some(mission) = self.remote_summary() else {
-            return Vec::new();
-        };
-        let Some(overview) = &remote.overview else {
-            return Vec::new();
-        };
-        mission
-            .members
-            .iter()
-            .map(|member| {
-                let session = overview.sessions.get(&member.session);
-                MissionMemberDisplay {
-                    session: MissionMemberSession {
-                        id: member.session.clone(),
-                        status: session
-                            .map(|session| match session.status.status.effective() {
-                                runner_core::companion::Status::Stopped => SessionStatus::Stopped,
-                                runner_core::companion::Status::Error => SessionStatus::Crashed,
-                                _ => SessionStatus::Running,
-                            })
-                            .unwrap_or(SessionStatus::Stopped),
-                        cwd: session.and_then(|session| session.cwd.clone()),
-                    },
-                    handle: member.handle.clone(),
-                    runtime: session
-                        .and_then(|session| session.runtime.clone())
-                        .unwrap_or_default(),
-                    live_title: session.map(|session| session.title.clone()),
-                    agent_session_key: None,
-                }
-            })
-            .collect()
+        self.presentation
+            .members(self.mission_id.as_deref(), &self.sessions)
     }
 
     pub(super) fn remote_supports(&self, features: &[&str]) -> bool {
@@ -389,41 +248,14 @@ impl MissionWorkspace {
     }
 
     fn sync_remote_feed(&mut self, cx: &mut Context<Self>) {
-        let entries = self
-            .remote
-            .as_ref()
-            .and_then(|remote| remote.feed.as_ref())
-            .map(|feed| feed.read(cx).entries.clone())
-            .unwrap_or_default();
-        let ids = entries
-            .iter()
-            .map(|entry| entry.id.clone())
-            .collect::<Vec<_>>();
-        let changed = self
-            .remote
-            .as_ref()
-            .is_some_and(|remote| remote.feed_ids != ids);
-        if changed {
-            let previous = self.remote.as_ref().unwrap().feed_ids.clone();
-            if let Some(tail) = previous
-                .last()
-                .and_then(|id| entries.iter().position(|entry| &entry.id == id))
-            {
-                for entry in &entries[tail + 1..] {
-                    if let Some(event) = self
-                        .mission_id
-                        .as_deref()
-                        .and_then(|id| remote_event(id, entry))
-                    {
-                        self.handle_feed_append(&event);
-                    }
-                }
+        if let Some((appended, events)) = self
+            .presentation
+            .feed_events(self.mission_id.as_deref(), cx)
+        {
+            for event in appended {
+                self.handle_feed_append(&event);
             }
-            self.remote.as_mut().unwrap().feed_ids = ids;
-            self.events = entries
-                .iter()
-                .filter_map(|entry| remote_event(self.mission_id.as_deref()?, entry))
-                .collect();
+            self.events = events;
         }
         self.rebuild_event_projection();
         cx.notify();
@@ -468,19 +300,23 @@ impl MissionWorkspace {
     pub(super) fn remote_terminal_content(&self, id: &str, cx: &mut Context<Self>) -> AnyElement {
         self.shell
             .upgrade()
-            .map(|shell| shell.update(cx, |shell, cx| shell.render_remote_terminal_content(id, cx)))
+            .map(|shell| {
+                shell.update(cx, |shell, cx| {
+                    shell.remote_client.render_remote_terminal_content(id, cx)
+                })
+            })
             .unwrap_or_else(|| div().into_any_element())
     }
 
     pub(super) fn remote_navigation_changed(&self, cx: &mut Context<Self>) {
-        if self.remote.is_none() {
+        if !self.presentation.is_remote() {
             return;
         }
         let shell = self.shell.clone();
         cx.defer(move |cx| {
             let _ = shell.update(cx, |shell, cx| {
-                shell.attach_remote_panes(cx);
-                shell.mark_remote_stopped_sessions_viewed(cx);
+                shell.remote_client.attach_remote_panes(cx);
+                shell.remote_client.mark_remote_stopped_sessions_viewed(cx);
                 cx.notify();
             });
         });
@@ -544,20 +380,8 @@ impl MissionWorkspace {
         feature: &str,
         key: String,
     ) -> Option<MissionAction> {
-        if !self.remote_supports(&[feature]) {
-            return None;
-        }
-        if let Some(remote) = &mut self.remote {
-            if !remote.pending.insert(key.clone()) {
-                return None;
-            }
-        }
-        Some(MissionAction {
-            client: self.client.clone(),
-            generation: self.generation,
-            key,
-            remote: self.remote.is_some(),
-        })
+        self.presentation
+            .prepare_action(&self.client, self.active, self.generation, feature, key)
     }
 
     pub(super) fn complete_mission_action<T>(
@@ -570,15 +394,20 @@ impl MissionWorkspace {
         if !action.remote {
             return Some(result);
         }
-        let guard = action.client;
-        let generation = action.generation;
-        let key = action.key;
-        if self.generation != generation || !guard.valid() || self.client.target != guard.target {
-            return None;
-        }
-        let remote = self.remote.as_mut()?;
-        let result = result.map(remote_ids);
-        remote.pending.remove(&key);
+        let done = self.presentation.complete_action(
+            action,
+            &self.client,
+            self.generation,
+            self.mission_id.as_deref(),
+            result,
+            remote_ids,
+        )?;
+        let MissionCompletion {
+            key,
+            client: guard,
+            generation,
+            result,
+        } = done;
         match key.as_str() {
             "stopMission" => self.stopping = false,
             "resumeMission" => self.resuming = false,
@@ -596,20 +425,6 @@ impl MissionWorkspace {
                 self.slot_actions.remove(id);
             }
         }
-        if let Some(id) = key.strip_prefix("shell-close:").filter(|_| result.is_ok()) {
-            if let Some(before) = self
-                .remote_summary()
-                .map(|mission| mission.shells.clone())
-                .filter(|shells| shells.iter().any(|shell| shell == id))
-            {
-                let after = before
-                    .iter()
-                    .filter(|shell| shell.as_str() != id)
-                    .cloned()
-                    .collect();
-                self.remote.as_mut().unwrap().drawer_expected = Some((before, after));
-            }
-        }
         if let Ok(ids) = &result {
             if !ids.is_empty() {
                 let ids = ids.clone();
@@ -623,12 +438,7 @@ impl MissionWorkspace {
                         return;
                     }
                     let _ = shell.update(cx, |shell, cx| {
-                        if let Some(remote) = shell
-                            .remote_window
-                            .as_mut()
-                            .filter(|remote| remote.front_page.target == guard.target)
-                        {
-                            remote.reopen_sessions.extend(ids);
+                        if shell.remote_client.reopen_sessions(&guard.target, ids) {
                             shell.sync_remote_state(cx);
                         }
                     });
@@ -649,15 +459,527 @@ impl MissionWorkspace {
     }
 }
 
-impl MissionWorkspace {}
+pub(super) enum MissionPresentation {
+    Local,
+    Remote(Box<RemoteMission>),
+}
 
-impl NativeRoot {
-    pub(crate) fn remote_mission_workspace(&self) -> Option<Entity<MissionWorkspace>> {
-        let remote = self.remote_window.as_ref()?;
-        matches!(
-            remote.active,
-            Some(crate::surfaces::remote_client::RemoteItem::Mission(_))
+impl MissionPresentation {
+    pub(super) fn is_remote(&self) -> bool {
+        matches!(self, Self::Remote(_))
+    }
+    fn remote(&self) -> Option<&RemoteMission> {
+        match self {
+            Self::Local => None,
+            Self::Remote(remote) => Some(remote),
+        }
+    }
+    fn remote_mut(&mut self) -> Option<&mut RemoteMission> {
+        match self {
+            Self::Local => None,
+            Self::Remote(remote) => Some(remote),
+        }
+    }
+    pub(super) fn summary(
+        &self,
+        mission_id: Option<&str>,
+    ) -> Option<&runner_core::companion::Mission> {
+        let id = mission_id?;
+        self.remote()?
+            .overview
+            .as_ref()?
+            .missions
+            .iter()
+            .find(|mission| mission.id == id)
+    }
+    pub(super) fn mission_view(
+        &self,
+        mission_id: Option<&str>,
+        local: Option<&Mission>,
+        sessions: &[SessionRow],
+    ) -> Option<WorkspaceMission> {
+        if !self.is_remote() {
+            return local.map(WorkspaceMission::from);
+        }
+        let mission = self.summary(mission_id)?;
+        let members = self.members(mission_id, sessions);
+        Some(WorkspaceMission {
+            id: mission.id.clone(),
+            title: mission.title.clone(),
+            status: match mission.state {
+                MissionState::Running => MissionStatus::Running,
+                MissionState::Stopped | MissionState::Unrecognized(_) => MissionStatus::Completed,
+            },
+            cwd: members.iter().find_map(|member| member.session.cwd.clone()),
+            project_id: mission.project.clone(),
+            started_at: None,
+            archived: false,
+            pinned: mission.pinned,
+        })
+    }
+    pub(super) fn members(
+        &self,
+        mission_id: Option<&str>,
+        sessions: &[SessionRow],
+    ) -> Vec<MissionMemberDisplay> {
+        let Some(remote) = self.remote() else {
+            return sessions.iter().map(MissionMemberDisplay::from).collect();
+        };
+        let Some(mission) = self.summary(mission_id) else {
+            return Vec::new();
+        };
+        let Some(overview) = &remote.overview else {
+            return Vec::new();
+        };
+        mission
+            .members
+            .iter()
+            .map(|member| {
+                let session = overview.sessions.get(&member.session);
+                MissionMemberDisplay {
+                    session: MissionMemberSession {
+                        id: member.session.clone(),
+                        status: session
+                            .map(|session| match session.status.status.effective() {
+                                runner_core::companion::Status::Stopped => SessionStatus::Stopped,
+                                runner_core::companion::Status::Error => SessionStatus::Crashed,
+                                _ => SessionStatus::Running,
+                            })
+                            .unwrap_or(SessionStatus::Stopped),
+                        cwd: session.and_then(|session| session.cwd.clone()),
+                    },
+                    handle: member.handle.clone(),
+                    runtime: session
+                        .and_then(|session| session.runtime.clone())
+                        .unwrap_or_default(),
+                    live_title: session.map(|session| session.title.clone()),
+                    agent_session_key: None,
+                }
+            })
+            .collect()
+    }
+}
+
+impl MissionPresentation {
+    pub(super) fn settings<'a>(
+        &self,
+        app_store: &Entity<AppStore>,
+        cx: &'a App,
+    ) -> &'a AppSettings {
+        self.remote()
+            .map(|remote| remote.settings.read(cx))
+            .unwrap_or(&app_store.read(cx).settings)
+    }
+    pub(super) fn update_app_settings(
+        &self,
+        app_store: &Entity<AppStore>,
+        cx: &mut Context<MissionWorkspace>,
+        persist: bool,
+        update: impl FnOnce(&mut AppSettings) -> bool,
+    ) -> bool {
+        if let Some(remote) = self.remote() {
+            return remote.settings.update(cx, |settings, _| update(settings));
+        }
+        app_store.update(cx, |store, store_cx| {
+            store.update_settings(update, persist, store_cx)
+        })
+    }
+    pub(super) fn drawer_session_entry(
+        &self,
+        app_store: &Entity<AppStore>,
+        client: &FrontPageClient,
+        session_id: &str,
+        cx: &App,
+    ) -> Option<crate::surfaces::front_page::model::SessionDisplay> {
+        use crate::surfaces::front_page::model::SessionDisplay;
+        if let Some(remote) = self.remote() {
+            let session = remote.overview.as_ref()?.sessions.get(session_id)?;
+            return Some(SessionDisplay::remote(
+                session_id,
+                session,
+                false,
+                false,
+                client.supports(&["resume"]),
+            ));
+        }
+        app_store
+            .read(cx)
+            .sessions
+            .iter()
+            .find(|entry| entry.session_id == session_id)
+            .map(SessionDisplay::local)
+    }
+    pub(super) fn slot_status(
+        &self,
+        session_id: &str,
+    ) -> Option<runner_core::protocol::status::AgentStatus> {
+        let remote = self.remote()?;
+        Some(
+            remote
+                .overview
+                .as_ref()
+                .and_then(|overview| overview.sessions.get(session_id))
+                .map(|session| crate::surfaces::remote_client::model::agent_status(&session.status))
+                .unwrap_or_default(),
         )
-        .then(|| remote.mission_workspace.clone())
+    }
+}
+
+impl MissionPresentation {
+    pub(super) fn selected_handle(&self) -> Option<&String> {
+        self.remote()?.selected_handle.as_ref()
+    }
+    pub(super) fn set_selected_handle(&mut self, handle: Option<String>) {
+        if let Some(remote) = self.remote_mut() {
+            remote.selected_handle = handle;
+        }
+    }
+    pub(super) fn feed(&self) -> Option<Entity<MissionFeed>> {
+        self.remote()?.feed.clone()
+    }
+    fn feed_events(
+        &mut self,
+        mission_id: Option<&str>,
+        cx: &App,
+    ) -> Option<(Vec<Event>, Vec<Event>)> {
+        let remote = self.remote_mut()?;
+        let entries = remote
+            .feed
+            .as_ref()
+            .map(|feed| feed.read(cx).entries.clone())
+            .unwrap_or_default();
+        let ids = entries
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect::<Vec<_>>();
+        if remote.feed_ids == ids {
+            return None;
+        }
+        let appended = remote
+            .feed_ids
+            .last()
+            .and_then(|id| entries.iter().position(|entry| &entry.id == id))
+            .map(|tail| {
+                entries[tail + 1..]
+                    .iter()
+                    .filter_map(|entry| remote_event(mission_id?, entry))
+                    .collect()
+            })
+            .unwrap_or_default();
+        remote.feed_ids = ids;
+        let events = entries
+            .iter()
+            .filter_map(|entry| remote_event(mission_id?, entry))
+            .collect();
+        Some((appended, events))
+    }
+    pub(super) fn terminal_size(&self, tab: &MissionTab) -> Option<(u16, u16)> {
+        let MissionTab::Session(id) = tab else {
+            return None;
+        };
+        self.remote()?.terminal_sizes.get(id).copied()
+    }
+    pub(super) fn refresh_settings(
+        &self,
+        store: &Entity<AppStore>,
+        cx: &mut Context<MissionWorkspace>,
+    ) {
+        let Some(remote) = self.remote() else {
+            return;
+        };
+        let mut global = store.read(cx).settings.clone();
+        let own = remote.settings.read(cx);
+        global.sidebar_width = own.sidebar_width;
+        global.mission_rail_width = own.mission_rail_width;
+        global.mission_rail_open = own.mission_rail_open;
+        global
+            .last_mission_terminal_ids
+            .clone_from(&own.last_mission_terminal_ids);
+        remote.settings.update(cx, |settings, cx| {
+            *settings = global;
+            cx.notify();
+        });
+    }
+}
+
+struct MissionCompletion {
+    key: String,
+    client: FrontPageClient,
+    generation: u64,
+    result: Result<Vec<String>, String>,
+}
+impl MissionPresentation {
+    fn switch_mission(
+        &mut self,
+        previous: Option<&str>,
+        next: Option<&str>,
+        mut snapshot: SavedPresentation,
+    ) -> Option<SavedPresentation> {
+        let remote = self.remote_mut()?;
+        snapshot.selected_handle = remote.selected_handle.clone();
+        if let Some(id) = previous {
+            remote.presentations.insert(id.into(), snapshot);
+        }
+        remote.feed = None;
+        remote.feed_subscription = None;
+        remote.feed_ids.clear();
+        remote.reset_actions();
+        remote.selected_handle = None;
+        next.and_then(|id| remote.presentations.get(id)).cloned()
+    }
+    fn reset_dialog_focus(&mut self, had_dialog: bool) {
+        if let Some(remote) = self.remote_mut() {
+            remote.dialog_focus_reset |= had_dialog;
+        }
+    }
+    fn take_dialog_focus_reset(&mut self) -> bool {
+        self.remote_mut()
+            .is_some_and(|remote| std::mem::take(&mut remote.dialog_focus_reset))
+    }
+    fn update_overview(&mut self, overview: Option<Overview>, changed: bool) {
+        if let Some(remote) = self.remote_mut() {
+            if changed {
+                remote.reset_actions();
+            }
+            remote.overview = overview;
+        }
+    }
+    fn sync_drawer(&mut self, mission_id: Option<&str>, layout: &mut MissionLayout) {
+        let Some(summary) = self.summary(mission_id).cloned() else {
+            return;
+        };
+        let remote = self.remote_mut().unwrap();
+        if remote
+            .drawer_expected
+            .as_ref()
+            .is_some_and(|(before, expected)| {
+                summary.shells == *expected || summary.shells != *before
+            })
+        {
+            remote.drawer_expected = None;
+        }
+        let was_open = layout.drawer.open();
+        let active = layout.drawer.active_shell().map(str::to_owned);
+        let height = layout.drawer.height();
+        let mut drawer = MissionLayout::default().drawer;
+        for shell in summary.shells {
+            drawer.add(shell);
+        }
+        if let Some(active) = active {
+            drawer.activate(&active);
+        }
+        drawer.set_height(height);
+        drawer.set_open(was_open && !drawer.shells().is_empty());
+        layout.drawer = drawer;
+        remote.activate_drawer(layout);
+    }
+    fn bind_feed(
+        &mut self,
+        client: FrontPageClient,
+        mission: Option<String>,
+        clients: Entity<ClientState>,
+        cx: &mut Context<MissionWorkspace>,
+    ) {
+        let Some(id) = mission.filter(|_| client.supports(&["feed", "follow", "unfollow"])) else {
+            return;
+        };
+        let feed = clients.update(cx, |state, cx| state.mission_feed(client, id, cx));
+        let Some(remote) = self.remote_mut() else {
+            return;
+        };
+        if remote.feed.as_ref() != Some(&feed) {
+            remote.feed_subscription =
+                Some(cx.observe(&feed, |workspace, _, cx| workspace.sync_remote_feed(cx)));
+            remote.feed = Some(feed);
+        }
+    }
+    pub(super) fn release_feed(&mut self) -> bool {
+        let Some(remote) = self.remote_mut() else {
+            return false;
+        };
+        remote.feed = None;
+        remote.feed_subscription = None;
+        true
+    }
+    fn set_sidebar_width(&self, width: f32, cx: &mut Context<MissionWorkspace>) {
+        if let Some(remote) = self.remote() {
+            remote
+                .settings
+                .update(cx, |settings, _| settings.sidebar_width = width);
+        }
+    }
+    fn set_terminal_sizes(&mut self, sizes: HashMap<String, (u16, u16)>) {
+        if let Some(remote) = self.remote_mut() {
+            remote.terminal_sizes = sizes;
+        }
+    }
+    fn prepare_action(
+        &mut self,
+        client: &FrontPageClient,
+        active: bool,
+        generation: u64,
+        feature: &str,
+        key: String,
+    ) -> Option<MissionAction> {
+        if !client.supports(&[feature]) || (client.is_remote() && !active) {
+            return None;
+        }
+        if let Some(remote) = self.remote_mut() {
+            if !remote.pending.insert(key.clone()) {
+                return None;
+            }
+        }
+        Some(MissionAction {
+            client: client.clone(),
+            generation,
+            key,
+            remote: self.is_remote(),
+        })
+    }
+    fn complete_action<T>(
+        &mut self,
+        action: MissionAction,
+        current: &FrontPageClient,
+        generation: u64,
+        mission_id: Option<&str>,
+        result: Result<T, String>,
+        remote_ids: impl FnOnce(T) -> Vec<String>,
+    ) -> Option<MissionCompletion> {
+        if generation != action.generation
+            || !action.client.valid()
+            || current.target != action.client.target
+        {
+            return None;
+        }
+        let result = result.map(remote_ids);
+        let before = action
+            .key
+            .strip_prefix("shell-close:")
+            .filter(|_| result.is_ok())
+            .and_then(|id| {
+                self.summary(mission_id)
+                    .map(|mission| (id.to_owned(), mission.shells.clone()))
+            })
+            .filter(|(id, shells)| shells.contains(id));
+        let remote = self.remote_mut()?;
+        remote.pending.remove(&action.key);
+        if let Some((id, before)) = before {
+            let after = before
+                .iter()
+                .filter(|shell| **shell != id)
+                .cloned()
+                .collect();
+            remote.drawer_expected = Some((before, after));
+        }
+        Some(MissionCompletion {
+            key: action.key,
+            client: action.client,
+            generation: action.generation,
+            result,
+        })
+    }
+    pub(super) fn begin_shell(&mut self) -> Option<Arc<std::sync::Mutex<Option<String>>>> {
+        let remote = self.remote_mut()?;
+        if remote.shell_pending || remote.drawer_expected.is_some() {
+            return None;
+        }
+        remote.shell_pending = true;
+        Some(remote.shell_started.clone())
+    }
+    pub(super) fn complete_shell(
+        &mut self,
+        mission_id: Option<&str>,
+        before: Vec<String>,
+        layout: &mut MissionLayout,
+        result: runner_core::protocol::ClientResult<(String, Vec<String>)>,
+    ) -> Option<runner_core::protocol::ClientResult<()>> {
+        let current = self
+            .summary(mission_id)
+            .map(|summary| summary.shells.clone());
+        let remote = self.remote_mut()?;
+        remote.shell_pending = false;
+        Some(result.map(|(id, shells)| {
+            *remote.shell_started.lock().unwrap() = None;
+            remote.activate_shell = Some(id);
+            if current.as_ref() == Some(&before) && before != shells {
+                remote.drawer_expected = Some((before, shells));
+            }
+            remote.activate_drawer(layout);
+        }))
+    }
+    pub(super) fn drawer_actions_available(&self) -> bool {
+        self.remote()
+            .is_none_or(|remote| !remote.shell_pending && remote.drawer_expected.is_none())
+    }
+    pub(super) fn shell_pending(&self) -> bool {
+        self.remote().is_some_and(|remote| remote.shell_pending)
+    }
+    pub(super) fn shell_retry_available(&self) -> bool {
+        self.remote()
+            .is_some_and(|remote| remote.shell_started.lock().unwrap().is_some())
+    }
+}
+impl RemoteMission {
+    fn reset_actions(&mut self) {
+        self.pending.clear();
+        self.shell_pending = false;
+        self.shell_started = Arc::new(std::sync::Mutex::new(None));
+        self.drawer_expected = None;
+        self.activate_shell = None;
+    }
+    fn activate_drawer(&mut self, layout: &mut MissionLayout) {
+        if let Some(id) = self
+            .activate_shell
+            .clone()
+            .filter(|id| layout.drawer.shells().contains(id))
+        {
+            layout.drawer.activate(&id);
+            layout.drawer.set_open(true);
+            self.activate_shell = None;
+        }
+    }
+}
+
+impl MissionPresentation {
+    pub(super) fn terminal_style(
+        &self,
+        settings: &AppSettings,
+    ) -> crate::terminal::element::TerminalStyle {
+        let host = self
+            .remote()
+            .and_then(|remote| remote.overview.as_ref()?.terminal_palette.clone());
+        let mut style = crate::surfaces::app_shell::terminal_style_for(settings);
+        if let Some(palette) = host {
+            style.palette = runner_terminal::terminal::palette_from_wire(palette.into());
+        }
+        style
+    }
+}
+
+#[cfg(test)]
+impl MissionPresentation {
+    pub(super) fn remote_for_test(&self) -> Option<&RemoteMission> {
+        self.remote()
+    }
+}
+
+impl MissionPresentation {
+    fn new_remote(settings: AppSettings, cx: &mut Context<MissionWorkspace>) -> Self {
+        MissionPresentation::Remote(Box::new(RemoteMission {
+            settings: cx.new(|_| settings),
+            terminal_sizes: HashMap::new(),
+            overview: None,
+            presentations: HashMap::new(),
+            feed: None,
+            feed_subscription: None,
+            feed_ids: Vec::new(),
+            pending: HashSet::new(),
+            shell_pending: false,
+            shell_started: Arc::new(std::sync::Mutex::new(None)),
+            drawer_expected: None,
+            activate_shell: None,
+            dialog_focus_reset: false,
+            selected_handle: None,
+        }))
     }
 }

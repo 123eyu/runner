@@ -16,74 +16,44 @@ impl MissionWorkspace {
         };
         let busy = self.lifecycle_busy() || self.secondary;
         let pinned = mission.pinned;
-        if self.remote.is_some() {
-            let pinned = self.mission_view().is_some_and(|mission| mission.pinned);
-            let mut actions = Vec::new();
-            let mut items = Vec::new();
-            for (feature, action, label, icon, destructive) in [
-                (
-                    "pin",
-                    MissionMenuAction::Pin,
-                    if pinned { "ui.unpin" } else { "ui.pin" },
-                    if pinned { "pin-off.svg" } else { "pin.svg" },
-                    false,
-                ),
-                (
-                    "rename",
-                    MissionMenuAction::Rename,
-                    "ui.rename",
-                    "square-pen.svg",
-                    false,
-                ),
-                (
-                    "archive",
-                    MissionMenuAction::Archive,
-                    "ui.archive",
-                    "archive.svg",
-                    true,
-                ),
-            ] {
-                if self.remote_supports(&[feature]) {
-                    actions.push(action);
-                    items.push(
-                        UiMenuItem::new(crate::i18n::message(label))
-                            .icon(icon)
-                            .destructive(destructive)
-                            .disabled(busy),
-                    );
-                }
+        let mut actions = Vec::new();
+        let mut items = Vec::new();
+        for (feature, action, label, icon, destructive) in [
+            (
+                "pin",
+                MissionMenuAction::Pin,
+                if pinned { "ui.unpin" } else { "ui.pin" },
+                if pinned { "pin-off.svg" } else { "pin.svg" },
+                false,
+            ),
+            (
+                "rename",
+                MissionMenuAction::Rename,
+                "ui.rename",
+                "square-pen.svg",
+                false,
+            ),
+            (
+                "archive",
+                MissionMenuAction::Archive,
+                "ui.archive",
+                "archive.svg",
+                true,
+            ),
+        ] {
+            if self.remote_supports(&[feature]) {
+                actions.push(action);
+                items.push(
+                    UiMenuItem::new(crate::i18n::message(label))
+                        .icon(icon)
+                        .destructive(destructive)
+                        .disabled(busy),
+                );
             }
-            self.menu_actions = actions;
-            self.action_menu
-                .update(cx, |menu, cx| menu.set_items(items, cx));
-            return;
         }
-        self.menu_actions = vec![
-            MissionMenuAction::Pin,
-            MissionMenuAction::Rename,
-            MissionMenuAction::Archive,
-        ];
-        self.action_menu.update(cx, |menu, menu_cx| {
-            menu.set_items(
-                vec![
-                    UiMenuItem::new(if pinned {
-                        crate::i18n::message("ui.unpin")
-                    } else {
-                        crate::i18n::message("ui.pin")
-                    })
-                    .icon(if pinned { "pin-off.svg" } else { "pin.svg" })
-                    .disabled(busy),
-                    UiMenuItem::new(crate::i18n::message("ui.rename"))
-                        .icon("square-pen.svg")
-                        .disabled(busy),
-                    UiMenuItem::new(crate::i18n::message("ui.archive"))
-                        .icon("archive.svg")
-                        .destructive(true)
-                        .disabled(busy),
-                ],
-                menu_cx,
-            )
-        });
+        self.menu_actions = actions;
+        self.action_menu
+            .update(cx, |menu, cx| menu.set_items(items, cx));
     }
 
     pub(super) fn handle_mission_menu_action(
@@ -235,7 +205,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         if self
@@ -283,7 +253,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         if self.stopping

@@ -46,13 +46,13 @@ pub(crate) struct PairDialog {
     _subscription: Subscription,
 }
 
-impl NativeRoot {
+impl RemoteClient {
     pub(super) fn open_computer_pair(
         &mut self,
         computer: Computer,
         purpose: Purpose,
         window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut Context<NativeRoot>,
     ) {
         let clients = state(&self.app_store, cx);
         let Some(computer) = clients
@@ -69,9 +69,9 @@ impl NativeRoot {
         let again = changed || clients.read(cx).connection(&computer.id) == Connection::Revoked;
         let field = cx.new(PinField::new);
         field.read(cx).focus.clone().focus(window, cx);
-        self.client_ui.pair_generation += 1;
-        self.client_ui.picker_open = false;
-        self.client_ui.pair = Some(PairDialog {
+        self.ui.pair_generation += 1;
+        self.ui.picker_open = false;
+        self.ui.pair = Some(PairDialog {
             computer,
             purpose,
             state: PairState::Entry,
@@ -82,12 +82,12 @@ impl NativeRoot {
             focus: cx.focus_handle(),
             secondary: cx.focus_handle(),
             primary: cx.focus_handle(),
-            generation: self.client_ui.pair_generation,
+            generation: self.ui.pair_generation,
         });
         cx.notify();
     }
-    pub(super) fn sync_computer_pair(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(dialog) = self.client_ui.pair.as_ref() else {
+    pub(super) fn sync_computer_pair(&mut self, cx: &mut Context<NativeRoot>) -> bool {
+        let Some(dialog) = self.ui.pair.as_ref() else {
             return false;
         };
         let clients = state(&self.app_store, cx);
@@ -98,17 +98,17 @@ impl NativeRoot {
             .find(|row| row.id == dialog.computer.id)
             .cloned()
         else {
-            self.client_ui.pair = None;
-            self.client_ui.pair_generation += 1;
+            self.ui.pair = None;
+            self.ui.pair_generation += 1;
             return true;
         };
         if computer.fingerprint == dialog.computer.fingerprint {
             return false;
         }
-        self.client_ui.pair_generation += 1;
-        let generation = self.client_ui.pair_generation;
+        self.ui.pair_generation += 1;
+        let generation = self.ui.pair_generation;
         let field = cx.new(PinField::new);
-        let dialog = self.client_ui.pair.as_mut().unwrap();
+        let dialog = self.ui.pair.as_mut().unwrap();
         dialog.computer = computer;
         dialog.generation = generation;
         dialog.again = true;
@@ -119,7 +119,8 @@ impl NativeRoot {
         cx.spawn(async move |weak, cx| {
             let _ = weak.update_in(cx, |root, window, cx| {
                 if let Some(dialog) = root
-                    .client_ui
+                    .remote_client
+                    .ui
                     .pair
                     .as_ref()
                     .filter(|dialog| dialog.generation == generation)
@@ -132,11 +133,15 @@ impl NativeRoot {
         cx.notify();
         true
     }
-    pub(super) fn submit_computer_pin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn submit_computer_pin(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<NativeRoot>,
+    ) {
         if self.sync_computer_pair(cx) {
             return;
         }
-        let Some(dialog) = self.client_ui.pair.as_mut() else {
+        let Some(dialog) = self.ui.pair.as_mut() else {
             return;
         };
         if !dialog.state.accepts_pin() || dialog.field.read(cx).value().0.len() != 6 {
@@ -195,9 +200,10 @@ impl NativeRoot {
                         clients.refresh(cx);
                     });
                 }
-                root.sync_computer_pair(cx);
+                root.remote_client.sync_computer_pair(cx);
                 if !root
-                    .client_ui
+                    .remote_client
+                    .ui
                     .pair
                     .as_ref()
                     .is_some_and(|dialog| dialog.generation == generation)
@@ -206,16 +212,16 @@ impl NativeRoot {
                 }
                 match result {
                     Ok(()) => {
-                        root.client_ui.pair = None;
+                        root.remote_client.ui.pair = None;
                         if let Purpose::Open { new_window } = purpose {
                             let mut computer = computer;
                             computer.paired = true;
-                            root.open_computer(computer, new_window, cx);
+                            root.remote_client.open_computer(computer, new_window, cx);
                         }
                     }
                     Err(error) => {
                         let field = cx.new(PinField::new);
-                        let dialog = root.client_ui.pair.as_mut().unwrap();
+                        let dialog = root.remote_client.ui.pair.as_mut().unwrap();
                         let identity_changed =
                             error.message == "Remote computer identity changed before pairing.";
                         dialog.state = PairState::refusal(&error.message);
@@ -230,7 +236,7 @@ impl NativeRoot {
                             dialog.primary.focus(window, cx);
                         }
                         if identity_changed {
-                            root.refresh_computers(cx);
+                            root.remote_client.refresh_computers(cx);
                         }
                     }
                 }
@@ -240,11 +246,11 @@ impl NativeRoot {
         .detach();
         cx.notify();
     }
-    pub(crate) fn render_computer_pair(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn render_computer_pair(&self, cx: &mut Context<NativeRoot>) -> Option<AnyElement> {
         if !self.app_store.read(cx).remote_access_enabled() {
             return None;
         }
-        let dialog = self.client_ui.pair.as_ref()?;
+        let dialog = self.ui.pair.as_ref()?;
         let name = &dialog.computer.name;
         let blocked = matches!(dialog.state, PairState::Locked | PairState::NoPin);
         let checking = dialog.state == PairState::Checking;
@@ -312,7 +318,7 @@ impl NativeRoot {
                 .track_focus(&focus)
                 .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                     let _ = cancel.update(cx, |root, cx| {
-                        root.client_ui.pair = None;
+                        root.remote_client.ui.pair = None;
                         root.root_focus.focus(window, cx);
                         cx.notify();
                     });
@@ -320,17 +326,17 @@ impl NativeRoot {
                 .on_key_down(cx.listener(move |root, event: &KeyDownEvent, window, cx| {
                     match event.keystroke.key.as_str() {
                         "escape" => {
-                            root.client_ui.pair = None;
+                            root.remote_client.ui.pair = None;
                             root.root_focus.focus(window, cx);
                             cx.stop_propagation();
                             cx.notify();
                         }
                         "enter" if !event.is_held => {
                             if blocked {
-                                root.client_ui.pair = None;
+                                root.remote_client.ui.pair = None;
                                 cx.notify();
                             } else {
-                                root.submit_computer_pin(window, cx);
+                                root.remote_client.submit_computer_pin(window, cx);
                             }
                             cx.stop_propagation();
                         }
@@ -427,7 +433,7 @@ impl NativeRoot {
                                         .on_press(
                                             move |window, cx| {
                                                 let _ = close.update(cx, |root, cx| {
-                                                    root.client_ui.pair = None;
+                                                    root.remote_client.ui.pair = None;
                                                     root.root_focus.focus(window, cx);
                                                     cx.notify();
                                                 });
@@ -452,11 +458,12 @@ impl NativeRoot {
                                         move |window, cx| {
                                             let _ = submit.update(cx, |root, cx| {
                                                 if blocked {
-                                                    root.client_ui.pair = None;
+                                                    root.remote_client.ui.pair = None;
                                                     root.root_focus.focus(window, cx);
                                                     cx.notify();
                                                 } else {
-                                                    root.submit_computer_pin(window, cx);
+                                                    root.remote_client
+                                                        .submit_computer_pin(window, cx);
                                                 }
                                             });
                                         },

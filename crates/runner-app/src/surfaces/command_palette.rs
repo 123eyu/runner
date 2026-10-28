@@ -399,29 +399,21 @@ fn remote_palette_items(
     items
 }
 
-impl NativeRoot {
-    pub(crate) fn refresh_remote_palette(&self, cx: &mut Context<Self>) {
-        let data = self.remote_window.as_ref().map(|remote| {
-            let overview = self
-                .app_store
-                .read(cx)
-                .remote_clients
-                .read(cx)
-                .overviews
-                .get(&remote.computer.id)
-                .cloned();
-            (overview, remote.front_page.clone())
-        });
-        self.command_palette.update(cx, |palette, cx| {
-            palette.remote_data = data;
-            if palette.open && palette.remote_data.is_some() {
-                palette.locale_changed(cx);
-            }
-        });
-    }
-}
-
 impl CommandPaletteState {
+    pub(crate) fn set_remote_data(
+        &mut self,
+        data: Option<(
+            Option<runner_core::companion::Overview>,
+            crate::surfaces::front_page::FrontPageClient,
+        )>,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_data = data;
+        if self.open && self.remote_data.is_some() {
+            self.locale_changed(cx);
+        }
+    }
+
     pub(crate) fn close_for_target_change(&mut self, cx: &mut Context<Self>) {
         self.selection_epoch = self.selection_epoch.wrapping_add(1);
         self.open = false;
@@ -1322,9 +1314,9 @@ mod remote_isolation_tests {
             visual.run_until_parked();
             window
                 .read_with(&visual, |root, _| {
-                    assert_eq!(root.remote_window.as_ref().unwrap().computer.id, "host");
+                    assert_eq!(root.remote_client.workspace().unwrap().computer.id, "host");
                     assert!(
-                        root.remote_window.as_ref().unwrap().active.as_ref() == Some(&expected),
+                        root.remote_client.workspace().unwrap().active.as_ref() == Some(&expected),
                         "{query}"
                     );
                     assert_eq!(root.route, saved_route);
@@ -1380,10 +1372,10 @@ mod remote_isolation_tests {
                     assert_eq!(root.route, saved_route);
                     assert!(root.mission_workspace.read(cx).mission_id.is_none());
                     if cancel == "target" {
-                        assert!(root.remote_window.is_none());
+                        assert!(root.remote_client.is_local());
                     } else {
                         assert!(
-                            root.remote_window.as_ref().unwrap().active
+                            root.remote_client.workspace().unwrap().active
                                 == Some(crate::surfaces::remote_client::RemoteItem::Tab(
                                     "remote-tab".into()
                                 ))
@@ -1473,7 +1465,7 @@ mod remote_isolation_tests {
             assert!(palette.input.read(cx).focus_handle().is_focused(window));
         });
         window
-            .read_with(&visual, |root, _| assert!(root.remote_window.is_some()))
+            .read_with(&visual, |root, _| assert!(root.remote_client.is_active()))
             .unwrap();
     }
 
@@ -1492,7 +1484,8 @@ mod remote_isolation_tests {
             .unwrap();
         window
             .update(&mut cx, |root, window, cx| {
-                root.refresh_remote_palette(cx);
+                root.remote_client
+                    .refresh_remote_palette(&root.command_palette, cx);
                 palette.update(cx, |palette, cx| palette.open(window, cx));
             })
             .unwrap();
@@ -1502,7 +1495,8 @@ mod remote_isolation_tests {
         });
         window
             .update(&mut cx, |root, window, cx| {
-                root.refresh_remote_palette(cx);
+                root.remote_client
+                    .refresh_remote_palette(&root.command_palette, cx);
                 palette.update(cx, |palette, cx| {
                     assert!(palette.remote_data.is_some());
                     assert!(palette.items.is_empty());
@@ -1538,7 +1532,7 @@ mod remote_isolation_tests {
         assert_eq!(fake.local_call_count(), local_calls);
         window
             .read_with(&visual, |root, _| {
-                assert!(root.remote_window.is_some());
+                assert!(root.remote_client.is_active());
             })
             .unwrap();
     }

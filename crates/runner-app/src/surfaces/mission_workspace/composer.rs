@@ -12,29 +12,8 @@ use crate::*;
 
 impl MissionWorkspace {
     pub(super) fn mission_composer_roster(&self) -> Vec<ComposerRosterEntry> {
-        if self.remote.is_some() {
-            return self
-                .members()
-                .into_iter()
-                .map(|member| ComposerRosterEntry {
-                    handle: member.handle,
-                    role: String::new(),
-                    runtime: member.runtime,
-                })
-                .collect();
-        }
-        self.roster
-            .iter()
-            .map(|member| ComposerRosterEntry {
-                handle: member.slot.slot_handle.clone(),
-                role: member.role.handle.clone(),
-                runtime: member
-                    .slot
-                    .runtime_override
-                    .clone()
-                    .unwrap_or_else(|| member.role.runtime.clone()),
-            })
-            .collect()
+        self.presentation
+            .composer_roster(self.mission_id.as_deref(), &self.sessions, &self.roster)
     }
 
     fn composer_popup_content(
@@ -151,11 +130,7 @@ impl MissionWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let roster = self.mission_composer_roster();
-        let placeholder = if self.remote.is_some() {
-            crate::i18n::text("ui.message_everyone_handle_to_address_one")
-        } else {
-            mission_composer_placeholder(&self.roster)
-        };
+        let placeholder = self.presentation.composer_placeholder(&self.roster);
         let disabled = self.mission_composer_roster().is_empty() || self.composer_posting;
         self.composer_input.update(cx, |input, cx| {
             input.set_placeholder(placeholder, cx);
@@ -502,5 +477,48 @@ fn mission_composer_placeholder(roster: &[SlotWithRole]) -> &'static str {
         crate::i18n::text("ui.add_a_role_to_start_messaging")
     } else {
         crate::i18n::text("ui.message_everyone_handle_to_address_one")
+    }
+}
+
+impl remote::MissionPresentation {
+    pub(super) fn composer_roster(
+        &self,
+        mission_id: Option<&str>,
+        sessions: &[SessionRow],
+        roster: &[SlotWithRole],
+    ) -> Vec<ComposerRosterEntry> {
+        if self.is_remote() {
+            return self
+                .members(mission_id, sessions)
+                .into_iter()
+                .map(|member| ComposerRosterEntry {
+                    handle: member.handle,
+                    role: String::new(),
+                    runtime: member.runtime,
+                })
+                .collect();
+        }
+        roster
+            .iter()
+            .map(|member| ComposerRosterEntry {
+                handle: member.slot.slot_handle.clone(),
+                role: member.role.handle.clone(),
+                runtime: member
+                    .slot
+                    .runtime_override
+                    .clone()
+                    .unwrap_or_else(|| member.role.runtime.clone()),
+            })
+            .collect()
+    }
+}
+
+impl remote::MissionPresentation {
+    pub(super) fn composer_placeholder(&self, roster: &[SlotWithRole]) -> &'static str {
+        if self.is_remote() {
+            crate::i18n::text("ui.message_everyone_handle_to_address_one")
+        } else {
+            mission_composer_placeholder(roster)
+        }
     }
 }

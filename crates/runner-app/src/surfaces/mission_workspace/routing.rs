@@ -6,7 +6,7 @@ use crate::*;
 
 impl NativeRoot {
     pub(crate) fn set_route(&mut self, route: AppRoute, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let AppRoute::Mission(id) = route {
                 self.select_remote_item(
                     crate::surfaces::remote_client::RemoteItem::Mission(id),
@@ -60,7 +60,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn record_current_runtime_location(&mut self) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let location = match &self.route {
@@ -100,7 +100,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some()
+        if self.remote_client.is_active()
             || self.route == AppRoute::Settings
             || self.runtime_navigation_history.len() < 2
         {
@@ -180,7 +180,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.select_remote_item(
                 crate::surfaces::remote_client::RemoteItem::Mission(mission_id),
                 cx,

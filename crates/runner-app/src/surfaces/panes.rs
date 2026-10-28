@@ -381,13 +381,13 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.remote_window.is_none() {
+        if self.remote_client.is_local() {
             self.ensure_active_chat_detail(cx);
         }
         let error_banner = self
             .chat_error
             .clone()
-            .filter(|_| self.remote_window.is_none())
+            .filter(|_| self.remote_client.is_local())
             .filter(|_| !self.app_store.read(cx).daemon_disconnected)
             .map(|error| {
                 runner_app::ui::notice_banner(error.resolve(), runner_app::ui::Tone::Danger)
@@ -399,7 +399,7 @@ impl NativeRoot {
         let warning_banner = self
             .chat_warning
             .clone()
-            .filter(|_| self.remote_window.is_none())
+            .filter(|_| self.remote_client.is_local())
             .filter(|_| !self.app_store.read(cx).daemon_disconnected)
             .map(|warning| {
                 runner_app::ui::notice_banner(warning, runner_app::ui::Tone::Warning).child(
@@ -435,7 +435,7 @@ impl NativeRoot {
                 ))
                 .into_any_element();
         };
-        if self.remote_window.is_none()
+        if self.remote_client.is_local()
             && layout.all_session_ids().iter().any(|id| {
                 self.app_store
                     .read(cx)
@@ -448,7 +448,7 @@ impl NativeRoot {
                 self.chat_error = Some(error.to_string().into());
             }
         }
-        if self.remote_window.is_none() && !layout.drawer_open() {
+        if self.remote_client.is_local() && !layout.drawer_open() {
             for id in layout.drawer_shells() {
                 if let Some(chat) = self
                     .attached
@@ -460,7 +460,7 @@ impl NativeRoot {
                 }
             }
         }
-        let group_control = self.remote_window.is_none() && self.tab_control_covered(&layout, cx);
+        let group_control = self.remote_client.is_local() && self.tab_control_covered(&layout, cx);
         let show_start = start_surface_visible(Some(&layout));
         let grouped = pane_identity_visible(layout.root.leaves().len());
         let focused_shell = layout
@@ -469,7 +469,7 @@ impl NativeRoot {
             .is_some_and(|entry| {
                 Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
             });
-        if self.remote_window.is_none() {
+        if self.remote_client.is_local() {
             self.prune_pane_state(&layout);
         }
         let pane_tree = if show_start {
@@ -602,7 +602,7 @@ impl NativeRoot {
             .children(error_banner)
             .children(warning_banner)
             .child(tab_body);
-        let panel_open = self.remote_window.is_none()
+        let panel_open = self.remote_client.is_local()
             && !show_start
             && side_panel_open(self.settings(cx).chat_panel_open, focused_shell);
         let (panel_visibility, panel_animating) = self.chat_panel_visibility.animate_to(
@@ -803,7 +803,7 @@ impl NativeRoot {
                 }
             }
         }
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             let pairs = items
                 .into_iter()
                 .zip(actions)
@@ -995,7 +995,7 @@ impl NativeRoot {
             Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
         });
         let terminal_tab = self.active_tab_is_terminal(cx);
-        let focused_secondary = self.remote_window.is_none()
+        let focused_secondary = self.remote_client.is_local()
             && focused_session_id
                 .as_deref()
                 .is_some_and(|session_id| self.cached_chat_secondary_state(session_id).secondary);
@@ -1025,7 +1025,7 @@ impl NativeRoot {
                 || super::chat::fork_in_progress(&self.forking_sessions, session_id)
         });
         let fork_action = focused_session_id.clone().and_then(|session_id| {
-            let (disabled, tooltip) = match if self.remote_window.is_some() {
+            let (disabled, tooltip) = match if self.remote_client.is_active() {
                 if self.front_page_client(cx).supports(&["catalog", "fork"])
                     && focused_entry.as_ref().is_some_and(|e| e.native_fork)
                 {
@@ -1072,7 +1072,7 @@ impl NativeRoot {
                 if let Some(transition) = self
                     .chat_transitions
                     .get(&entry.session_id)
-                    .filter(|_| self.remote_window.is_none())
+                    .filter(|_| self.remote_client.is_local())
                 {
                     status.kind = if transition.kind == TransitionKind::Resuming {
                         runner_app::ui::agent_status::StatusKind::Resuming
@@ -1164,7 +1164,7 @@ impl NativeRoot {
             })
             .into_any_element()
         });
-        let panel_action = (self.remote_window.is_none()
+        let panel_action = (self.remote_client.is_local()
             && !side_panel_open(self.settings(cx).chat_panel_open, focused_shell)
             && !focused_shell)
             .then(|| {
@@ -2102,7 +2102,7 @@ impl NativeRoot {
         let transition = self
             .chat_transitions
             .get(&session_id)
-            .filter(|_| self.remote_window.is_none())
+            .filter(|_| self.remote_client.is_local())
             .map(|item| item.kind);
         let overlay = resolve_pane_overlay(
             false,
@@ -2111,7 +2111,7 @@ impl NativeRoot {
             entry.resumable,
             self.session_exit_codes
                 .get(&session_id)
-                .filter(|_| self.remote_window.is_none())
+                .filter(|_| self.remote_client.is_local())
                 .copied()
                 .flatten(),
         );
@@ -2120,8 +2120,9 @@ impl NativeRoot {
         let terminal_style = self.terminal_style(cx);
         let terminal_background =
             crate::terminal::element::to_hsla(terminal_style.palette.background, 1.);
-        let terminal_surface = if self.remote_window.is_some() {
-            self.render_remote_terminal_content(&session_id, cx)
+        let terminal_surface = if self.remote_client.is_active() {
+            self.remote_client
+                .render_remote_terminal_content(&session_id, cx)
         } else if let Some(chat) = self.attached.get(&session_id) {
             let terminal = Arc::clone(&chat.terminal);
             let terminal_interaction = chat.terminal_interaction.clone();
@@ -2222,8 +2223,8 @@ impl NativeRoot {
                             exit_code,
                             &entry.default_label(),
                             entry.cwd.as_deref(),
-                            self.remote_window
-                                .is_none()
+                            self.remote_client
+                                .is_local()
                                 .then(runner_core::app_paths::home_dir)
                                 .flatten()
                                 .as_deref()
@@ -2272,7 +2273,7 @@ impl NativeRoot {
         let remote = self
             .attached
             .get(&session_id)
-            .filter(|_| self.remote_window.is_none())
+            .filter(|_| self.remote_client.is_local())
             .filter(|chat| {
                 entry.status == SessionStatus::Running && !chat.terminal.control().desktop()
             });
@@ -2331,7 +2332,7 @@ impl NativeRoot {
             .as_deref()
             .and_then(|session_id| self.front_page_session(session_id, cx));
         let secondary = entry.as_ref().map(|entry| {
-            if self.remote_window.is_some() {
+            if self.remote_client.is_active() {
                 Default::default()
             } else {
                 self.cached_chat_secondary_state(&entry.session_id)
@@ -2405,8 +2406,8 @@ impl NativeRoot {
                 let icon = pane_identity_icon(Some(&entry.agent_runtime));
                 let session_id = entry.session_id.clone();
                 let live = self
-                    .remote_window
-                    .is_none()
+                    .remote_client
+                    .is_local()
                     .then(|| self.attached_title(&session_id, cx))
                     .flatten();
                 let label = entry.label(live.as_deref());
@@ -2421,7 +2422,7 @@ impl NativeRoot {
                         if let Some(transition) = self
                             .chat_transitions
                             .get(&entry.session_id)
-                            .filter(|_| self.remote_window.is_none())
+                            .filter(|_| self.remote_client.is_local())
                         {
                             status.kind = if transition.kind == TransitionKind::Resuming {
                                 runner_app::ui::agent_status::StatusKind::Resuming
@@ -2578,7 +2579,7 @@ impl NativeRoot {
                 .map(|element| {
                     #[cfg(test)]
                     let element = crate::theme_snapshot::record_fill("PANE_IDENTITY_LINE", element);
-                    element.when(self.remote_window.is_some(), |element| {
+                    element.when(self.remote_client.is_active(), |element| {
                         element.debug_selector({
                             let id = leaf.session_id.clone().unwrap_or_else(|| pane_id.clone());
                             move || format!("PANE_HEADER:{id}")
@@ -2673,14 +2674,14 @@ impl NativeRoot {
         let body: AnyElement = if let Some(entry) = entry.as_ref() {
             let session_id = entry.session_id.clone();
             let secondary_state = secondary.clone().unwrap_or_default();
-            let fork_materializing = self.remote_window.is_none()
+            let fork_materializing = self.remote_client.is_local()
                 && super::chat::fork_materializing(&self.forking_sessions, &session_id);
             let transition = if fork_materializing {
                 Some(TransitionKind::Starting)
             } else {
                 self.chat_transitions
                     .get(&session_id)
-                    .filter(|_| self.remote_window.is_none())
+                    .filter(|_| self.remote_client.is_local())
                     .map(|item| item.kind)
             };
             let overlay = resolve_pane_overlay(
@@ -2690,7 +2691,7 @@ impl NativeRoot {
                 entry.resumable,
                 self.session_exit_codes
                     .get(&session_id)
-                    .filter(|_| self.remote_window.is_none())
+                    .filter(|_| self.remote_client.is_local())
                     .copied()
                     .flatten(),
             );
@@ -2701,8 +2702,9 @@ impl NativeRoot {
             let terminal_style = self.terminal_style(cx);
             let terminal_background =
                 crate::terminal::element::to_hsla(terminal_style.palette.background, 1.);
-            let terminal_surface = if self.remote_window.is_some() {
-                self.render_remote_terminal_content(&session_id, cx)
+            let terminal_surface = if self.remote_client.is_active() {
+                self.remote_client
+                    .render_remote_terminal_content(&session_id, cx)
             } else if secondary_state.secondary
                 && self
                     .attached
@@ -2795,11 +2797,11 @@ impl NativeRoot {
                     .into_any_element()
             };
             let group_control =
-                self.remote_window.is_none() && self.tab_control_covered(layout, cx);
+                self.remote_client.is_local() && self.tab_control_covered(layout, cx);
             let remote_card = self
                 .attached
                 .get(&session_id)
-                .filter(|_| self.remote_window.is_none())
+                .filter(|_| self.remote_client.is_local())
                 .filter(|chat| {
                     entry.status == SessionStatus::Running && !chat.terminal.control().desktop()
                 });
@@ -2902,8 +2904,8 @@ impl NativeRoot {
                                         exit_code,
                                         &entry.default_label(),
                                         entry.cwd.as_deref(),
-                                        self.remote_window
-                                            .is_none()
+                                        self.remote_client
+                                            .is_local()
                                             .then(runner_core::app_paths::home_dir)
                                             .flatten()
                                             .as_deref()

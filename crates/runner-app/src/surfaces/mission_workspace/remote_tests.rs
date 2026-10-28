@@ -45,7 +45,9 @@ fn workspace(
     cx: &TestAppContext,
 ) -> Entity<MissionWorkspace> {
     window
-        .read_with(cx, |root, _| root.remote_mission_workspace().unwrap())
+        .read_with(cx, |root, _| {
+            root.remote_client.remote_mission_workspace().unwrap()
+        })
         .unwrap()
 }
 
@@ -224,7 +226,13 @@ fn remote_feed_is_shared_pages_opaque_cursors_and_releases_only_after_last_windo
     let (temp, mut cx, first, store, fake) = setup();
     let ws1 = workspace(first, &cx);
     let feed = ws1.read_with(&cx, |workspace, _| {
-        workspace.remote.as_ref().unwrap().feed.clone().unwrap()
+        workspace
+            .presentation
+            .remote_for_test()
+            .unwrap()
+            .feed
+            .clone()
+            .unwrap()
     });
     fake.queue_result("feed", Ok(serde_json::json!({"entries":[entry("b",serde_json::json!({"kind":"message","text":"B"})),entry("a",serde_json::json!({"kind":"message","text":"A"}))],"before":"opaque-before"})));
     feed.update(&mut cx, |feed, cx| feed.refresh(cx));
@@ -246,8 +254,8 @@ fn remote_feed_is_shared_pages_opaque_cursors_and_releases_only_after_last_windo
     let ws2 = workspace(second, &cx);
     assert_eq!(
         ws2.read_with(&cx, |workspace, _| workspace
-            .remote
-            .as_ref()
+            .presentation
+            .remote_for_test()
             .unwrap()
             .feed
             .clone()
@@ -422,8 +430,8 @@ fn remote_mission_shell_retry_keeps_successful_start_and_waits_for_drawer_push()
         assert!(workspace.error.is_some());
         assert_eq!(
             workspace
-                .remote
-                .as_ref()
+                .presentation
+                .remote_for_test()
                 .unwrap()
                 .shell_started
                 .lock()
@@ -460,7 +468,12 @@ fn remote_mission_shell_retry_keeps_successful_start_and_waits_for_drawer_push()
     workspace.read_with(&cx, |workspace, _| {
         assert_eq!(workspace.layout.drawer.shells(), &["started-session"]);
         assert!(workspace.layout.drawer.open());
-        assert!(workspace.remote.as_ref().unwrap().drawer_expected.is_none());
+        assert!(workspace
+            .presentation
+            .remote_for_test()
+            .unwrap()
+            .drawer_expected
+            .is_none());
     });
     let mut visual = VisualTestContext::from_window(window.into(), &cx);
     visual.update(|window, cx| {
@@ -478,14 +491,24 @@ fn remote_mission_shell_retry_keeps_successful_start_and_waits_for_drawer_push()
     assert_eq!(fake.request_count("close"), 1);
     workspace.read_with(&visual, |workspace, _| {
         assert_eq!(workspace.layout.drawer.shells(), &["started-session"]);
-        assert!(workspace.remote.as_ref().unwrap().drawer_expected.is_some());
+        assert!(workspace
+            .presentation
+            .remote_for_test()
+            .unwrap()
+            .drawer_expected
+            .is_some());
     });
     fake.set_overview(overview());
     visual.run_until_parked();
     workspace.read_with(&visual, |workspace, _| {
         assert!(workspace.layout.drawer.shells().is_empty());
         assert!(!workspace.layout.drawer.open());
-        assert!(workspace.remote.as_ref().unwrap().drawer_expected.is_none());
+        assert!(workspace
+            .presentation
+            .remote_for_test()
+            .unwrap()
+            .drawer_expected
+            .is_none());
     });
 }
 
@@ -586,7 +609,13 @@ fn reconnect_refreshes_shared_feed_and_preserves_older_history_without_replaying
     let (_temp, mut cx, window, _, fake) = setup();
     let workspace = workspace(window, &cx);
     let feed = workspace.read_with(&cx, |workspace, _| {
-        workspace.remote.as_ref().unwrap().feed.clone().unwrap()
+        workspace
+            .presentation
+            .remote_for_test()
+            .unwrap()
+            .feed
+            .clone()
+            .unwrap()
     });
     fake.queue_result("feed", Ok(serde_json::json!({"entries":[entry("older",serde_json::json!({"kind":"message","text":"Older"}))],"before":"old-cursor"})));
     feed.update(&mut cx, |feed, cx| feed.refresh(cx));
@@ -630,7 +659,12 @@ fn reconnect_refreshes_shared_feed_and_preserves_older_history_without_replaying
     cx.run_until_parked();
     workspace.read_with(&cx, |workspace, _| {
         assert!(!workspace.active);
-        assert!(workspace.remote.as_ref().unwrap().feed.is_none());
+        assert!(workspace
+            .presentation
+            .remote_for_test()
+            .unwrap()
+            .feed
+            .is_none());
     });
 }
 
@@ -1002,7 +1036,13 @@ fn failed_feed_catch_up_retries_to_the_contiguous_boundary_despite_tail_appends(
         let (_temp, mut cx, window, _, fake) = setup();
         let workspace = workspace(window, &cx);
         let feed = workspace.read_with(&cx, |workspace, _| {
-            workspace.remote.as_ref().unwrap().feed.clone().unwrap()
+            workspace
+                .presentation
+                .remote_for_test()
+                .unwrap()
+                .feed
+                .clone()
+                .unwrap()
         });
         let message = |id: &str| entry(id, serde_json::json!({"kind":"message","text":id}));
         fake.queue_result(
@@ -1074,7 +1114,13 @@ fn older_pagination_cannot_clear_a_failed_catch_up_and_recovers_after_the_gap_is
         let (_temp, mut cx, window, _, fake) = setup();
         let workspace = workspace(window, &cx);
         let feed = workspace.read_with(&cx, |workspace, _| {
-            workspace.remote.as_ref().unwrap().feed.clone().unwrap()
+            workspace
+                .presentation
+                .remote_for_test()
+                .unwrap()
+                .feed
+                .clone()
+                .unwrap()
         });
         let message = |id: &str| entry(id, serde_json::json!({"kind":"message","text":id}));
         fake.queue_result(

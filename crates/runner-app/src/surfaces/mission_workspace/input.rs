@@ -9,7 +9,7 @@ use crate::*;
 
 impl MissionWorkspace {
     pub(crate) fn mark_active_session_viewed(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.remote.is_some()
+        if self.presentation.is_remote()
             || !self.is_active(cx)
             || !window.is_window_active()
             || self.archived()
@@ -105,7 +105,7 @@ impl MissionWorkspace {
         }
         self.active_tab = MissionTab::Feed;
         self.remote_navigation_changed(cx);
-        if self.remote.is_none() {
+        if !self.presentation.is_remote() {
             crate::notifications::view_changed(cx);
         }
         if self.feed_was_near_bottom {
@@ -151,12 +151,13 @@ impl MissionWorkspace {
         }
         self.feed_list.scrollbar_drag_ended();
         self.active_tab = MissionTab::Session(session_id.to_owned());
-        self.remote_selected_handle = self
+        let selected_handle = self
             .members()
             .iter()
             .find(|member| member.session.id == session_id)
             .map(|member| member.handle.clone());
-        if self.remote.is_none() {
+        self.presentation.set_selected_handle(selected_handle);
+        if !self.presentation.is_remote() {
             crate::notifications::view_changed(cx);
         }
         self.mark_active_session_viewed(window, cx);
@@ -194,7 +195,7 @@ impl MissionWorkspace {
             self.clear_feed_selection();
             self.active_tab = MissionTab::Feed;
             self.remote_navigation_changed(cx);
-            if self.remote.is_none() {
+            if !self.presentation.is_remote() {
                 crate::notifications::view_changed(cx);
             }
             window.focus(&self.root_focus, cx);

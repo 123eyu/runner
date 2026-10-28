@@ -15,7 +15,7 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() || !self.is_active(cx) {
+        if self.presentation.is_remote() || !self.is_active(cx) {
             return;
         }
         let Some(mission_id) = self.mission_id.clone() else {
@@ -280,7 +280,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn resync_mission_events(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         let Some(mission_id) = self.mission_id.clone() else {
@@ -339,7 +339,7 @@ impl MissionWorkspace {
     }
 
     pub(super) fn refresh_open_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
+        if self.presentation.is_remote() {
             return;
         }
         let Some(mission_id) = self.mission_id.clone() else {

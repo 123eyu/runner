@@ -781,20 +781,20 @@ fn one_pin_request_per_submit_and_every_refusal_is_rendered_without_exposing_pin
                 let before = fake.pairs.load(Ordering::SeqCst);
                 window
                     .update(&mut cx, |root, window, cx| {
-                        root.open_computer_pair(
+                        root.remote_client.open_computer_pair(
                             computers()[1].clone(),
                             pairing::Purpose::PairOnly,
                             window,
                             cx,
                         );
-                        let field = root.client_ui.pair.as_ref().unwrap().field.clone();
+                        let field = root.remote_client.ui.pair.as_ref().unwrap().field.clone();
                         field.update(cx, |field, cx| {
                             field.replace_text_in_range(None, "001234", window, cx)
                         });
-                        root.submit_computer_pin(window, cx);
-                        root.submit_computer_pin(window, cx);
+                        root.remote_client.submit_computer_pin(window, cx);
+                        root.remote_client.submit_computer_pin(window, cx);
                         assert!(
-                            root.client_ui.pair.as_ref().unwrap().state
+                            root.remote_client.ui.pair.as_ref().unwrap().state
                                 == pairing::PairState::Checking
                         );
                     })
@@ -803,7 +803,7 @@ fn one_pin_request_per_submit_and_every_refusal_is_rendered_without_exposing_pin
                 assert_eq!(fake.pairs.load(Ordering::SeqCst), before + 1);
                 window
                     .read_with(&cx, |root, _| {
-                        assert!(root.client_ui.pair.as_ref().unwrap().state == expected);
+                        assert!(root.remote_client.ui.pair.as_ref().unwrap().state == expected);
                     })
                     .unwrap();
                 let mut visual = VisualTestContext::from_window(window.into(), &cx);
@@ -816,25 +816,25 @@ fn one_pin_request_per_submit_and_every_refusal_is_rendered_without_exposing_pin
                     state(&root.app_store, cx).update(cx, |clients, _| {
                         clients.changed_identities.insert("host".into());
                     });
-                    root.open_computer_pair(
+                    root.remote_client.open_computer_pair(
                         computers()[1].clone(),
                         pairing::Purpose::Open { new_window: false },
                         window,
                         cx,
                     );
-                    let field = root.client_ui.pair.as_ref().unwrap().field.clone();
+                    let field = root.remote_client.ui.pair.as_ref().unwrap().field.clone();
                     field.update(cx, |field, cx| {
                         field.replace_text_in_range(None, "001234", window, cx)
                     });
-                    root.submit_computer_pin(window, cx);
-                    root.client_ui.pair = None;
+                    root.remote_client.submit_computer_pin(window, cx);
+                    root.remote_client.ui.pair = None;
                 })
                 .unwrap();
             cx.run_until_parked();
             assert_eq!(fake.pairs.load(Ordering::SeqCst), before + 1);
             assert!(fake.pair_ops.lock().unwrap().ends_with(&["forget", "pair"]));
             window
-                .read_with(&cx, |root, _| assert!(root.remote_window.is_none()))
+                .read_with(&cx, |root, _| assert!(root.remote_client.is_local()))
                 .unwrap();
         });
     }
@@ -874,7 +874,7 @@ fn shared_remote_sidebar_controls_do_not_open_local_creation_or_change_local_sta
         assert!(visual.debug_bounds(selector).is_none());
         window
             .read_with(&visual, |root, _| {
-                assert!(root.remote_window.is_some());
+                assert!(root.remote_client.is_active());
                 assert!(root.route == original.0);
                 assert!(root.start_chat_modal.is_none());
                 assert!(root.start_mission_modal.is_none());
@@ -1159,7 +1159,7 @@ fn remote_sidebar_reuses_local_status_indicators_and_tracks_pushes() {
             if mission {
                 window
                     .update(&mut visual, |root, _, cx| {
-                        root.remote_window.as_mut().unwrap().active = None;
+                        root.remote_client.workspace_mut().unwrap().active = None;
                         cx.notify();
                     })
                     .unwrap();
@@ -1534,7 +1534,7 @@ fn disabling_remote_access_returns_every_window_to_this_computer() {
     cx.run_until_parked();
     for window in [first, second] {
         window
-            .read_with(&cx, |root, _| assert!(root.remote_window.is_some()))
+            .read_with(&cx, |root, _| assert!(root.remote_client.is_active()))
             .unwrap();
     }
     *fake.status.lock().unwrap() = RemoteStatus::default();
@@ -1553,8 +1553,8 @@ fn disabling_remote_access_returns_every_window_to_this_computer() {
     for window in [first, second] {
         window
             .read_with(&cx, |root, _| {
-                assert!(root.remote_window.is_none());
-                assert!(!root.client_ui.picker_open);
+                assert!(root.remote_client.is_local());
+                assert!(!root.remote_client.ui.picker_open);
             })
             .unwrap();
         let mut visual = VisualTestContext::from_window(window.into(), &cx);
@@ -1639,7 +1639,7 @@ fn remote_window_and_picker_render_all_connection_states_and_preserve_local_tabs
             }
             window
                 .update(&mut cx, |root, _, cx| {
-                    root.client_ui.picker_open = true;
+                    root.remote_client.ui.picker_open = true;
                     cx.notify();
                 })
                 .unwrap();
@@ -1654,7 +1654,7 @@ fn remote_window_and_picker_render_all_connection_states_and_preserve_local_tabs
             cx.run_until_parked();
             window
                 .read_with(&cx, |root, _| {
-                    assert!(root.remote_window.is_none());
+                    assert!(root.remote_client.is_local());
                     assert_eq!(root.route, original_route);
                     assert_eq!(
                         root.tabs
@@ -2118,9 +2118,12 @@ fn picker_dismisses_at_tab_boundaries_and_escape_works_after_internal_traversal(
                 visual.run_until_parked();
                 dismissed = window
                     .update(&mut visual, |root, window, cx| {
-                        if root.client_ui.picker_open {
+                        if root.remote_client.ui.picker_open {
                             assert!(
-                                root.client_ui.picker_focus.contains_focused(window, cx),
+                                root.remote_client
+                                    .ui
+                                    .picker_focus
+                                    .contains_focused(window, cx),
                                 "focus left an open computer picker"
                             );
                             false
@@ -2162,13 +2165,13 @@ fn picker_new_window_changes_only_the_new_window() {
         .unwrap();
     cx.run_until_parked();
     first
-        .read_with(&cx, |root, _| assert!(root.remote_window.is_none()))
+        .read_with(&cx, |root, _| assert!(root.remote_client.is_local()))
         .unwrap();
     let mut remote_count = 0;
     cx.update(|cx| {
         for window in cx.windows() {
             if let Some(window) = window.downcast::<NativeRoot>() {
-                if window.read(cx).unwrap().remote_window.is_some() {
+                if window.read(cx).unwrap().remote_client.is_active() {
                     remote_count += 1;
                 }
             }
@@ -2212,7 +2215,9 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                     assert!(visual.debug_bounds("REMOTE_TERMINAL_FAILED").is_none());
                     assert!(fake.attaches.lock().unwrap().is_empty());
                     let size = window
-                        .read_with(&visual, |root, _| root.remote_terminal_size("s"))
+                        .read_with(&visual, |root, _| {
+                            root.remote_client.remote_terminal_size("s")
+                        })
                         .unwrap()
                         .unwrap();
                     assert!(size.0 >= 20 && size.1 >= 8);
@@ -2220,7 +2225,7 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                         .read_with(&visual, |root, cx| {
                             assert!(root.front_page_client(cx).supports(&["resume"]));
                             assert!(matches!(
-                                root.remote_window.as_ref().unwrap().connection,
+                                root.remote_client.workspace().unwrap().connection,
                                 Connection::Connected
                             ));
                         })
@@ -2242,7 +2247,9 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                         .expect("ended primary button after press");
                     let position = pressed.center();
                     let size = window
-                        .read_with(&visual, |root, _| root.remote_terminal_size("s"))
+                        .read_with(&visual, |root, _| {
+                            root.remote_client.remote_terminal_size("s")
+                        })
                         .unwrap()
                         .unwrap();
                     assert!(size.0 >= 20 && size.1 >= 8);
@@ -2263,7 +2270,7 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                     assert!(visual.debug_bounds("REMOTE_TERMINAL_FAILED").is_none());
                     let terminal = window
                         .read_with(&visual, |root, _| {
-                            root.remote_window.as_ref().unwrap().terminals["s"]
+                            root.remote_client.workspace().unwrap().terminals["s"]
                                 .attachment
                                 .terminal
                                 .clone()
@@ -2278,11 +2285,11 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                         .read_with(&visual, |root, cx| {
                             assert!(Arc::ptr_eq(
                                 &terminal,
-                                &root.remote_window.as_ref().unwrap().terminals["s"]
+                                &root.remote_client.workspace().unwrap().terminals["s"]
                                     .attachment
                                     .terminal
                             ));
-                            assert!(!root.remote_terminal_interactive("s", cx));
+                            assert!(!root.remote_client.remote_terminal_interactive("s", cx));
                         })
                         .unwrap();
                 }
@@ -2331,7 +2338,7 @@ fn obsolete_remote_attach_results_cannot_replace_a_resumed_terminal() {
         assert_eq!(fake.attaches.lock().unwrap().len(), 1);
         window
             .read_with(&cx, |root, _| {
-                assert!(root.remote_window.as_ref().unwrap().terminals.is_empty())
+                assert!(root.remote_client.workspace().unwrap().terminals.is_empty())
             })
             .unwrap();
         clients.update(&mut cx, |clients, _| {
@@ -2374,7 +2381,7 @@ fn obsolete_remote_attach_results_cannot_replace_a_resumed_terminal() {
         cx.run_until_parked();
         let terminal = window
             .read_with(&cx, |root, _| {
-                root.remote_window.as_ref().unwrap().terminals["s"]
+                root.remote_client.workspace().unwrap().terminals["s"]
                     .attachment
                     .terminal
                     .clone()
@@ -2411,7 +2418,7 @@ fn daemon_recovery_replaces_closed_remote_stream_without_taking_control_and_retr
     fake.frame_entries.lock().unwrap()[0].recv().unwrap();
     let original = window
         .read_with(&cx, |root, _| {
-            root.remote_window.as_ref().unwrap().terminals["s"]
+            root.remote_client.workspace().unwrap().terminals["s"]
                 .attachment
                 .terminal
                 .clone()
@@ -2429,7 +2436,7 @@ fn daemon_recovery_replaces_closed_remote_stream_without_taking_control_and_retr
     assert!(!fake.attaches.lock().unwrap()[1].take_control);
     let recovered = window
         .read_with(&cx, |root, _| {
-            root.remote_window.as_ref().unwrap().terminals["s"]
+            root.remote_client.workspace().unwrap().terminals["s"]
                 .attachment
                 .terminal
                 .clone()
@@ -2471,8 +2478,8 @@ fn daemon_recovery_replaces_closed_remote_stream_without_taking_control_and_retr
     window
         .read_with(&cx, |root, _| {
             assert!(root
-                .remote_window
-                .as_ref()
+                .remote_client
+                .workspace()
                 .unwrap()
                 .terminals
                 .contains_key("s"))
@@ -2503,16 +2510,16 @@ fn pair_again_uses_current_directory_identity_and_replaces_pin_entry_when_it_cha
     window
         .update(&mut cx, |root, window, cx| {
             assert_eq!(
-                root.remote_window.as_ref().unwrap().computer.fingerprint,
+                root.remote_client.workspace().unwrap().computer.fingerprint,
                 "identity-B"
             );
-            root.open_computer_pair(
+            root.remote_client.open_computer_pair(
                 computers()[1].clone(),
                 pairing::Purpose::Open { new_window: false },
                 window,
                 cx,
             );
-            let dialog = root.client_ui.pair.as_ref().unwrap();
+            let dialog = root.remote_client.ui.pair.as_ref().unwrap();
             assert_eq!(dialog.computer.fingerprint, "identity-B");
             let field = dialog.field.clone();
             field.update(cx, |field, cx| {
@@ -2525,7 +2532,7 @@ fn pair_again_uses_current_directory_identity_and_replaces_pin_entry_when_it_cha
     cx.run_until_parked();
     window
         .update(&mut cx, |root, window, cx| {
-            let dialog = root.client_ui.pair.as_ref().unwrap();
+            let dialog = root.remote_client.ui.pair.as_ref().unwrap();
             assert_eq!(dialog.computer.fingerprint, "identity-C");
             assert!(dialog.field.read(cx).value().0.is_empty());
             assert!(dialog.state == pairing::PairState::Entry);
@@ -2533,7 +2540,7 @@ fn pair_again_uses_current_directory_identity_and_replaces_pin_entry_when_it_cha
             field.update(cx, |field, cx| {
                 field.replace_text_in_range(None, "001234", window, cx)
             });
-            root.submit_computer_pin(window, cx);
+            root.remote_client.submit_computer_pin(window, cx);
         })
         .unwrap();
     fake.computers.lock().unwrap()[1].fingerprint = "identity-D".into();
@@ -2541,7 +2548,7 @@ fn pair_again_uses_current_directory_identity_and_replaces_pin_entry_when_it_cha
     assert_eq!(fake.pairs.load(Ordering::SeqCst), 0);
     window
         .read_with(&cx, |root, cx| {
-            let dialog = root.client_ui.pair.as_ref().unwrap();
+            let dialog = root.remote_client.ui.pair.as_ref().unwrap();
             assert_eq!(dialog.computer.fingerprint, "identity-D");
             assert!(dialog.field.read(cx).value().0.is_empty());
         })
@@ -2606,8 +2613,8 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
     cx.run_until_parked();
     window
         .update(&mut cx, |root, _, cx| {
-            root.remote_window
-                .as_ref()
+            root.remote_client
+                .workspace()
                 .unwrap()
                 .sidebar
                 .update(cx, |sidebar, cx| sidebar.toggle_active_only(cx));
@@ -2645,7 +2652,7 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
     cx.run_until_parked();
     window
         .read_with(&cx, |root, _| {
-            assert!(root.remote_window.is_none());
+            assert!(root.remote_client.is_local());
             assert_eq!(root.route, AppRoute::Chat);
             assert_eq!(
                 root.tabs.active().unwrap().focused_session_id(),
@@ -2663,8 +2670,8 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
     window
         .read_with(&cx, |root, cx| {
             assert!(root
-                .remote_window
-                .as_ref()
+                .remote_client
+                .workspace()
                 .unwrap()
                 .sidebar
                 .read(cx)
@@ -2675,7 +2682,7 @@ fn remote_windows_do_not_suppress_local_notifications_and_clicks_return_to_local
     cx.run_until_parked();
     window
         .read_with(&cx, |root, _| {
-            assert!(root.remote_window.is_none());
+            assert!(root.remote_client.is_local());
             assert_eq!(root.route, AppRoute::Mission("test-mission".into()));
         })
         .unwrap();
@@ -2800,14 +2807,14 @@ fn input_error_events_render_for_current_remote_chat_mission_and_drawer_during_r
             if surface.starts_with("mission") {
                 window
                     .update(&mut cx, |root, window, cx| {
-                        root.remote_window
-                            .as_ref()
+                        root.remote_client
+                            .workspace()
                             .unwrap()
                             .mission_workspace
                             .update(cx, |workspace, cx| {
                                 workspace.focus_status_session("remote-mission", "s", window, cx)
                             });
-                        root.attach_remote_panes(cx);
+                        root.remote_client.attach_remote_panes(cx);
                     })
                     .unwrap();
                 cx.run_until_parked();
@@ -2823,8 +2830,8 @@ fn input_error_events_render_for_current_remote_chat_mission_and_drawer_during_r
             window
                 .read_with(&cx, |root, _| {
                     assert!(root
-                        .remote_window
-                        .as_ref()
+                        .remote_client
+                        .workspace()
                         .unwrap()
                         .terminals
                         .contains_key(session))
@@ -2843,7 +2850,11 @@ fn input_error_events_render_for_current_remote_chat_mission_and_drawer_during_r
             window
                 .read_with(&cx, |root, _| {
                     assert_eq!(
-                        root.remote_window.as_ref().unwrap().action_error.as_deref(),
+                        root.remote_client
+                            .workspace()
+                            .unwrap()
+                            .action_error
+                            .as_deref(),
                         Some("Paste was discarded")
                     )
                 })
@@ -2882,13 +2893,18 @@ fn remote_input_errors_and_late_write_callbacks_do_not_leak_to_other_targets() {
         cx.run_until_parked();
         window
             .read_with(&cx, |root, _| {
-                assert!(root.remote_window.as_ref().unwrap().action_error.is_none())
+                assert!(root
+                    .remote_client
+                    .workspace()
+                    .unwrap()
+                    .action_error
+                    .is_none())
             })
             .unwrap();
     }
     let old_input = window
         .read_with(&cx, |root, _| {
-            root.remote_window.as_ref().unwrap().terminals["s"]
+            root.remote_client.workspace().unwrap().terminals["s"]
                 .attachment
                 .terminal_input
                 .clone()
@@ -2906,7 +2922,11 @@ fn remote_input_errors_and_late_write_callbacks_do_not_leak_to_other_targets() {
     window
         .read_with(&cx, |root, _| {
             assert_eq!(
-                root.remote_window.as_ref().unwrap().action_error.as_deref(),
+                root.remote_client
+                    .workspace()
+                    .unwrap()
+                    .action_error
+                    .as_deref(),
                 Some("input was discarded")
             )
         })
@@ -2921,7 +2941,7 @@ fn remote_input_errors_and_late_write_callbacks_do_not_leak_to_other_targets() {
     cx.run_until_parked();
     window
         .read_with(&cx, |root, _| {
-            assert!(root.remote_window.is_none());
+            assert!(root.remote_client.is_local());
             assert!(root.chat_error.is_none());
         })
         .unwrap();
@@ -2941,7 +2961,12 @@ fn remote_input_errors_and_late_write_callbacks_do_not_leak_to_other_targets() {
     cx.run_until_parked();
     window
         .read_with(&cx, |root, _| {
-            assert!(root.remote_window.as_ref().unwrap().action_error.is_none())
+            assert!(root
+                .remote_client
+                .workspace()
+                .unwrap()
+                .action_error
+                .is_none())
         })
         .unwrap();
 }
@@ -2960,17 +2985,17 @@ fn pair_then_open_connects_when_follow_pushes_without_a_new_connection_event() {
     window
         .update(&mut cx, |root, window, cx| {
             let computer = fake.computers.lock().unwrap()[1].clone();
-            root.open_computer_pair(
+            root.remote_client.open_computer_pair(
                 computer,
                 pairing::Purpose::Open { new_window: false },
                 window,
                 cx,
             );
-            let field = root.client_ui.pair.as_ref().unwrap().field.clone();
+            let field = root.remote_client.ui.pair.as_ref().unwrap().field.clone();
             field.update(cx, |field, cx| {
                 field.replace_text_in_range(None, "001234", window, cx)
             });
-            root.submit_computer_pin(window, cx);
+            root.remote_client.submit_computer_pin(window, cx);
         })
         .unwrap();
     cx.run_until_parked();
@@ -2982,7 +3007,7 @@ fn pair_then_open_connects_when_follow_pushes_without_a_new_connection_event() {
         .contains(&("host".into(), true)));
     window
         .read_with(&cx, |root, _| {
-            let remote = root.remote_window.as_ref().unwrap();
+            let remote = root.remote_client.workspace().unwrap();
             assert!(remote.connection == Connection::Connected);
             assert!(remote.terminals.contains_key("s"));
         })
@@ -3026,7 +3051,7 @@ fn retry_on_a_busy_live_route_connects_despite_data_pushes_during_load() {
     });
     window
         .read_with(&cx, |root, _| {
-            assert!(root.remote_window.as_ref().unwrap().connection == Connection::Connected)
+            assert!(root.remote_client.workspace().unwrap().connection == Connection::Connected)
         })
         .unwrap();
 }
@@ -3058,9 +3083,12 @@ fn duplicate_incoming_keys_keep_separate_device_rows_and_revoke_menus() {
                 assert!(row.computer.is_none());
                 assert_eq!(row.devices.len(), 1);
                 assert_eq!(row.devices[0].fingerprint, key);
-                assert!(root.computer_menu(row.computer, &row.devices, cx).is_some());
+                assert!(root
+                    .remote_client
+                    .computer_menu(row.computer, &row.devices, cx)
+                    .is_some());
             }
-            let menus = root.client_ui.menus.borrow();
+            let menus = root.remote_client.ui.menus.borrow();
             assert!(menus.contains_key("first-key-first-key-false"));
             assert!(menus.contains_key("second-key-second-key-false"));
         })
@@ -3257,7 +3285,7 @@ fn forgetting_locally_closes_the_mirror_and_uses_plain_pairing_copy_despite_late
             );
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(remote.connection == Connection::Forgotten);
                     assert!(remote.terminals.is_empty());
                 })
@@ -3266,13 +3294,13 @@ fn forgetting_locally_closes_the_mirror_and_uses_plain_pairing_copy_despite_late
             assert!(visual.debug_bounds("REMOTE_CONNECTION_CARD").is_some());
             window
                 .update(&mut cx, |root, window, cx| {
-                    root.open_computer_pair(
+                    root.remote_client.open_computer_pair(
                         computers()[1].clone(),
                         pairing::Purpose::Open { new_window: false },
                         window,
                         cx,
                     );
-                    assert!(!root.client_ui.pair.as_ref().unwrap().again);
+                    assert!(!root.remote_client.ui.pair.as_ref().unwrap().again);
                 })
                 .unwrap();
         });
@@ -3334,7 +3362,7 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
             cx.run_until_parked();
             let original = window
                 .read_with(&cx, |root, _| {
-                    root.remote_window.as_ref().unwrap().terminals["s"]
+                    root.remote_client.workspace().unwrap().terminals["s"]
                         .attachment
                         .terminal
                         .clone()
@@ -3352,7 +3380,7 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
                 .read_with(&cx, |root, _| {
                     assert!(Arc::ptr_eq(
                         &original,
-                        &root.remote_window.as_ref().unwrap().terminals["s"]
+                        &root.remote_client.workspace().unwrap().terminals["s"]
                             .attachment
                             .terminal
                     ))
@@ -3362,14 +3390,18 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
             assert_eq!(fake.follows.lock().unwrap().len(), follows);
             fake.fail_take.store(true, Ordering::SeqCst);
             window
-                .update(&mut cx, |root, _, cx| root.take_remote_control("s", cx))
+                .update(&mut cx, |root, _, cx| {
+                    root.remote_client.take_remote_control("s", cx)
+                })
                 .unwrap();
             cx.run_until_parked();
             let mut visual = VisualTestContext::from_window(window.into(), &cx);
             assert!(visual.debug_bounds("REMOTE_CONTROL_FAILED").is_some());
             fake.fail_take.store(false, Ordering::SeqCst);
             window
-                .update(&mut cx, |root, _, cx| root.take_remote_control("s", cx))
+                .update(&mut cx, |root, _, cx| {
+                    root.remote_client.take_remote_control("s", cx)
+                })
                 .unwrap();
             cx.run_until_parked();
             let mut visual = VisualTestContext::from_window(window.into(), &cx);
@@ -3377,7 +3409,9 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
             assert_eq!(fake.takes.lock().unwrap().len(), 2);
             fake.fail_take.store(true, Ordering::SeqCst);
             window
-                .update(&mut cx, |root, _, cx| root.take_remote_control("s", cx))
+                .update(&mut cx, |root, _, cx| {
+                    root.remote_client.take_remote_control("s", cx)
+                })
                 .unwrap();
             cx.run_until_parked();
             let mut visual = VisualTestContext::from_window(window.into(), &cx);
@@ -3411,7 +3445,7 @@ fn take_control_failure_is_visible_and_reselecting_current_computer_preserves_th
             assert_eq!(fake.attaches.lock().unwrap().len(), attaches + 1);
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(remote.connection == Connection::Connected);
                     assert!(!Arc::ptr_eq(
                         &original,
@@ -3474,7 +3508,7 @@ fn switching_computers_restores_each_windows_remote_sidebar_view() {
     let sidebar = |cx: &TestAppContext| {
         window
             .read_with(cx, |root, _| {
-                root.remote_window.as_ref().unwrap().sidebar.clone()
+                root.remote_client.workspace().unwrap().sidebar.clone()
             })
             .unwrap()
     };
@@ -3553,7 +3587,7 @@ fn switching_computers_restores_each_windows_remote_sidebar_view() {
     cx.run_until_parked();
     second
         .read_with(&cx, |root, cx| {
-            let sidebar = root.remote_window.as_ref().unwrap().sidebar.read(cx);
+            let sidebar = root.remote_client.workspace().unwrap().sidebar.read(cx);
             assert_eq!(view(sidebar.remote_settings.as_ref().unwrap()), defaults);
         })
         .unwrap();
@@ -3603,7 +3637,7 @@ fn switching_back_to_a_computer_restores_its_selection_and_split_focus() {
     let active = |cx: &mut TestAppContext| {
         window
             .read_with(cx, |root, _| {
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 match &remote.active {
                     Some(Item::Tab(id)) => (remote.computer.id.clone(), id.clone()),
                     _ => panic!("expected a remote tab"),
@@ -3634,7 +3668,7 @@ fn switching_back_to_a_computer_restores_its_selection_and_split_focus() {
 
     visit(&mut cx, computers()[0].clone());
     assert!(window
-        .read_with(&cx, |root, _| root.remote_window.is_none())
+        .read_with(&cx, |root, _| root.remote_client.is_local())
         .unwrap());
     visit(&mut cx, computers()[1].clone());
     assert_eq!(active(&mut cx), ("host".into(), "project-tab".into()));
@@ -3708,7 +3742,7 @@ fn pairing_again_restores_existing_windows_follow_and_replaces_its_terminal() {
         cx.run_until_parked();
         let original = window
             .read_with(&cx, |root, _| {
-                root.remote_window.as_ref().unwrap().terminals["s"]
+                root.remote_client.workspace().unwrap().terminals["s"]
                     .attachment
                     .terminal
                     .clone()
@@ -3731,17 +3765,17 @@ fn pairing_again_restores_existing_windows_follow_and_replaces_its_terminal() {
         *fake.snapshot.lock().unwrap() = b"newly paired snapshot".to_vec();
         window
             .update(&mut cx, |root, window, cx| {
-                root.open_computer_pair(
+                root.remote_client.open_computer_pair(
                     computers()[1].clone(),
                     pairing::Purpose::Open { new_window: false },
                     window,
                     cx,
                 );
-                let field = root.client_ui.pair.as_ref().unwrap().field.clone();
+                let field = root.remote_client.ui.pair.as_ref().unwrap().field.clone();
                 field.update(cx, |field, cx| {
                     field.replace_text_in_range(None, "001234", window, cx)
                 });
-                root.submit_computer_pin(window, cx);
+                root.remote_client.submit_computer_pin(window, cx);
             })
             .unwrap();
         cx.run_until_parked();
@@ -3749,8 +3783,8 @@ fn pairing_again_restores_existing_windows_follow_and_replaces_its_terminal() {
         assert!(fake.follows.lock().unwrap()[follows_before..].contains(&("host".into(), true)));
         window
             .read_with(&cx, |root, _| {
-                assert!(root.client_ui.pair.is_none());
-                let remote = root.remote_window.as_ref().unwrap();
+                assert!(root.remote_client.ui.pair.is_none());
+                let remote = root.remote_client.workspace().unwrap();
                 assert!(remote.connection == Connection::Connected);
                 assert!(!Arc::ptr_eq(
                     &original,
@@ -3848,7 +3882,7 @@ fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() 
     assert!(action_trace(&fake, "rename").is_empty());
     window
         .read_with(&visual, |root, _| {
-            let remote = root.remote_window.as_ref().unwrap();
+            let remote = root.remote_client.workspace().unwrap();
             assert_eq!(remote.layouts.len(), 1);
             assert_eq!(remote.activate_session.as_deref(), Some("started-session"));
             assert_eq!(root.tabs.tabs().len(), 0);
@@ -3868,7 +3902,7 @@ fn shared_remote_start_uses_host_choices_and_keeps_success_pending_until_push() 
     visual.run_until_parked();
     window
         .read_with(&visual, |root, _| {
-            let remote = root.remote_window.as_ref().unwrap();
+            let remote = root.remote_client.workspace().unwrap();
             assert!(remote.active == Some(RemoteItem::Tab("started-tab".into())));
             assert!(remote.activate_session.is_none());
         })
@@ -4020,7 +4054,10 @@ fn remote_layout_waits_for_topology_push_and_serializes_each_tab() {
     cx.run_until_parked();
     window
         .read_with(&cx, |root, _| {
-            assert_eq!(root.remote_window.as_ref().unwrap().layout_hints.len(), 1)
+            assert_eq!(
+                root.remote_client.workspace().unwrap().layout_hints.len(),
+                1
+            )
         })
         .unwrap();
     pushed.tabs[0].panes = serde_json::from_value(serde_json::json!({"split":"column","sizes":[0.5,0.5],"a":{"session":"s"},"b":{"session":null}})).unwrap();
@@ -4030,7 +4067,12 @@ fn remote_layout_waits_for_topology_push_and_serializes_each_tab() {
         .read_with(&cx, |root, _| {
             let layout = root.front_page_layout().unwrap();
             assert_eq!(layout.root.leaves()[1].id, draft.root.leaves()[1].id);
-            assert!(root.remote_window.as_ref().unwrap().layout_hints.is_empty());
+            assert!(root
+                .remote_client
+                .workspace()
+                .unwrap()
+                .layout_hints
+                .is_empty());
         })
         .unwrap();
     let attaches = fake.attaches.lock().unwrap().len();
@@ -4059,7 +4101,12 @@ fn remote_layout_waits_for_topology_push_and_serializes_each_tab() {
     window
         .read_with(&cx, |root, _| {
             assert_eq!(root.front_page_layout().unwrap().root.leaves().len(), 1);
-            assert!(root.remote_window.as_ref().unwrap().layout_hints.is_empty());
+            assert!(root
+                .remote_client
+                .workspace()
+                .unwrap()
+                .layout_hints
+                .is_empty());
         })
         .unwrap();
     assert_eq!(action_trace(&fake, "layout").len(), 2);
@@ -4330,7 +4377,7 @@ fn picker_follows_only_online_paired_computers_and_releases_on_lock_offline_and_
     window
         .read_with(&cx, |root, cx| {
             assert!(!root.front_page_client(cx).supports(&["stop"]));
-            assert!(root.remote_window.as_ref().unwrap().connection == Connection::Revoked);
+            assert!(root.remote_client.workspace().unwrap().connection == Connection::Revoked);
         })
         .unwrap();
     fake.emit(
@@ -4517,7 +4564,7 @@ fn placed_starts_ignore_intermediate_tabs_and_activate_only_the_destination() {
         cx.run_until_parked();
         window
             .read_with(&cx, |root, _| {
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 assert_eq!(
                     remote.activate_session.as_deref(),
                     Some("started-session"),
@@ -4540,7 +4587,7 @@ fn placed_starts_ignore_intermediate_tabs_and_activate_only_the_destination() {
         cx.run_until_parked();
         window
             .read_with(&cx, |root, _| {
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 assert!(remote.activate_session.is_none(), "{placement}");
                 assert!(matches!(&remote.active, Some(Item::Tab(id)) if id == "remote-tab"));
                 let layout = root.front_page_layout().unwrap();
@@ -4556,7 +4603,8 @@ fn placed_starts_ignore_intermediate_tabs_and_activate_only_the_destination() {
         // Selection of an independently removed tab is reconciled too.
         window
             .update(&mut cx, |root, _, cx| {
-                root.remote_window.as_mut().unwrap().active = Some(Item::Tab("removed-tab".into()));
+                root.remote_client.workspace_mut().unwrap().active =
+                    Some(Item::Tab("removed-tab".into()));
                 root.sync_remote_state(cx);
                 assert_eq!(root.front_page_layout().unwrap().id, "remote-tab");
             })
@@ -4614,7 +4662,7 @@ fn a_newer_host_topology_supersedes_a_chat_fill_result_and_allows_the_next_edit(
     assert_eq!(action_trace(&fake, "layout").len(), 1);
     window
         .update(&mut cx, |root, _, cx| {
-            let remote = root.remote_window.as_ref().unwrap();
+            let remote = root.remote_client.workspace().unwrap();
             assert!(remote.layout_hints.is_empty());
             assert!(remote.activate_session.is_none());
             assert_eq!(root.front_page_layout().unwrap().root.leaves().len(), 1);
@@ -4748,7 +4796,7 @@ fn remote_split_shortcuts_use_target_focus_with_no_or_disjoint_local_tabs() {
                 window
                     .update(&mut visual, |root, window, cx| {
                         window.activate_window();
-                        root.focus_remote_terminal("s", window, cx);
+                        root.remote_client.focus_remote_terminal("s", window, cx);
                     })
                     .unwrap();
                 visual.run_until_parked();
@@ -4825,8 +4873,8 @@ fn remote_shell_split_and_empty_fill_inherit_the_owning_host_cwd() {
             .update(&mut cx, |root, window, cx| {
                 let layout = root.front_page_layout().unwrap();
                 let pane = layout.focused_pane_id.clone();
-                root.remote_window
-                    .as_mut()
+                root.remote_client
+                    .workspace_mut()
                     .unwrap()
                     .pane_bounds
                     .insert(PaneKey::new("remote-tab", &pane), size(px(1000.), px(600.)));
@@ -4926,7 +4974,7 @@ fn last_member_removal_relies_on_host_tab_deletion_and_empty_tabs_archive_explic
         );
         window
             .read_with(&cx, |root, _| {
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 assert!(
                     remote.action_error.is_none(),
                     "{case}: {:?}",
@@ -4945,7 +4993,7 @@ fn last_member_removal_relies_on_host_tab_deletion_and_empty_tabs_archive_explic
         cx.run_until_parked();
         window
             .read_with(&cx, |root, _| {
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 assert!(!remote.layouts.contains_key("remote-tab"));
                 assert!(remote.action_error.is_none());
                 assert!(remote.layout_hints.is_empty());
@@ -5041,8 +5089,8 @@ fn navigating_before_results_or_confirming_pushes_cancels_remote_activation() {
                     if before_result {
                         assert!(
                             !root
-                                .remote_window
-                                .as_ref()
+                                .remote_client
+                                .workspace()
                                 .unwrap()
                                 .actions_pending
                                 .is_empty(),
@@ -5055,7 +5103,7 @@ fn navigating_before_results_or_confirming_pushes_cancels_remote_activation() {
             cx.run_until_parked();
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(
                         remote.active == Some(destination.clone()),
                         "{operation}, before_result={before_result}"
@@ -5089,7 +5137,7 @@ fn navigating_before_results_or_confirming_pushes_cancels_remote_activation() {
             cx.run_until_parked();
             window
                 .read_with(&cx, |root, _| {
-                    let remote = root.remote_window.as_ref().unwrap();
+                    let remote = root.remote_client.workspace().unwrap();
                     assert!(
                         remote.active == Some(destination.clone()),
                         "{operation}, before_result={before_result}"
@@ -5134,7 +5182,7 @@ fn late_shell_placement_failure_settles_without_showing_errors_or_retrying_in_an
     cx.run_until_parked();
     window
         .update(&mut cx, |root, _, cx| {
-            let remote = root.remote_window.as_ref().unwrap();
+            let remote = root.remote_client.workspace().unwrap();
             assert!(remote.actions_pending.is_empty());
             assert!(remote.action_error.is_none());
             assert!(remote.shell_placement.lock().unwrap().is_none());
@@ -5169,8 +5217,8 @@ fn navigation_cancels_a_start_form_waiting_for_its_catalog_without_holding_the_n
         .update(&mut cx, |root, window, cx| {
             root.open_new_tab_modal(&NewTab, window, cx);
             assert!(root
-                .remote_window
-                .as_ref()
+                .remote_client
+                .workspace()
                 .unwrap()
                 .actions_pending
                 .contains("catalog"));
@@ -5181,7 +5229,7 @@ fn navigation_cancels_a_start_form_waiting_for_its_catalog_without_holding_the_n
     window
         .update(&mut cx, |root, window, cx| {
             assert!(root.start_chat_modal.is_none());
-            let remote = root.remote_window.as_ref().unwrap();
+            let remote = root.remote_client.workspace().unwrap();
             assert!(remote.active == Some(Item::Mission("remote-mission".into())));
             assert!(remote.actions_pending.is_empty());
             root.open_new_tab_modal(&NewTab, window, cx);
@@ -5270,7 +5318,7 @@ fn remote_libraries_show_host_rows_without_management_or_local_requests() {
         .read_with(&visual, |root, _| {
             assert!(root.start_chat_modal.is_none());
             assert_eq!(root.route, original_route);
-            assert!(root.remote_window.as_ref().unwrap().active == Some(Item::Roles));
+            assert!(root.remote_client.workspace().unwrap().active == Some(Item::Roles));
         })
         .unwrap();
     fake.queue_result("catalog", Ok(library_catalog(2)));
@@ -5288,7 +5336,7 @@ fn remote_libraries_show_host_rows_without_management_or_local_requests() {
         .read_with(&visual, |root, _| {
             assert!(root.start_mission_modal.is_none());
             assert_eq!(root.route, original_route);
-            assert!(root.remote_window.as_ref().unwrap().active == Some(Item::Crews));
+            assert!(root.remote_client.workspace().unwrap().active == Some(Item::Crews));
         })
         .unwrap();
     assert!(fake.local_requests.lock().unwrap().is_empty());
@@ -5306,7 +5354,7 @@ fn remote_libraries_show_host_rows_without_management_or_local_requests() {
     visual.run_until_parked();
     window
         .read_with(&visual, |root, _| {
-            assert!(root.remote_window.is_none());
+            assert!(root.remote_client.is_local());
             assert_eq!(root.route, original_route);
         })
         .unwrap();
@@ -5438,7 +5486,9 @@ fn remote_libraries_filter_page_and_refresh_errors_without_local_preferences() {
     assert!(visual.debug_bounds("CREW_ROW:host-crew").is_some());
     fake.queue_result("catalog", Ok(library_catalog(0)));
     window
-        .update(&mut visual, |root, _, cx| root.refresh_remote_library(cx))
+        .update(&mut visual, |root, _, cx| {
+            root.remote_client.refresh_remote_library(cx)
+        })
         .unwrap();
     visual.run_until_parked();
     assert!(visual.debug_bounds("CREW_ROW:host-crew").is_none());
@@ -5512,8 +5562,8 @@ fn remote_library_catalog_replies_cannot_override_a_refresh_or_local_return() {
         window
             .read_with(&visual, |root, _| {
                 assert!(root
-                    .remote_window
-                    .as_ref()
+                    .remote_client
+                    .workspace()
                     .unwrap()
                     .library_catalog
                     .is_none())
@@ -5528,13 +5578,15 @@ fn remote_library_catalog_replies_cannot_override_a_refresh_or_local_return() {
         } else {
             fake.queue_result("catalog", Ok(library_catalog(3)));
             window
-                .update(&mut visual, |root, _, cx| root.refresh_remote_library(cx))
+                .update(&mut visual, |root, _, cx| {
+                    root.remote_client.refresh_remote_library(cx)
+                })
                 .unwrap();
         }
         visual.run_until_parked();
         if return_local {
             window
-                .read_with(&visual, |root, _| assert!(root.remote_window.is_none()))
+                .read_with(&visual, |root, _| assert!(root.remote_client.is_local()))
                 .unwrap();
             assert!(visual.debug_bounds("ROLE_ROW:host-role-0").is_none());
         } else {
@@ -5542,8 +5594,8 @@ fn remote_library_catalog_replies_cannot_override_a_refresh_or_local_return() {
             window
                 .read_with(&visual, |root, _| {
                     assert_eq!(
-                        root.remote_window
-                            .as_ref()
+                        root.remote_client
+                            .workspace()
                             .unwrap()
                             .library_catalog
                             .as_ref()
@@ -5586,7 +5638,11 @@ fn remote_role_library_does_not_replace_a_removed_role_with_another() {
         .read_with(&visual, |root, _| {
             assert!(root.start_chat_modal.is_none());
             assert_eq!(
-                root.remote_window.as_ref().unwrap().action_error.as_deref(),
+                root.remote_client
+                    .workspace()
+                    .unwrap()
+                    .action_error
+                    .as_deref(),
                 Some(crate::i18n::text("client.role_unavailable"))
             );
         })
@@ -5607,8 +5663,8 @@ fn remote_library_catalog_replies_are_scoped_to_host_and_connection_generation()
         cx.run_until_parked();
         let old = window
             .read_with(&cx, |root, _| {
-                root.remote_window
-                    .as_ref()
+                root.remote_client
+                    .workspace()
                     .unwrap()
                     .front_page
                     .target
@@ -5660,7 +5716,7 @@ fn remote_library_catalog_replies_are_scoped_to_host_and_connection_generation()
         assert!(visual.debug_bounds("ROLE_ROW:host-role-2").is_some());
         window
             .read_with(&visual, |root, _| {
-                let remote = root.remote_window.as_ref().unwrap();
+                let remote = root.remote_client.workspace().unwrap();
                 assert_ne!(remote.front_page.target, old);
                 assert_eq!(remote.library_catalog.as_ref().unwrap().roles.len(), 3);
                 assert_eq!(
@@ -5758,7 +5814,7 @@ fn remote_terminals_follow_the_viewer_cursor_and_selection_settings() {
     let terminal = |cx: &TestAppContext| {
         window
             .read_with(cx, |root, _| {
-                let term = root.remote_window.as_ref().unwrap().terminals["s"]
+                let term = root.remote_client.workspace().unwrap().terminals["s"]
                     .attachment
                     .terminal
                     .term
@@ -5796,7 +5852,7 @@ fn remote_terminals_draw_with_the_host_palette_and_fall_back_to_the_viewer() {
         window
             .read_with(cx, |root, cx| {
                 (
-                    root.remote_window.as_ref().unwrap().terminals["s"]
+                    root.remote_client.workspace().unwrap().terminals["s"]
                         .attachment
                         .terminal
                         .palette(),
@@ -5839,8 +5895,8 @@ fn remote_terminal_keyboard_copy_interrupt_and_paste_follow_platform_bindings() 
     let terminal = window
         .update(&mut visual, |root, window, cx| {
             window.activate_window();
-            root.focus_remote_terminal("s", window, cx);
-            root.remote_window.as_ref().unwrap().terminals["s"]
+            root.remote_client.focus_remote_terminal("s", window, cx);
+            root.remote_client.workspace().unwrap().terminals["s"]
                 .attachment
                 .terminal
                 .clone()

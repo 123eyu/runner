@@ -163,22 +163,22 @@ impl NativeRoot {
             .as_ref()
             .is_some_and(account::signed_in)
         {
-            self.client_ui.picker_open = false;
+            self.remote_client.ui.picker_open = false;
         }
         if self.app_store.read(cx).remote_access_enabled() {
             return;
         }
-        let changed = self.client_ui.picker_open
-            || self.client_ui.pair.is_some()
+        let changed = self.remote_client.ui.picker_open
+            || self.remote_client.ui.pair.is_some()
             || self.account_menu.state.open
             || self.remote_overlay_open()
             || matches!(
                 self.settings_page.pane,
                 SettingsPane::Account | SettingsPane::Remote
             );
-        self.client_ui.picker_open = false;
-        if self.client_ui.pair.take().is_some() {
-            self.client_ui.pair_generation += 1;
+        self.remote_client.ui.picker_open = false;
+        if self.remote_client.ui.pair.take().is_some() {
+            self.remote_client.ui.pair_generation += 1;
         }
         self.account_menu.state.close();
         self.dismiss_remote_dialog();
@@ -188,7 +188,7 @@ impl NativeRoot {
         ) {
             self.settings_page.pane = SettingsPane::General;
         }
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.return_to_this_computer(window, cx);
         } else if changed {
             self.root_focus.focus(window, cx);
@@ -283,7 +283,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn enter_remote_settings(&mut self, cx: &mut Context<Self>) {
-        self.refresh_computers(cx);
+        self.remote_client.refresh_computers(cx);
         self.remote_request(false, |c| c.remote_status(), cx);
         self.settings_page.remote.generation += 1;
         let generation = self.settings_page.remote.generation;
@@ -430,7 +430,7 @@ impl NativeRoot {
         if account::signed_in(&status) {
             body = body
                 .child(self.relay_card(&status, &trust, cx))
-                .child(self.render_computers(&trust, &status, cx))
+                .child(self.remote_client.render_computers(&trust, &status, cx))
                 .child(
                     div()
                         .flex()

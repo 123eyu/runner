@@ -135,7 +135,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
 
@@ -155,7 +155,7 @@ impl NativeRoot {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if self.front_page_client(cx).supports(&["fork"])
                 && self
                     .front_page_session(session_id, cx)
@@ -191,6 +191,7 @@ impl NativeRoot {
                 return;
             };
             let size = self
+                .remote_client
                 .remote_terminal_size(&confirm.session_id)
                 .unwrap_or((INITIAL_COLS, INITIAL_ROWS));
             (confirm.session_id, None, (size.0.max(20), size.1.max(8)))
@@ -222,7 +223,7 @@ impl NativeRoot {
             core.fork(&backend_source_session_id, title, size)
                 .map_err(|error| error.to_string())
         });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = fork.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -238,7 +239,7 @@ impl NativeRoot {
                 ) else {
                     return;
                 };
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.forking_sessions.remove(&source_session_id);
                     cx.notify();
                     return;
@@ -322,7 +323,8 @@ impl NativeRoot {
                     .get("message")
                     .and_then(serde_json::Value::as_str)
                 {
-                    self.report_remote_input_error(address, message.to_owned(), cx);
+                    self.remote_client
+                        .report_remote_input_error(address, message.to_owned(), cx);
                 }
                 return;
             }
@@ -478,7 +480,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn sync_active_chat_detail(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let selected = self.active_focused_session_id();
@@ -495,7 +497,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn ensure_active_chat_detail(&mut self, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return;
         }
         let active = self.active_focused_session_id();
@@ -584,7 +586,7 @@ impl NativeRoot {
                     );
                     if settled {
                         this.chat_transitions.remove(&tracked_id);
-                        if this.remote_window.is_none() && this.route == AppRoute::Chat {
+                        if this.remote_client.is_local() && this.route == AppRoute::Chat {
                             let active_drawer = this
                                 .tabs
                                 .active()
@@ -648,7 +650,7 @@ impl NativeRoot {
         let stop = cx.background_spawn(async move {
             core.stop(&stop_target).map_err(|error| error.to_string())
         });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = stop.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -657,7 +659,7 @@ impl NativeRoot {
                 else {
                     return;
                 };
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.stopping_sessions.remove(&target);
                     this.chat_transitions.remove(&target);
                     cx.notify();
@@ -760,7 +762,7 @@ impl NativeRoot {
                 .front_page_session(&session_id, cx)
                 .is_some_and(|entry| entry.status != SessionStatus::Running)
                 && !self.session_lifecycle_disabled(&session_id, cx)
-                && (self.remote_window.is_some()
+                && (self.remote_client.is_active()
                     || !self.chat_transitions.contains_key(&session_id));
             if resumable {
                 if let Some(pane_id) = pane_ids.get(&session_id) {
@@ -776,12 +778,8 @@ impl NativeRoot {
         pinned: bool,
         cx: &mut Context<Self>,
     ) {
-        let node = if let Some(remote) = &self.remote_window {
-            let tab = remote
-                .layouts
-                .values()
-                .find(|layout| layout.contains_session(&session_id))
-                .map(|layout| layout.id.clone());
+        let node = if self.remote_client.is_active() {
+            let tab = self.remote_client.session_tab(&session_id);
             let Some(tab) = tab else {
                 return;
             };
@@ -826,7 +824,7 @@ impl NativeRoot {
             core.pin_chat(&target, next, node.as_ref())
                 .map_err(|error| error.to_string())
         });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn(async move |weak, cx| {
             let result = pin.await;
             let _ = weak.update(cx, |this, cx| {
@@ -835,7 +833,7 @@ impl NativeRoot {
                 else {
                     return;
                 };
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     cx.notify();
                     return;
                 }
@@ -1037,7 +1035,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             return Ok(());
         }
         if self.closing {
@@ -1261,10 +1259,8 @@ impl NativeRoot {
     }
 
     pub(crate) fn session_lifecycle_disabled(&self, session_id: &str, cx: &App) -> bool {
-        if let Some(remote) = &self.remote_window {
-            return remote
-                .actions_pending
-                .contains(&format!("session:{session_id}"));
+        if self.remote_client.is_active() {
+            return self.remote_client.session_pending(session_id);
         }
 
         self.stopping_sessions.contains(session_id)
@@ -1274,8 +1270,10 @@ impl NativeRoot {
     }
 
     pub(crate) fn session_is_interactive(&self, session_id: &str, cx: &App) -> bool {
-        if self.remote_window.is_some() {
-            return self.remote_terminal_interactive(session_id, cx);
+        if self.remote_client.is_active() {
+            return self
+                .remote_client
+                .remote_terminal_interactive(session_id, cx);
         }
 
         self.route == AppRoute::Chat
@@ -1295,8 +1293,10 @@ impl NativeRoot {
     }
 
     pub(crate) fn cached_session_is_interactive(&self, session_id: &str, cx: &App) -> bool {
-        if self.remote_window.is_some() {
-            return self.remote_terminal_interactive(session_id, cx);
+        if self.remote_client.is_active() {
+            return self
+                .remote_client
+                .remote_terminal_interactive(session_id, cx);
         }
 
         self.route == AppRoute::Chat
@@ -1316,12 +1316,12 @@ impl NativeRoot {
     }
 
     pub(crate) fn focus_active_terminal(&self, window: &mut Window, cx: &mut App) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(id) = self
                 .front_page_layout()
                 .and_then(PaneLayout::focused_session_id)
             {
-                self.focus_remote_terminal(id, window, cx);
+                self.remote_client.focus_remote_terminal(id, window, cx);
             }
             return;
         }
@@ -1345,7 +1345,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.select_remote_item(
                 crate::surfaces::remote_client::RemoteItem::Tab(tab_id.into()),
                 cx,
@@ -1371,7 +1371,7 @@ impl NativeRoot {
     }
 
     pub(crate) fn focus_pane(&mut self, pane_id: &str, cx: &mut Context<Self>) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(layout) = self.front_page_layout_mut() {
                 layout.focus_pane(pane_id);
             }
@@ -1462,9 +1462,10 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.focus_pane(pane_id, cx);
-            self.focus_remote_terminal(session_id, window, cx);
+            self.remote_client
+                .focus_remote_terminal(session_id, window, cx);
             return;
         }
 
@@ -1491,8 +1492,9 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
-            self.focus_remote_terminal(session_id, window, cx);
+        if self.remote_client.is_active() {
+            self.remote_client
+                .focus_remote_terminal(session_id, window, cx);
             return;
         }
 
@@ -1666,6 +1668,7 @@ impl NativeRoot {
         }
         let size = if remote {
             let size = self
+                .remote_client
                 .remote_terminal_size(session_id)
                 .or_else(|| {
                     layout
@@ -1708,7 +1711,7 @@ impl NativeRoot {
             core.resume(&resume_target, size)
                 .map_err(|error| error.to_string())
         });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = resume.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -1726,7 +1729,7 @@ impl NativeRoot {
                 };
                 let result = result.map(drop);
                 let layout = layout.as_ref().unwrap();
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.chat_transitions.remove(&target);
                     cx.notify();
                     return;
@@ -1794,6 +1797,7 @@ impl NativeRoot {
         }
         let size = if remote {
             let size = self
+                .remote_client
                 .remote_terminal_size(session_id)
                 .unwrap_or((INITIAL_COLS, INITIAL_ROWS));
             (size.0.max(20), size.1.max(8))
@@ -1828,7 +1832,7 @@ impl NativeRoot {
             core.resume_session(&resume_target, size, launch_claim)
                 .map_err(|error| error.to_string())
         });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = resume.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -1846,7 +1850,7 @@ impl NativeRoot {
                 };
                 let result = result.map(drop);
                 let layout = layout.as_ref().unwrap();
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.chat_transitions.remove(&target);
                     cx.notify();
                     return;
@@ -2169,7 +2173,7 @@ impl NativeRoot {
         let target = session_id.to_owned();
         let pane_id = pane_id.to_owned();
         let close = cx.background_spawn(async move { close_operation() });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = close.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -2179,7 +2183,7 @@ impl NativeRoot {
                     return;
                 };
                 let result = result.map(drop);
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.stopping_sessions.remove(&target);
                     this.chat_transitions.remove(&target);
                     cx.notify();
@@ -2223,7 +2227,7 @@ impl NativeRoot {
         };
         let target = session_id.to_owned();
         let close = cx.background_spawn(async move { close_operation() });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = close.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -2233,7 +2237,7 @@ impl NativeRoot {
                     return;
                 };
                 let result = result.map(drop);
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.stopping_sessions.remove(&target);
                     this.chat_transitions.remove(&target);
                     cx.notify();
@@ -2277,7 +2281,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             TerminalCloseConfirm::open(
                 &mut self.terminal_close_confirm,
                 TerminalCloseTarget::Drawer {
@@ -2323,7 +2327,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             TerminalCloseConfirm::open(
                 &mut self.terminal_close_confirm,
                 TerminalCloseTarget::Pane {
@@ -2368,7 +2372,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(layout) = self.front_page_layout() {
                 let target = archive_chat_pane_target(layout, pane_id, session_id);
                 TerminalCloseConfirm::open(&mut self.terminal_close_confirm, target, window, cx);
@@ -2486,7 +2490,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             self.select_remote_item(
                 crate::surfaces::remote_client::RemoteItem::Tab(tab_id.into()),
                 cx,
@@ -2558,7 +2562,7 @@ impl NativeRoot {
         };
         let target = session_id.to_owned();
         let close = cx.background_spawn(async move { close_operation() });
-        let origin_epoch = self.client_ui.epoch;
+        let origin_epoch = self.remote_client.ui.epoch;
         cx.spawn_in(window, async move |weak, cx| {
             let result = close.await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -2568,7 +2572,7 @@ impl NativeRoot {
                     return;
                 };
                 let result = result.and_then(|done| done.error.map_or(Ok(()), Err));
-                if this.client_ui.epoch != origin_epoch {
+                if this.remote_client.ui.epoch != origin_epoch {
                     this.stopping_sessions.remove(&target);
                     this.chat_transitions.remove(&target);
                     cx.notify();
@@ -2611,7 +2615,7 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             if let Some(tab) = tab_id {
                 self.select_remote_item(
                     crate::surfaces::remote_client::RemoteItem::Tab(tab.into()),
@@ -2700,6 +2704,7 @@ impl NativeRoot {
             }
             TerminalCloseTarget::MissionDrawer { session_id } => {
                 let workspace = self
+                    .remote_client
                     .remote_mission_workspace()
                     .unwrap_or_else(|| self.mission_workspace.clone());
                 workspace.update(cx, |workspace, workspace_cx| {
@@ -2743,19 +2748,8 @@ impl NativeRoot {
         }
         .clamp(0.15, 0.85)
             * 100.;
-        let draft = self
-            .remote_window
-            .as_ref()
-            .and_then(|_| self.front_page_layout().cloned());
-        if let Some(remote) = self.remote_window.as_mut() {
-            if remote.resize_draft.is_none() {
-                remote.resize_draft = draft;
-            }
-            if let Some(draft) = remote.resize_draft.as_mut() {
-                draft.set_split_sizes(split_id, [ratio, 100. - ratio]);
-            }
-            remote.resizing_split = Some(split_id.into());
-            cx.notify();
+        if self.remote_client.is_active() {
+            self.remote_client.resize_split(split_id, ratio, cx);
             return;
         }
         if self
@@ -2782,10 +2776,8 @@ impl NativeRoot {
     }
 
     pub(crate) fn finish_split_resize(&mut self, cx: &mut Context<Self>) {
-        if let Some(remote) = self.remote_window.as_mut() {
-            remote.resizing_split = None;
-            let draft = remote.resize_draft.take();
-            if let Some(draft) = draft {
+        if self.remote_client.is_active() {
+            if let Some(draft) = self.remote_client.finish_split_resize() {
                 self.remote_layout(draft, false, cx);
             }
             return;
@@ -2808,14 +2800,10 @@ impl NativeRoot {
         event: &DragMoveEvent<DrawerResizeDrag>,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_window.is_some() {
+        if self.remote_client.is_active() {
             let height = f32::from(event.bounds.bottom() - event.event.position.y)
                 / self.settings(cx).app_zoom;
-            if let Some(layout) = self.front_page_layout_mut() {
-                layout.set_drawer_height(height);
-            }
-            self.remote_window.as_mut().unwrap().drawer_resizing = true;
-            cx.notify();
+            self.remote_client.resize_drawer(height, cx);
             return;
         }
 
@@ -2829,10 +2817,8 @@ impl NativeRoot {
     }
 
     pub(crate) fn finish_terminal_drawer_resize(&mut self, cx: &mut Context<Self>) {
-        if let Some(remote) = self.remote_window.as_mut() {
-            if std::mem::take(&mut remote.drawer_resizing) {
-                cx.notify();
-            }
+        if self.remote_client.is_active() {
+            self.remote_client.finish_drawer_resize(cx);
             return;
         }
 
