@@ -162,7 +162,7 @@ struct AttachedChat {
     terminal_scrollbar: Entity<Scrollbar>,
     terminal_input: Entity<TerminalInput>,
     _terminal_input_subscription: Subscription,
-    _terminal_focus_subscription: Subscription,
+    _terminal_focus_subscription: Option<Subscription>,
     terminal_focus: FocusHandle,
 }
 

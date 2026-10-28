@@ -1928,10 +1928,7 @@ impl NativeRoot {
         self.app_store
             .read(cx)
             .bridge
-            .set_palette(app_settings::terminal_palette(
-                self.settings(cx),
-                theme::active_variant(),
-            ));
+            .set_palette(terminal_style_for(self.settings(cx)).palette);
     }
 
     pub(crate) fn save_settings(&self, cx: &App) {

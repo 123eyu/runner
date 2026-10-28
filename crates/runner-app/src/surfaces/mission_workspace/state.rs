@@ -831,24 +831,18 @@ impl MissionWorkspace {
             .remote
             .as_ref()
             .and_then(|remote| remote.overview.as_ref()?.terminal_palette.clone());
-        crate::terminal::element::TerminalStyle {
-            palette: host
-                .map(|palette| runner_terminal::terminal::palette_from_wire(palette.into()))
-                .unwrap_or_else(|| {
-                    app_settings::terminal_palette(self.settings(cx), theme::active_variant())
-                }),
-            font: self.settings(cx).terminal_font_family.font(),
-            font_size: self.settings(cx).terminal_font_size as f32 * self.settings(cx).app_zoom,
-            app_zoom: self.settings(cx).app_zoom,
+        let mut style = crate::surfaces::app_shell::terminal_style_for(self.settings(cx));
+        if let Some(palette) = host {
+            style.palette = runner_terminal::terminal::palette_from_wire(palette.into());
         }
+        style
     }
 
     pub(crate) fn apply_terminal_settings(&self, cx: &App) {
         for chat in self.attached.values() {
-            chat.terminal.set_palette(app_settings::terminal_palette(
-                self.settings(cx),
-                theme::active_variant(),
-            ));
+            chat.terminal.set_palette(
+                crate::surfaces::app_shell::terminal_style_for(self.settings(cx)).palette,
+            );
             app_settings::configure_terminal(&chat.terminal, self.settings(cx));
         }
     }

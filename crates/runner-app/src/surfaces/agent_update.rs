@@ -325,10 +325,7 @@ impl AgentUpdateDialog {
             }
         };
         let settings = self.app_store.read(cx).settings.clone();
-        terminal.set_palette(app_settings::terminal_palette(
-            &settings,
-            theme::active_variant(),
-        ));
+        terminal.set_palette(terminal_style_for(&settings).palette);
         app_settings::configure_terminal(&terminal, &settings);
         let focus = cx.focus_handle();
         focus.focus(window, cx);

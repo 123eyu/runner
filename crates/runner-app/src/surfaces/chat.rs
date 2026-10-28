@@ -1221,57 +1221,22 @@ impl NativeRoot {
             .session_entry(session_id, cx)
             .map(|entry| entry.status)
             .with_context(|| format!("direct chat not found: {session_id}"))?;
-        if status != SessionStatus::Running {
-            return Ok(());
-        }
         if self.attached.contains_key(session_id) {
             return Ok(());
         }
-
-        let Some(terminal) = self.app_store.read(cx).bridge.session(session_id) else {
-            return Ok(());
-        };
-        terminal.set_palette(app_settings::terminal_palette(
-            self.settings(cx),
-            theme::active_variant(),
-        ));
-        app_settings::configure_terminal(&terminal, self.settings(cx));
-        let terminal_scrollbar = cx.new(|_| Scrollbar::terminal(Arc::clone(&terminal)));
-        let terminal_interaction = cx.new(|_| TerminalInteraction::new(Arc::clone(&terminal)));
-        let terminal_focus = cx.focus_handle();
-        let terminal_input = cx.new(|_| TerminalInput::new(Arc::clone(&terminal)));
-        let terminal_input_subscription = cx.observe(&terminal_input, |this, input, cx| {
-            if let Some(result) = input.update(cx, |input, _| input.take_write_result()) {
-                match result {
-                    Ok(()) => this.chat_error = None,
-                    Err(error) => this.chat_error = Some(error.into()),
-                }
-            }
-            cx.notify();
-        });
-        let terminal_input_on_focus_out = terminal_input.clone();
-        let terminal_focus_subscription =
-            cx.on_focus_out(&terminal_focus, window, move |_, _, window, cx| {
-                terminal_input_on_focus_out.update(cx, |input, input_cx| {
-                    if input.cancel_composition() {
-                        window.invalidate_character_coordinates();
-                        input_cx.notify();
-                    }
-                });
-            });
-        self.attached.insert(
-            session_id.to_owned(),
-            AttachedChat {
-                _terminal_view: terminal.view(),
-                terminal,
-                terminal_interaction,
-                terminal_scrollbar,
-                terminal_input,
-                _terminal_input_subscription: terminal_input_subscription,
-                _terminal_focus_subscription: terminal_focus_subscription,
-                terminal_focus,
+        if let Some(attached) = AttachedChat::for_session(
+            session_id,
+            status,
+            &self.app_store,
+            window,
+            cx,
+            |this, result, _| match result {
+                Ok(()) => this.chat_error = None,
+                Err(error) => this.chat_error = Some(error.into()),
             },
-        );
+        ) {
+            self.attached.insert(session_id.to_owned(), attached);
+        }
         Ok(())
     }
 
