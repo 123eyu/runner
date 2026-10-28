@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{FutureExt as _, StreamExt as _};
-use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Global};
+use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Global, Task};
 use runner_core::protocol::crew::CrewListItem;
 use runner_core::protocol::mission::MissionSummary;
 use runner_core::protocol::model::Role;
@@ -331,6 +331,7 @@ pub(crate) struct AppStore {
     pub(crate) daemon_notice: Option<runner_app::lifecycle::DaemonNotice>,
     pub(crate) stopped_session_count: usize,
     pub(crate) restarted_sessions: Option<usize>,
+    _remote_events_task: Task<()>,
 }
 
 impl AppStore {
@@ -399,6 +400,8 @@ impl AppStore {
             client: crate::test_support::client(&core),
             app_data_dir: core.app_data_dir.clone(),
         };
+        #[cfg(test)]
+        crate::test_support::drain_tasks_when_app_drops(cx);
         let remote_clients = cx.new(|cx| {
             crate::surfaces::remote_client::model::ClientState::new(host.client.clone(), cx)
         });
@@ -574,7 +577,7 @@ impl AppStore {
         let (remote_tx, mut remote_rx) = futures::channel::mpsc::unbounded();
         let remote_client = host.client.clone();
         let mut remote_events = remote_client.subscribe();
-        cx.background_spawn(async move {
+        let remote_events_task = cx.background_spawn(async move {
             if let Ok(status) = remote_client.remote_status() {
                 let _ = remote_tx.unbounded_send((RemoteUpdate::Status(status), false));
             }
@@ -633,8 +636,7 @@ impl AppStore {
                     Err(_) => break,
                 }
             }
-        })
-        .detach();
+        });
         cx.spawn(async move |weak, cx| {
             while let Some((update, live)) = remote_rx.next().await {
                 if weak
@@ -702,6 +704,7 @@ impl AppStore {
             daemon_notice: None,
             stopped_session_count: 0,
             restarted_sessions: None,
+            _remote_events_task: remote_events_task,
         };
         if let Some(error) = settings_error {
             store.record_error(error);
