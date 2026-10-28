@@ -62,7 +62,7 @@ pub fn configure(material: WindowMaterial, cx: &mut App) {
 pub fn install(cx: &mut App) {
     cx.set_global(Appearance::default());
     #[cfg(all(target_os = "macos", not(test)))]
-    crate::material_macos::install(cx);
+    crate::platform_ui::material_macos::install(cx);
 }
 
 #[cfg(test)]

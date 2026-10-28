@@ -31,3 +31,19 @@ pub(crate) use windows::{
     update_hint_tooltip, PRIMARY_MODIFIER, SETTINGS_CONTENT_TOP, SETTINGS_DRAG_INSET,
     SHORTCUT_REQUIREMENTS_KEY,
 };
+
+#[cfg(target_os = "linux")]
+pub mod fonts_linux;
+#[cfg(target_os = "macos")]
+pub mod fonts_macos;
+#[cfg(windows)]
+pub mod fonts_windows;
+#[cfg(all(target_os = "macos", not(test)))]
+pub(crate) mod material_macos;
+
+#[cfg(target_os = "linux")]
+pub use fonts_linux as platform_fonts;
+#[cfg(target_os = "macos")]
+pub use fonts_macos as platform_fonts;
+#[cfg(windows)]
+pub use fonts_windows as platform_fonts;

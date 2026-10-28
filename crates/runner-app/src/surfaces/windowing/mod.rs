@@ -1,3 +1,9 @@
+mod checkpoint;
+mod windows;
+
+pub(crate) use checkpoint::*;
+pub(crate) use windows::*;
+
 use super::*;
 use crate::*;
 use runner_core::protocol::window::Subject;

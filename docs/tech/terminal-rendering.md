@@ -31,7 +31,7 @@ The daemon keeps parsing when the app is closed. App attachment restores a snaps
 3. **Authoritative parsing.** [`terminal/model.rs`](../../crates/runner-terminal/src/terminal/model.rs), `TerminalModel::feed_output`, locks the parser and `Term`, then advances the VTE processor. It also handles synchronized-update deadlines, shell OSC 7 cwd reports, DEC 2031 colour-scheme sequences, fixture recording and input observations. Its event worker answers terminal queries through `TerminalHost`; the app never answers them a second time.
 4. **App mirror.** [`terminal.rs`](../../crates/runner-terminal/src/terminal.rs), `TerminalMirror::attach`, restores the snapshot, including unfinished parser input, and starts a frame reader. `feed_output` rejects duplicate sequence numbers and advances a separate VTE processor and `Term`. Overflow requests a new snapshot rather than blocking the agent. `TerminalBridge` owns the mirrors and routes session events and palette changes.
 5. **Wakes.** [`app_store.rs`](../../crates/runner-app/src/app_store.rs) receives session IDs from the bridge, coalesces them over 4 ms and emits `TerminalUpdates` for the changed terminals. [`terminal/viewport.rs`](../../crates/runner-app/src/terminal/viewport.rs) subscribes by session ID and notifies its own entity. Title or cwd changes also notify the app store; ordinary terminal output does not require rerendering the whole shell.
-6. **Paint.** The pane creates a `TerminalElement` for its mirror. Construction sites include [`surfaces/panes.rs`](../../crates/runner-app/src/surfaces/panes.rs) for chats and drawers and [`surfaces/mission_workspace/`](../../crates/runner-app/src/surfaces/mission_workspace/) for mission terminals. GPUI drives its layout, prepaint and paint phases.
+6. **Paint.** The pane creates a `TerminalElement` for its mirror. Construction sites include [`surfaces/panes/`](../../crates/runner-app/src/surfaces/panes/) for chats and drawers and [`surfaces/mission_workspace/`](../../crates/runner-app/src/surfaces/mission_workspace/) for mission terminals. GPUI drives its layout, prepaint and paint phases.
 
 ## Model and mirror
 
@@ -104,4 +104,4 @@ After painting, `handle_input` registers the `TerminalInput` entity as the IME h
 3. `TerminalElement::paint`.
 4. `glyphs.rs` from `paint_part` down. Skip `glyph_data.rs`; it is a generated table.
 5. `TerminalInteraction::mouse_down` for the mouse model.
-6. The pane's render function in `panes.rs` to see how the element is hosted.
+6. The pane's render function in `surfaces/panes/pane.rs` to see how the element is hosted.
