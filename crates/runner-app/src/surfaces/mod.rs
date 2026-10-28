@@ -17,6 +17,7 @@ pub(crate) mod quit_dialog;
 pub(crate) mod remote_client;
 pub(crate) mod render_cache;
 pub(crate) mod roles;
+pub(crate) mod root;
 pub(crate) mod settings;
 pub(crate) mod settings_page;
 pub(crate) mod sidebar;
