@@ -355,7 +355,7 @@ fn mission_workspace_test() -> (
     let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
     let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
     let core = crate::test_support::core(
-        Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap()),
+        Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap()),
         temp.path().to_owned(),
         session::SessionManager::new(
             env.clone(),
@@ -587,7 +587,7 @@ fn sidebar_and_mission_fills_follow_carbon_and_runner_light() {
     let _theme = ThemeGuard::new();
     theme::set_active_variant(theme::ThemeVariant::Carbon);
     let temp = tempfile::tempdir().unwrap();
-    let pool = Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap());
+    let pool = Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap());
     pool.get()
             .unwrap()
             .execute_batch(
@@ -1133,7 +1133,7 @@ fn cached_mission_header_tabs_and_feed_span_the_content_column() {
     use std::sync::RwLock;
 
     let temp = tempfile::tempdir().unwrap();
-    let pool = Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap());
+    let pool = Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap());
     pool.get()
         .unwrap()
         .execute_batch(
@@ -1513,7 +1513,7 @@ fn mission_rail_long_values_truncate_without_overlapping_fixed_controls() {
         app_settings::MISSION_RAIL_DEFAULT,
     ] {
         let temp = tempfile::tempdir().unwrap();
-        let pool = Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap());
+        let pool = Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap());
         pool.get()
             .unwrap()
             .execute_batch(

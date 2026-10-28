@@ -506,7 +506,7 @@ mod tests {
             let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
             let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
             let core = crate::test_support::core(
-                Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap()),
+                Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap()),
                 temp.path().to_owned(),
                 session::SessionManager::new(
                     env.clone(),
@@ -817,7 +817,7 @@ mod tests {
             let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
             let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
             let core = crate::test_support::core(
-                Arc::new(db::open_pool(&temp.path().join("runner.db")).unwrap()),
+                Arc::new(db::open_fixture_pool(&temp.path().join("runner.db")).unwrap()),
                 temp.path().to_owned(),
                 session::SessionManager::new(
                     env.clone(),

@@ -354,6 +354,11 @@ impl Daemon {
             .stderr(std::fs::File::create(self.root.path().join("stderr.log")).unwrap());
         #[cfg(unix)]
         cmd.env("SHELL", "/bin/sh");
+        #[cfg(windows)]
+        cmd.env(
+            "SHELL",
+            std::env::var_os("ComSpec").unwrap_or_else(|| "cmd.exe".into()),
+        );
         cmd
     }
     fn start(&mut self) -> Arc<SocketTransport> {

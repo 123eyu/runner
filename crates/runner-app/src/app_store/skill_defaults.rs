@@ -155,7 +155,7 @@ mod tests {
         });
         let runtime_discovery = Arc::new(RwLock::new(discovery));
         crate::test_support::core(
-            Arc::new(db::open_pool(&temp.join("runner.db")).unwrap()),
+            Arc::new(db::open_fixture_pool(&temp.join("runner.db")).unwrap()),
             app_data,
             session::SessionManager::new(
                 Arc::clone(&runtime_shell_env),

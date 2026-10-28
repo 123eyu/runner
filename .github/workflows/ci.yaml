@@ -71,7 +71,6 @@ jobs:
 
       - name: Check generated CLI reference
         run: |
-          cargo build --locked -p runner-cli --profile ci
           python3 script/generate-cli-reference.py --runner target/ci/runner-agent-cli --check
 
       - name: Verify lockfile is committed
@@ -132,9 +131,6 @@ jobs:
       - name: Test
         run: cargo nextest run --locked --workspace --no-fail-fast --cargo-profile ci --timings
 
-      - name: Build Runner for resource verification
-        run: cargo build --locked -p runner-app --profile ci --timings
-
       - name: Verify Runner manifest and icon
         shell: pwsh
         run: |
@@ -171,8 +167,6 @@ jobs:
       - name: Check generated CLI reference
         shell: pwsh
         run: |
-          cargo build --locked -p runner-cli --profile ci
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python script/generate-cli-reference.py --runner target/ci/runner-agent-cli.exe --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -246,7 +240,6 @@ jobs:
             cargo nextest run --locked --workspace --no-fail-fast --cargo-profile ci --timings
       - name: Check generated CLI reference
         run: |
-          cargo build --locked -p runner-cli --profile ci
           python3 script/generate-cli-reference.py --runner target/ci/runner-agent-cli --check
       - name: Test Linux installer ownership
         run: python3 script/linux/test-packaging.py

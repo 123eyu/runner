@@ -9,6 +9,9 @@ license.workspace = true
 [lib]
 name = "runner_daemon"
 
+[features]
+test-support = []
+
 [dependencies]
 anyhow = "1"
 fs2 = { workspace = true }

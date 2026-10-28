@@ -67,7 +67,7 @@ pub(crate) fn isolated_client(root: &std::path::Path) -> DaemonClient {
     let env = Arc::new(RwLock::new(shell_path::LoginShellEnv::default()));
     let discovery = Arc::new(RwLock::new(shell_path::DiscoveryState::startup(None, None)));
     client(&core(
-        Arc::new(db::open_pool(&root.join("client.db")).unwrap()),
+        Arc::new(db::open_fixture_pool(&root.join("client.db")).unwrap()),
         root.to_owned(),
         session::SessionManager::new(
             env.clone(),
