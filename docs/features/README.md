@@ -6,7 +6,7 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [1046 — Deliver inbox notices through agent hooks](./1046-hook-inbox-delivery.md) — the reply to a hook Runner already installs carries the inbox notice, so delivery never types into a composer that may hold a draft; typing stays for idle Codex and runtimes without hooks; draft for discussion, test before building ([#1046](https://github.com/yicheng47/runner/issues/1046)).
+- [1046 — Deliver mission inbox notices without the composer](./1046-hook-inbox-delivery.md) — complete native delivery for working and idle members, using #1012's app-server for Codex and validated channels for every other mission runtime; no typed fallback, with the cutover gated on full runtime coverage ([#1046](https://github.com/yicheng47/runner/issues/1046)).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
 - [559 — Command palette](./559-command-palette.md) — command mode over the existing keymap and quick-switcher overlay ([#559](https://github.com/yicheng47/runner/issues/559)).

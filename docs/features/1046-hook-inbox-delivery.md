@@ -1,161 +1,148 @@
-# 1046 — Deliver inbox notices through agent hooks
+# 1046 — Deliver mission inbox notices without the composer
 
-> Tracking issue: [#1046](https://github.com/yicheng47/runner/issues/1046). Priority: P2.
-> Status: draft for discussion, 2026-10-28. This is #1046's evaluation and the design it leads to; nothing is built. A [test of the agents' hooks](#spike-before-building) comes before implementation.
-> Related: [#940](https://github.com/yicheng47/runner/issues/940) and [#1018](https://github.com/yicheng47/runner/issues/1018) (draft-hold bugs), [#861](https://github.com/yicheng47/runner/issues/861) (status), [#1012](https://github.com/yicheng47/runner/issues/1012) (Codex launch overrides), [748](./748-mission-watch-delivery.md) (updates to a starting chat).
+> Tracking issue: [#1046](https://github.com/yicheng47/runner/issues/1046).
+> Status: draft for discussion, revised 2026-10-29. Nothing is built. This replaces the earlier proposal to combine hooks with typed fallback delivery.
+> Dependency: [#1012](https://github.com/yicheng47/runner/issues/1012), proposed in [PR #1063](https://github.com/yicheng47/runner/pull/1063), provides Codex's app-server connection. Its spec and hand-test record remain on that PR's branch until it lands.
+> Related: [#940](https://github.com/yicheng47/runner/issues/940) and [#1018](https://github.com/yicheng47/runner/issues/1018) (draft holds), [#861](https://github.com/yicheng47/runner/issues/861) and [#1051](https://github.com/yicheng47/runner/issues/1051) (status), [748](./748-mission-watch-delivery.md) (updates to a starting chat).
 
-## The problem
+## Motivation
 
-When a mission member has unread messages, the router types ``[inbox] N new messages — run `runner msg read` to view.`` into the agent's terminal and presses Enter ([sessions and routing §5](../tech/sessions-and-routing.md#5-what-the-router-actually-delivers)). Those bytes land in the agent's composer, the same place the person types. If the composer holds an unsent draft, the notice is appended to it and Enter submits both.
+Today the router types ``[inbox] N new messages — run `runner msg read` to view.`` into a mission member's terminal and presses Enter. Those bytes enter the same composer the person uses. Runner detects drafts and confirms submission by reading the terminal, but redraws and runtime-specific composer layouts make that fragile. #940 and #1018 were stale holds behind an empty Codex composer. The [current delivery walkthrough](../tech/mission-message-delivery.md) follows the implemented path and its recovery rules.
 
-To prevent that, Runner reads the screen to decide whether the composer holds a draft (`InputTracker` in `runner-terminal/src/input_state.rs`, the hold in `SessionModel::draft_hold`), and reads it again to confirm that the notice was submitted (`runner-terminal/src/delivery_probe.rs` and the dispatcher's confirmation window). Every agent draws its composer differently, and redraws break the detection. #940 and #1018 were both stale holds that blocked delivery behind an empty Codex composer.
+A hook can carry the notice into model context without touching the composer, but hooks alone do not wake idle Codex. Adding hooks while keeping typed notices for idle sessions, unavailable bridges or other runtimes would retain the composer machinery and its failure modes.
 
-The goal of this feature: **nudge the agent without ever touching the person's draft.**
+Jason's decision on 2026-10-29: **replace automatic composer nudges completely, or keep the current delivery mechanism until a complete replacement is ready.** Different runtimes can implement different native channels. Every replacement channel must cover both working and idle sessions; none may fall back to typing.
 
-## The idea
+## Scope and delivery contract
 
-An agent has two ways in:
+Runner keeps the mission event log, addressed inboxes, `runner msg read` and cumulative read acknowledgments. Only the channel carrying the inbox notice changes. The notice stays a short pointer; message bodies remain in the log.
 
-- **Keystrokes** go into the composer. That is how the notice travels today, and why drafts are at risk.
-- **Hook output** goes into the model's context. The agent runs a hook at fixed points (a turn ends, a tool finishes, the person submits a prompt) and reads what the hook prints. Some of that output is added to what the model sees. It never passes through the composer.
+Each mission runtime adapter must provide a channel separate from its composer with these properties:
 
-Runner already installs hooks in both agents for status: Claude Code runs `runner hook report` as a command hook at 14 events, and Codex calls the `report` tool of Runner's `runner_hooks` MCP server at its events. Today the reply is empty: nothing for Claude Code, `{}` for Codex.
+1. **Working:** make a notice available to the model at a supported execution boundary without writing terminal input or interrupting a tool to submit it.
+2. **Idle:** start the agent processing a notice without waiting for the person to submit another prompt. This must work after startup, resume and every supported turn exit, including interruption and failure.
+3. **Draft safety:** preserve an existing draft exactly, including when a notice starts work while the person is composing it. The notice causes no composer write and no simulated Enter.
+4. **Identity and lifecycle:** deliver only to the intended mission member's current conversation and launch generation. Reject stale callbacks, retired threads and native subagents.
+5. **Failure:** leave messages queued when a channel is disconnected, disabled or unsupported. Recover through that channel when available; never switch to terminal typing.
+6. **Acknowledgment:** an accepted notice does not mark messages read. Only the existing unfiltered read path advances the read watermark.
 
-**Hook delivery** means that reply carries the notice when the member has unread messages. For example, at the end of a turn:
+A safe execution boundary does not promise immediate preemption during a model request or a long-running tool. Waiting for the next boundary while working is acceptable; depending on a new human prompt to wake an idle member is not.
 
-```json
-{"decision":"block","reason":"[inbox] 2 new messages — run `runner msg read` to view.","systemMessage":"[inbox] 2 new messages"}
+```mermaid
+flowchart LR
+    L[Mission event log] --> I[Unread inbox]
+    I --> D[Mission dispatcher]
+    D --> C[Codex app-server connection]
+    D --> H[Claude Code hook channel]
+    D --> O[Other validated runtime channels]
+    C --> M[Target agent context / turn]
+    H --> M
+    O --> M
+    M --> R[runner msg read]
+    R -->|Read acknowledgment| L
 ```
 
-The agent does not end the turn. The model receives `reason` as its next instruction and runs `runner msg read`, and the person sees the `systemMessage` line. After a tool call, or when the person submits a prompt, the notice is added as context instead:
+## Runtime channels and evidence
+
+| Runtime | Proposed channel | Evidence and remaining gate |
+| --- | --- | --- |
+| Codex | #1012 app-server connection for both working and idle delivery. | PR #1063 reports draft-preserving `turn/start` on Codex 0.165.0. Active delivery, lifecycle and platform coverage still need validation. |
+| Claude Code | Context from synchronous hooks while working; `asyncRewake` for idle delivery. | Hook schemas and official documentation support the pieces. A complete, continuously available idle wake-up path has not been demonstrated. |
+| Antigravity CLI, pi, Copilot CLI, Cursor Agent, Grok, OpenCode and opt-in TRAE | A native hook, extension or control API that satisfies the same contract. | Not evaluated for this replacement. Each remains a release gate; status hooks alone do not establish message delivery or idle wake-up. |
+
+The table is a readiness record, not a policy to use native delivery for some runtimes and typed delivery for the rest. Evaluate every supported mission runtime and platform before the final cutover. Do not silently remove a runtime from mission support to claim completion.
+
+### Codex: depend on #1012
+
+#1012 attaches the Codex TUI to a shared app-server with `--remote` and gives Runner a client connection to that server. #1046 uses that connection and its thread binding; it does not create a second server or retain Codex hook delivery as another path.
+
+- **Idle:** send the notice through `turn/start` on the member's thread.
+- **Working:** use `turn/steer` with the expected active turn ID. Validate this operation against the installed version's generated schema and live behavior before choosing it for implementation.
+- **Turn-state race:** if a request is explicitly rejected because the active turn changed or ended, refresh native state and choose the applicable operation again. Serialize this with the member's pending delivery attempt.
+- **Ambiguous connection loss:** retain the unread backlog and record the uncertain offer. Do not immediately resend the same notice as a new turn solely because the response was lost.
+- **Recovery:** when #1012 restores the connection and subscribes to the bound thread, make the pending backlog eligible again. No bytes are written through the PTY.
+
+The [official app-server reference](https://learn.chatgpt.com/docs/app-server) documents `turn/start`, active-turn steering and native turn events. The [#1012 hand-test record](https://github.com/yicheng47/runner/blob/b01059ac08b6a9df9d64645e4f9c9c08540583f3/docs/tests/1012-codex-app-server.md) reports that a second client started a turn while a TUI draft remained unchanged, and Enter afterwards submitted only that draft. It also reports successful event subscription and separate thread environments. These are tests outside Runner, not completed Runner integration checks.
+
+#1012 owns server selection, launch settings, environment forwarding, thread identity, resume/fork and status from the native connection. Its unresolved shared-daemon, approvals and platform checks remain prerequisites here. If #1012 lands opt-in first, that does not complete #1046: the final mission delivery path cannot rely on the old embedded launch or typed nudges for sessions outside that mode.
+
+### Claude Code: prove a complete hook channel
+
+Runner's existing command hook can return an optional notice in the event's supported output shape. `PostToolUse` and `UserPromptSubmit` add context; `Stop` can request continuation with a reason. For example:
 
 ```json
 {"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"[inbox] 2 new messages — run `runner msg read` to view."},"systemMessage":"[inbox] 2 new messages"}
 ```
 
-```mermaid
-flowchart LR
-    R[Router: unread messages] -->|today: type + Enter| C[Composer, may hold a draft]
-    C --> M[Model]
-    R -->|hook delivery: reply to a hook| H[Hook output]
-    H --> M
-```
+The proposed idle mechanism is a command hook with `asyncRewake: true`, running `runner hook wait`. A pending notice makes the waiter print it and exit with code 2, waking the model. The [official hook reference](https://code.claude.com/docs/en/hooks) documents that behavior and an enforced timeout for `asyncRewake`.
 
-Because hook delivery never writes to the composer, it cannot affect a draft and presses no Enter, so neither draft detection nor submit confirmation applies to it. The cost: a hook only fires when the agent does something. An agent that sits idle runs no hooks.
+A waiter installed only at `Stop` is insufficient. The spike must establish how idle coverage begins after initial startup and resume, and survives interruption, API failure, daemon disconnection and timeout. If the hook channel cannot cover those states, choose a different complete native channel before implementation. A timed-out waiter with no successor cannot be treated as a healthy subscription.
 
-## What the agents support
+At most one idle waiter belongs to a session generation. New work, a replacement waiter, session stop and respawn retire the old waiter without delivering to the wrong turn. Waiting needs a separate connection lifecycle from today's 250 ms hook-report request. Normal hook reports remain bounded and return neutral output on failure; the backlog stays pending.
 
-Checked on 2026-10-28 against the installed Claude Code 2.1.312 (its settings and hook-output schemas) and Codex `origin/main` at [`bea47c0`](https://github.com/openai/codex/tree/bea47c06dfac12ecce362090418e12a6faeedbf9) (source); the installed Codex is 0.164.0. These are read from schemas and source, not run; the [spike](#spike-before-building) confirms them.
+Return the notice in a user-visible form as well as model context when the runtime supports it, and verify what actually appears in the TUI. An idle wake must leave the person's draft unchanged and unsent.
 
-| When | Claude Code | Codex |
-| --- | --- | --- |
-| Turn ends | `Stop` returns `decision: "block"` and `reason`; the turn continues with `reason` as the next instruction. Input carries `stop_hook_active`; consecutive blocks are capped (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`). | `Stop`, same contract. `reason` becomes a continuation prompt (`core/src/session/turn.rs`). Input carries `stop_hook_active`. |
-| Person submits a prompt | `UserPromptSubmit` returns `additionalContext`. | Same (`inspect_pending_input` in `core/src/hook_runtime.rs`). |
-| After a tool call | `PostToolUse` returns `additionalContext`; failed calls run `PostToolUseFailure`. | `PostToolUse` returns `additionalContext`, for some tools and only on success; see [gaps](#where-codex-hooks-do-not-fire). |
-| Agent idle at its prompt | A command hook with `asyncRewake: true` runs in the background and wakes the model when it exits with code 2. | Nothing. Async hooks cannot change control flow (`can_apply_control_effects`); `PreModelRequest`/`PostModelRequest` only observe. |
-| Shown to the person | `systemMessage` is shown. An `asyncRewake` wake shows a summary, by default "Stop hook feedback". | Context-only output is hidden (`hook_run_is_quiet_success` in `tui/src/history_cell/hook_cell.rs`). `systemMessage` shows as a hook warning line; a `Stop` block shows its reason. |
-| Main thread only | Hook input carries `agent_id` only inside a subagent. | Runner already drops reports carrying `agent_id`. |
+Other native channels, including provider-dependent channels, are candidates only after their availability and full working/idle behavior are established. None is assumed to cover all Claude Code configurations merely because it exists.
 
-Codex runs an `mcp_tool` hook's result through the same parser as a command hook's output (`mcp_tool_results_use_command_hook_output_contract` in `hooks/src/engine/mcp_runner_tests.rs`), so the existing `runner_hooks` `report` tool can return the JSON above. `Stop`, `PostToolUse` and `UserPromptSubmit` are already in `codex_status::EVENTS`, so Codex needs no new launch flags.
+## Shared dispatch and acknowledgment
 
-Claude Code also has MCP channels, which push messages into a running session. They are unavailable on third-party providers, need the org policy `channelsEnabled`, and need an allowlisted plugin or `--dangerously-load-development-channels`. They are not a default path.
+The mission dispatcher remains the single owner of notification decisions. A hook callback, an idle waiter and a native API request must claim the same unread range through that owner, rather than independently reading a count and sending a notice.
 
-### Where Codex hooks do not fire
+Publish the recipient's unread count, latest inbox message ID and read watermark as one completed bus snapshot. Preserve the existing `message_nudge` behavior, which requests dispatch for new messages even when the final unread count is unchanged. Track the offered-through message ID and an in-flight claim for the current session generation so concurrent callbacks cannot offer the same range independently.
 
-1. **A turn that ends badly runs no `Stop`.** `Stop` runs only on a normal finish. An API error ends the turn without it (Runner notes this in `codex_status.rs`); an interrupt runs `Interrupt`, which cannot add context.
-2. **`PostToolUse` covers some tools, on success only.** Shell commands, `write_stdin`, `apply_patch`, MCP and extension tools return a payload; failed calls, plan updates, image views, multi-agent tools, tool search and user-input requests do not. Long reasoning or a run of failing commands gives no mid-turn point.
-3. **`/compact` makes its own turn without `UserPromptSubmit`** (noted in `codex_status.rs`).
-4. **An idle agent runs nothing.**
-5. **Runner's hooks can be absent.** A role can disable hooks, and #1012 may add a launch mode without Runner's injected hooks.
+An offer means the notice was handed to the runtime channel; it does not prove the model read or acted on it. Offer bookkeeping suppresses immediate duplicates and remains rebuildable in memory. The read watermark remains the durable acknowledgment. Do not describe this as exactly-once notice delivery or task execution.
 
-A missing hook never endangers a draft; it only means no delivery at that moment. The design treats Codex hooks as a fast path, and the idle path must catch every turn that ends without one. Runner already learns those turn ends from Codex's transcript.
+Keep the existing two-minute redelivery backoff as the starting policy for unread messages whose notice was accepted or may have been accepted. After backoff, make the still-unread range eligible for another notice through the native channel. New messages can request a new offer without waiting for that backoff. Known channel failures keep the backlog queued and retry when availability returns. Reconcile on reconnect and restart without moving the read watermark.
 
-## Delivery policy
+Human questions and answers keep their current routing: the router converts a response into an ordinary message to the recorded asker. A notification never answers or dismisses an approval or question. If a runtime cannot safely accept the notice while human interaction is pending, retain it until the runtime permits delivery.
 
-For each notice, in order:
+## Hook continuation and status
 
-1. **A hook fires first:** deliver through it. `Stop` blocks with the notice; `PostToolUse` and `UserPromptSubmit` add it as context. Every delivery also sets `systemMessage`, so the person sees what the agent was told.
-2. **The agent is idle:**
-   - Claude Code: an `asyncRewake` waiter wakes it with the notice. Nothing is typed.
-   - Codex and runtimes without suitable hooks: type the notice, with today's draft holds and confirmation.
-3. **The hook bridge is down, or the role disabled hooks:** today's typed path, unchanged.
+A hook delivery decision must accompany the admitted report before the session reducer processes it. A `Stop` for which Runner requests continuation must not first publish completion attention or an unread response and then be patched back to Working. Reconcile the requested continuation with subsequent native evidence, including a failed or superseded continuation, so a lost hook result cannot leave the session permanently Working.
 
-| | Working | Person submits | Idle |
-| --- | --- | --- | --- |
-| Claude Code | Hook | Hook | `asyncRewake` |
-| Codex | Hook when one fires | Hook | Typed, with holds |
-| Other runtimes | Typed, as today | Typed, as today | Typed, as today |
+At `Stop`, recheck whether a notice offered earlier in the turn was actually read. An ignored mid-turn notice may justify a bounded continuation for the same unread range. Respect `stop_hook_active`, runtime continuation limits and per-range attempt bookkeeping; never repeatedly block on the same backlog without progress. If no notice is pending, return immediately. Never keep a model turn open waiting for a future message.
 
-A hold on idle Codex now ends by itself: if the person submits their draft, the notice rides along through `UserPromptSubmit`; if the agent starts any turn, `PostToolUse` or `Stop` carries it. A stale hold of the #940/#1018 kind delays the notice to the next turn instead of blocking it.
+Codex uses #1012's native turn events for these decisions. It needs no `Stop` hook or screen-based submission confirmation for this feature.
 
-## Design
+## Remove automatic composer nudges
 
-### The hook reply carries the notice
+The cutover removes the mission notification path that writes notice text and delayed Enter, probes terminal rows for confirmation, resubmits a leftover notice and synthesizes busy state from that submission. Mission notification scheduling no longer depends on composer draft holds or `InputProbe`.
 
-Today the daemon admits a hook report into the session's queue and answers `Response::hook_report(Ok(()))` before the status reducer reads it (`session/hook_queue.rs`). For `Stop`, `PostToolUse` and `UserPromptSubmit` on the main thread, the admission answer gains an optional notice, taken from the session's mission dispatcher: the notice text when the member has unread messages beyond its [notified-through mark](#notified-through-replaces-submit-confirmation), otherwise nothing. The hook CLI is Runner's own binary in the app data directory, so CLI and daemon change together; the hook protocol `VERSION` still rises with the response shape.
+Remove code whose only consumer was that notification path, and its obsolete notification-specific tests and UI reasons. Shared local-input tracking, ordinary user typing and first-turn prompt delivery still have their own consumers; trace those uses before deleting a helper. Document the resulting meaning of **Inbox waiting** and any unavailable-channel feedback. Any new or changed UI presentation needs the project's normal Pencil design before implementation.
 
-- `runner hook report` prints the notice in the runtime's format for that event.
-- `runner hook serve` returns it as the `report` tool's text content.
-- An unreachable daemon or the 250 ms deadline prints today's neutral output: no notice, and the idle path covers it later.
+A disabled hook, missing app-server, unsupported runtime version or disconnected channel leaves the inbox queued and reports delivery unavailability through the mission's normal feedback. There is no setting, compatibility branch or error path that silently restores composer injection after cutover.
 
-`Stop` blocks only when there are messages beyond the notified-through mark, so a notice is never repeated and the turn is never held open waiting for messages. This differs from the Stop-hook watch [748](./748-mission-watch-delivery.md) rejected, which kept a turn open for a whole mission.
+## Implementation phases
 
-### Notified-through replaces submit confirmation
+1. **Prove runtime coverage.** Complete #1012's Codex prerequisites, verify active and idle delivery, and establish a complete channel for every other supported mission runtime. Record exact versions, platforms, results and gaps in `docs/tests/1046-inbox-delivery.md`. Unproven cells block the cutover.
+2. **Implement the replacement.** Add the shared offer/claim bookkeeping and each validated runtime channel, preserving inbox/read semantics and lifecycle identity. Keep development work isolated while the current production delivery remains in use; do not ship a partial native/typed delivery policy.
+3. **Cut over and remove typing.** Once every supported runtime satisfies the contract, switch mission notification delivery as one policy change, delete its composer-injection machinery, update the guide and complete the selected validation below.
 
-Each subscriber keeps a notified-through mark: the last inbox message a notice covered. A hook offers a notice only for messages past it, and handing a notice to the hook CLI advances it. This is the "exactly once" for notices; nothing reads the screen.
+## Verification
 
-Reading stays the only acknowledgment ([sessions and routing §4](../tech/sessions-and-routing.md#reading-is-the-acknowledgment)). If a delivered notice is lost (the CLI missed its deadline, or the agent dropped the output), the read watermark does not move. When the existing two-minute redelivery backoff passes with messages still unread, the dispatcher resets the notified-through mark to the read watermark, so the next hook or the idle path offers the notice again.
+Before implementation, run bounded spikes in isolated test sessions using the current development-app and agent-configuration isolation rules. Existing #1012 evidence is reusable only for the versions and behaviors it records. Do not claim live validation from schemas or documentation alone.
 
-### Status
-
-A `Stop` that Runner blocks is not a turn end. Claude Code and Codex status both treat `Stop` as Idle or Completed today. When the daemon answers a `Stop` with a notice, the reducer keeps the session Working, raises no completion attention and arms no unread response, as the typed path's `synthesize_wake_busy` does for a confirmed wake.
-
-### Idle Claude Code: the rewake waiter
-
-Runner adds a second `Stop` command hook with `asyncRewake: true`, running a new `runner hook wait`. It connects to the daemon and waits. When the member has messages past the notified-through mark, it writes the notice to stderr and exits with code 2, which wakes the model. It exits 0 without output when a turn starts or the session ends, and a later `Stop` replaces an earlier waiter, so a session has at most one.
-
-The person's draft stays in the composer untouched; the agent starts a turn while it sits there.
-
-### Idle Codex: typed, as today
-
-Idle Codex keeps `InputTracker`, the holds and the confirmation window. Whether an unknown composer state should wait for the next hook or type is an [open question](#open-questions).
-
-## What the screen code still does
-
-Nothing is deleted. What changes is which deliveries reach it.
-
-| Code | Claude Code | Codex | Other runtimes |
-| --- | --- | --- | --- |
-| Draft detection (`input_state.rs`, `draft_hold`) | Fallback only: bridge down or hooks disabled | Idle delivery | Unchanged |
-| Submit confirmation (`delivery_probe.rs`, confirmation window) | Fallback only | Idle delivery | Unchanged |
-
-Other runtimes with hooks (Copilot, Grok, Antigravity, OpenCode, Cursor Agent, pi) get the same evaluation one at a time later.
-
-## Spike before building
-
-Hand-written hook configs outside Runner, on Claude Code 2.1.312 and Codex 0.164.0. Record each result, and a screenshot of what the person sees, in `docs/tests/1046-hook-inbox-delivery.md`.
-
-| Check | Pass when |
+| Check | Required result |
 | --- | --- |
-| Claude `Stop` block with `reason` and `systemMessage` | The turn continues, the model follows the reason, the person sees one line |
-| Claude `PostToolUse` and `UserPromptSubmit` `additionalContext` | The model acts on it in that turn |
-| Claude `asyncRewake` from idle, with and without a draft | The model wakes; a draft stays in the composer, unsent |
-| Codex `Stop` block through an `mcp_tool` hook | The turn continues with the reason |
-| Codex `PostToolUse` context through an `mcp_tool` hook, and a failed call | Context reaches the model; the failed call runs no hook |
-| Codex `systemMessage` | Shown to the person |
-| Codex interrupt and API error | No `Stop` runs, confirming gap 1 |
+| Codex idle API delivery with an unsent draft | Notice starts work through the bound app-server thread; the draft remains identical, and later Enter submits only the draft. |
+| Codex active API delivery and turn-end race | Notice reaches the active turn or a subsequent turn under the shared claim; no duplicate request is created from a known rejection. |
+| Codex connection loss, restart, resume/fork and multiple threads | Backlog remains unread until read, delivery resumes on the correct thread, and thread environments/identity remain isolated. |
+| Claude context hooks and `Stop` continuation | Model receives the notice, the TUI shows the intended feedback, and a requested continuation does not publish false completion or loop on the same range. |
+| Claude idle coverage | Startup, resume, normal completion, interrupt, failure, waiter expiry and daemon reconnect all retain or restore automatic wake-up without a human prompt. |
+| Every remaining supported mission runtime | Working and idle delivery satisfy the same contract on every supported platform; unsupported cells remain explicit blockers. |
+| Draft, approval and unavailable-channel cases | No notification text or generated Enter reaches the composer; pending interaction is not answered; messages remain queued when delivery is unavailable. |
+| Concurrent callbacks, bursts and read races | One owner claims each offer; a later message survives an earlier read acknowledgment; unchanged-count batches still request delivery. |
+| Lost replies, ignored offers and reconstruction | Read watermark never advances on an offer; unread messages become eligible after backoff or recovery; stale generations cannot deliver. |
+| Removal audit | No automatic mission-notification PTY write, delayed Enter, composer probe or typed fallback remains reachable. |
 
-## Affected guide pages
+Use in-process dispatcher, protocol and lifecycle tests for the changed state transitions, plus live checks for native delivery, visible feedback and draft preservation. Select the affected mission/delivery cases from the [live regression suite](../tests/regression/README.md); update their expectations when the cutover replaces typed delivery. This feature does not request a complete regression run. Run the relevant crate tests and workspace Clippy when implementation changes code.
 
-[Missions](../guide/concepts/missions.md) and its zh-CN copy: the **Inbox waiting** paragraph describes the draft hold, which then applies only to idle Codex and runtimes without hooks. [Supported agents](../guide/reference/supported-agents.md): per-runtime delivery. [Drive Runner from agents](../guide/guides/drive-runner-from-agents.md) keeps its instruction to run `runner msg read` when an `[inbox]` notice arrives; the notice text does not change.
+## Affected documentation
+
+Update [Missions](../guide/concepts/missions.md), [Supported agents](../guide/reference/supported-agents.md) and [Drive Runner from agents](../guide/guides/drive-runner-from-agents.md), plus their zh-CN copies. Describe the validated per-runtime channels, queued/unavailable behavior and the continued requirement to run `runner msg read`. Codex's [Roles](../guide/concepts/roles.md) setting and launch behavior belong to #1012.
+
+At cutover, reconcile [architecture §8.5](../arch/arch.md#85-delivery-model), the [sessions and routing walkthrough](../tech/sessions-and-routing.md) and the [current delivery walkthrough](../tech/mission-message-delivery.md) with the new mechanism. Until then those references continue to describe the implemented composer path.
 
 ## Out of scope
 
-Building the delivery path before the spike; status detection ([#861](https://github.com/yicheng47/runner/issues/861), [#1051](https://github.com/yicheng47/runner/issues/1051)); hooks of other runtimes; delivering to a starting chat ([748](./748-mission-watch-delivery.md)), although hook delivery is a non-typing route that 748's redesign could use.
-
-## Open questions
-
-1. **Rewake under a draft.** An idle Claude Code wakes while the person is typing a draft. The draft is safe, but a turn starts under them. Recommendation: accept.
-2. **Mid-turn delivery.** Deliver at `PostToolUse`, or only at `Stop`? Recommendation: both, because a "stop, wrong direction" message matters most mid-turn, and typed notices already reach working agents today.
-3. **Idle Codex with an unknown composer.** Today no draft evidence counts as ready, and Runner types. Waiting instead protects any draft Runner cannot see, but an unattended idle Codex would then never wake, because no hook fires. Recommendation: keep typing on no evidence; revisit after the spike.
-4. **#1012.** If Codex gets a launch mode without Runner's injected hooks for Remote Control, that mode uses the typed path for every state.
+Replacing the message log or read acknowledgment protocol; delivering whole message bodies through hooks instead of the inbox; exactly-once task execution; an unrelated status redesign; and delivery to the starting chat in [748](./748-mission-watch-delivery.md). The new native channels can support a later redesign of 748, but that recipient and its policy are separate work.

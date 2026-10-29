@@ -4,6 +4,8 @@ Checked against Runner `nightly-remote` at `cbb877c4b992` on 2026-10-24. This co
 
 The central ownership rule is that **runnerd owns the running work**. The desktop app is a client that displays it. A mission groups sessions and has a log, bus, and router inside the daemon. Each live session has an agent or shell process connected to a PTY. Closing a client connection does not end that work.
 
+For a focused walkthrough of the current message path, including the readiness gate, notification attempts, read acknowledgments and debugging pointers, see [Mission message delivery](./mission-message-delivery.md).
+
 ## 1. Where the application core lives
 
 “Core” has two meanings in this repository. The `runner-core` crate contains shared types, protocol contracts, event-log primitives, and daemon connection/launch support. The application core that executes operations lives in `runner-daemon`.
