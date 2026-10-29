@@ -14,7 +14,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const ITEMS: &[&str] = &["CLAUDE.md", "skills", "agents", "commands", "plugins"];
+const ITEMS: &[&str] = &[
+    "CLAUDE.md",
+    "skills",
+    "agents",
+    "commands",
+    "plugins",
+    "settings.json",
+];
 pub(crate) const MAIN_FOLDER: &str = "RUNNER_CLAUDE_MAIN_FOLDER";
 pub(crate) const MAIN_NATIVE: &str = "RUNNER_CLAUDE_MAIN_NATIVE";
 pub(crate) const MAIN_MCP: &str = "RUNNER_CLAUDE_MAIN_MCP";
@@ -196,6 +203,14 @@ fn add_link(config: &mut SharedConfig, name: &str) -> Result<()> {
             .create_new(true)
             .open(path)?;
         file.write_all(import_text(&source).as_bytes())?;
+    } else if name == "settings.json" {
+        const ERROR_PRIVILEGE_NOT_HELD: i32 = 1314;
+        match std::os::windows::fs::symlink_file(&source, path) {
+            Ok(()) => {}
+            // Without symbolic-link permission, `launch` passes main settings as flag settings.
+            Err(error) if error.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
     } else {
         junction::create(&source, path)?;
     }
@@ -215,7 +230,7 @@ fn share(config: &mut SharedConfig) -> Result<()> {
             config.links.remove(index);
         }
     }
-    for name in ["CLAUDE.md", "agents", "commands"] {
+    for name in ["CLAUDE.md", "agents", "commands", "settings.json"] {
         add_link(config, name)?;
     }
     let skills = config.folder.join("skills");
@@ -373,7 +388,6 @@ pub(super) fn summaries(state: &AccountsState) -> BTreeMap<String, ClaudeAccount
             let own_items = ITEMS
                 .iter()
                 .copied()
-                .chain(["settings.json"])
                 .filter(|name| {
                     exists(&Path::new(&account.folder).join(name))
                         && !config
@@ -511,6 +525,16 @@ fn merge(base: &mut Value, overlay: Value) {
     }
 }
 
+fn merge_main_settings(main: &Path, spec: &mut SpawnSpec) -> Result<()> {
+    if let Some(index) = spec.args.iter().position(|arg| arg == "--settings") {
+        let mut settings = object(&main.join("settings.json"))?;
+        let runner: Value = serde_json::from_str(&spec.args[index + 1])?;
+        merge(&mut settings, runner);
+        spec.args[index + 1] = serde_json::to_string(&settings)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn launch(
     pool: &db::DbPool,
     account: Option<&ClaudeSessionAccount>,
@@ -563,12 +587,7 @@ pub(crate) fn launch(
         .iter()
         .any(|arg| arg == "--settings" || arg.starts_with("--settings="));
     if !exists(&own_settings) && !custom {
-        if let Some(index) = spec.args.iter().position(|arg| arg == "--settings") {
-            let mut settings = object(&Path::new(&main.folder).join("settings.json"))?;
-            let runner: Value = serde_json::from_str(&spec.args[index + 1])?;
-            merge(&mut settings, runner);
-            spec.args[index + 1] = serde_json::to_string(&settings)?;
-        }
+        merge_main_settings(Path::new(&main.folder), spec)?;
     }
     let plugin_args = plugin_dirs(Path::new(&main.folder))?
         .into_iter()
@@ -607,7 +626,7 @@ mod tests {
         let mut state = super::super::initial(temp.path());
         let main = Path::new(&state.accounts[0].folder);
         fs::create_dir_all(main).unwrap();
-        for name in &ITEMS[1..] {
+        for name in ["skills", "agents", "commands", "plugins"] {
             fs::create_dir(main.join(name)).unwrap();
         }
         fs::write(main.join("CLAUDE.md"), "source memory").unwrap();
@@ -1034,8 +1053,15 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::write(&path, "user replaced this").unwrap();
         assert!(!owned(&config, memory).unwrap());
+        let settings = config.folder.join("settings.json");
+        fs::remove_file(&settings).unwrap();
+        fs::write(&settings, "own settings").unwrap();
         stop(&mut state, "work").unwrap();
         assert_eq!(fs::read_to_string(path).unwrap(), "user replaced this");
+        assert_eq!(fs::read_to_string(settings).unwrap(), "own settings");
+        assert!(fs::read_to_string(config.main_folder.join("settings.json"))
+            .unwrap()
+            .contains("main-hook"));
     }
 
     #[cfg(unix)]
@@ -1131,35 +1157,50 @@ mod tests {
     }
 
     #[test]
-    fn launch_merges_one_settings_argument_and_only_mcp_servers() {
+    fn launch_links_main_settings_and_adds_only_mcp_servers() {
         let (_temp, mut state) = fixture();
         start(&mut state, "work").unwrap();
+        let main_settings = Path::new(&state.accounts[0].folder).join("settings.json");
+        let settings = Path::new(&state.accounts[1].folder).join("settings.json");
+        fs::remove_file(&settings).unwrap();
         let pool = save(&state);
         let mut spec = spec();
+        let runner_settings = spec.args[1].clone();
         launch(&pool, Some(&session(&state)), &role(), &mut spec).unwrap();
+        assert!(is_link(&fs::symlink_metadata(&settings).unwrap()));
         assert_eq!(
-            spec.args.iter().filter(|arg| *arg == "--settings").count(),
-            1
+            fs::read_to_string(&settings).unwrap(),
+            fs::read_to_string(&main_settings).unwrap()
         );
-        let index = spec
-            .args
-            .iter()
-            .position(|arg| arg == "--settings")
-            .unwrap();
-        let settings: Value = serde_json::from_str(&spec.args[index + 1]).unwrap();
-        assert_eq!(settings["theme"], "auto");
-        assert_eq!(settings["env"]["SHARED"], "yes");
-        assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 2);
-        assert_eq!(settings["enabledPlugins"]["demo@fixture"], true);
+        assert_eq!(spec.args[2..4], ["--settings".to_owned(), runner_settings]);
         assert_eq!(spec.args[0], "--mcp-config");
         let mcp: Value = serde_json::from_str(&spec.args[1]).unwrap();
         assert_eq!(mcp.as_object().unwrap().len(), 1);
         assert!(mcp["mcpServers"]["fixture"].is_object());
         assert!(!spec.args.join(" ").contains("NEVER-IN-ARGV"));
         assert_eq!(spec.args.last().unwrap(), "tiny prompt");
-        assert!(!Path::new(&state.accounts[1].folder)
-            .join("settings.json")
-            .exists());
+        let mut state = super::super::load(&pool).unwrap();
+        assert_eq!(summaries(&state)["work"].own_items, vec!["skills"]);
+        stop(&mut state, "work").unwrap();
+        assert!(!exists(&settings));
+        assert!(main_settings.is_file());
+    }
+
+    #[test]
+    fn main_settings_merge_into_one_settings_argument_without_a_link() {
+        let (_temp, state) = fixture();
+        let mut spec = spec();
+        merge_main_settings(Path::new(&state.accounts[0].folder), &mut spec).unwrap();
+        assert_eq!(
+            spec.args.iter().filter(|arg| *arg == "--settings").count(),
+            1
+        );
+        let settings: Value = serde_json::from_str(&spec.args[1]).unwrap();
+        assert_eq!(settings["theme"], "auto");
+        assert_eq!(settings["env"]["SHARED"], "yes");
+        assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 2);
+        assert_eq!(settings["enabledPlugins"]["demo@fixture"], true);
+        assert_eq!(spec.args.last().unwrap(), "tiny prompt");
     }
 
     #[test]
@@ -1168,6 +1209,7 @@ mod tests {
         start(&mut state, "work").unwrap();
         let pool = save(&state);
         let settings = Path::new(&state.accounts[1].folder).join("settings.json");
+        fs::remove_file(&settings).unwrap();
         fs::write(&settings, r#"{"own":true}"#).unwrap();
         let mut own = spec();
         let before = own.args[1].clone();
@@ -1482,9 +1524,15 @@ mod tests {
                         .iter()
                         .map(|link| link.name.as_str())
                         .collect::<std::collections::BTreeSet<_>>(),
-                    ["CLAUDE.md", "agents", "commands", "skills/work-main-skill"]
-                        .into_iter()
-                        .collect()
+                    [
+                        "CLAUDE.md",
+                        "agents",
+                        "commands",
+                        "settings.json",
+                        "skills/work-main-skill"
+                    ]
+                    .into_iter()
+                    .collect()
                 );
                 assert!(config.links.iter().all(|link| owned(config, link).unwrap()));
             }

@@ -351,7 +351,11 @@ fn claude_accounts_follow_active_selection_and_resume_and_fork_from_origin() {
             spec.args.iter().filter(|arg| *arg == "--settings").count(),
             1
         );
-        assert!(spec.args.iter().any(|arg| arg.contains("SHARED_MAIN")));
+        assert!(
+            std::fs::read_to_string(Path::new(&work.folder).join("settings.json"))
+                .unwrap()
+                .contains("SHARED_MAIN")
+        );
         assert!(spec.args.iter().any(|arg| arg == "--mcp-config"));
         assert!(spec.args.windows(2).any(|pair| pair[0] == "--plugin-dir"
             && std::fs::canonicalize(&pair[1]).unwrap()
