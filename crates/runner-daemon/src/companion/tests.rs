@@ -1383,7 +1383,7 @@ async fn a_stopped_session_still_closes_after_its_exit_event_was_lost() {
         .status = Status::Stopped;
     fake.events.emit("chat/tab-attention-changed", &());
     adapter.changed().await.unwrap();
-    assert_eq!(next(&mut adapter).await["type"], "status");
+    assert_eq!(next_non_overview(&mut adapter).await["type"], "status");
     wait_for_end(&adapter).await;
     assert_eq!(next_non_overview(&mut adapter).await["type"], "closed");
 }
@@ -1484,7 +1484,7 @@ async fn exit_archive_and_status_recovery_drain_a_held_frame_before_closing() {
         }
         adapter.changed().await.unwrap();
         if change == "status" {
-            assert_eq!(next(&mut adapter).await["type"], "status");
+            assert_eq!(next_non_overview(&mut adapter).await["type"], "status");
         }
         assert!(cancelled.load(Ordering::SeqCst));
         let mut premature = adapter.next(true).await.unwrap();
