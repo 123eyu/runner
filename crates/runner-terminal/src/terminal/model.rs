@@ -58,7 +58,8 @@ impl TerminalModel {
     ) -> Option<T> {
         let mut tracker = self.input_tracker.lock().unwrap();
         if tracker.reset_guard() != revision
-            || probe.state(&self.input_rows()) != crate::delivery_probe::ProbeState::Present
+            || (probe.state(&self.input_rows()) != crate::delivery_probe::ProbeState::Present
+                && !tracker.unsent_notice(&self.term.lock_unfair()))
         {
             return None;
         }
@@ -598,6 +599,41 @@ mod delivery_tests {
                 assert!(replies[1].starts_with(b"\x1b[?"));
                 assert!(replies[1].ends_with(b"c"));
             }
+        }
+    }
+
+    #[test]
+    fn resubmit_accepts_the_trackers_unsent_notice_when_the_probe_cannot_see_it() {
+        let model = TerminalModel::new(
+            Arc::new(Host::default()),
+            "delivery".into(),
+            80,
+            4,
+            ModelOptions::default(),
+        )
+        .unwrap();
+        model.feed_output(1, b"> ");
+        let text = "[inbox] 1 new messages — run `runner msg read` to view.";
+        let blind = InputProbe::new(Vec::new(), text);
+        model.track_delivery_input(text);
+        model.feed_output(2, text.as_bytes());
+        let revision = model.input_reset_guard();
+        assert_eq!(model.with_unchanged_input(revision, &blind, || ()), None);
+        model.track_delivery_submit();
+        model.feed_output(3, format!("\r> {text}").as_bytes());
+        assert_eq!(
+            model.with_unchanged_input(revision, &blind, || ()),
+            Some(())
+        );
+        model.observe_input(&InputEvent::Key {
+            kind: crate::mappings::InputKind::Navigate,
+        });
+        let revision = model.input_reset_guard();
+        assert_eq!(model.with_unchanged_input(revision, &blind, || ()), None);
+        let workers = model.take_workers();
+        drop(model);
+        for worker in workers {
+            worker.join().unwrap();
         }
     }
 

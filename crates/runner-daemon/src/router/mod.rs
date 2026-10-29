@@ -28,6 +28,8 @@ pub struct DeliverySnapshot {
     pub input_revision: (u64, u64),
     pub turn_started: u64,
     pub runtime: String,
+    /// The composer still holds the router's own notice, whatever other gate masks readiness.
+    pub unsent: bool,
 }
 
 /// Session-manager port for readiness, reservations and notification attempts.
@@ -122,10 +124,14 @@ impl StdinInjector for SessionManager {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryReadiness {
-    Ready { idle: bool },
+    Ready {
+        idle: bool,
+    },
     Pending,
     Starting,
     Drafting,
+    /// The router's own notice is still in the composer, unsubmitted.
+    Unsent,
     RecentlyTyping(Duration),
     NeedsYou,
     InFlight,
@@ -138,6 +144,7 @@ pub enum DeliveryReservation {
     Starting,
     Ready(u64),
     Drafting { composer_visible: bool },
+    Unsent,
     LocalInputPending,
     HumanInteraction,
     RecentlyTyping(Duration),
@@ -147,6 +154,8 @@ pub enum DeliveryReservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionDeliveryEvent {
     Idle,
+    /// Idle inferred from output going quiet; the redraw after an ignored Enter produces one.
+    SilenceIdle,
     InputCleared,
     ReadinessChanged,
     InputQueueDrained,

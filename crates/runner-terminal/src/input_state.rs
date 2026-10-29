@@ -13,6 +13,8 @@ pub enum InputState {
     Idle,
     Drafting,
     Submitted,
+    /// Text only the router typed, still in the composer after its Enter did not take.
+    Unsent,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -85,6 +87,7 @@ pub struct InputTracker {
     reported: Option<ReportedState>,
     public_since: Instant,
     input_revision: u64,
+    delivery_revision: Option<u64>,
 }
 
 impl InputTracker {
@@ -95,6 +98,7 @@ impl InputTracker {
             reported: None,
             public_since: now,
             input_revision: 0,
+            delivery_revision: None,
         }
     }
 
@@ -132,7 +136,26 @@ impl InputTracker {
 
     pub fn track_delivery_input<T>(&mut self, text: &str, now: Instant, term: &Term<T>) {
         self.expire_probe(now);
+        if matches!(self.state, TrackerState::Idle) || self.delivery_owned() {
+            self.delivery_revision = Some(self.input_revision);
+        }
         self.observe_content(text, true, now, term);
+    }
+
+    /// The composer row still reads as it did at the router's Enter, with no person input since.
+    pub fn unsent_notice<T>(&self, term: &Term<T>) -> bool {
+        self.delivery_owned()
+            && matches!(
+                &self.state,
+                TrackerState::Drafting(composer) | TrackerState::Submitted(composer)
+                    if composer.row < term.screen_lines()
+                        && composer.submitted_form.as_deref()
+                            == Some(row_to_string(term, composer.row as i32).as_str())
+            )
+    }
+
+    fn delivery_owned(&self) -> bool {
+        self.delivery_revision == Some(self.input_revision)
     }
 
     pub fn track_delivery_submit<T>(&mut self, now: Instant, term: &Term<T>) {
@@ -451,12 +474,21 @@ impl InputTracker {
                 composer_visible: composer.visible,
             },
             TrackerState::Drafting(composer) => ReportedState {
-                state: InputState::Drafting,
+                state: if self.delivery_owned() {
+                    InputState::Unsent
+                } else {
+                    InputState::Drafting
+                },
                 composing: false,
                 composer_visible: composer.visible,
             },
+            // An ignored Enter may never be followed by output that would turn this into Drafting.
             TrackerState::Submitted(composer) => ReportedState {
-                state: InputState::Submitted,
+                state: if self.delivery_owned() {
+                    InputState::Unsent
+                } else {
+                    InputState::Submitted
+                },
                 composing: false,
                 composer_visible: composer.visible,
             },
@@ -1218,7 +1250,11 @@ mod tests {
                     .observe_output(start + Duration::from_millis(1), &term)
                     .unwrap()
                     .state,
-                InputState::Drafting
+                if injected {
+                    InputState::Unsent
+                } else {
+                    InputState::Drafting
+                }
             );
             if injected {
                 tracker.track_delivery_submit(start + Duration::from_millis(2), &term);
@@ -1521,8 +1557,10 @@ mod tests {
                 .observe_output(start + Duration::from_millis(5), &term)
                 .unwrap()
                 .state,
-            InputState::Submitted
+            InputState::Unsent
         );
+        // An ignored Enter with no later output leaves the notice where the guard can resubmit it.
+        assert!(tracker.unsent_notice(&term));
         feed(&mut term, "\r\x1b[K❯ Different placeholder".as_bytes());
         assert_eq!(
             tracker
@@ -1560,6 +1598,95 @@ mod tests {
                 .state,
             InputState::Drafting
         );
+    }
+
+    #[test]
+    fn an_ignored_delivery_enter_leaves_the_routers_notice_until_a_person_types() {
+        let text = "[inbox] 1 new messages — run `runner msg read` to view.";
+        for person in [false, true] {
+            let start = Instant::now();
+            let mut term = new_term(80, 4);
+            feed(&mut term, "\x1b[2;1H› Ask Codex".as_bytes());
+            let mut tracker = InputTracker::new(start);
+            tracker.initial_observation(start);
+            if person {
+                tracker.observe_input(&InputEvent::Paste { text: text.into() }, start, &term);
+            } else {
+                tracker.track_delivery_input(text, start, &term);
+            }
+            feed(&mut term, format!("\r\x1b[K› {text}").as_bytes());
+            tracker.observe_output(start + Duration::from_millis(5), &term);
+            if person {
+                tracker.observe_input(
+                    &InputEvent::Key {
+                        kind: InputKind::Submit,
+                    },
+                    start + Duration::from_millis(300),
+                    &term,
+                );
+            } else {
+                tracker.track_delivery_submit(start + Duration::from_millis(300), &term);
+            }
+            feed(&mut term, format!("\r\x1b[K› {text}").as_bytes());
+            tracker.observe_output(start + Duration::from_millis(400), &term);
+            tracker.observe_output(start + Duration::from_secs(26 * 60), &term);
+            assert_eq!(
+                tracker.current_reported_state().state,
+                if person {
+                    InputState::Drafting
+                } else {
+                    InputState::Unsent
+                },
+                "person={person}"
+            );
+            assert_eq!(tracker.unsent_notice(&term), !person, "person={person}");
+            if person {
+                continue;
+            }
+            let observation = tracker
+                .observe_input(
+                    &InputEvent::Key {
+                        kind: InputKind::Content { text: "!".into() },
+                    },
+                    start + Duration::from_secs(26 * 60 + 1),
+                    &term,
+                )
+                .unwrap();
+            assert_eq!(observation.state, InputState::Drafting);
+            assert!(!tracker.unsent_notice(&term));
+        }
+    }
+
+    #[test]
+    fn delivery_typed_over_person_text_keeps_it_a_draft() {
+        // The trailing space defeats the echo match, so that person text is still probing.
+        for typed in ["draft", "draft "] {
+            let start = Instant::now();
+            let mut term = new_term(80, 4);
+            feed(&mut term, "\x1b[2;1H❯ Try a task".as_bytes());
+            let mut tracker = InputTracker::new(start);
+            tracker.initial_observation(start);
+            tracker.observe_input(
+                &InputEvent::Key {
+                    kind: InputKind::Content { text: typed.into() },
+                },
+                start,
+                &term,
+            );
+            feed(&mut term, format!("\r\x1b[K❯ {typed}").as_bytes());
+            tracker.observe_output(start + Duration::from_millis(5), &term);
+            tracker.track_delivery_input("[inbox] task", start + Duration::from_millis(6), &term);
+            feed(
+                &mut term,
+                format!("\r\x1b[K❯ {typed}[inbox] task").as_bytes(),
+            );
+            tracker.observe_output(start + Duration::from_millis(9), &term);
+            assert_eq!(
+                tracker.current_reported_state().state,
+                InputState::Drafting,
+                "{typed:?}"
+            );
+        }
     }
 
     #[test]

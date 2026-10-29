@@ -297,7 +297,11 @@ impl SessionModel {
 
     pub fn draft_quiescent(&self, now: Instant) -> bool {
         let observed_quiescent = match self.native_input.or(self.observed_input) {
-            Some(observed) if observed.state == InputState::Drafting => false,
+            Some(observed)
+                if matches!(observed.state, InputState::Drafting | InputState::Unsent) =>
+            {
+                false
+            }
             Some(observed) if observed.state == InputState::Submitted => {
                 now.saturating_duration_since(observed.since) >= RECENT_LOCAL_INPUT_WINDOW
             }
@@ -310,6 +314,12 @@ impl SessionModel {
                 .is_none_or(|last| now.saturating_duration_since(last) >= RECENT_LOCAL_INPUT_WINDOW)
     }
 
+    /// The tracker still sees the router's own notice, even where native editor state wins readiness.
+    pub fn unsent_notice(&self) -> bool {
+        self.observed_input
+            .is_some_and(|observed| observed.state == InputState::Unsent)
+    }
+
     pub fn draft_hold(&self, now: Instant) -> Option<crate::router::DeliveryReservation> {
         use crate::router::DeliveryReservation;
         match self.native_input.or(self.observed_input) {
@@ -317,6 +327,9 @@ impl SessionModel {
                 return Some(DeliveryReservation::Drafting {
                     composer_visible: observed.composer_visible,
                 })
+            }
+            Some(observed) if observed.state == InputState::Unsent => {
+                return Some(DeliveryReservation::Unsent)
             }
             Some(observed) if observed.state == InputState::Submitted => {
                 let elapsed = now.saturating_duration_since(observed.since);

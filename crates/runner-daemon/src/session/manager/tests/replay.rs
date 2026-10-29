@@ -441,6 +441,7 @@ fn replay(path: &Path) -> Value {
                             router::DeliveryReservation::Drafting { composer_visible } => {
                                 json!({"gate":"drafting", "composer_visible":composer_visible})
                             }
+                            router::DeliveryReservation::Unsent => json!({"gate":"unsent"}),
                             router::DeliveryReservation::Starting => json!({"gate":"starting"}),
                             router::DeliveryReservation::Unavailable => {
                                 json!({"gate":"unavailable"})

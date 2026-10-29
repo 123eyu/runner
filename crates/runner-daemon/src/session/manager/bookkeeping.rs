@@ -232,6 +232,7 @@ impl SessionManager {
             ),
             turn_started: session.turn_started,
             runtime: session.delivery_runtime.clone(),
+            unsent: session.model.unsent_notice(),
         })
     }
 
@@ -300,7 +301,7 @@ impl SessionManager {
                 R::NeedsYou => D::HumanInteraction,
                 R::InFlight => D::InFlight,
                 R::RecentlyTyping(delay) => D::RecentlyTyping(delay),
-                R::Drafting => session
+                R::Drafting | R::Unsent => session
                     .model
                     .draft_hold(crate::session::clock::now())
                     .unwrap(),

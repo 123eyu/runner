@@ -556,3 +556,150 @@ fn mission_typing_stays_idle_until_submit() {
 
     mgr.kill(&spawned.id).unwrap();
 }
+
+#[test]
+fn only_output_silence_reports_a_silence_idle_for_delivery() {
+    use crate::runtimes::TerminalEvent;
+    use router::SessionDeliveryEvent;
+
+    #[derive(Default)]
+    struct DeliveryEvents(Mutex<Vec<SessionDeliveryEvent>>);
+    impl router::SessionDeliveryListener for DeliveryEvents {
+        fn session_delivery_event(&self, _: &str, event: SessionDeliveryEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
+    let manager = mgr_with_fake(None, fake_runtime());
+    let pool = pool_with_schema();
+    let events = capture();
+    let host_events: Arc<dyn SessionEvents> = events.clone();
+    let delivered = Arc::new(DeliveryEvents::default());
+    let listener: Arc<dyn router::SessionDeliveryListener> = delivered.clone();
+    let idle_event = |id: &str, busy: &dyn Fn(), idle: &dyn Fn()| {
+        install_test_session_handle(&manager, id);
+        manager.register_delivery_listener(id, Arc::downgrade(&listener));
+        busy();
+        delivered.0.lock().unwrap().clear();
+        idle();
+        let delivered = delivered.0.lock().unwrap();
+        assert_eq!(delivered.len(), 1, "{id}: {delivered:?}");
+        delivered[0]
+    };
+
+    let silence = idle_event(
+        "silence",
+        &|| {
+            manager.note_terminal_event(
+                "silence",
+                TerminalEvent::Activity(SessionActivityState::Busy),
+            );
+        },
+        &|| {
+            manager.note_terminal_event(
+                "silence",
+                TerminalEvent::Activity(SessionActivityState::Idle),
+            );
+        },
+    );
+    assert_eq!(silence, SessionDeliveryEvent::SilenceIdle);
+    let forwarder = idle_event(
+        "forwarder",
+        &|| {
+            manager.note_forwarder_transition(
+                "forwarder",
+                SessionActivityState::Busy,
+                StatusSource::Forwarder,
+            );
+        },
+        &|| {
+            manager.note_forwarder_transition(
+                "forwarder",
+                SessionActivityState::Idle,
+                StatusSource::Forwarder,
+            );
+        },
+    );
+    assert_eq!(forwarder, SessionDeliveryEvent::SilenceIdle);
+    let title = idle_event(
+        "title",
+        &|| {
+            manager
+                .note_terminal_event("title", TerminalEvent::Activity(SessionActivityState::Busy));
+        },
+        &|| {
+            manager.note_terminal_event("title", TerminalEvent::Title(SessionActivityState::Idle));
+        },
+    );
+    assert_eq!(title, SessionDeliveryEvent::Idle);
+    let hook = idle_event(
+        "hook",
+        &|| {
+            manager.publish_observation(
+                "hook",
+                AgentObservation {
+                    activity: Activity::Working,
+                    source: ObservationSource::Hook,
+                    ..Default::default()
+                },
+                events.as_ref(),
+            )
+        },
+        &|| {
+            manager.publish_observation(
+                "hook",
+                AgentObservation {
+                    activity: Activity::Ready,
+                    source: ObservationSource::Hook,
+                    outcome: Some(crate::session::status::TurnOutcome::Completed),
+                    ..Default::default()
+                },
+                events.as_ref(),
+            )
+        },
+    );
+    assert_eq!(hook, SessionDeliveryEvent::Idle);
+    let terminal = std::cell::OnceCell::new();
+    let program = idle_event(
+        "program",
+        &|| {
+            let model = terminal.get_or_init(|| {
+                manager
+                    .create_terminal("program", 80, 24, &pool, &host_events)
+                    .unwrap()
+            });
+            manager
+                .session_state("program")
+                .unwrap()
+                .lock()
+                .unwrap()
+                .terminal = Some(model.clone());
+            manager.ingest_output_chunk(
+                "program",
+                None,
+                b"\x1b]7501;state=working:app=pi\x07",
+                events.as_ref(),
+            );
+        },
+        &|| {
+            manager.ingest_output_chunk(
+                "program",
+                None,
+                b"\x1b]7501;state=idle:app=pi\x07",
+                events.as_ref(),
+            );
+        },
+    );
+    assert_eq!(program, SessionDeliveryEvent::Idle);
+    let model = terminal.into_inner().unwrap();
+    manager
+        .session_state("program")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .terminal = None;
+    let workers = model.take_workers();
+    drop(model);
+    for worker in workers {
+        worker.join().unwrap();
+    }
+}

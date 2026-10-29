@@ -648,6 +648,104 @@ fn resized_unsubmitted_input_waits_for_composer_output_after_a_successful_local_
 }
 
 #[test]
+fn an_ignored_delivery_enter_is_resubmitted_at_turn_end_instead_of_holding_as_a_draft() {
+    use crate::router::{DeliveryReadiness, SessionDeliveryEvent, SessionDeliveryListener};
+
+    // With the echo after the Enter and no redraw, only the tracker can find the notice.
+    for echo_before_enter in [true, false] {
+        let fixture = StartupFixture::new();
+        let _output = fixture.launch("codex", false, Instant::now());
+        fixture.event(Runtime::Codex, AgentEvent::StartupReady);
+        let pool = db::open_pool(&fixture._dir.path().join("terminal.db")).unwrap();
+        let events: Arc<dyn SessionEvents> = Arc::new(Capture::default());
+        let terminal = fixture
+            .manager
+            .create_terminal("session", 80, 4, &pool, &events)
+            .unwrap();
+        fixture
+            .manager
+            .session_state("session")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .terminal = Some(terminal.clone());
+        let emit = |bytes: &[u8]| {
+            fixture
+                .manager
+                .ingest_output_chunk("session", Some("mission"), bytes, events.as_ref());
+        };
+        let advance = |duration| {
+            *fixture.now.lock().unwrap() += duration;
+            let now = *fixture.now.lock().unwrap();
+            crate::session::clock::at(now, 0, || fixture.drive());
+        };
+        let readiness = |later| {
+            let now = *fixture.now.lock().unwrap() + later;
+            crate::session::clock::at(now, 0, || fixture.manager.delivery_readiness("session"))
+        };
+        let inputs = || fixture.fake.inputs.lock().unwrap().clone();
+        emit("\x1b[2;1H› Ask Codex".as_bytes());
+        fixture.drive();
+        fixture.queue("first");
+        let body = match &inputs()[0] {
+            FakeInput::Bytes { bytes, .. } => String::from_utf8(bytes.clone()).unwrap(),
+            other => panic!("{other:?}"),
+        };
+        let unchanged = format!("\r\x1b[K› {body}");
+        if echo_before_enter {
+            emit(unchanged.as_bytes());
+        }
+        advance(Duration::from_millis(300));
+        emit(unchanged.as_bytes());
+        advance(crate::router::dispatch::CONFIRM_WINDOW);
+        if echo_before_enter {
+            emit(unchanged.as_bytes());
+        }
+        advance(crate::router::dispatch::CONFIRM_WINDOW);
+        let enters = inputs().len();
+        assert_eq!(enters, 3, "echo_before_enter={echo_before_enter}");
+        assert_eq!(
+            readiness(Duration::from_secs(26 * 60)),
+            DeliveryReadiness::Unsent,
+            "echo_before_enter={echo_before_enter}"
+        );
+        let now = *fixture.now.lock().unwrap();
+        crate::session::clock::at(now, 0, || fixture.queue("second"));
+        advance(Duration::from_secs(60));
+        assert_eq!(inputs().len(), enters);
+
+        fixture
+            .router
+            .session_delivery_event("session", SessionDeliveryEvent::Idle);
+        advance(Duration::ZERO);
+        let resubmitted = inputs();
+        assert_eq!(resubmitted.len(), enters + 1, "{resubmitted:?}");
+        assert!(
+            matches!(resubmitted.last(), Some(FakeInput::Key { key, .. }) if key == "Enter"),
+            "{resubmitted:?}"
+        );
+        emit("\r\x1b[K› Ask Codex".as_bytes());
+        advance(crate::router::dispatch::CONFIRM_WINDOW);
+        assert!(matches!(
+            readiness(Duration::ZERO),
+            DeliveryReadiness::Ready { .. }
+        ));
+        fixture
+            .manager
+            .session_state("session")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .terminal = None;
+        let workers = terminal.take_workers();
+        drop(terminal);
+        for worker in workers {
+            worker.join().unwrap();
+        }
+    }
+}
+
+#[test]
 fn rejected_native_probe_submits_hold_readiness_without_more_output() {
     use crate::router::DeliveryReadiness;
     use runner_terminal::input_state::InputEvent;
