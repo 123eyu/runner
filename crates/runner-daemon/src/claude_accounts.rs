@@ -962,8 +962,10 @@ exec sleep 60
         assert_eq!(snapshot(&core).unwrap().accounts.len(), 3);
         for (id, folder) in &added {
             std::fs::write(folder.join("release-status"), "").unwrap();
+            // The shell redirect creates the file before printf fills it.
             wait_for("matching account login", || {
-                folder.join("login-started").is_file()
+                std::fs::read_to_string(folder.join("login-started"))
+                    .is_ok_and(|started| !started.is_empty())
             });
             assert_eq!(
                 std::fs::read_to_string(folder.join("login-started")).unwrap(),

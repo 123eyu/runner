@@ -867,6 +867,55 @@ fn slot_overlay_precedence_matches_the_shipped_workspace() {
 }
 
 #[test]
+fn draft_recovery_follows_hook_status_when_a_return_leaves_the_session_busy() {
+    use runner_core::protocol::status::{
+        Activity, AgentObservation, AgentStatus, HumanInteraction, ObservationSource, TurnOutcome,
+        WaitReason,
+    };
+    let status = |activity, source| AgentStatus {
+        observation: AgentObservation {
+            activity,
+            source,
+            outcome: Some(TurnOutcome::Interrupted),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let busy = Some(&SessionActivityState::Busy);
+    let idle = Some(&SessionActivityState::Idle);
+
+    assert!(draft_recovery_available(
+        busy,
+        &status(Activity::Ready, ObservationSource::Hook)
+    ));
+    assert!(draft_recovery_available(
+        busy,
+        &status(Activity::Unavailable, ObservationSource::Hook)
+    ));
+    assert!(!draft_recovery_available(
+        busy,
+        &status(Activity::Working, ObservationSource::Hook)
+    ));
+    assert!(!draft_recovery_available(
+        busy,
+        &status(Activity::Idle, ObservationSource::Baseline)
+    ));
+    assert!(draft_recovery_available(
+        idle,
+        &status(Activity::Idle, ObservationSource::Baseline)
+    ));
+
+    let mut waiting = status(Activity::Ready, ObservationSource::Hook);
+    waiting.observation.interactions.push(HumanInteraction {
+        id: "ask".into(),
+        reason: WaitReason::Answer,
+        owners: Vec::new(),
+        since: 0,
+    });
+    assert!(!draft_recovery_available(idle, &waiting));
+}
+
+#[test]
 fn session_spawn_does_not_replace_an_existing_resume_transition() {
     assert_eq!(
         transition_to_begin_on_spawn(None),

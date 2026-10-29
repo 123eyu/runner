@@ -524,11 +524,14 @@ async fn missions_feed_pages_follows_answers_and_posts_cross_the_real_host_adapt
     let mut delivered = vec![];
     while delivered.len() < 2 {
         let append = remote_event(&mut events, "remote/feed").await;
+        // The router appends its mission_warning signals on its own
+        // thread, so one can land between the post and the answer.
         delivered.extend(
             append["feed"]["entries"]
                 .as_array()
                 .unwrap()
                 .iter()
+                .filter(|entry| entry["kind"] != "signal")
                 .cloned(),
         );
     }
