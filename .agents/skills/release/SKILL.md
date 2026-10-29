@@ -1,17 +1,17 @@
 ---
 name: release
-description: Cut a Runner production release — bump the workspace version, tag vX.Y.Z, let release.yml build the draft for macOS, Windows and Linux, write bilingual release notes (English, with 中文 collapsed in a details block), hand the publish switch to the user, and sweep the shipped work's docs once the release is live
+description: Cut a Runner production release — bump the workspace version, tag vX.Y.Z, let release.yml build the draft for macOS, Windows and Linux, write bilingual release notes (English, with 中文 collapsed in a details block), hand the publish switch to the user, and once the release is live write a Chinese markdown post for linux.do and other social media and sweep the shipped work's docs
 ---
 
 # Release
 
 A production release is a `vX.Y.Z` tag on a `main` commit whose workspace version is exactly `X.Y.Z`. `release.yml` builds the signed, notarized macOS DMG with its one-item Sparkle appcast and the Windows x64 installer with its minisign signature, plus Linux ARM64/x86_64 tar/deb packages, then attaches everything to a **draft** release. Publishing the draft is the user's switch: it moves `releases/latest` and the production Sparkle feed. Contract: `docs/arch/arch.md` §14; nightlies are a separate channel handled by the `nightly` skill.
 
-An explicit request to `run` authorizes the bump commit, the push, the tag, and editing the draft's notes; after the user publishes, it also authorizes the sweep's docs commit and push. An explicit `sweep` request authorizes that commit and push on its own. Nothing in this skill publishes the draft, deletes a release, or moves an existing tag. Record only observed results.
+An explicit request to `run` authorizes the bump commit, the push, the tag, and editing the draft's notes; after the user publishes, it also authorizes the sweep's docs commit and push. An explicit `sweep` request authorizes that commit and push on its own. Nothing in this skill publishes the draft, deletes a release, moves an existing tag, or posts to a forum or social media. Record only observed results.
 
 ## Usage
 
-`/release [run <version> | notes <version> | check <version> | sweep <version>]` — no action means `run`.
+`/release [run <version> | notes <version> | post <version> | check <version> | sweep <version>]` — no action means `run`.
 
 ## `run <version>`
 
@@ -25,7 +25,8 @@ An explicit request to `run` authorizes the bump commit, the push, the tag, and 
 4. **Watch.** Find the run with `gh run list --workflow release.yml --limit 1 --json databaseId,status,headSha` and `gh run watch <id> --exit-status`. All platform build jobs (including both Linux matrix instances) and the publish job must succeed. On failure, `gh run view <id> --log-failed`, report the failing step, and stop; the tag stays, the draft may be partial.
 5. **Notes.** Follow `notes <version>` below and set them on the draft: `gh release edit v<version> --notes-file <file>`. Do not pass `--draft=false`.
 6. **Report.** The draft URL, every platform asset name, and the reminder that publishing is the user's action. A draft's `untagged-…` URL changes each time it is edited, so link the latest one. After the user publishes, confirm `gh release view v<version> --json isDraft` is `false` before anything that assumes the release is live, then verify `gh api repos/yicheng47/runner/releases/latest --jq .tag_name` is `v<version>` and that `releases/latest/download/appcast.xml` names the new DMG.
-7. **Sweep.** Once the release is live, follow `sweep <version>` below.
+7. **Post.** Once the release is live, follow `post <version>` below.
+8. **Sweep.** Then follow `sweep <version>` below.
 
 ## `notes <version>`
 
@@ -81,6 +82,31 @@ Windows ARM64 和 Intel Mac 暂不支持。Linux ARM64/x86_64 提供 tar/deb 包
 Keep a blank line after `<summary>` and before `</details>`, or GitHub renders the markdown inside as literal text.
 
 Rules for the 中文 half: translate the meaning, not the words; keep product terms as they appear in the app (Runner, Sparkle, Nightly, ⌘, Settings → Updates); keep file names, issue numbers, and links identical to the English; use the same headings in the same order so a reader can line the two halves up. Headings inside the details block use `##` like the English half; they render collapsed until expanded. Read the exact Windows installer name from the draft's assets (`gh release view v<version> --json assets --jq '.assets[].name'`) rather than guessing the stamp.
+
+## `post <version>`
+
+A Chinese markdown release post for the user to paste into Runner's linux.do thread and other social media. It needs the published release (`gh release view v<version> --json isDraft` is `false`), because the forum turns the release link into a preview card only for a public page. Build it from the published body's 中文 half (`gh release view v<version> --json body`), not from the git log, so the post says exactly what the release page says:
+
+```
+## Release Note: v<version> (<theme>)
+
+https://github.com/yicheng47/runner/releases/tag/v<version>
+
+## 新功能
+
+- **Linux beta。** Runner 现在可原生运行于 Linux ARM64 和 x86_64……欢迎反馈问题。([#823](https://github.com/yicheng47/runner/issues/823))
+
+## 问题修复
+
+- **取消后可重新登录。** 在 Settings → Remote access 登录过程中点击 Cancel……([#1036](https://github.com/yicheng47/runner/issues/1036), [#1040](https://github.com/yicheng47/runner/issues/1040))
+```
+
+- The title stays English: `Release Note: v<version> (<theme>)`, where the theme is a few words naming the headline change (`Linux Beta Version` for 0.18.2), or `Bug Fixes` for a fix-only release.
+- The release URL sits bare on its own line so Discourse renders it as a card; do not wrap it in link text.
+- Copy the 新功能 and 问题修复 bullets word for word, with a blank line after each heading. Leave out the opening sentence, Nightly 渠道, 下载与升级, the support paragraph and 完整变更记录: the card links to the release page for those.
+- Rewrite every `#123` as `[#123](https://github.com/yicheng47/runner/issues/123)`, since forums do not autolink GitHub references; GitHub redirects the issue URL to a pull request when the number is one.
+
+Write it to `/tmp/runner-v<version>-release-note.zh-CN.md`, print the same text in the reply inside a `markdown` fence, and give the file path. Do not post it anywhere; the user does that.
 
 ## `sweep <version>`
 
