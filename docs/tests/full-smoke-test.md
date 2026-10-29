@@ -17,7 +17,7 @@ The first run is recorded in [#777 runtime adapter smoke](archive/777-runtime-ad
 
 ### Computer-use test runtimes
 
-Local live tests use only Codex, Grok or pi (Jason, 2026-10-16). The local Claude Code subscription has reached its limit; do not start or resume test agents on other runtimes or send them further test work. Preserve completed results and record remaining runtime-specific checks as Blocked under this restriction. pi still requires the authorized private account and configuration isolation below.
+Local live tests may use Claude Code again (Jason, 2026-10-29); the Codex, Grok and pi-only restriction of 2026-10-16 is lifted. pi still requires the authorized private account and configuration isolation below.
 
 ### Agent configuration isolation
 
@@ -26,6 +26,8 @@ Private Runner app data and conversation directories do not isolate an agent's c
 For pi, set child-only `PI_CODING_AGENT_DIR` to a canonical private directory beneath the smoke scratch root, and keep `PI_CODING_AGENT_SESSION_DIR` private as well. Verify both resolved paths before launch and on resume. Never point `PI_CODING_AGENT_DIR` at the real `~/.pi/agent` merely to reuse authentication: pi 0.87.1 can save `lastChangelogVersion` in that directory's `settings.json` during interactive startup, and migrations can write before the first-time setup guard. An explicit model/thinking choice, `--approve`, a private session directory or suppressing setup does not prevent those writes. Do not copy credentials or change global authentication to bypass this prerequisite; use an already authorized private account or leave account-backed pi checks Blocked. Keep native startup results separate from configuration-preservation results. See the [2026-10-06 Windows regression record](archive/2026-10-06-pc-full-regression.md) for the failed global-state canary that established this boundary.
 
 Codex trust entries for the run's own folders are pre-approved (Jason, 2026-10-13). When Runner starts Codex in a folder, it writes `projects.<folder>.trust_level = "trusted"` to `~/.codex/config.toml`. In an authorized live run, that entry is approved in advance for every disposable folder under the run's scratch root, so do not stop to ask before it is written. Capture the config file before the first launch, keep each folder's canonical path in the ledger, and at cleanup remove only those entries and record a before-and-after diff showing nothing else changed. Any other change to an agent's global configuration still needs Jason's approval.
+
+Claude Code trust for the run's own folders is pre-approved too (Jason, 2026-10-29). The first time Claude Code starts in a folder it stops at a folder-trust prompt, and accepting it writes `projects.<folder>.hasTrustDialogAccepted` to `~/.claude.json`. In an authorized live run, accept that prompt for every disposable folder under the run's scratch root without asking. Capture `~/.claude.json` before the first launch, keep each folder's canonical path in the ledger, and at cleanup remove only those folders' `projects` entries. Claude Code rewrites other keys in that file on every start, so the before-and-after diff covers the `projects` map and must show only the run's own entries.
 
 Example macOS setup, after verifying the development app:
 
