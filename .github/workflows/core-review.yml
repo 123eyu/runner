@@ -1,0 +1,66 @@
+name: Core review
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label core changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Add core-review when core files change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          core=(
+            # Session lifecycle
+            'crates/runner-daemon/src/session/manager/*'
+            'crates/runner-daemon/src/session/state/*'
+            'crates/runner-daemon/src/session/runtime.rs'
+            'crates/runner-daemon/src/session/launch.rs'
+            'crates/runner-daemon/src/session/launch_definition.rs'
+            # Daemon/PTY boundary
+            'crates/runner-daemon/src/session/pty_runtime.rs'
+            'crates/runner-daemon/src/session/process/*'
+            # Event bus, router and event log
+            'crates/runner-daemon/src/event_bus/*'
+            'crates/runner-daemon/src/router/*'
+            'crates/runner-core/src/event_log/*'
+            # Client protocol, daemon server and launch
+            'crates/runner-core/src/protocol/api.rs'
+            'crates/runner-core/src/protocol/client.rs'
+            'crates/runner-core/src/protocol/mod.rs'
+            'crates/runner-core/src/protocol/socket.rs'
+            'crates/runner-core/src/protocol/socket_windows.rs'
+            'crates/runner-core/src/protocol/wire.rs'
+            'crates/runner-core/src/daemon_process.rs'
+            'crates/runner-daemon/src/daemon/*'
+            'crates/runner-daemon/src/ipc.rs'
+            # SQLite schema and migrations
+            'crates/runner-daemon/src/db/*'
+          )
+          files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          hits=()
+          while IFS= read -r file; do
+            case "$file" in */tests/*|*/tests.rs|*_tests.rs) continue ;; esac
+            for pattern in "${core[@]}"; do
+              if [[ $file == $pattern ]]; then hits+=("$file"); break; fi
+            done
+          done <<< "$files"
+          if [ ${#hits[@]} -eq 0 ]; then
+            echo "No core files changed."
+            exit 0
+          fi
+          printf 'Core files changed:\n'
+          printf '  %s\n' "${hits[@]}"
+          gh api "repos/$GH_REPO/issues/$PR/labels" -f 'labels[]=core-review' --silent
