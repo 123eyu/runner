@@ -38,6 +38,20 @@ struct Attempt {
     second_enter: bool,
 }
 
+/// A notice whose attempt ended without confirmation and may still sit in the composer;
+/// `seen` once the probe has found it there.
+struct Unsent {
+    snapshot: DeliverySnapshot,
+    probe: InputProbe,
+    seen: bool,
+}
+
+struct Hold {
+    reason: DeliveryReadiness,
+    since: Instant,
+    warned: bool,
+}
+
 struct Subscriber {
     session_id: String,
     wanted: bool,
@@ -46,10 +60,11 @@ struct Subscriber {
     last_attempt: Option<Instant>,
     warned: bool,
     blocked: Option<(usize, String)>,
-    paused: Option<InputProbe>,
+    unsent: Option<Unsent>,
     pause_check: Option<Instant>,
     input_cleared: bool,
-    hold: Option<DeliveryReadiness>,
+    nudged: bool,
+    hold: Option<Hold>,
 }
 
 pub(crate) struct Dispatcher {
@@ -100,9 +115,10 @@ impl Dispatcher {
                     last_attempt: None,
                     warned: false,
                     blocked: None,
-                    paused: None,
+                    unsent: None,
                     pause_check: None,
                     input_cleared: false,
+                    nudged: false,
                     hold: None,
                 });
         }
@@ -140,7 +156,18 @@ impl Dispatcher {
                     .filter(|s| s.session_id == session_id)
                 {
                     match event {
-                        SessionDeliveryEvent::Idle => reconcile = true,
+                        SessionDeliveryEvent::Idle => {
+                            reconcile = true;
+                            subscriber.nudged = true;
+                        }
+                        // Our own ignored Enter redraws the composer, which silence detection
+                        // reports as a turn that ends two seconds later.
+                        SessionDeliveryEvent::SilenceIdle => {
+                            reconcile = true;
+                            subscriber.nudged |= subscriber.last_attempt.is_none_or(|last| {
+                                now.saturating_duration_since(last) >= REDELIVERY_INTERVAL
+                            });
+                        }
                         SessionDeliveryEvent::InputCleared => {
                             subscriber.input_cleared = true;
                             subscriber.retry = Some(now + INPUT_CLEAR_GRACE)
@@ -150,15 +177,17 @@ impl Dispatcher {
                                 log::info!("router attempt outcome=Unverified mission={} session={session_id} runtime={} reason={event:?}", router.mission_id, attempt.snapshot.as_ref().map(|s| s.runtime.as_str()).unwrap_or("unknown"));
                                 router.injector.finish_delivery(&session_id, attempt.token);
                             }
-                            subscriber.paused = None;
+                            subscriber.unsent = None;
                             subscriber.pause_check = None;
                             subscriber.input_cleared = false;
+                            subscriber.nudged = false;
                             subscriber.wanted = true;
                             subscriber.retry = None;
                             subscriber.warned = false;
                         }
                         SessionDeliveryEvent::ReadinessChanged => {
-                            subscriber.retry = Some(now + INPUT_CLEAR_GRACE)
+                            subscriber.retry = Some(now + INPUT_CLEAR_GRACE);
+                            subscriber.nudged = true;
                         }
                         SessionDeliveryEvent::StartupReady
                         | SessionDeliveryEvent::InputQueueDrained => subscriber.retry = None,
@@ -213,6 +242,8 @@ impl Dispatcher {
                         .as_ref()
                         .map(|current| attempt.probe.state(&current.rows))
                         .unwrap_or(ProbeState::Unknown);
+                    // A moved composer reads as cleared to the probe while the tracker still holds our text.
+                    let unsent = current.as_ref().is_some_and(|current| current.unsent);
                     let turn_started = attempt.snapshot.as_ref().zip(current.as_ref()).is_some_and(
                         |(before, current)| {
                             before.generation == current.generation
@@ -221,9 +252,9 @@ impl Dispatcher {
                     );
                     let outcome = if !unchanged {
                         "Unverified"
-                    } else if turn_started || state == ProbeState::Cleared {
+                    } else if turn_started || (state == ProbeState::Cleared && !unsent) {
                         "Confirmed"
-                    } else if state == ProbeState::Present && !attempt.second_enter {
+                    } else if (state == ProbeState::Present || unsent) && !attempt.second_enter {
                         let retried = attempt.snapshot.as_ref().is_some_and(|snapshot| {
                             matches!(
                                 router.injector.resubmit(
@@ -252,14 +283,16 @@ impl Dispatcher {
                             .is_some_and(|(before, current)| {
                                 before.generation == current.generation
                                     && before.input_revision == current.input_revision
-                                    && attempt.probe.state(&current.rows) == ProbeState::Present
+                                    && (current.unsent
+                                        || attempt.probe.state(&current.rows)
+                                            == ProbeState::Present)
                             });
                         if still_unchanged {
                             "Unsubmitted"
                         } else {
                             "Unverified"
                         }
-                    } else if state == ProbeState::Present {
+                    } else if state == ProbeState::Present || unsent {
                         "Unsubmitted"
                     } else {
                         "Unverified"
@@ -284,56 +317,145 @@ impl Dispatcher {
                         {
                             log::warn!("publish confirmed delivery busy: {error}");
                         }
-                    } else if outcome == "Unsubmitted" {
-                        subscriber.paused = Some(attempt.probe);
-                        subscriber.input_cleared = false;
+                        Self::hold(router, handle, subscriber, None, unread, now);
+                        Self::blocked(router, handle, subscriber, unread, None);
+                    } else if let Some(snapshot) = attempt.snapshot {
+                        subscriber.unsent = Some(Unsent {
+                            snapshot,
+                            probe: attempt.probe,
+                            seen: false,
+                        });
                         subscriber.pause_check = Some(now + CONFIRM_WINDOW);
+                        subscriber.nudged = false;
                     }
                     subscriber.retry = Some(now + SUBMIT_DELAY);
                 }
             }
-            if let Some(probe) = &subscriber.paused {
-                let probe_state = router
-                    .injector
-                    .delivery_snapshot(&subscriber.session_id)
-                    .map(|snapshot| probe.state(&snapshot.rows))
+            let backoff_passed = subscriber
+                .last_attempt
+                .is_none_or(|last| now.saturating_duration_since(last) >= REDELIVERY_BACKOFF);
+            if let Some(mut unsent) = subscriber.unsent.take() {
+                let current = router.injector.delivery_snapshot(&subscriber.session_id);
+                let own = current.as_ref().is_some_and(|current| {
+                    current.generation == unsent.snapshot.generation
+                        && current.input_revision == unsent.snapshot.input_revision
+                });
+                let state = current
+                    .as_ref()
+                    .map(|current| unsent.probe.state(&current.rows))
                     .unwrap_or(ProbeState::Unknown);
-                if probe_state == ProbeState::Present {
+                let tracked = current.as_ref().is_some_and(|current| current.unsent);
+                if state == ProbeState::Present {
+                    unsent.seen = true;
                     subscriber.input_cleared = false;
                 }
-                if probe_state == ProbeState::Cleared
-                    || (probe_state == ProbeState::Unknown
+                let readiness = router.injector.delivery_readiness(&subscriber.session_id);
+                let gone = (state == ProbeState::Cleared && !tracked)
+                    || (state == ProbeState::Unknown
+                        && unsent.seen
                         && subscriber.input_cleared
+                        && matches!(readiness, DeliveryReadiness::Ready { .. }));
+                if !gone && (unsent.seen || tracked) {
+                    // Typing again would stack a second notice on this one (#753).
+                    let opportunity = subscriber.retry.is_none()
+                        && (std::mem::take(&mut subscriber.nudged)
+                            || (reconcile && backoff_passed));
+                    if opportunity
+                        && own
+                        && unread > 0
                         && matches!(
-                            router.injector.delivery_readiness(&subscriber.session_id),
+                            readiness,
                             DeliveryReadiness::Ready { .. }
-                        ))
-                {
-                    subscriber.paused = None;
-                    subscriber.pause_check = None;
-                    subscriber.wanted = unread > 0;
-                } else {
+                                | DeliveryReadiness::Unsent
+                                | DeliveryReadiness::Drafting
+                        )
+                    {
+                        if let Some(current) = current {
+                            match router.injector.resubmit(
+                                &subscriber.session_id,
+                                &current,
+                                &unsent.probe,
+                            ) {
+                                Ok(true) => {
+                                    log::info!("router resubmitted unsent notice mission={} session={} handle=@{handle}", router.mission_id, subscriber.session_id);
+                                    subscriber.last_attempt = Some(now);
+                                    subscriber.pause_check = None;
+                                    subscriber.attempt = Some(Attempt {
+                                        token: current.generation,
+                                        deadline: now + CONFIRM_WINDOW,
+                                        snapshot: Some(current),
+                                        probe: unsent.probe,
+                                        submitted: true,
+                                        second_enter: true,
+                                    });
+                                    continue;
+                                }
+                                Ok(false) => {}
+                                Err(error) => log::warn!(
+                                    "resubmit unsent notice failed session={}: {error}",
+                                    subscriber.session_id
+                                ),
+                            }
+                        }
+                    }
+                    subscriber.unsent = Some(unsent);
                     subscriber.pause_check = Some(now + CONFIRM_WINDOW);
+                    Self::hold(
+                        router,
+                        handle,
+                        subscriber,
+                        (unread > 0).then_some(DeliveryReadiness::Unsent),
+                        unread,
+                        now,
+                    );
                     Self::blocked(router, handle, subscriber, unread, Some("unsubmitted"));
                     continue;
                 }
+                if !gone {
+                    subscriber.unsent = Some(unsent);
+                }
+                subscriber.pause_check = None;
+                if subscriber
+                    .hold
+                    .as_ref()
+                    .is_some_and(|hold| hold.reason == DeliveryReadiness::Unsent)
+                {
+                    Self::hold(router, handle, subscriber, None, unread, now);
+                }
+                if subscriber
+                    .blocked
+                    .as_ref()
+                    .is_some_and(|(_, reason)| reason == "unsubmitted")
+                {
+                    Self::blocked(router, handle, subscriber, unread, None);
+                }
             }
+            subscriber.nudged = false;
             if unread == 0 {
                 subscriber.wanted = false;
+                Self::hold(router, handle, subscriber, None, 0, now);
                 Self::blocked(router, handle, subscriber, 0, None);
                 continue;
             }
-            if reconcile
-                && subscriber.attempt.is_none()
-                && subscriber
-                    .last_attempt
-                    .is_none_or(|last| now.saturating_duration_since(last) >= REDELIVERY_BACKOFF)
-                && matches!(
-                    router.injector.delivery_readiness(&subscriber.session_id),
-                    DeliveryReadiness::Ready { idle: true }
-                )
-            {
-                subscriber.wanted = true;
+            if reconcile && subscriber.attempt.is_none() && !subscriber.wanted && backoff_passed {
+                match router.injector.delivery_readiness(&subscriber.session_id) {
+                    DeliveryReadiness::Ready { idle } => {
+                        subscriber.wanted = idle;
+                        Self::hold(router, handle, subscriber, None, unread, now);
+                        Self::blocked(router, handle, subscriber, unread, None);
+                    }
+                    DeliveryReadiness::Unavailable => {}
+                    readiness => {
+                        Self::hold(router, handle, subscriber, Some(readiness), unread, now);
+                        Self::blocked(
+                            router,
+                            handle,
+                            subscriber,
+                            unread,
+                            blocked_reason(readiness),
+                        );
+                    }
+                }
             }
             if !subscriber.wanted
                 || subscriber.attempt.is_some()
@@ -343,31 +465,20 @@ impl Dispatcher {
             }
             subscriber.retry = None;
             let readiness = router.injector.delivery_readiness(&subscriber.session_id);
-            if subscriber.hold != Some(readiness) {
-                if let Some(previous) = subscriber.hold.take() {
-                    log::info!(
-                        "router delivery released session={} handle=@{handle} reason={previous:?}",
-                        subscriber.session_id
-                    );
-                }
-                if !matches!(readiness, DeliveryReadiness::Ready { .. }) {
-                    log::info!(
-                        "router delivery held session={} handle=@{handle} reason={readiness:?}",
-                        subscriber.session_id
-                    );
-                    subscriber.hold = Some(readiness);
-                }
-            }
+            Self::hold(
+                router,
+                handle,
+                subscriber,
+                (!matches!(readiness, DeliveryReadiness::Ready { .. })).then_some(readiness),
+                unread,
+                now,
+            );
             Self::blocked(
                 router,
                 handle,
                 subscriber,
                 unread,
-                match readiness {
-                    DeliveryReadiness::Drafting => Some("draft"),
-                    DeliveryReadiness::NeedsYou => Some("needs_you"),
-                    _ => None,
-                },
+                blocked_reason(readiness),
             );
             match readiness {
                 DeliveryReadiness::Ready { .. } => {
@@ -401,6 +512,7 @@ impl Dispatcher {
                             ) {
                                 Ok(true) => {
                                     subscriber.wanted = false;
+                                    subscriber.unsent = None;
                                     subscriber.last_attempt = Some(now);
                                     subscriber.attempt = Some(Attempt {
                                         token,
@@ -452,6 +564,66 @@ impl Dispatcher {
         )
     }
 
+    /// Log each change of the reason delivery is held, and warn once a hold with unread messages
+    /// outlasts the redelivery backoff.
+    fn hold(
+        router: &Router,
+        handle: &str,
+        subscriber: &mut Subscriber,
+        reason: Option<DeliveryReadiness>,
+        unread: usize,
+        now: Instant,
+    ) {
+        let reason = reason.map(|reason| match reason {
+            DeliveryReadiness::RecentlyTyping(_) => {
+                DeliveryReadiness::RecentlyTyping(Duration::ZERO)
+            }
+            reason => reason,
+        });
+        if subscriber.hold.as_ref().map(|hold| hold.reason) != reason {
+            if let Some(previous) = subscriber.hold.take() {
+                log::info!(
+                    "router delivery released session={} handle=@{handle} reason={:?}",
+                    subscriber.session_id,
+                    previous.reason
+                );
+            }
+            if let Some(reason) = reason {
+                log::info!(
+                    "router delivery held session={} handle=@{handle} reason={reason:?}",
+                    subscriber.session_id
+                );
+                subscriber.hold = Some(Hold {
+                    reason,
+                    since: now,
+                    warned: false,
+                });
+            }
+        }
+        let Some(hold) = subscriber.hold.as_mut().filter(|hold| {
+            !hold.warned
+                && unread > 0
+                && now.saturating_duration_since(hold.since) >= REDELIVERY_BACKOFF
+        }) else {
+            return;
+        };
+        let words = match hold.reason {
+            DeliveryReadiness::Unsent => "its inbox notice is still unsubmitted in its terminal",
+            DeliveryReadiness::Drafting => "an unsent draft is in its terminal",
+            DeliveryReadiness::NeedsYou => "it is waiting for a response to its prompt",
+            DeliveryReadiness::RecentlyTyping(_) => "someone keeps typing in its terminal",
+            DeliveryReadiness::InFlight => "earlier input to its terminal has not finished",
+            // An unavailable session has its own queued warning, and a hooked first turn
+            // stays Starting until it ends, so a long one is not a stall.
+            DeliveryReadiness::Ready { .. }
+            | DeliveryReadiness::Unavailable
+            | DeliveryReadiness::Pending
+            | DeliveryReadiness::Starting => return,
+        };
+        hold.warned = true;
+        router.warn(format!("delivery to @{handle} is held: {words}"));
+    }
+
     fn blocked(
         router: &Router,
         handle: &str,
@@ -482,6 +654,15 @@ impl Dispatcher {
                 .finish_delivery(&subscriber.session_id, attempt.token);
         }
         Self::blocked(router, handle, subscriber, 0, None);
+    }
+}
+
+fn blocked_reason(readiness: DeliveryReadiness) -> Option<&'static str> {
+    match readiness {
+        DeliveryReadiness::Drafting => Some("draft"),
+        DeliveryReadiness::Unsent => Some("unsubmitted"),
+        DeliveryReadiness::NeedsYou => Some("needs_you"),
+        _ => None,
     }
 }
 

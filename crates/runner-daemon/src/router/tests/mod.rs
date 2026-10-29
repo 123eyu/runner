@@ -18,6 +18,8 @@ struct FakeState {
     input: String,
     sticky: bool,
     unknown: bool,
+    moved: bool,
+    unsent: bool,
     revision: u64,
     turn_started: u64,
     extra_rows: usize,
@@ -86,6 +88,9 @@ impl StdinInjector for Fake {
                 vec![]
             } else {
                 let mut rows = vec!["output".into(), format!("› {}", state.input)];
+                if state.moved {
+                    rows.swap(0, 1);
+                }
                 rows.extend(std::iter::repeat_n(String::new(), state.extra_rows));
                 rows
             },
@@ -93,6 +98,7 @@ impl StdinInjector for Fake {
             input_revision: (state.revision, 0),
             turn_started: state.turn_started,
             runtime: "fake".into(),
+            unsent: state.unsent || state.readiness.get("W") == Some(&DeliveryReadiness::Unsent),
         })
     }
     fn resubmit(
@@ -103,7 +109,8 @@ impl StdinInjector for Fake {
     ) -> Result<bool> {
         let current = self.delivery_snapshot(session).unwrap();
         if current.input_revision != snapshot.input_revision
-            || probe.state(&current.rows) != runner_terminal::delivery_probe::ProbeState::Present
+            || (probe.state(&current.rows) != runner_terminal::delivery_probe::ProbeState::Present
+                && !current.unsent)
         {
             return Ok(false);
         }
@@ -204,6 +211,27 @@ impl Fixture {
             .unwrap()
             .readiness
             .insert("W".into(), readiness);
+    }
+    fn notices(&self) -> usize {
+        self.writes()
+            .iter()
+            .filter(|text| text.as_str() != "\r")
+            .count()
+    }
+    fn warnings(&self) -> Vec<String> {
+        self.router
+            .log
+            .read_from(0)
+            .unwrap()
+            .into_iter()
+            .filter(|entry| {
+                entry.event.signal_type.as_ref().map(SignalType::as_str) == Some("mission_warning")
+            })
+            .map(|entry| entry.event.payload["message"].as_str().unwrap().to_owned())
+            .collect()
+    }
+    fn block_reason(&self) -> Option<String> {
+        self.port.0.lock().unwrap().blocked.last()?.reason.clone()
     }
     fn writes(&self) -> Vec<String> {
         self.port
@@ -790,7 +818,7 @@ fn confirmation_uses_runtime_turn_started_or_a_cleared_input() {
 }
 
 #[test]
-fn unsubmitted_gets_exactly_one_more_enter_then_pauses_until_the_rows_clear() {
+fn unsubmitted_gets_one_more_enter_then_only_enters_until_the_rows_clear() {
     let mut f = Fixture::new();
     f.port.0.lock().unwrap().sticky = true;
     f.backlog(1);
@@ -798,15 +826,279 @@ fn unsubmitted_gets_exactly_one_more_enter_then_pauses_until_the_rows_clear() {
     f.after(dispatch::CONFIRM_WINDOW);
     assert_eq!(f.writes().len(), 3);
     f.after(dispatch::CONFIRM_WINDOW);
-    let blocked = f.port.0.lock().unwrap().blocked.last().unwrap().clone();
-    assert_eq!(blocked.reason.as_deref(), Some("unsubmitted"));
+    assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
     f.backlog(2);
-    f.after(Duration::from_secs(120));
-    assert_eq!(f.writes().len(), 3);
+    f.after(Duration::from_secs(60));
+    assert_eq!(f.writes().len(), 3, "the reconcile waits out the backoff");
+    f.after(Duration::from_secs(60));
+    assert_eq!(f.writes()[3..], ["\r"]);
     f.port.0.lock().unwrap().input.clear();
+    f.session(SessionDeliveryEvent::InputCleared);
+    f.after(dispatch::CONFIRM_WINDOW);
+    assert_eq!(f.port.0.lock().unwrap().busy, 1);
+    f.after(SUBMIT_DELAY);
+    assert!(f.writes().last().unwrap().contains("2 new messages"));
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Leftover {
+    Unsubmitted,
+    UnsubmittedThenMoved,
+    MovedDuringConfirm,
+    UnverifiedThenVisible,
+    UnverifiedTrackerOnly,
+}
+
+fn leave_unsent_notice(f: &mut Fixture, leftover: Leftover) {
+    f.port.0.lock().unwrap().sticky = true;
+    f.readiness(DeliveryReadiness::Ready { idle: false });
+    f.backlog(1);
+    f.after(SUBMIT_DELAY);
+    if matches!(
+        leftover,
+        Leftover::UnverifiedThenVisible | Leftover::UnverifiedTrackerOnly
+    ) {
+        f.port.0.lock().unwrap().unknown = true;
+    }
+    if matches!(leftover, Leftover::MovedDuringConfirm) {
+        f.port.0.lock().unwrap().moved = true;
+        f.readiness(DeliveryReadiness::Unsent);
+    }
+    f.after(dispatch::CONFIRM_WINDOW);
+    f.after(dispatch::CONFIRM_WINDOW);
+    match leftover {
+        Leftover::Unsubmitted | Leftover::MovedDuringConfirm => assert_eq!(f.writes().len(), 3),
+        Leftover::UnsubmittedThenMoved => {
+            assert_eq!(f.writes().len(), 3);
+            f.port.0.lock().unwrap().moved = true;
+            f.readiness(DeliveryReadiness::Unsent);
+        }
+        Leftover::UnverifiedThenVisible => {
+            assert_eq!(f.writes().len(), 2);
+            f.port.0.lock().unwrap().unknown = false;
+        }
+        Leftover::UnverifiedTrackerOnly => {
+            assert_eq!(f.writes().len(), 2);
+            f.readiness(DeliveryReadiness::Unsent);
+        }
+    }
+    f.tick(None);
+    assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
+}
+
+#[test]
+fn a_leftover_notice_is_resubmitted_when_the_turn_ends_and_never_retyped() {
+    for leftover in [
+        Leftover::Unsubmitted,
+        Leftover::UnsubmittedThenMoved,
+        Leftover::MovedDuringConfirm,
+        Leftover::UnverifiedThenVisible,
+        Leftover::UnverifiedTrackerOnly,
+    ] {
+        let mut f = Fixture::new();
+        leave_unsent_notice(&mut f, leftover);
+        let enters = f.writes().len();
+        f.backlog(2);
+        f.after(Duration::from_secs(60));
+        assert_eq!(f.writes().len(), enters, "{leftover:?}");
+        assert_eq!(
+            f.block_reason().as_deref(),
+            Some("unsubmitted"),
+            "{leftover:?}"
+        );
+        f.port.0.lock().unwrap().sticky = false;
+        if matches!(
+            leftover,
+            Leftover::Unsubmitted | Leftover::UnverifiedThenVisible
+        ) {
+            f.readiness(DeliveryReadiness::Ready { idle: true });
+        }
+        f.session(SessionDeliveryEvent::Idle);
+        assert_eq!(f.writes()[enters..], ["\r"], "{leftover:?}");
+        f.port.0.lock().unwrap().unknown = false;
+        f.readiness(DeliveryReadiness::Ready { idle: false });
+        f.after(dispatch::CONFIRM_WINDOW);
+        assert_eq!(f.port.0.lock().unwrap().busy, 1, "{leftover:?}");
+        assert_eq!(f.block_reason(), None, "{leftover:?}");
+        assert_eq!(f.notices(), 1, "{leftover:?}");
+        assert!(f.warnings().is_empty(), "{leftover:?}");
+    }
+}
+
+#[test]
+fn a_leftover_notice_is_resubmitted_by_the_reconcile_after_the_backoff() {
+    for leftover in [
+        Leftover::Unsubmitted,
+        Leftover::UnsubmittedThenMoved,
+        Leftover::MovedDuringConfirm,
+        Leftover::UnverifiedThenVisible,
+        Leftover::UnverifiedTrackerOnly,
+    ] {
+        let mut f = Fixture::new();
+        leave_unsent_notice(&mut f, leftover);
+        let enters = f.writes().len();
+        f.after(Duration::from_secs(90));
+        assert_eq!(f.writes().len(), enters, "{leftover:?}");
+        f.after(Duration::from_secs(30));
+        assert_eq!(f.writes()[enters..], ["\r"], "{leftover:?}");
+        f.after(dispatch::CONFIRM_WINDOW);
+        assert_eq!(f.port.0.lock().unwrap().busy, 0, "{leftover:?}");
+        assert_eq!(
+            f.warnings(),
+            ["delivery to @worker is held: its inbox notice is still unsubmitted in its terminal"],
+            "{leftover:?}"
+        );
+        f.after(Duration::from_secs(120));
+        f.after(dispatch::CONFIRM_WINDOW);
+        assert_eq!(f.writes()[enters..], ["\r", "\r"], "{leftover:?}");
+        assert_eq!(f.port.0.lock().unwrap().busy, 0, "{leftover:?}");
+        assert_eq!(f.notices(), 1, "{leftover:?}");
+        assert_eq!(f.warnings().len(), 1, "one warning per hold");
+    }
+}
+
+#[test]
+fn silence_after_our_own_enter_cannot_drive_a_retry_loop() {
+    let mut f = Fixture::new();
+    leave_unsent_notice(&mut f, Leftover::Unsubmitted);
+    let enters = f.writes().len();
+    let mut redrawn = 0;
+    for _ in 0..150 {
+        // Each Enter redraws the composer, and silence detection goes idle two seconds later.
+        let writes = f.writes().len();
+        f.after(Duration::from_secs(2));
+        if writes > redrawn {
+            redrawn = writes;
+            f.session(SessionDeliveryEvent::SilenceIdle);
+        }
+    }
+    assert_eq!(f.writes()[enters..], ["\r", "\r"]);
+    assert_eq!(f.notices(), 1);
+    assert_eq!(f.warnings().len(), 1);
+}
+
+#[test]
+fn a_reported_turn_end_soon_after_an_ignored_retry_presses_enter_at_once() {
+    for (event, immediate) in [
+        (SessionDeliveryEvent::Idle, true),
+        (SessionDeliveryEvent::SilenceIdle, false),
+    ] {
+        let mut f = Fixture::new();
+        leave_unsent_notice(&mut f, Leftover::Unsubmitted);
+        f.session(SessionDeliveryEvent::ReadinessChanged);
+        f.after(Duration::from_millis(500));
+        assert_eq!(f.writes()[3..], ["\r"], "{event:?}");
+        f.after(dispatch::CONFIRM_WINDOW);
+        f.after(Duration::from_secs(5));
+        f.session(event);
+        assert_eq!(f.writes().len(), 4 + immediate as usize, "{event:?}");
+        f.after(Duration::from_secs(150));
+        assert_eq!(f.writes().len(), 5, "{event:?}");
+        assert_eq!(f.notices(), 1, "{event:?}");
+    }
+}
+
+#[test]
+fn a_prompt_over_a_moved_leftover_keeps_it_for_an_enter_after_release() {
+    let mut f = Fixture::new();
+    leave_unsent_notice(&mut f, Leftover::UnsubmittedThenMoved);
+    let enters = f.writes().len();
+    f.port.0.lock().unwrap().unsent = true;
+    f.readiness(DeliveryReadiness::NeedsYou);
+    f.session(SessionDeliveryEvent::ReadinessChanged);
+    f.backlog(2);
+    f.after(Duration::from_secs(300));
+    assert_eq!(f.writes().len(), enters);
+    assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
+    f.port.0.lock().unwrap().unsent = false;
+    f.readiness(DeliveryReadiness::Unsent);
+    f.session(SessionDeliveryEvent::ReadinessChanged);
+    f.after(Duration::from_millis(500));
+    assert_eq!(f.writes()[enters..], ["\r"]);
+    assert_eq!(f.notices(), 1);
+}
+
+#[test]
+fn a_person_edit_stops_the_leftovers_enters_but_still_blocks_a_second_notice() {
+    let mut f = Fixture::new();
+    leave_unsent_notice(&mut f, Leftover::Unsubmitted);
+    {
+        let mut state = f.port.0.lock().unwrap();
+        state.revision += 1;
+        state.input.push_str(" and a note");
+    }
+    f.readiness(DeliveryReadiness::Drafting);
+    f.backlog(2);
+    f.after(SUBMIT_DELAY);
+    f.session(SessionDeliveryEvent::Idle);
+    f.after(Duration::from_secs(300));
+    assert_eq!(f.writes().len(), 3);
+    assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
+    assert_eq!(
+        f.warnings(),
+        ["delivery to @worker is held: its inbox notice is still unsubmitted in its terminal"]
+    );
+    f.port.0.lock().unwrap().input.clear();
+    f.readiness(DeliveryReadiness::Ready { idle: true });
     f.session(SessionDeliveryEvent::InputCleared);
     f.after(Duration::from_millis(500));
     assert!(f.writes().last().unwrap().contains("2 new messages"));
+}
+
+#[test]
+fn unsent_readiness_without_a_leftover_is_never_typed_over() {
+    let mut f = Fixture::new();
+    f.readiness(DeliveryReadiness::Unsent);
+    f.backlog(1);
+    f.session(SessionDeliveryEvent::Idle);
+    f.after(Duration::from_secs(150));
+    assert!(f.writes().is_empty());
+    assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
+    assert_eq!(
+        f.warnings(),
+        ["delivery to @worker is held: its inbox notice is still unsubmitted in its terminal"]
+    );
+}
+
+#[test]
+fn a_first_turn_or_pending_start_holds_without_a_warning() {
+    for readiness in [DeliveryReadiness::Starting, DeliveryReadiness::Pending] {
+        let mut f = Fixture::new();
+        f.readiness(readiness);
+        f.backlog(1);
+        f.after(Duration::from_secs(600));
+        assert!(f.writes().is_empty(), "{readiness:?}");
+        assert!(f.warnings().is_empty(), "{readiness:?}: {:?}", f.warnings());
+    }
+}
+
+#[test]
+fn a_hold_with_unread_messages_warns_once_after_the_backoff() {
+    let mut f = Fixture::new();
+    f.readiness(DeliveryReadiness::Drafting);
+    f.backlog(1);
+    f.after(Duration::from_secs(119));
+    assert!(f.warnings().is_empty());
+    f.after(Duration::from_secs(1));
+    f.after(Duration::from_secs(300));
+    assert_eq!(f.warnings().len(), 1);
+    f.readiness(DeliveryReadiness::Ready { idle: true });
+    f.session(SessionDeliveryEvent::InputCleared);
+    f.after(Duration::from_millis(500));
+    f.after(SUBMIT_DELAY);
+    f.after(dispatch::CONFIRM_WINDOW);
+    assert_eq!(f.port.0.lock().unwrap().busy, 1);
+    f.readiness(DeliveryReadiness::NeedsYou);
+    f.backlog(2);
+    f.after(SUBMIT_DELAY);
+    f.after(Duration::from_secs(120));
+    assert_eq!(
+        f.warnings(),
+        [
+            "delivery to @worker is held: an unsent draft is in its terminal",
+            "delivery to @worker is held: it is waiting for a response to its prompt"
+        ]
+    );
 }
 
 #[test]
@@ -1108,7 +1400,7 @@ fn a_resized_paused_input_resumes_on_input_cleared_without_interrupting_a_new_dr
 }
 
 #[test]
-fn approval_release_never_unpauses_unchanged_notification_even_after_resize() {
+fn approval_release_resubmits_but_never_retypes_an_unchanged_notification_even_after_resize() {
     for resized in [false, true] {
         let mut f = Fixture::new();
         f.port.0.lock().unwrap().sticky = true;
@@ -1121,34 +1413,30 @@ fn approval_release_never_unpauses_unchanged_notification_even_after_resize() {
         }
         f.readiness(DeliveryReadiness::NeedsYou);
         f.session(SessionDeliveryEvent::ReadinessChanged);
-        f.readiness(DeliveryReadiness::Ready { idle: false });
-        f.session(SessionDeliveryEvent::ReadinessChanged);
         f.backlog(2);
         f.after(Duration::from_millis(500));
+        assert_eq!(f.writes().len(), 3, "resized={resized}");
+        // After a resize only the tracker still recognizes the router's text.
+        f.readiness(if resized {
+            DeliveryReadiness::Unsent
+        } else {
+            DeliveryReadiness::Ready { idle: false }
+        });
+        f.session(SessionDeliveryEvent::ReadinessChanged);
+        f.after(Duration::from_millis(500));
+        assert_eq!(f.writes()[3..], ["\r"], "resized={resized}");
+        f.after(dispatch::CONFIRM_WINDOW);
         f.after(Duration::from_secs(120));
-        assert_eq!(f.writes().len(), 3);
-        assert_eq!(
-            f.port
-                .0
-                .lock()
-                .unwrap()
-                .blocked
-                .last()
-                .unwrap()
-                .reason
-                .as_deref(),
-            Some("unsubmitted")
-        );
+        assert_eq!(f.notices(), 1, "resized={resized}");
+        assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
+        f.after(dispatch::CONFIRM_WINDOW);
         if !resized {
             f.session(SessionDeliveryEvent::InputCleared);
             f.after(Duration::from_millis(500));
-            assert_eq!(
-                f.writes().len(),
-                3,
-                "a positive probe must retain the pause"
-            );
+            assert_eq!(f.notices(), 1, "a positive probe must retain the pause");
         }
         f.port.0.lock().unwrap().input.clear();
+        f.readiness(DeliveryReadiness::Ready { idle: true });
         f.session(SessionDeliveryEvent::InputCleared);
         f.after(Duration::from_millis(500));
         assert!(f.writes().last().unwrap().contains("2 new messages"));

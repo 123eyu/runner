@@ -250,6 +250,7 @@ impl SessionState {
         if let Some(hold) = self.model.draft_hold(now) {
             return match hold {
                 D::RecentlyTyping(delay) => R::RecentlyTyping(delay),
+                D::Unsent => R::Unsent,
                 _ => R::Drafting,
             };
         }

@@ -13,6 +13,6 @@ session_status_rows=published
   idle@baseline [running/idle/baseline]
 2800 status=running/working/baseline activity="busy"
   busy@forwarder [running/working/baseline]
-5000 status=running/idle/baseline activity="idle" delivery=["Idle"]
+5000 status=running/idle/baseline activity="idle" delivery=["SilenceIdle"]
   idle@forwarder [running/idle/baseline]
 5100 result={"completion_consumed":false,"viewed":false}

@@ -26,7 +26,14 @@ impl SessionManager {
         let idle = session.model.activity() == Some(SessionActivityState::Idle);
         drop(session);
         if idle && !was_idle {
-            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::Idle);
+            self.notify_delivery_event(
+                session_id,
+                if source == StatusSource::Forwarder {
+                    router::SessionDeliveryEvent::SilenceIdle
+                } else {
+                    router::SessionDeliveryEvent::Idle
+                },
+            );
         }
         published
     }
@@ -40,6 +47,11 @@ impl SessionManager {
         let session = self.session_state_or_insert(session_id);
         let mut session = session.lock().unwrap();
         let live = session.handle.is_some() && !session.killed;
+        let delivery = if matches!(event, TerminalEvent::Activity(_)) {
+            router::SessionDeliveryEvent::SilenceIdle
+        } else {
+            router::SessionDeliveryEvent::Idle
+        };
         let event = match event {
             TerminalEvent::CodexAttention(blocked) => {
                 SessionEvent::CodexAttention { blocked, live }
@@ -61,7 +73,7 @@ impl SessionManager {
         let idle = session.model.activity() == Some(SessionActivityState::Idle);
         drop(session);
         if idle && !was_idle {
-            self.notify_delivery_event(session_id, router::SessionDeliveryEvent::Idle);
+            self.notify_delivery_event(session_id, delivery);
         }
         published
     }

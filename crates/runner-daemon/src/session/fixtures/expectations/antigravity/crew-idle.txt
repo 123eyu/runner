@@ -4,7 +4,7 @@ session_status_rows:
   idle@forwarder [running/idle/baseline]
   idle@hook [running/ready/hook outcome="completed"]
   busy@wake [<absent>]
-2200 status=running/idle/baseline activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","Idle"]
+2200 status=running/idle/baseline activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","SilenceIdle"]
   busy@spawn [running/working/baseline]
   idle@forwarder [running/idle/baseline]
 2300 status=running/ready/hook outcome="completed"

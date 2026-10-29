@@ -18,6 +18,8 @@ Answer a question through its feed card. For an ordinary follow-up, use the mess
 
 An unsent draft in an agent's terminal holds inbox delivery and shows **Inbox waiting**. Submitting the draft or clearing the composer lets delivery resume; submitted text still visible in Codex or Antigravity history does not hold it. Runner follows the current composer when terminal redraws move it, as Antigravity and Claude Code do. If delivery remains held after you verify the composer is empty, use **Submit / clear** to reset input tracking.
 
+An inbox notice that Runner typed itself is not a draft. If the agent ignored its Return, the slot shows **Message not submitted — press Return**. Runner presses Return on that notice again when the agent's turn ends or a prompt closes, and otherwise about every two minutes. It never types a second notice over the first one. If a member's delivery stays held for more than two minutes while it has unread messages, Runner adds one warning to the feed that names the member and the reason. `runner mission show` lists that warning under RECENT WARNINGS. A member that is still starting, which can last through its whole first turn, gets no such warning.
+
 The scrollbar on the feed’s right edge shows your position in long histories. Drag its thumb, click its track, or scroll over it to move through the feed. New messages keep the feed at the bottom while you are near the end; while reading older messages, use **New messages** to return to the bottom.
 
 ## Permissions

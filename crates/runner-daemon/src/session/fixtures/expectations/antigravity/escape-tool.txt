@@ -1,6 +1,6 @@
 runtime=antigravity name=escape-tool rules=[] bugs=[783] known_wrong=[]
 session_status_rows=published
-2200 status=running/idle/baseline activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","Idle"]
+2200 status=running/idle/baseline activity="idle" completion_armed=false quiescent=true key=null delivery=["Respawned","SilenceIdle"]
   busy@spawn [running/working/baseline]
   idle@forwarder [running/idle/baseline]
 2300 quiescent=false delivery=["InputQueueDrained"]

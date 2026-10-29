@@ -4,7 +4,7 @@ session_status_rows=published
   busy@spawn [running/working/baseline]
 200
 300 result={"history_exists":true,"missing_reuses_key":false,"missing_resume_on_launch":false}
-2500 status=running/idle/baseline activity="idle" delivery=["Idle"]
+2500 status=running/idle/baseline activity="idle" delivery=["SilenceIdle"]
   idle@forwarder [running/idle/baseline]
 2600 status=running/working/hook activity="busy" completion_armed=true
   busy@hook [running/working/hook]
@@ -14,7 +14,7 @@ session_status_rows=published
 2900 status=running/working/baseline activity="busy" quiescent=true delivery=["Respawned"]
   busy@spawn [running/working/baseline]
 3000 result={"history_exists":true,"missing_reuses_key":false,"missing_resume_on_launch":false}
-5200 status=running/idle/baseline activity="idle" delivery=["Idle"]
+5200 status=running/idle/baseline activity="idle" delivery=["SilenceIdle"]
   idle@forwarder [running/idle/baseline]
 5300 status=running/working/hook activity="busy" completion_armed=true
   busy@hook [running/working/hook]
