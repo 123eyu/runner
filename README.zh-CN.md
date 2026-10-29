@@ -53,7 +53,7 @@
 
 > Alpha · 原生支持 macOS（Apple Silicon）和 Windows（x64），Linux（ARM64、x86_64）处于 beta 阶段。
 
-Linux 支持自 Runner 0.18.2 起进入 beta：提供 ARM64 和 x86_64 的签名 `.deb` 与 tarball 包，并支持应用内更新。目前已在 Ubuntu 26.04 ARM64 虚拟机上试用，原生硬件、x86_64 和其他发行版尚未验证。请参阅 [Linux 构建与安装说明](docs/arch/linux.md) 和 [验证状态](docs/tests/823-linux-support.md)。
+Linux 支持自 Runner 0.18.2 起进入 beta：提供 ARM64 和 x86_64 的签名 `.deb` 与 tarball 包，并支持应用内更新。目前已在 Ubuntu 26.04 ARM64 虚拟机上试用，原生硬件、x86_64 和其他发行版尚未验证。请参阅 [Linux 构建与安装说明](docs/arch/linux.md) 和 [验证状态](docs/tests/archive/823-linux-support.md)。
 
 Runner 让命令行编码 agent 通过可复用的 crew、真实终端和共享 mission feed 一起工作。会话和历史记录都保存在你的机器上。
 

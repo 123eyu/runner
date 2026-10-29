@@ -85,3 +85,7 @@ The original Failed rows, failed first retest and diagnostic state/display misma
 No new agents, chats or missions were started during this retest. Wrapper process 75125 was stopped, verified absent, and unregistered from LaunchServices. The three original chats and one original mission were independently rechecked as stopped/archived (`repaint/cleanup.json`). Global Codex config still matches the pre-test file (`repaint/config-diff-after-cleanup.txt` empty). Scratch fixtures, all earlier wrappers and evidence remain retained; pre-existing sessions and installed Runner were not operated.
 
 **NO REMAINING MUST-FIX QA ISSUES** for the selected accessible macOS workflows, including both keyboard-blur paths and directly affected directory/selection boundaries. Native Windows and remote-computer checks remain **Blocked**, left to Jason; the two disclosed design deviations still await his PR confirmation. This is a feature pass with those limits, not a full regression pass.
+
+## Regression maintenance, 0.18.3
+
+Lasting entry-point/filing, directory/keyboard and pane-lock checks are WS-CREATE-07/08/09 in [workspace](../regression/workspace.md), with REMOTE-CHAT-05 in [remote](../regression/remote.md). The failed keyboard-blur attempts and native Windows/remote gaps remain evidence above.

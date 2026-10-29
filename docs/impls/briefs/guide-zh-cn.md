@@ -1,7 +1,0 @@
-# Simplified Chinese user guide
-
-Companion to the bilingual website mission, run by the approved codex duo from `/Users/jason/repos/yicheng47/runner-web/.worktrees/feat-simplified-chinese`. The full mission brief is that worktree's `docs/briefs/simplified-chinese.md`.
-
-This worktree is `/Users/jason/repos/yicheng47/runner/.worktrees/feat-guide-zh-cn`, branch `feat/guide-zh-cn`. Translate the full guide into `docs/guide/zh-CN/`, mirroring English paths and navigation. Use the current app's `crates/runner-app/i18n/zh-hans.toml` for terminology; keep code fences and CLI help literal. Update `docs/guide-authoring.md` for bilingual maintenance and the website's actual source contract. Validate links, anchors, source parity and generated-reference integrity. No native UI changes or native app smoke tests are in scope.
-
-Jason requested both website Chinese support and full guide translation, chose codex duo, and requested a Runner PR alongside the website PR. Review the uncommitted diff first, then wait for the external operator's own review and website browser QA before implementation commits, pushes or PR creation. The setup brief may be committed before mission start. Fold this brief into the focused translation commit. Finish with an open PR and configured CI green, or an explicit dependency/external blocker; do not merge, deploy, cut a release, delete branches/worktrees or launch more agents. Link the dependent runner-web PR and state the guide source revision used for integration testing.

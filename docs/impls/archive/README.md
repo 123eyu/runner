@@ -33,6 +33,7 @@ Each program's README is its entry point. Open a plan for its design/sequence or
 | [Recorded launch definitions](878-session-launch-definition.md) | Forward-only persistence conversion and the Resume/fork contract. |
 | [Reliable delivery](907-reliable-delivery.md) | Failure analysis and the durable queue/submission-confirmation design. |
 | [Native fork](fork-chat.md) | Copy-on-write conversation probes and why fork must materialize a new key. |
+| [Linux/remote integration](982-linux-remote-compat.md) | The 0.18.0 compatibility rebase, private-file credential decision and unified signed publication contract, with its dated automated results and native gaps. The earlier local handoff is preserved separately as [validation history](../../tests/archive/823-linux-delivery-history.md). |
 | [Maintenance history](maintenance-history.md) | Actual outcomes and task history extracted from deleted small-change plans; it is not a plan to implement. |
 
 The 2026-10-22 cleanup retained 41 of 94 existing implementation records and consolidated embedded history separately. Validation runs and dedicated implementation/review logs are preserved. A former plan is not retained merely because its issue closed or another archived document links to it.

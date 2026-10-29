@@ -6,13 +6,11 @@ Since 2026-09-01 a spec's number **is** its tracking issue number: file the issu
 
 ## Active
 
-- [968 — Project selector in New chat and New mission](./968-project-selector.md) — a Project field above the working directory in both dialogs, its defaults per entry point and how it follows the directory; design signed off in `runner/desktop/specs/968-project-selector.pen` ([#968](https://github.com/yicheng47/runner/issues/968)).
-- [873 — Remove the mission lead](./873-remove-mission-lead.md) — every mission runs like a **No crew** mission: one member prompt, the goal shared with every member, and no lead in crews, the CLI or the app ([#873](https://github.com/yicheng47/runner/issues/873)).
 - [748 — Mission updates reach the starting chat](./748-mission-watch-delivery.md) — the return path for delegation; on hold after #826 since 2026-10-17, because Jason rejected Runner typing updates into a normal chat, and the spec keeps the refreshed proposal for the redesign ([#748](https://github.com/yicheng47/runner/issues/748)).
 - [634 — File preview and code review](./634-file-preview-and-review.md) — a project tree, read-only file/diff tabs, a base picker and review comments returned to the agent; design before implementation ([#634](https://github.com/yicheng47/runner/issues/634)).
 - [559 — Command palette](./559-command-palette.md) — command mode over the existing keymap and quick-switcher overlay ([#559](https://github.com/yicheng47/runner/issues/559)).
 
-Linux support ([#823](https://github.com/yicheng47/runner/issues/823)) landed on `main` on 2026-10-27 in [PR #1027](https://github.com/yicheng47/runner/pull/1027) and shipped as a beta in [0.18.2](https://github.com/yicheng47/runner/releases/tag/v0.18.2). Its specs, [823 — Linux support](./823-linux-support.md) and [823 — Linux updates](./823-linux-updates.md), stay active while WSL and native acceptance remain open; the [brief](../impls/briefs/823-linux.md) remains for context.
+Linux support ([#823](https://github.com/yicheng47/runner/issues/823)) shipped as a beta in 0.18.2 and its issue is closed. The [platform contract](archive/823-linux-support.md), [signed-update contract](archive/823-linux-updates.md) and [OSC 7501 protocol contract](archive/861-program-status.md) are retained in the archive; native Linux acceptance gaps remain explicit in [the architecture](../arch/linux.md) and validation records. The [Linux brief](../impls/briefs/823-linux.md) stays as the large example.
 
 Future work, including [iOS follow-through](https://github.com/yicheng47/runner/issues/912), [shell/agent separation](https://github.com/yicheng47/runner/issues/795) and [pi MCP management](https://github.com/yicheng47/runner/issues/764), stays in its issue until development starts. Milestones and priorities are listed in the [roadmap](../roadmap.md), not duplicated in this index.
 

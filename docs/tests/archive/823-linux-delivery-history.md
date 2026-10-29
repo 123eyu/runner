@@ -1,18 +1,6 @@
-# Linux support implementation plan
+# Linux local delivery history
 
-1. Inventory app cfg/dependencies, daemon /proc and login-shell seams; record spec and
-   selected validation before checks. Preserve current macOS/Windows branches.
-2. Implement /proc descendants and exact rollout descriptors with tests, account shell
-   fallback, Linux GPUI dependencies/fonts/platform selection, Ctrl/window/open behavior.
-   Freeze an early source snapshot for coordinator ARM64 compilation.
-3. Stage one package tree and produce ARM64/x86_64 tar/deb/rpm, preserving foreign links
-   and data. Add opt-in Restart=no user service and reconcile packaged CLI ownership.
-4. Add both Linux architectures to CI/release/nightly definitions without changing
-   existing feed semantics, document prerequisites/WSL/known gaps and guide changes.
-5. Run relevant narrow tests, package fixtures and macOS cfg checks with runtime shaders.
-   Coordinator owns Linux synchronization, compilation, package/native checks.
-6. Hand entire dirty diff to reviewer; fix must-fix findings to explicit clean verdict.
-   Final coordinator Linux workspace Clippy/tests and retained native evidence.
+Historical handoff and validation preserved from the original implementation plan during the 0.18.3 sweep on 2026-10-29. The obsolete implementation checklist is omitted; current behavior is in [Linux architecture](../../arch/linux.md). The dated results and authorization below retain their original scope.
 
 During the Build squad implementation, impl was the sole production-code/docs
 writer and work remained uncommitted. The user later authorized the local feature
@@ -38,7 +26,7 @@ and tests; release/nightly alone build installation packages.
 The user confirmed Chinese input, zoom, simultaneous OpenCode two-role startup,
 package/menu launch and, after reinstalling the corrected package, the dock
 icon/name. These are user-reported native passes, with original candidate
-identities retained in `docs/tests/823-linux-support.md`.
+identities retained in `docs/tests/archive/823-linux-support.md`.
 
 The branch is now rebased without conflicts onto upstream `8e523b5e` (0.16.7),
 including mission-feed virtualization and filtered-inbox feedback. The feature
@@ -46,7 +34,7 @@ patch is unchanged by the rebase. Scoped Mac/Linux app tests, workspace Clippy, 
 prompt checks passed, as did Mac updater Clippy, CLI reference checks and
 formatting. The new commit's hosted CI remains separate from the previous run. WSL/WSLg,
 x86_64 native GUI, X11 and native RPM installation remain unverified; Linux
-in-app update implementation is tracked by `docs/features/823-linux-updates.md`
+in-app update implementation is tracked by `docs/features/archive/823-linux-updates.md`
 and its separate scoped validation record.
 
 ### Earlier 0.16.6 integration
@@ -82,9 +70,9 @@ opt-in systemd user service. CI/release/nightly definitions cover ARM64/x86_64
 Ubuntu 22.04 builds and preserve separate nightly channels. Relevant guides,
 architecture docs and bilingual README/catalog changes accompany the code.
 
-The spec is `docs/features/823-linux-support.md`; development/packaging contracts
+The spec is `docs/features/archive/823-linux-support.md`; development/packaging contracts
 are in `docs/arch/linux.md`. Exact commands, source/package hashes, original
-failures and remaining native limits are in `docs/tests/823-linux-support.md`.
+failures and remaining native limits are in `docs/tests/archive/823-linux-support.md`.
 Local artifacts under `target/` are not public downloads.
 
 | Evidence | Final local delivery status |
@@ -179,7 +167,7 @@ its origin remains unattributed and no runtime fix is claimed. Window
 resize/restore, interruption/recovery and clipboard passes are user-reported;
 zoom and the remaining native input/IME checks are unconfirmed. Detailed commands,
 artifact identities, original failures and evidence limits are recorded in
-`docs/tests/823-linux-support.md`.
+`docs/tests/archive/823-linux-support.md`.
 
 The following commands ran against frozen source11 archive SHA256
 `393078239b6b98a3f9d9ba609e8cc9e2891648a96cdbdd90e50df6358a147b2b`.
@@ -212,3 +200,7 @@ retained. Tests contain nested child-process summaries, so their sums are not
 reported as unique test totals. Existing ignored tests remain ignored.
 
 Related: #823.
+
+## Regression maintenance, 0.18.3
+
+This record preserves local handoff history rather than defining another test plan. Current Linux acceptance cases are in [the maintained Linux suite](../regression/linux.md); obsolete RPM and retired-channel instructions above are historical only.

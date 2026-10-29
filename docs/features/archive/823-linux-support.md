@@ -1,6 +1,6 @@
 # Linux desktop and headless support
 
-Related: [#823](https://github.com/yicheng47/runner/issues/823). The current implementation record is [#982 Linux/remote integration](../impls/982-linux-remote-compat.md); the [original local mission brief](https://github.com/yicheng47/runner/blob/49e03dd419ab726383f6b8a96d693d85274173b4/docs/impls/briefs/823-linux-support-local.md) is historical.
+Related: [#823](https://github.com/yicheng47/runner/issues/823). The current implementation record is [#982 Linux/remote integration](../../impls/archive/982-linux-remote-compat.md); the [original local mission brief](https://github.com/yicheng47/runner/blob/49e03dd419ab726383f6b8a96d693d85274173b4/docs/impls/briefs/823-linux-support-local.md) is historical.
 
 Runner supports Linux ARM64 and x86_64 with the native GPUI app, daemon and CLI.
 X11 and Wayland share the existing Windows-style window controls and Ctrl bindings.
@@ -39,4 +39,4 @@ multi-target crew messaging remain intact, and Linux nightly definitions honor
 the separate `nightly` and `remote-nightly` channels. Linux CI provides Node
 22.14.0 for the existing embedded pi extension tests; no agent account is needed.
 
-Current integration: rebased onto Runner 0.18.0. Linux uses stable and the single nightly channel; remote-nightly has been retired. Remote host/client compatibility changes, approved storage policy and automated verification are summarized in `docs/impls/982-linux-remote-compat.md`; fresh native Linux remote acceptance remains outstanding.
+Current integration: rebased onto Runner 0.18.0. Linux uses stable and the single nightly channel; remote-nightly has been retired. Remote host/client compatibility changes, approved storage policy and automated verification are summarized in `docs/impls/archive/982-linux-remote-compat.md`; fresh native Linux remote acceptance remains outstanding.

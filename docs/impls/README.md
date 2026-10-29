@@ -6,9 +6,9 @@ A plan is written on its feature's branch and lands in the pull request with the
 
 ## Active
 
-No program is in flight. Remote control's program record ([#836](https://github.com/yicheng47/runner/issues/836)) shipped in 0.18.0 and is [archived](archive/836-web-remote-control/README.md).
+The remaining post-0.17 cleanup is tracked in [#977](https://github.com/yicheng47/runner/issues/977). Its [workspace-client](977-workspace-client.md), [remote-root](977-remote-root.md), [app-layout](977-app-layout.md) and [CLI/daemon](977-cli-daemon-splits.md) plans and test records remain while the multi-PR issue is open. Their merged mission briefs are pruned.
 
-The [Linux brief](briefs/823-linux.md) remains active in [PR #982](https://github.com/yicheng47/runner/pull/982).
+Remote control's [program record](archive/836-web-remote-control/README.md) shipped in 0.18.0. Linux shipped as a beta in 0.18.2; its [integration record](archive/982-linux-remote-compat.md) is archived, and the [brief](briefs/823-linux.md) remains as the large example.
 
 ## Archive
 

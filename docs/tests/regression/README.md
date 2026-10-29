@@ -8,17 +8,18 @@ Use [Full smoke test procedure](../full-smoke-test.md) for authorization, candid
 
 | Area | File | Cases | Smoke | Additional full |
 | --- | --- | ---: | ---: | ---: |
-| Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 46 | 10 | 36 |
+| Runtime lifecycle, conversation identity, status and hooks | [runtimes.md](runtimes.md) | 48 | 10 | 38 |
 | Native terminal rendering, input, resize and history | [terminal.md](terminal.md) | 28 | 5 | 23 |
-| Windows, tabs, panes, sidebar and its Active view, cwd and drawers | [workspace.md](workspace.md) | 35 | 6 | 29 |
-| Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 41 | 4 | 37 |
+| Windows, tabs, panes, sidebar and its Active view, cwd and drawers | [workspace.md](workspace.md) | 38 | 6 | 32 |
+| Crews, missions, membership, delivery, asks, feed and watches | [missions.md](missions.md) | 42 | 4 | 38 |
 | Quit, daemon lifetime, reconnect and recovery | [daemon.md](daemon.md) | 22 | 4 | 18 |
 | Agents, Claude accounts, settings, list preferences, language, notifications, skills, MCP, installation and updates | [settings.md](settings.md) | 49 | 4 | 45 |
 | Candidate CLI commands, output, feeds and connection | [cli.md](cli.md) | 13 | 4 | 9 |
-| Remote access: account, Local only, pairing, remote windows, terminals and missions | [remote.md](remote.md) | 42 | 6 | 36 |
-| **Total** | | **276** | **43** | **233** |
+| Remote access: account, Local only, pairing, remote windows, terminals and missions | [remote.md](remote.md) | 44 | 6 | 38 |
+| Linux desktop, input, packages, updates, service and hosted remote acceptance | [linux.md](linux.md) | 7 | 0 | 7 |
+| **Total** | | **291** | **43** | **248** |
 
-`regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
+`regression/` holds this README and one table file per area, with feature sections. Historical feature records remain in `../archive/` and are never edited to turn their old result into a current result. New run results live separately at `docs/tests/runs/YYYY-MM-DD-<platform>.md`, where platform is `mac`, `win`, `linux` or `both`. Repeated runs on the same day append a separately identified candidate/attempt block to that file. No run record is needed merely to edit this suite.
 
 Every case has an ID `AREA-FEATURE-NN`, using the existing prefixes `RT`, `TERM`, `WS`, `MIS`, `DAE`, `SET`, `CLI` and `REMOTE`. IDs are globally unique and never reused. Append the next unused number in the feature rather than renumber existing cases. If an expectation is retired, keep its row under a Retired section with `Retired — <reason and replacement ID/source>` in Case and omit it from run selection. Preserve its ID and origin. Moving a row to another file does not change its ID. A changed observable contract is a new case, with the old case retired and linked to it.
 
@@ -27,7 +28,7 @@ Every case has an ID `AREA-FEATURE-NN`, using the existing prefixes `RT`, `TERM`
 | ID | Stable case identifier. |
 | Case | Action a QA agent/human can perform in the native development app or candidate CLI, with runtime applicability stated where restricted. |
 | Expected | Observable result and required case-specific evidence. General evidence rules also apply. |
-| Platform | `mac`, `win` or `both`, describing applicability rather than historical verification. |
+| Platform | `mac`, `win`, `linux` or `both` (macOS and Windows), describing applicability rather than historical verification. Linux-specific rows name required architecture/backend variants; shared workflows also apply when a Linux run selects them. |
 | Needs | Empty or comma-separated `account` for a real agent account, `computer-use` for native UI access, `human` for a step such as divider drag/IME or an expressly authorized install, and `windows-host` for a special Windows host prerequisite. “Both” cases still need a Windows machine for their Windows instance. Fixture/artifact prerequisites are stated in Case or area preamble. |
 | Tier | `smoke` or `full`. Full runs select both values. |
 | Origin | Relative link to an archive record with its old row ID/check name where present, or a spec/issue/current code. This is traceability, not a claim that the check passed. |
@@ -66,6 +67,8 @@ Follow the results table with findings (expected/actual, minimal repro, severity
 When a feature's test record is archived in a [release's docs sweep](../../../AGENTS.md#docs-sweep-at-release), add its lasting live checks here, or have the record state why none apply. Trace every promoted case to its record/spec/issue/code, reconcile its expectation with current code, set platform/needs/tier and retain the evidence requirements. Results, temporary investigation recipes and automated-only assertions stay with the run/archive or owning test. Change navigation/counts when adding or retiring rows, check all relative links with a script and review at least two cases per area against origin and current code.
 
 ## Not carried over
+
+The 0.18.3 sweep corrected the stale runtime and mission counts to match their existing rows, then promoted `WS-CREATE-07`–`09`, `REMOTE-CHAT-05`, `REMOTE-WIN-05` and seven Linux cases. Existing `RT-STATUS-12/14/15`, `MIS-WAIT-02/03` and mission crew/draft rows retain the status, shared-goal and router contracts. Candidate-specific failed attempts, native gaps and waived Linux review checks stay in the archived records; promotion establishes no new test pass.
 
 The original 56 archive records and #955's release record were considered for promotion. Their lasting current live checks are linked from the area rows. The 2026-10-22 docs sweep also added `WS-CHROME-05` from merged PR #981; its native checks remain unverified, and adding the case does not establish a pass. The 0.17.1 sweep added `MIS-DRAFT-07` from [#940](../archive/940-codex-draft-hold.md); its native acceptance remains Incomplete. The 0.17.2 sweep added `TERM-OPTION-01`–`03`, `SET-OPTION-01` and `SET-LIST-01`–`04` from [#929](../archive/929-option-as-meta.md) and [#1007](../archive/1007-list-page-size.md), and reconciled existing wrapped-link and streaming-draft rows with #1006 and #995. Candidate-specific failures, scoped retests, native Windows gaps and the incomplete [#1006 run](../runs/2026-10-23-macos.md) remain evidence, not new passes. The 0.18.0 sweep added `REMOTE-*` from #836's thirteen mission records, its [release checklist](../archive/836-release-checks.md) and the landing fixes in [#1022](https://github.com/yicheng47/runner/pull/1022) and [#1024](https://github.com/yicheng47/runner/pull/1024), reconciled with the current guide. Jason's 2026-10-25 smoke of the last `remote-nightly` is not recorded as case passes. The following portions are excluded, rather than converted into live cases. Build logs, result verdicts, per-run object IDs, machine-local evidence paths and review/publication history remain historical evidence throughout the archive.
 

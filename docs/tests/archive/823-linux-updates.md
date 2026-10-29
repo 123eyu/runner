@@ -177,3 +177,7 @@ above remain.
 The user subsequently requested a local commit. The implementation is unchanged
 from snapshot28; only this validation record and the feature authorization note
 have changed since that candidate. No push or release dispatch is requested.
+
+## Regression maintenance, 0.18.3
+
+Lasting signed tar/deb update and authorization/relaunch checks are SET-LINUX-02 in [Linux regression cases](../regression/linux.md). Historical RPM work remains evidence; RPM is not shipped.

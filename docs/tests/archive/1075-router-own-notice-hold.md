@@ -165,3 +165,7 @@ Controlled mission archived 04:42:41.341190; real mission archived 04:44:55.0212
 The wrapper and development daemon stopped, wrapper registration was removed, known ledger PIDs are absent and the final scratch-command scan is empty. Candidate HEAD remains `871c99a2d12be36ef913b78c65166d11477e6ea3`; every recorded app/CLI hash is unchanged and the only worktree addition is this untracked QA record. `candidate-final-identity.json`, `trust-cleanup-summary.json`, `claude-projects-cleanup.diff`, `codex-config-cleanup.diff`, `processes-final.txt`, `scratch-processes-final.txt` and the ledger prove cleanup. Private configuration/map snapshots, account paths and unrelated UI content are not intended for commit; `evidence-manifest.json` hashes retained non-private artifacts.
 
 QA releases Candidate 2 to coder with this macOS feature-pass verdict. Coder owns adding this record, the push/PR and green platform CI. This record grants no merge authorization and makes no Windows live-pass claim.
+
+## Regression maintenance, 0.18.3
+
+Native delivery/draft expectations remain MIS-MSG-01/03 and MIS-DRAFT-01/07 in [missions](../regression/missions.md), including a visible warning during prolonged holds. The Enter-ignoring stubs, exact backoff measurements, replay attribution and failed/retested candidates remain investigation evidence, not synthetic substitutes for native cases.
