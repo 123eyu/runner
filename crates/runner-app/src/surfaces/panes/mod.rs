@@ -48,9 +48,9 @@ const CHAT_PANEL_TRANSITION_MS: u64 = 200;
 pub(crate) const UNFOCUSED_PANE_OPACITY: f32 = 0.7;
 
 /// The smallest pane a split may leave behind, at 1× zoom.
-const MIN_SPLIT_PANE_WIDTH: f32 = 240.;
+pub(crate) const MIN_SPLIT_PANE_WIDTH: f32 = 240.;
 
-const MIN_SPLIT_PANE_HEIGHT: f32 = 160.;
+pub(crate) const MIN_SPLIT_PANE_HEIGHT: f32 = 160.;
 
 const TOO_SMALL_TO_SPLIT: &str = "ui.too_small_to_split";
 

@@ -72,6 +72,10 @@ Runner Light uses the following signed-off surface tokens. Raised surfaces, text
 
 Rosé Pine Dawn’s terminal background and cursor accent use Runner’s `0xf5f1eb` ground, instead of upstream’s `0xfaf4ed`; its remaining colors are unchanged. The reference is `split-chat-tab-light.png` from design revision `c716cbf`.
 
+### Fixed opening window minimum
+
+Every platform passes a fixed minimum when opening a window: `(saved sidebar width + 6 + MIN_SPLIT_PANE_WIDTH + 8) × zoom` wide, and `max(400, 8 + 40 + MIN_SPLIT_PANE_HEIGHT + 8) × zoom` high. The sidebar’s fixed content with the computer picker measured 364.5 px at 1× in an in-process layout fixture; 400 px leaves headroom. This supersedes the dynamic window-minimum proposal: later zoom/sidebar changes do not update an open window’s floor, and splits retain today’s squeeze behavior. There are no native update hooks, mission minimum plumbing or split-child constraints. Jason waived live QA for this follow-up.
+
 ## Implementation phases
 
 1. **Terminals have no lifecycle.** Independent of the islands, and can land first.
@@ -80,6 +84,7 @@ Rosé Pine Dawn’s terminal background and cursor accent use Runner’s `0xf5f1
 4. **Mission islands,** with a separate full-height Sessions/Info rail and, when open, a drawer island below the mission.
 5. **Light palette E,** including the Rosé Pine Dawn ground override.
 6. **App scrollbars shown while in use,** across every app list and field.
+7. **A fixed opening window minimum,** shared by all platforms.
 
 ## Verification
 
@@ -88,6 +93,7 @@ Rosé Pine Dawn’s terminal background and cursor accent use Runner’s `0xf5f1
 - Mission-island follow-up: rendered checks for sidebar/rail/drawer gaps across zoom and collapsed states, 40 px drawer header, focus borders, terminal-size estimate, take-back coverage and existing header/feed alignment; QA compares dark/light mission and drawer PNGs at 100%/130%, including closed-to-open and focus transitions; this runs together with phase 5. New gutter drags are left to Jason.
 - Palette E: pinned Runner Light and terminal palette tests, Glass color derivation, and QA’s comparison to the light split-chat PNG plus a light chat, terminal, mission and one Settings/Role/Crew surface for selections, inputs, menus and borders. Run with the mission drawer follow-up in one final QA pass.
 - App scrollbar tests pin rest-hidden and hidden click-through, scroll/list hover visibility, 4/6 px widths and the 900 ms linger; QA checks the sidebar, one Settings list and one select in dark/light against the option-B PNG. Thumb dragging is left to Jason.
+- One small app test pins the opening minimum’s saved sidebar width and zoom. Native min-resize checks are left to Jason under his explicit QA waiver.
 - Windows and Linux in CI, with native checks left to Jason.
 
 ## Affected documentation

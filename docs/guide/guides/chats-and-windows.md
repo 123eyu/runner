@@ -18,7 +18,7 @@ Use the **Stop chat** icon beside a chat’s status while it runs, or the **Resu
 
 ## Split and navigate
 
-Use **⌘D** / **Ctrl+D** to split right and **⇧⌘D** / **Ctrl+Shift+D** to split down. Choose **New chat** in an empty pane or select a chat from the sidebar. Drag a pane’s runtime mark (or the placeholder mark in an empty pane) to reorder the layout; the layout picker offers common arrangements. Splitting is bounded by the available window size.
+Use **⌘D** / **Ctrl+D** to split right and **⇧⌘D** / **Ctrl+Shift+D** to split down. Choose **New chat** in an empty pane or select a chat from the sidebar. Drag a pane’s runtime mark (or the placeholder mark in an empty pane) to reorder the layout; the layout picker offers common arrangements. Splitting is bounded by the available window size. New windows have a fixed minimum based on the saved sidebar width and zoom when they open, with enough height for the sidebar’s fixed controls. Later zoom or sidebar changes do not update an open window’s minimum.
 
 Use **⌘[** / **Ctrl+[** and **⌘]** / **Ctrl+]** to move focus between panes. **⌘1–9** / **Ctrl+1–9** selects the corresponding visible sidebar row: a tab or mission in either view. **⇧⌘[** / **Ctrl+Shift+[** and **⇧⌘]** / **Ctrl+Shift+]** move through recently viewed pages.
 
