@@ -41,3 +41,5 @@ pub mod protocol;
 pub mod version;
 
 pub mod remote;
+
+pub mod pane_layout;

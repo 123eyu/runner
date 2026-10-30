@@ -155,16 +155,9 @@ impl NativeRoot {
         };
         let pane_width =
             (f32::from(bounds.width) - sidebar_width - chat_panel_width).max(200.) * width_fraction;
-        let grouped = layout.root.leaves().len() > 1;
-        let pane_height = (f32::from(bounds.height)
-            - WORKSPACE_HEADER_HEIGHT * self.settings(cx).app_zoom)
-            .max(160.)
+        let pane_height = (f32::from(bounds.height) - 16. * self.settings(cx).app_zoom).max(160.)
             * height_fraction
-            - if grouped {
-                PANE_HEADER_HEIGHT * self.settings(cx).app_zoom
-            } else {
-                0.
-            };
+            - (PANE_HEADER_HEIGHT + 8.) * self.settings(cx).app_zoom;
         let font_size = self.settings(cx).terminal_font_size as f32 * self.settings(cx).app_zoom;
         let cell_width = font_size * 0.6;
         let line_height = (font_size * crate::terminal::element::LINE_HEIGHT_FACTOR).round();
@@ -745,15 +738,6 @@ impl NativeRoot {
         })
         .detach();
         cx.notify();
-    }
-
-    pub(crate) fn resume_drawer_shell(
-        &mut self,
-        session_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.resume_drawer_shell_impl(session_id, false, window, cx);
     }
 
     pub(super) fn resume_drawer_shell_on_launch(

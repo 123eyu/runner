@@ -35,6 +35,14 @@ impl MissionWorkspace {
         let rail_visibility = SidebarVisibilityTransition::new(settings.mission_rail_open);
         let root_focus = cx.focus_handle();
         let drawer_focus = cx.focus_handle();
+        let drawer_focus_subscriptions = vec![
+            cx.on_focus_in(&drawer_focus, window, |_, window, cx| {
+                cx.defer_in(window, |_, _, cx| cx.notify())
+            }),
+            cx.on_focus_out(&drawer_focus, window, |_, _, window, cx| {
+                cx.defer_in(window, |_, _, cx| cx.notify())
+            }),
+        ];
         let workspace = cx.entity();
         let menu_root = workspace.clone();
         let action_menu = cx.new(move |menu_cx| {
@@ -191,6 +199,7 @@ impl MissionWorkspace {
             mission_node_id: None,
             layout: MissionLayout::default(),
             drawer_focus,
+            _drawer_focus_subscriptions: drawer_focus_subscriptions,
             drawer_resizing: false,
             closing_drawer_shells: HashSet::new(),
             drawer_exit_codes: HashMap::new(),

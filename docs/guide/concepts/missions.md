@@ -2,6 +2,8 @@
 
 A mission holds agents working on one goal, their terminals, and a shared record of messages and questions. Start from a saved crew, or create an empty mission and add members as needed.
 
+A mission tab has one island for its header, member tabs, feed and composer, beside a full-height Sessions/Info side panel island. The terminal drawer opens as its own island below the mission, with shell tabs, + and a hide button in its header. The expanded sidebar, side panel and drawer are separated by 6 px resize gutters. The drawer keeps its saved height; focusing its shell brightens its border and leaves the mission border at rest. Collapse a panel or hide the drawer to give the mission more room.
+
 ## Goal and membership
 
 For a crew mission, Runner starts a session per slot and delivers the goal to every member, together with their role instructions, team conventions and coordination instructions. Members act on their own part and wait for any required handoff. The mission captures its own roster, so the crew remains a reusable template.
@@ -22,7 +24,7 @@ A composition left open when the app quits or terminal control moves to another 
 
 An inbox notice that Runner typed itself is not a draft. If the agent ignored its Return, the slot shows **Message not submitted — press Return**. Runner presses Return on that notice again when the agent's turn ends or a prompt closes, and otherwise about every two minutes. It presses Return automatically only while you have pressed no keys since its notice. Moving the cursor keeps the text labelled as Runner’s notice, but leaves submission to you; changing the text makes it your draft. Runner never types a second notice over its own leftover, even after ten minutes. If a member's delivery stays held for more than two minutes while it has unread messages, Runner adds one warning to the feed that names the member and the reason. `runner mission show` lists that warning under RECENT WARNINGS. A member that is still starting, which can last through its whole first turn, gets no such warning.
 
-The scrollbar on the feed’s right edge shows your position in long histories. Drag its thumb, click its track, or scroll over it to move through the feed. New messages keep the feed at the bottom while you are near the end; while reading older messages, use **New messages** to return to the bottom.
+The scrollbar on the feed’s right edge appears while you scroll or hover the feed, then hides after you leave. It shows your position in long histories. Drag its thumb, click its track, or scroll over it to move through the feed. New messages keep the feed at the bottom while you are near the end; while reading older messages, use **New messages** to return to the bottom.
 
 ## Permissions
 

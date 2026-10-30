@@ -14,8 +14,8 @@ The setting covers Runner's interface and date displays. Agent output, user-auth
 
 Open **Settings → Appearance**. **Theme** follows the operating system or pins Runner to light or dark mode. Each mode has two selections:
 
-- **App palette** colors the sidebar, panels and controls. Light mode offers Runner Light and Catppuccin Latte; dark mode offers Runner and Catppuccin Mocha.
-- **Terminal palette** colors the terminal grid. Runner, Catppuccin Mocha and Rosé Pine Dawn are available independently of the app palette.
+- **App palette** colors the sidebar, panels and controls. Light mode offers Runner Light and Catppuccin Latte; dark mode offers Runner and Catppuccin Mocha. Runner Light uses cool gray surfaces with stronger borders.
+- **Terminal palette** colors the terminal grid. Runner, Catppuccin Mocha and Rosé Pine Dawn are available independently of the app palette. Rosé Pine Dawn uses a muted cream background in Runner.
 
 Choose both modes once, then switch between them without rebuilding the pairing. Claude Code follows Runner's light/dark switch live; other agents may use their own theme controls for colors they draw themselves.
 

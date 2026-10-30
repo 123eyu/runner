@@ -117,120 +117,6 @@ impl NativeRoot {
         cx.notify();
     }
 
-    pub(crate) fn close_drawer_shell(
-        &mut self,
-        session_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let remote = self.front_page_client(cx).is_remote();
-        if !remote {
-            self.terminal_close_confirm = None;
-            if !self.stopping_sessions.insert(session_id.to_owned()) {
-                return;
-            }
-            self.chat_error = None;
-        }
-        let Some((operation, close_operation)) =
-            WorkspaceAction::close(self, session_id, None, true, cx)
-        else {
-            return;
-        };
-        let target = session_id.to_owned();
-        let close = cx.background_spawn(async move { close_operation() });
-        let origin_epoch = self.remote_client.ui.epoch;
-        cx.spawn_in(window, async move |weak, cx| {
-            let result = close.await;
-            let _ = weak.update_in(cx, |this, window, cx| {
-                let Some(result) =
-                    WorkspaceAction::complete(this, operation, result, |done| done, cx)
-                else {
-                    return;
-                };
-                let result = result.map(drop);
-                if this.remote_client.ui.epoch != origin_epoch {
-                    this.stopping_sessions.remove(&target);
-                    this.chat_transitions.remove(&target);
-                    cx.notify();
-                    return;
-                }
-                this.stopping_sessions.remove(&target);
-                match result {
-                    Ok(()) => {
-                        this.attached.remove(&target);
-                        this.session_exit_codes.remove(&target);
-                        this.refresh_sessions(cx);
-                        let refresh = this
-                            .reload_tabs(cx)
-                            .and_then(|_| this.ensure_active_tab_attached(window, cx));
-                        if let Err(error) = refresh {
-                            this.chat_error = Some(error.to_string().into());
-                        } else if let Some(active) = this
-                            .tabs
-                            .active()
-                            .filter(|layout| layout.drawer_open())
-                            .and_then(PaneLayout::active_drawer_shell)
-                            .map(str::to_owned)
-                        {
-                            this.focus_drawer_terminal(&active, window, cx);
-                        } else {
-                            this.focus_active_terminal(window, cx);
-                        }
-                    }
-                    Err(error) => this.chat_error = Some(error.into()),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
-    pub(crate) fn request_close_drawer_shell(
-        &mut self,
-        session_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.remote_client.is_active() {
-            TerminalCloseConfirm::open(
-                &mut self.terminal_close_confirm,
-                TerminalCloseTarget::Drawer {
-                    session_id: session_id.into(),
-                },
-                window,
-                cx,
-            );
-            cx.notify();
-            return;
-        }
-
-        if self.tabs.active_tab_id().is_none() {
-            return;
-        }
-        match self
-            .core(cx)
-            .session_shell_has_foreground_process(session_id)
-        {
-            Ok(true) => {
-                TerminalCloseConfirm::open(
-                    &mut self.terminal_close_confirm,
-                    TerminalCloseTarget::Drawer {
-                        session_id: session_id.to_owned(),
-                    },
-                    window,
-                    cx,
-                );
-                cx.notify();
-            }
-            Ok(false) => self.close_drawer_shell(session_id, window, cx),
-            Err(error) => {
-                self.chat_error = Some(error.to_string().into());
-                cx.notify();
-            }
-        }
-    }
-
     pub(crate) fn request_close_terminal_pane(
         &mut self,
         pane_id: &str,
@@ -609,9 +495,6 @@ impl NativeRoot {
             }
             TerminalCloseTarget::Tab { session_id } => {
                 self.close_terminal_tab(&session_id, window, cx)
-            }
-            TerminalCloseTarget::Drawer { session_id } => {
-                self.close_drawer_shell(&session_id, window, cx)
             }
             TerminalCloseTarget::MissionDrawer { session_id } => {
                 let workspace = self

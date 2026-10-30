@@ -248,7 +248,6 @@ impl NativeRoot {
             self.split_sizes_dirty = true;
             cx.notify();
         }
-        // A drag suppresses hover, so the gutter needs the drag itself to stay lit.
         if self.resizing_split.as_deref() != Some(split_id) {
             self.resizing_split = Some(split_id.to_owned());
             cx.notify();
@@ -280,27 +279,6 @@ impl NativeRoot {
         self.split_sizes_dirty = false;
         if let Err(error) = self.persist_active_tab(cx) {
             self.chat_error = Some(error.to_string().into());
-        }
-    }
-
-    pub(crate) fn resize_terminal_drawer(
-        &mut self,
-        event: &DragMoveEvent<DrawerResizeDrag>,
-        cx: &mut Context<Self>,
-    ) {
-        if self.remote_client.is_active() {
-            let height = f32::from(event.bounds.bottom() - event.event.position.y)
-                / self.settings(cx).app_zoom;
-            self.remote_client.resize_drawer(height, cx);
-            return;
-        }
-
-        let height =
-            f32::from(event.bounds.bottom() - event.event.position.y) / self.settings(cx).app_zoom;
-        if let Some(layout) = self.tabs.active_mut() {
-            layout.set_drawer_height(height);
-            self.drawer_resizing = true;
-            cx.notify();
         }
     }
 

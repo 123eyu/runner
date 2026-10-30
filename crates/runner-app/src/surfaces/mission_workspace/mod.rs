@@ -338,6 +338,7 @@ pub(crate) struct MissionWorkspace {
     mission_node_id: Option<String>,
     layout: MissionLayout,
     drawer_focus: FocusHandle,
+    _drawer_focus_subscriptions: Vec<gpui::Subscription>,
     drawer_resizing: bool,
     closing_drawer_shells: HashSet<String>,
     drawer_exit_codes: HashMap<String, Option<i32>>,

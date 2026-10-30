@@ -426,6 +426,7 @@ fn resume_size_resolution_prefers_explicit_then_persisted_after_manager_restart(
     let pool = pool_with_schema();
     let role_id = ulid::Ulid::new().to_string();
     let mut role = role("/bin/sh", &[]);
+    role.runtime = "codex".into();
     role.id = role_id;
     role.handle = "persistedsize".into();
     insert_role_row(&pool.get().unwrap(), &role);

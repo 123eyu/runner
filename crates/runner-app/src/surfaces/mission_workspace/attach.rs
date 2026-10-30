@@ -285,7 +285,11 @@ impl MissionWorkspace {
             0.
         };
         let width = (f32::from(bounds.width) - sidebar_width - rail_width - 16.).max(200.);
-        let height = (drawer_height - (32. + 5. + 24.)).max(80.) * self.settings(cx).app_zoom;
+        let zoom = self.settings(cx).app_zoom;
+        let height = ((drawer_height - (super::panes::TERMINAL_DRAWER_HEADER_HEIGHT + 8. + 24.))
+            * zoom
+            - 2.)
+            .max(80. * zoom);
         let font_size = self.settings(cx).terminal_font_size as f32 * self.settings(cx).app_zoom;
         let cell_width = font_size * 0.6;
         let line_height = (font_size * crate::terminal::element::LINE_HEIGHT_FACTOR).round();

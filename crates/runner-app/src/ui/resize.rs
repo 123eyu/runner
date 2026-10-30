@@ -34,7 +34,7 @@ impl ResizeAxis {
 /// over the border a neighbouring panel paints for the splitters that pass
 /// `None`.
 ///
-/// The sidebar and side panel edges pass `lights: false`: they keep the grab
+/// Island gutters, sidebar and side panel edges pass `lights: false`: they keep the grab
 /// strip and resize cursor but never paint the accent bar.
 pub fn resize_strip(
     group: &'static str,

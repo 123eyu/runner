@@ -68,7 +68,6 @@ impl NativeRoot {
                     .trigger_icon("columns-2.svg")
                     .without_trigger_tooltip();
                     match surface {
-                        SplitMenuSurface::Header => menu,
                         SplitMenuSurface::Pane => menu.trigger_size(IconButtonSize::Sm),
                     }
                 })
@@ -92,14 +91,13 @@ impl NativeRoot {
         layout: &PaneLayout,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        self.render_card_pane_node(node, layout, !layout.drawer_open(), cx)
+        self.render_card_pane_node(node, layout, cx)
     }
 
     pub(super) fn render_card_pane_node(
         &mut self,
         node: &PaneNode,
         layout: &PaneLayout,
-        bottom_edge: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match node {
@@ -107,31 +105,16 @@ impl NativeRoot {
                 let key = format!("pane:{}:{}", layout.id, leaf.id);
                 let leaf = leaf.clone();
                 let layout = layout.clone();
-                let pane = self.cached_region(
+                self.cached_region(
                     key,
                     gpui::StyleRefinement::default().size_full(),
                     move |root, window, cx| root.render_pane(&leaf, &layout, window, cx),
                     cx,
-                );
-                // GPUI clips to rectangles; keep cell fills clear of the card's bottom corners.
-                if bottom_edge {
-                    div()
-                        .size_full()
-                        .pb(rems(8. / 16.))
-                        .child(pane)
-                        .into_any_element()
-                } else {
-                    pane
-                }
+                )
             }
             PaneNode::Split(split) => {
-                let a = self.render_card_pane_node(
-                    &split.a,
-                    layout,
-                    bottom_edge && split.orientation == SplitOrientation::Row,
-                    cx,
-                );
-                let b = self.render_card_pane_node(&split.b, layout, bottom_edge, cx);
+                let a = self.render_card_pane_node(&split.a, layout, cx);
+                let b = self.render_card_pane_node(&split.b, layout, cx);
                 let first = split.sizes[0] / 100.;
                 let second = split.sizes[1] / 100.;
                 let split_id = split.id.clone();
@@ -144,20 +127,20 @@ impl NativeRoot {
                     .min_w(px(0.))
                     .min_h(px(0.))
                     .when(orientation == SplitOrientation::Row, |pane| {
-                        pane.w(relative(first)).h_full()
+                        pane.flex_basis(px(0.)).flex_grow(first).h_full()
                     })
                     .when(orientation == SplitOrientation::Column, |pane| {
-                        pane.h(relative(first)).w_full()
+                        pane.flex_basis(px(0.)).flex_grow(first).w_full()
                     })
                     .child(a);
                 let b_wrap = div()
                     .min_w(px(0.))
                     .min_h(px(0.))
                     .when(orientation == SplitOrientation::Row, |pane| {
-                        pane.w(relative(second)).h_full()
+                        pane.flex_basis(px(0.)).flex_grow(second).h_full()
                     })
                     .when(orientation == SplitOrientation::Column, |pane| {
-                        pane.h(relative(second)).w_full()
+                        pane.flex_basis(px(0.)).flex_grow(second).w_full()
                     })
                     .child(b);
                 let gutter = resize_strip(
@@ -168,8 +151,8 @@ impl NativeRoot {
                     },
                     self.front_page_resizing_split() == Some(split.id.as_str()),
                     self.settings(cx).app_zoom,
-                    Some(theme::border_strong()),
-                    true,
+                    None,
+                    false,
                 )
                 .id(SharedString::from(format!("gutter-{}", split.id)))
                 .when(self.front_page_client(cx).supports(&["layout"]), |gutter| {
@@ -213,6 +196,7 @@ impl NativeRoot {
         disabled: bool,
         cx: &mut Context<Self>,
     ) -> Entity<PopoverMenu> {
+        let shell = entry.agent_runtime == "shell";
         let session_id = &entry.session_id;
         let menu = self
             .pane_action_menus
@@ -233,44 +217,35 @@ impl NativeRoot {
                                 let Some(entry) = this.front_page_session(&session_id, cx) else {
                                     return;
                                 };
-                                let Some(index) =
-                                    pane_action_indexes(&entry, &this.front_page_client(cx))
-                                        .get(index)
-                                        .copied()
-                                else {
+                                let Some(index) = pane_action_indexes(
+                                    &entry,
+                                    &this.front_page_client(cx),
+                                    this.remote_client.is_local()
+                                        && this.cached_chat_secondary_state(&session_id).secondary,
+                                )
+                                .get(index)
+                                .copied() else {
                                     return;
                                 };
                                 match index {
                                     0 => this.activate_primary_pane_action(&session_id, window, cx),
-                                    1 => {
-                                        if let Some(entry) =
-                                            this.front_page_session(&session_id, cx)
-                                        {
-                                            this.begin_pane_rename(
-                                                session_id,
-                                                entry.title.clone().unwrap_or_default(),
-                                                entry.default_label(),
-                                                window,
-                                                cx,
-                                            );
-                                        }
-                                    }
-                                    2 if this.front_page_session(&session_id, cx).is_some_and(
-                                        |entry| {
-                                            !Runtime::parse(&entry.agent_runtime)
-                                                .is_some_and(Runtime::is_shell)
+                                    1 => this.fork_chat(&session_id, window, cx),
+                                    2 => this.open_chat_rename(
+                                        ChatRenameTarget::Session {
+                                            session_id,
+                                            original: entry.title.clone().unwrap_or_default(),
                                         },
-                                    ) =>
-                                    {
-                                        this.archive_chat_sessions(vec![session_id], window, cx)
-                                    }
+                                        window,
+                                        cx,
+                                    ),
                                     _ => {}
                                 }
                             });
                         }),
                         menu_cx,
                     )
-                    .min_width(px(144.))
+                    .min_width(px(if shell { 144. } else { 196. }))
+                    .single_line_labels()
                     .trigger_size(IconButtonSize::Sm)
                     .trigger_icon("more-horizontal.svg")
                     .trigger_tooltip(crate::i18n::message("ui.pane_actions"))
@@ -283,23 +258,42 @@ impl NativeRoot {
         let resume_shortcut =
             keymap::effective_binding("resume-session", &self.settings(cx).keymap_overrides)
                 .map(|combo| keymap::format_combo(&combo));
-        let indexes = pane_action_indexes(entry, &self.front_page_client(cx));
-        menu.update(cx, |menu, menu_cx| {
-            menu.set_items(
-                pane_action_items_for(
-                    &entry.agent_runtime,
-                    entry.status == SessionStatus::Running,
-                    disabled,
-                    stop_shortcut,
-                    resume_shortcut,
-                )
+        let secondary =
+            self.remote_client.is_local() && self.cached_chat_secondary_state(session_id).secondary;
+        let indexes = pane_action_indexes(entry, &self.front_page_client(cx), secondary);
+        let fork = if let Some(local) = entry.local.as_ref() {
+            header_fork_state(Some(local), secondary)
+        } else if !entry.native_fork {
+            HeaderForkState::Disabled(None)
+        } else if !entry.forkable {
+            HeaderForkState::Disabled(Some(crate::i18n::text("ui.no_session_key_captured_yet")))
+        } else {
+            HeaderForkState::Enabled
+        };
+        let pending = self
+            .fork_confirm
+            .as_ref()
+            .is_some_and(|confirm| confirm.pending && confirm.session_id == *session_id)
+            || super::super::chat::fork_in_progress(&self.forking_sessions, session_id);
+        let mut items = pane_action_items_for(
+            &entry.agent_runtime,
+            entry.status == SessionStatus::Running,
+            disabled,
+            stop_shortcut,
+            resume_shortcut,
+        );
+        if entry.agent_runtime != "shell" {
+            items[1].disabled = disabled || pending || !matches!(fork, HeaderForkState::Enabled);
+            if let HeaderForkState::Disabled(Some(reason)) = fork {
+                items[1] = items[1].clone().tooltip(reason);
+            }
+            items = items
                 .into_iter()
                 .enumerate()
                 .filter_map(|(index, item)| indexes.contains(&index).then_some(item))
-                .collect(),
-                menu_cx,
-            )
-        });
+                .collect();
+        }
+        menu.update(cx, |menu, menu_cx| menu.set_items(items, menu_cx));
         menu
     }
 

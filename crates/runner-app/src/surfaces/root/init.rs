@@ -187,25 +187,6 @@ impl NativeRoot {
                 crate::i18n::message("ui.copy_session_key"),
             )
         });
-        let chat_root = cx.entity();
-        let chat_action_menu = cx.new(move |menu_cx| {
-            let action_root = chat_root.clone();
-            PopoverMenu::new(
-                "chat-actions",
-                menu_cx.focus_handle(),
-                Vec::new(),
-                Rc::new(move |index, window, cx| {
-                    action_root.update(cx, |this, cx| {
-                        this.handle_chat_menu_action(index, window, cx);
-                    });
-                }),
-                menu_cx,
-            )
-            .min_width(px(160.))
-            .trigger_size(IconButtonSize::Md)
-            .trigger_icon("more-horizontal.svg")
-            .trigger_tooltip(crate::i18n::message("ui.chat_actions"))
-        });
         let last_focused_role_id = tabs
             .active()
             .and_then(PaneLayout::focused_session_id)
@@ -301,8 +282,6 @@ impl NativeRoot {
             archived_chat_detail: None,
             session_key_copy,
             archived_session_key_copy,
-            chat_action_menu,
-            chat_menu_actions: Vec::new(),
             pane_action_menus: HashMap::new(),
             split_menus: HashMap::new(),
             pane_bounds: HashMap::new(),

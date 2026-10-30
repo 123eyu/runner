@@ -1,4 +1,15 @@
+use crate::surfaces::panes::{MIN_SPLIT_PANE_HEIGHT, MIN_SPLIT_PANE_WIDTH};
 use crate::*;
+
+// Fixed sidebar content with the computer picker measured 364.5 px at 1×.
+const MIN_WINDOW_HEIGHT: f32 = 400.;
+
+fn opening_window_minimum(settings: &AppSettings) -> gpui::Size<gpui::Pixels> {
+    size(
+        px((settings.sidebar_width + 6. + MIN_SPLIT_PANE_WIDTH + 8.) * settings.app_zoom),
+        px(MIN_WINDOW_HEIGHT.max(8. + 40. + MIN_SPLIT_PANE_HEIGHT + 8.) * settings.app_zoom),
+    )
+}
 
 #[cfg(not(test))]
 pub(crate) fn close_tab(this: &mut NativeRoot, window: &mut Window, cx: &mut Context<NativeRoot>) {
@@ -163,6 +174,7 @@ pub(crate) fn open_runner_window(
     let result = cx.open_window(
         WindowOptions {
             window_bounds: Some(bounds),
+            window_min_size: Some(opening_window_minimum(&app_store.read(cx).settings)),
             #[cfg(target_os = "linux")]
             app_id: Some(platform_ui::DESKTOP_APP_ID.into()),
             #[cfg(target_os = "linux")]
@@ -260,5 +272,23 @@ pub(crate) fn focus_other_window(label: &str, cx: &mut App) {
     if let Some(target) = target {
         let _ = target.update(cx, |_, window, _| window.activate_window());
         cx.activate(true);
+    }
+}
+
+#[cfg(test)]
+mod minimum_tests {
+    use super::*;
+
+    #[test]
+    fn opening_floor_uses_saved_sidebar_width_and_zoom() {
+        let mut settings = AppSettings {
+            sidebar_width: 240.,
+            app_zoom: 1.,
+            ..Default::default()
+        };
+        assert_eq!(opening_window_minimum(&settings), size(px(494.), px(400.)));
+        settings.sidebar_width = 320.;
+        settings.app_zoom = 1.5;
+        assert_eq!(opening_window_minimum(&settings), size(px(861.), px(600.)));
     }
 }

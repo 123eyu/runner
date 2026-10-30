@@ -119,6 +119,11 @@ pub fn boot(
     }
     session::pty_runtime::cleanup_orphan_processes_on_startup(&pool)
         .context("clean up orphan PTY processes")?;
+    {
+        let mut conn = pool.get().context("get shell cleanup connection")?;
+        ops::session::retire_chat_drawers(&mut conn).context("retire chat drawers")?;
+        ops::session::close_exited_shells(&mut conn).context("close exited shells")?;
+    }
     core.usage.set_enabled(model_runtimes.clone());
     if background {
         runtime_status::start_background_discovery(

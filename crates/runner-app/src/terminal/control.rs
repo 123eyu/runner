@@ -54,6 +54,8 @@ fn tab_card_state(controls: &[TerminalControl]) -> Option<CardState> {
 pub(crate) enum GroupKind {
     Tab,
     Mission(f32),
+    MissionBody(f32),
+    MissionDrawer,
 }
 
 pub(crate) fn mission_covered<'a>(
@@ -78,22 +80,15 @@ pub(crate) fn cover<E: ParentElement + InteractiveElement>(
         .collect::<Vec<_>>();
     let state = match group_kind {
         GroupKind::Tab => tab_card_state(&controls),
-        GroupKind::Mission(_) => card_state(&controls),
+        GroupKind::Mission(_) | GroupKind::MissionBody(_) | GroupKind::MissionDrawer => {
+            card_state(&controls)
+        }
     };
     let Some(state) = state else {
         return surface;
     };
     let id = id.into();
-    let targets = chats
-        .iter()
-        .map(|chat| {
-            (
-                Arc::clone(&chat.terminal),
-                chat.terminal_interaction.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let take: runner_app::ui::PressHandler = Rc::new(move |_, cx| take_back_targets(&targets, cx));
+    let take = take_handler(chats);
     let key_take = take.clone();
     surface
         .capture_key_down(move |event: &KeyDownEvent, window, cx| {
@@ -109,7 +104,70 @@ pub(crate) fn cover<E: ParentElement + InteractiveElement>(
         .child(card(id, state, group_kind, take))
 }
 
+fn take_handler(chats: &[&AttachedChat]) -> runner_app::ui::PressHandler {
+    let targets = chats
+        .iter()
+        .map(|chat| {
+            (
+                Arc::clone(&chat.terminal),
+                chat.terminal_interaction.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    Rc::new(move |_, cx| take_back_targets(&targets, cx))
+}
+
+pub(crate) fn mission_card(chats: &[&AttachedChat]) -> Option<gpui::AnyElement> {
+    let controls = chats
+        .iter()
+        .map(|chat| chat.terminal.control())
+        .collect::<Vec<_>>();
+    let state = card_state(&controls)?;
+    Some(
+        take_back_card(
+            "take-back-mission".into(),
+            state,
+            GroupKind::Mission(0.),
+            take_handler(chats),
+        )
+        .into_any_element(),
+    )
+}
+
 fn card(
+    id: SharedString,
+    state: CardState,
+    group_kind: GroupKind,
+    take: runner_app::ui::PressHandler,
+) -> impl IntoElement {
+    let selector = format!("REMOTE_CONTROL_OVERLAY_{id}");
+    let scrim = div()
+        .debug_selector(move || selector.clone())
+        .absolute()
+        .inset_0()
+        .when_some(
+            match group_kind {
+                GroupKind::Tab | GroupKind::MissionDrawer => None,
+                GroupKind::Mission(height) | GroupKind::MissionBody(height) => Some(height),
+            },
+            |scrim, height| scrim.top(rems(height / 16.)),
+        )
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_6()
+        .occlude()
+        .bg(theme::with_alpha(theme::bg(), 0.85));
+    if matches!(
+        group_kind,
+        GroupKind::MissionBody(_) | GroupKind::MissionDrawer
+    ) {
+        return scrim;
+    }
+    scrim.child(take_back_card(id, state, group_kind, take))
+}
+
+fn take_back_card(
     id: SharedString,
     state: CardState,
     group_kind: GroupKind,
@@ -130,145 +188,128 @@ fn card(
             (false, false) => "remote.control_detail",
             (false, true) => match group_kind {
                 GroupKind::Tab => "remote.control_group_detail",
-                GroupKind::Mission(_) => "remote.control_mission_detail",
+                GroupKind::Mission(_) | GroupKind::MissionBody(_) | GroupKind::MissionDrawer => {
+                    "remote.control_mission_detail"
+                }
             },
         },
         &[("name", state.name), ("count", state.count.to_string())],
     );
-    let selector = format!("REMOTE_CONTROL_OVERLAY_{id}");
     div()
-        .debug_selector(move || selector.clone())
-        .absolute()
-        .inset_0()
-        .when_some(
-            match group_kind {
-                GroupKind::Tab => None,
-                GroupKind::Mission(height) => Some(height),
-            },
-            |scrim, height| scrim.top(rems(height / 16.)),
-        )
-        .flex()
-        .items_center()
-        .justify_center()
-        .p_6()
         .occlude()
-        .bg(theme::with_alpha(theme::bg(), 0.85))
+        .w_full()
+        .max_w(rems(400. / 16.))
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_4()
+        .rounded_xl()
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::panel())
+        .p_6()
+        .text_center()
+        .shadow_2xl()
+        .flex_none()
+        .debug_selector(|| "REMOTE_CONTROL_CARD".into())
+        .child(
+            div()
+                .size(rems(44. / 16.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::border())
+                .bg(theme::bg())
+                .flex_none()
+                .child(
+                    svg()
+                        .path(if state.left {
+                            "unplug.svg"
+                        } else {
+                            "globe.svg"
+                        })
+                        .size(rems(20. / 16.))
+                        .text_color(if state.left {
+                            theme::muted()
+                        } else {
+                            theme::accent()
+                        }),
+                ),
+        )
         .child(
             div()
                 .w_full()
-                .max_w(rems(400. / 16.))
+                .min_w_0()
                 .flex()
                 .flex_col()
-                .items_center()
-                .gap_4()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
-                .p_6()
-                .text_center()
-                .shadow_2xl()
-                .flex_none()
-                .debug_selector(|| "REMOTE_CONTROL_CARD".into())
+                .gap(rems(6. / 16.))
                 .child(
                     div()
-                        .size(rems(44. / 16.))
+                        .debug_selector(|| "REMOTE_CONTROL_TITLE".into())
+                        .whitespace_normal()
+                        .text_size(theme::text_lead())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .debug_selector(|| "REMOTE_CONTROL_DETAIL".into())
+                        .whitespace_normal()
+                        .text_size(theme::text_body())
+                        .line_height(rems(20. / 16.))
+                        .text_color(theme::muted())
+                        .child(detail),
+                ),
+        )
+        .child(
+            div()
+                .debug_selector(|| "REMOTE_CONTROL_ACTION".into())
+                .pt(rems(2. / 16.))
+                .child(
+                    div()
+                        .id(id)
+                        .tab_index(0)
                         .flex()
                         .items_center()
-                        .justify_center()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::bg())
-                        .flex_none()
+                        .gap_2()
+                        .rounded(rems(6. / 16.))
+                        .bg(theme::accent())
+                        .px(rems(14. / 16.))
+                        .py(rems(8. / 16.))
+                        .text_size(theme::text_body())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::accent_ink())
+                        .cursor_pointer()
+                        .focus_visible(|button| {
+                            button.shadow(runner_app::ui::focus_ring(theme::accent()))
+                        })
+                        .hover(|button| button.bg(theme::with_alpha(theme::accent(), 0.9)))
+                        .on_click({
+                            let take = take.clone();
+                            move |_, window, cx| {
+                                cx.stop_propagation();
+                                take(window, cx);
+                            }
+                        })
+                        .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                cx.stop_propagation();
+                                take(window, cx);
+                            }
+                        })
                         .child(
                             svg()
-                                .path(if state.left {
-                                    "unplug.svg"
-                                } else {
-                                    "globe.svg"
-                                })
-                                .size(rems(20. / 16.))
-                                .text_color(if state.left {
-                                    theme::muted()
-                                } else {
-                                    theme::accent()
-                                }),
-                        ),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(rems(6. / 16.))
-                        .child(
-                            div()
-                                .debug_selector(|| "REMOTE_CONTROL_TITLE".into())
-                                .whitespace_normal()
-                                .text_size(theme::text_lead())
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(title),
+                                .path("monitor.svg")
+                                .size(rems(14. / 16.))
+                                .text_color(theme::accent_ink()),
                         )
-                        .child(
-                            div()
-                                .debug_selector(|| "REMOTE_CONTROL_DETAIL".into())
-                                .whitespace_normal()
-                                .text_size(theme::text_body())
-                                .line_height(rems(20. / 16.))
-                                .text_color(theme::muted())
-                                .child(detail),
-                        ),
-                )
-                .child(
-                    div()
-                        .debug_selector(|| "REMOTE_CONTROL_ACTION".into())
-                        .pt(rems(2. / 16.))
-                        .child(
-                            div()
-                                .id(id)
-                                .tab_index(0)
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .rounded(rems(6. / 16.))
-                                .bg(theme::accent())
-                                .px(rems(14. / 16.))
-                                .py(rems(8. / 16.))
-                                .text_size(theme::text_body())
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme::accent_ink())
-                                .cursor_pointer()
-                                .focus_visible(|button| {
-                                    button.shadow(runner_app::ui::focus_ring(theme::accent()))
-                                })
-                                .hover(|button| button.bg(theme::with_alpha(theme::accent(), 0.9)))
-                                .on_click({
-                                    let take = take.clone();
-                                    move |_, window, cx| {
-                                        cx.stop_propagation();
-                                        take(window, cx);
-                                    }
-                                })
-                                .on_key_down(move |event: &KeyDownEvent, window, cx| {
-                                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                                        cx.stop_propagation();
-                                        take(window, cx);
-                                    }
-                                })
-                                .child(
-                                    svg()
-                                        .path("monitor.svg")
-                                        .size(rems(14. / 16.))
-                                        .text_color(theme::accent_ink()),
-                                )
-                                .child(crate::i18n::text(if state.left {
-                                    "remote.continue_here"
-                                } else {
-                                    "remote.take_back"
-                                })),
-                        ),
+                        .child(crate::i18n::text(if state.left {
+                            "remote.continue_here"
+                        } else {
+                            "remote.take_back"
+                        })),
                 ),
         )
 }

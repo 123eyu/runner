@@ -14,8 +14,8 @@
 
 打开 **设置 → 外观（Settings → Appearance）** 。 **主题（Theme）** 可跟随操作系统，或固定为浅色、深色。每种模式都有两项选择：
 
-- **应用配色（App palette）** 控制侧边栏、面板与控件。浅色模式提供 Runner Light 和 Catppuccin Latte；深色模式提供 Runner 和 Catppuccin Mocha。
-- **终端配色（Terminal palette）** 控制终端网格。Runner、Catppuccin Mocha 和 Rosé Pine Dawn 可独立于应用配色选择。
+- **应用配色（App palette）** 控制侧边栏、面板与控件。浅色模式提供 Runner Light 和 Catppuccin Latte；深色模式提供 Runner 和 Catppuccin Mocha。Runner Light 使用偏冷的灰色表面与更清晰的边框。
+- **终端配色（Terminal palette）** 控制终端网格。Runner、Catppuccin Mocha 和 Rosé Pine Dawn 可独立于应用配色选择。Runner 中的 Rosé Pine Dawn 使用柔和的奶油色背景。
 
 为两种模式各选择一次后，就可以直接切换，无需重新组合。Claude Code 会实时跟随 Runner 的浅色/深色切换；其他智能体自行绘制的颜色可能需使用其自己的主题控制。
 

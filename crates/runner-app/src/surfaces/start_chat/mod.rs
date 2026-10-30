@@ -89,19 +89,12 @@ pub(super) enum ChatTarget {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NewTerminalTarget {
     MissionDrawer,
-    ChatDrawer,
     Tab,
 }
 
-fn new_terminal_target(
-    route: &AppRoute,
-    mission_drawer_available: bool,
-    active_tab_is_terminal: bool,
-) -> NewTerminalTarget {
+fn new_terminal_target(route: &AppRoute, mission_drawer_available: bool) -> NewTerminalTarget {
     if matches!(route, AppRoute::Mission(_)) && mission_drawer_available {
         NewTerminalTarget::MissionDrawer
-    } else if !active_tab_is_terminal {
-        NewTerminalTarget::ChatDrawer
     } else {
         NewTerminalTarget::Tab
     }
@@ -2942,39 +2935,27 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn new_terminal_targets_an_available_mission_drawer_then_the_active_tab_kind() {
+    fn new_terminal_targets_an_available_mission_drawer_and_otherwise_tab_panes() {
         let mission = AppRoute::Mission("mission".into());
-        let mut terminals = PaneLayout::single(Some("shell"), &[]);
-        let pane = terminals.split("p1", SplitOrientation::Row).unwrap();
-        terminals.assign_session(&pane, "shell-2").unwrap();
-        let terminal_tab =
-            super::super::chat::tab_is_terminal(&terminals, |_| Some(Runtime::Shell));
-        assert!(terminal_tab);
-        for terminal in [false, terminal_tab] {
+        assert_eq!(
+            new_terminal_target(&mission, true),
+            NewTerminalTarget::MissionDrawer
+        );
+        for route in [
+            AppRoute::Chat,
+            AppRoute::Roles,
+            AppRoute::RoleDetail("role".into()),
+            AppRoute::Crews,
+            AppRoute::CrewEditor("crew".into()),
+            AppRoute::Settings,
+            AppRoute::ArchivedChat,
+            mission,
+        ] {
             assert_eq!(
-                new_terminal_target(&mission, true, terminal),
-                NewTerminalTarget::MissionDrawer
+                new_terminal_target(&route, false),
+                NewTerminalTarget::Tab,
+                "{route:?}"
             );
-            for route in [
-                AppRoute::Chat,
-                AppRoute::Roles,
-                AppRoute::RoleDetail("role".into()),
-                AppRoute::Crews,
-                AppRoute::CrewEditor("crew".into()),
-                AppRoute::Settings,
-                AppRoute::ArchivedChat,
-                mission.clone(),
-            ] {
-                assert_eq!(
-                    new_terminal_target(&route, false, terminal),
-                    if terminal {
-                        NewTerminalTarget::Tab
-                    } else {
-                        NewTerminalTarget::ChatDrawer
-                    },
-                    "{route:?}, terminal={terminal}"
-                );
-            }
         }
     }
 

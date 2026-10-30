@@ -73,6 +73,14 @@ impl crate::NativeRoot {
 }
 
 impl crate::NativeRoot {
+    pub(crate) fn front_page_has_islands(&self) -> bool {
+        self.remote_client.is_active()
+            || matches!(
+                self.route,
+                crate::surfaces::AppRoute::Chat | crate::surfaces::AppRoute::Mission(_)
+            )
+    }
+
     pub(crate) fn front_page_is_chat(&self) -> bool {
         if self.remote_client.is_active() {
             !matches!(
@@ -104,11 +112,6 @@ impl crate::NativeRoot {
         self.remote_client
             .resizing_split()
             .unwrap_or(self.resizing_split.as_deref())
-    }
-    pub(crate) fn front_page_drawer_resizing(&self) -> bool {
-        self.remote_client
-            .drawer_resizing()
-            .unwrap_or(self.drawer_resizing)
     }
 }
 

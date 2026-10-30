@@ -6,8 +6,7 @@ use gpui::prelude::*;
 #[cfg(any(windows, target_os = "linux"))]
 use gpui::MouseButton;
 use gpui::{
-    div, px, rems, svg, AnyElement, App, BoxShadow, CursorStyle, FontWeight, KeyDownEvent,
-    SharedString, Window,
+    div, px, rems, svg, AnyElement, BoxShadow, FontWeight, KeyDownEvent, SharedString, Window,
 };
 use runner_app::ui::{
     Button, ButtonVariant, Field, IconButton, Modal, OverlayWidth, RoleAvatar, SessionControl,
@@ -22,7 +21,6 @@ impl MissionWorkspace {
         &self,
         visibility: f32,
         show_rail: bool,
-        border_on: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -52,6 +50,7 @@ impl MissionWorkspace {
             .items_center()
             .border_b_1()
             .border_color(theme::border())
+            .rounded_tl(rems(11. / 16.))
             .rounded_tr(rems(11. / 16.))
             .map(|element| {
                 #[cfg(test)]
@@ -107,7 +106,6 @@ impl MissionWorkspace {
             MissionRailView::Roles => self.render_roles_rail(window, cx),
             MissionRailView::Meta => self.render_mission_meta_panel(cx),
         };
-        let drag = MissionRailResizeDrag;
         let rail = div()
             .relative()
             .w(rems(width / 16.))
@@ -138,24 +136,6 @@ impl MissionWorkspace {
                             })
                             .child(body),
                     ),
-            )
-            .child(
-                div()
-                    .id("mission-rail-resize")
-                    .map(|handle| {
-                        #[cfg(any(windows, target_os = "linux"))]
-                        let handle = handle.occlude();
-                        handle
-                    })
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .h_full()
-                    .w(rems(4. / 16.))
-                    .cursor(CursorStyle::ResizeLeftRight)
-                    .on_drag(drag, |drag: &MissionRailResizeDrag, _, _, cx: &mut App| {
-                        cx.new(|_| drag.clone())
-                    }),
             );
         div()
             .id("mission-rail")
@@ -165,9 +145,10 @@ impl MissionWorkspace {
             .h_full()
             .flex_none()
             .overflow_hidden()
-            .when(border_on, |rail| {
-                rail.border_l_1().border_color(theme::border())
-            })
+            .rounded(rems(12. / 16.))
+            .border_1()
+            .border_color(theme::border())
+            .bg(theme::bg())
             .child(rail)
             .into_any_element()
     }

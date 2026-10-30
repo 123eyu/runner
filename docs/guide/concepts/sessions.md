@@ -26,7 +26,7 @@ When a runtime wraps an underlined URL onto indented rows or a hyperlink inside 
 | Fork a chat | Creates another chat from the conversation, for runtimes that support forking |
 | Archive a chat | Stops it and removes it from active chat lists; find it in Settings → Archived |
 
-A shell can restart in its directory, but has no agent conversation to resume. Shell terminals close rather than archive. Closing a window saves its layout and can leave its sessions running; closing a pane or chat tab is a separate action, so read any confirmation before accepting it.
+Shells have no Stop, Resume or Restart controls. Interrupt commands with Ctrl+C. Closing a terminal or exiting its shell with any exit code closes the pane rather than archiving it. Closing a window saves its layout and can leave its sessions running; closing a pane or chat tab is a separate action, so read any confirmation before accepting it.
 
 ## Claude Code accounts
 
@@ -36,6 +36,6 @@ When several [Claude Code accounts](../guides/claude-accounts.md) are configured
 
 Runner's background service, `runnerd`, owns processes independently of the app window. **Settings → General → When Runner quits** offers **Ask**, **Keep running** and **Stop sessions**. Reopening after **Keep running** attaches to the live terminals.
 
-If the processes were stopped for shutdown or an update, **Resume running agents on launch** controls their automatic recovery. Manually stopped sessions stay stopped until you resume them. Recovery depends on the agent's saved conversation identity and history; it cannot restore an unsaved conversation from terminal pixels alone.
+If the processes were stopped for shutdown or an update, **Resume running agents on launch** controls their automatic recovery. Manually stopped chats stay stopped until you resume them. Terminal panes resume after a planned stop regardless of the agent-resume setting. Recovery depends on the agent's saved conversation identity and history; it cannot restore an unsaved conversation from terminal pixels alone.
 
-If the daemon crashes, Runner reconnects and offers recovery for affected sessions. Use **Settings → Diagnostics → Open log folder** when a failure repeats. See [Troubleshooting](../guides/troubleshooting.md) for a missing conversation or a failed launch.
+If the daemon crashes, Runner reconnects and offers recovery for affected chats; shells without a planned launch-resume claim close their panes. Use **Settings → Diagnostics → Open log folder** when a failure repeats. See [Troubleshooting](../guides/troubleshooting.md) for a missing conversation or a failed launch.

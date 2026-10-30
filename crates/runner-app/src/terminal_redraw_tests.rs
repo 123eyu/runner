@@ -109,7 +109,6 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     let initial = counts.0.borrow().clone();
     for key in [
         "sidebar",
-        "tab-bar",
         "side-panel",
         "pane:p1",
         &format!("pane:{idle_pane}"),
@@ -136,7 +135,6 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     );
     for key in [
         "sidebar",
-        "tab-bar",
         "side-panel",
         &format!("pane:{idle_pane}"),
         "terminal:direct-agent",
@@ -256,13 +254,7 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
         Some(&1),
         "title spinner burst must paint once: {rendered:?}"
     );
-    for key in [
-        "sidebar",
-        "tab-bar",
-        "side-panel",
-        "pane:p1",
-        "terminal:busy-shell",
-    ] {
+    for key in ["sidebar", "side-panel", "pane:p1", "terminal:busy-shell"] {
         assert_eq!(
             rendered.get(key).copied().unwrap_or_default(),
             0,
@@ -275,34 +267,5 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
         store.read_with(&cx, |store, _| store.revisions),
         revisions_before,
         "spinner-only titles must not refresh shared metadata"
-    );
-
-    host.update(&mut cx, |root, window, cx| {
-        let layout = root.tabs.active_mut().unwrap();
-        layout.add_drawer_shell("busy-shell".into());
-        layout.set_drawer_open(true);
-        root.ensure_active_tab_attached(window, cx).unwrap();
-        cx.notify();
-    })
-    .unwrap();
-    let shared = store.read_with(&cx, |store, _| store.bridge.session("busy-shell").unwrap());
-    shared.test_feed(100, b"ready");
-    settle(&mut cx, &store, &counts);
-    counts.0.borrow_mut().clear();
-    shared.test_feed(101, b"\r|");
-    cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(4));
-    cx.run_until_parked();
-    let rendered = counts.0.borrow();
-    assert_eq!(
-        rendered.get("terminal:busy-shell"),
-        Some(&2),
-        "both appearances must paint once: {rendered:?}"
-    );
-    assert_eq!(rendered.get("pane:p1"), Some(&1));
-    assert_eq!(
-        rendered.get(&format!("pane:{idle_pane}")),
-        None,
-        "idle pane must stay cached beside a busy drawer: {rendered:?}"
     );
 }

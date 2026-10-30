@@ -766,7 +766,7 @@ async fn viewing_a_crashed_remote_chat_clears_attention_without_starting_it() {
 }
 
 #[tokio::test]
-async fn remote_layouts_preserve_drawer_presentation_and_mission_shell_ownership() {
+async fn remote_layouts_reject_chat_drawers_and_preserve_mission_shell_ownership() {
     let host = Host::new().await;
     let session = host.start().await;
     let mut shells = vec![];
@@ -781,58 +781,21 @@ async fn remote_layouts_preserve_drawer_presentation_and_mission_shell_ownership
     }
     let tab = ulid::Ulid::new().to_string();
     host.layout(&tab, Some(&session), None).await;
+    assert!(host.request(json!({"type":"layout","target":{"kind":"tab","id":tab},"name":"Split","panes":{"id":"p1","session":session},"shells":shells})).await.is_err());
+    host.ok(json!({"type":"layout","target":{"kind":"tab","id":tab},"name":"Split","panes":{"id":"p1","session":session},"shells":[]})).await;
+    let layout: Value = serde_json::from_str(
+        repo::node::get(&host.core.db.get().unwrap(), &tab)
+            .unwrap()
+            .unwrap()
+            .layout
+            .as_deref()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(layout.get("drawer").is_none());
+    shells.reverse();
     let drawer =
         json!({"shells":shells,"open":true,"height":456.0,"active":1,"futurePresentation":true});
-    let mut node = repo::node::get(&host.core.db.get().unwrap(), &tab)
-        .unwrap()
-        .unwrap();
-    let mut saved: Value = serde_json::from_str(node.layout.as_deref().unwrap()).unwrap();
-    saved["drawer"] = drawer.clone();
-    node.layout = Some(saved.to_string());
-    repo::node::upsert(&host.core.db.get().unwrap(), &node).unwrap();
-    host.ok(json!({"type":"layout","target":{"kind":"tab","id":tab},"name":"Split","panes":{"id":"s1","split":"row","sizes":[0.4,0.6],"a":{"id":"p1","session":session},"b":{"id":"p2","session":null}},"shells":shells})).await;
-    let layout: Value = serde_json::from_str(
-        repo::node::get(&host.core.db.get().unwrap(), &tab)
-            .unwrap()
-            .unwrap()
-            .layout
-            .as_deref()
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(layout["drawer"], drawer);
-    assert_eq!(layout["slots"], json!([session, null]));
-    shells.reverse();
-    host.ok(json!({"type":"layout","target":{"kind":"tab","id":tab},"name":"Split","panes":{"id":"p1","session":session},"shells":shells})).await;
-    let layout: Value = serde_json::from_str(
-        repo::node::get(&host.core.db.get().unwrap(), &tab)
-            .unwrap()
-            .unwrap()
-            .layout
-            .as_deref()
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(layout["drawer"]["active"], 0);
-    assert_eq!(layout["drawer"]["height"], 456.0);
-    let mut legacy = layout.clone();
-    legacy["drawer"].as_object_mut().unwrap().remove("active");
-    let mut node = repo::node::get(&host.core.db.get().unwrap(), &tab)
-        .unwrap()
-        .unwrap();
-    node.layout = Some(legacy.to_string());
-    repo::node::upsert(&host.core.db.get().unwrap(), &node).unwrap();
-    host.ok(json!({"type":"layout","target":{"kind":"tab","id":tab},"name":"Split","panes":{"id":"p1","session":session},"shells":[shells[1],shells[0]]})).await;
-    let legacy: Value = serde_json::from_str(
-        repo::node::get(&host.core.db.get().unwrap(), &tab)
-            .unwrap()
-            .unwrap()
-            .layout
-            .as_deref()
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(legacy["drawer"]["active"], 1);
     let mission=host.ok(json!({"type":"startMission","crew":"crew","title":"Drawer","cwd":host.path(),"cols":80,"rows":24})).await["mission"].as_str().unwrap().to_owned();
     let member = repo::session::list_for_mission(&host.core.db.get().unwrap(), &mission).unwrap()
         [0]
@@ -863,7 +826,10 @@ async fn remote_layouts_preserve_drawer_presentation_and_mission_shell_ownership
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(saved, json!({"drawer":drawer}));
+    let mut expected = drawer;
+    expected["shells"] = json!([shells[1], shells[0]]);
+    expected["active"] = json!(0);
+    assert_eq!(saved, json!({"drawer":expected}));
     assert!(host.request(json!({"type":"layout","target":{"kind":"mission","id":mission},"name":"unused","panes":{"id":"member","session":member},"shells":[member]})).await.is_err());
     host.ok(json!({"type":"archive","target":{"kind":"mission","id":mission}}))
         .await;
@@ -1029,7 +995,7 @@ async fn large_feed_pages_and_incremental_pushes_keep_the_shared_terminal_route_
         .as_str()
         .unwrap()
         .to_owned();
-    host.ok(json!({"type":"layout","target":{"kind":"tab","id":ulid::Ulid::new().to_string()},"name":"Terminal","panes":{"id":"p1","session":null},"shells":[shell]})).await;
+    host.ok(json!({"type":"layout","target":{"kind":"tab","id":ulid::Ulid::new().to_string()},"name":"Terminal","panes":{"id":"p1","session":shell},"shells":[]})).await;
     let mut terminal = host
         .fixture
         .client

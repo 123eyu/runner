@@ -535,7 +535,7 @@ pub(crate) fn delete_rows(tx: &rusqlite::Transaction<'_>, ids: &[String]) -> Res
     Ok(repo::session::delete_many(tx, ids)?)
 }
 
-fn close_shell_row(conn: &mut rusqlite::Connection, session_id: &str) -> Result<()> {
+pub(crate) fn close_shell_row(conn: &mut rusqlite::Connection, session_id: &str) -> Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     match repo::session::effective_runtime(&tx, session_id)?.as_deref() {
         Some(runtime) if Runtime::parse(runtime).is_some_and(Runtime::is_shell) => {}
@@ -544,13 +544,105 @@ fn close_shell_row(conn: &mut rusqlite::Connection, session_id: &str) -> Result<
                 "session {session_id} is not a shell session"
             )))
         }
-        None => return Err(Error::msg(format!("session not found: {session_id}"))),
+        None => return Ok(()),
+    }
+    for row in repo::node::list(&tx)?
+        .into_iter()
+        .filter(|row| row.node_type == repo::node::NodeType::Tab)
+    {
+        let stored: serde_json::Value =
+            serde_json::from_str(row.layout.as_deref().unwrap_or("{}"))?;
+        if !stored
+            .get("slots")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|slots| slots.iter().any(|slot| slot.as_str() == Some(session_id)))
+        {
+            continue;
+        }
+        let mut layout = runner_core::pane_layout::PaneLayout::from_node_row(&row)
+            .map_err(|error| Error::msg(error.to_string()))?;
+        let pane = layout
+            .root
+            .leaves()
+            .into_iter()
+            .find(|leaf| leaf.session_id.as_deref() == Some(session_id))
+            .map(|leaf| leaf.id.clone());
+        if let Some(pane) = pane {
+            if !layout.close_pane(&pane) {
+                layout.remove_session(session_id);
+            }
+        }
+        if layout.all_session_ids().is_empty() {
+            repo::node::delete(&tx, &row.id)?;
+        } else {
+            repo::node::set_layout(
+                &tx,
+                &row.id,
+                &layout
+                    .serialize()
+                    .map_err(|error| Error::msg(error.to_string()))?,
+            )?;
+        }
     }
     repo::node::remove_session(&tx, session_id)?;
     if delete_rows(&tx, &[session_id.to_owned()])? == 0 {
         return Err(Error::msg(format!("session not found: {session_id}")));
     }
     tx.commit()?;
+    Ok(())
+}
+
+pub(crate) fn retire_chat_drawers(conn: &mut rusqlite::Connection) -> Result<()> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    for row in repo::node::list(&tx)?
+        .into_iter()
+        .filter(|row| row.node_type == repo::node::NodeType::Tab)
+    {
+        let Some(raw) = row.layout.as_deref() else {
+            continue;
+        };
+        let mut layout: serde_json::Value = serde_json::from_str(raw)?;
+        let Some(drawer) = layout
+            .as_object_mut()
+            .and_then(|layout| layout.remove("drawer"))
+        else {
+            continue;
+        };
+        let shells = drawer
+            .get("shells")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>();
+        for id in shells {
+            if repo::session::effective_runtime(&tx, id)?.as_deref() == Some("shell") {
+                repo::node::remove_session(&tx, id)?;
+                delete_rows(&tx, &[id.to_owned()])?;
+            }
+        }
+        if repo::node::get(&tx, &row.id)?.is_some() {
+            tx.execute(
+                "UPDATE nodes SET layout = ?2 WHERE id = ?1",
+                rusqlite::params![row.id, layout.to_string()],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub(crate) fn close_exited_shells(conn: &mut rusqlite::Connection) -> Result<()> {
+    let ids = {
+        let mut stmt = conn.prepare("SELECT id FROM sessions WHERE mission_id IS NULL AND agent_runtime = 'shell' AND status != 'running' AND resume_on_launch = 0")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids
+    };
+    for id in ids {
+        close_shell_row(conn, &id)?;
+    }
     Ok(())
 }
 
@@ -837,6 +929,18 @@ pub fn session_fork(
     Ok(spawned)
 }
 
+fn finish_launch_resume(conn: &mut rusqlite::Connection, session_id: &str) -> Result<()> {
+    repo::session::finish_resume_on_launch(conn, session_id)?;
+    // A shell can exit before its launch claim is released by this caller.
+    if repo::session::effective_runtime(conn, session_id)?.as_deref() == Some("shell")
+        && repo::session::get_row(conn, session_id)?
+            .is_some_and(|row| row.status != SessionStatus::Running && !row.resume_on_launch)
+    {
+        close_shell_row(conn, session_id)?;
+    }
+    Ok(())
+}
+
 pub fn session_resume_on_launch(
     state: &AppCore,
     session_id: &str,
@@ -854,8 +958,8 @@ pub fn session_resume_on_launch(
         emitter,
     );
     match state.db.get() {
-        Ok(conn) => {
-            if let Err(error) = repo::session::finish_resume_on_launch(&conn, session_id) {
+        Ok(mut conn) => {
+            if let Err(error) = finish_launch_resume(&mut conn, session_id) {
                 log::warn!("session_resume: launch claim update failed for {session_id}: {error}");
             }
         }
@@ -1396,7 +1500,9 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(layout["slots"], serde_json::json!([null, "chat"]));
+        assert_eq!(layout["slots"], serde_json::json!(["chat"]));
+        assert_eq!(layout["tree"]["kind"], "leaf");
+        assert_eq!(layout["tree"]["id"], "p2");
     }
 
     #[test]
@@ -1733,6 +1839,117 @@ mod tests {
             row_count(&conn, "SELECT COUNT(*) FROM session_attention"),
             1
         );
+    }
+
+    #[test]
+    fn drawer_upgrade_closes_only_chat_drawer_shells_and_drops_the_field() {
+        let state = crate::test_support::test_core();
+        let mut conn = state.db.get().unwrap();
+        conn.execute_batch(
+            "INSERT INTO sessions (id, status, agent_runtime, agent_command, resume_on_launch)
+            VALUES ('old-shell', 'stopped', 'shell', 'zsh', 1),
+                   ('mission-shell', 'stopped', 'shell', 'zsh', 1),
+                   ('chat', 'stopped', 'codex', 'codex', 0);",
+        )
+        .unwrap();
+        let chat = repo::node::create_tab(
+            &conn,
+            None,
+            "Named chat",
+            0,
+            &serde_json::json!({"slots":["chat"], "drawer":{"open":true,"shells":["old-shell"]}})
+                .to_string(),
+        )
+        .unwrap();
+        let mut mission = chat.clone();
+        mission.id = "mission-node".into();
+        mission.node_type = repo::node::NodeType::Mission;
+        mission.layout = Some(
+            serde_json::json!({"drawer":{"open":true,"shells":["mission-shell"]}}).to_string(),
+        );
+        repo::node::upsert(&conn, &mission).unwrap();
+        retire_chat_drawers(&mut conn).unwrap();
+        retire_chat_drawers(&mut conn).unwrap();
+        assert!(repo::session::get_row(&conn, "old-shell")
+            .unwrap()
+            .is_none());
+        assert!(repo::session::get_row(&conn, "mission-shell")
+            .unwrap()
+            .is_some());
+        assert!(repo::session::get_row(&conn, "chat").unwrap().is_some());
+        let upgraded = repo::node::get(&conn, &chat.id).unwrap().unwrap();
+        assert_eq!(upgraded.name, chat.name);
+        let layout: serde_json::Value =
+            serde_json::from_str(upgraded.layout.as_deref().unwrap()).unwrap();
+        assert!(layout.get("drawer").is_none());
+        assert_eq!(layout["slots"], serde_json::json!(["chat"]));
+        assert_eq!(
+            repo::node::get(&conn, &mission.id).unwrap().unwrap().layout,
+            mission.layout
+        );
+    }
+
+    #[test]
+    fn fast_shell_exit_during_launch_resume_closes_after_releasing_the_claim() {
+        let state = crate::test_support::test_core();
+        let mut conn = state.db.get().unwrap();
+        conn.execute_batch(
+            "INSERT INTO sessions (id, status, agent_runtime, agent_command, resume_on_launch)
+            VALUES ('fast-exit', 'stopped', 'shell', 'zsh', 2),
+                   ('still-queued', 'stopped', 'shell', 'zsh', 1),
+                   ('chat-exit', 'stopped', 'codex', 'codex', 2);",
+        )
+        .unwrap();
+        for id in ["fast-exit", "still-queued", "chat-exit"] {
+            finish_launch_resume(&mut conn, id).unwrap();
+        }
+        assert!(repo::session::get_row(&conn, "fast-exit")
+            .unwrap()
+            .is_none());
+        assert!(repo::session::get_row(&conn, "still-queued")
+            .unwrap()
+            .is_some());
+        assert!(repo::session::get_row(&conn, "chat-exit")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn exited_shell_cleanup_preserves_planned_resume_and_chats() {
+        let state = crate::test_support::test_core();
+        let mut conn = state.db.get().unwrap();
+        conn.execute_batch(
+            "INSERT INTO sessions (id, status, agent_runtime, agent_command, resume_on_launch)
+            VALUES ('stopped', 'stopped', 'shell', 'zsh', 0),
+                   ('crashed', 'crashed', 'shell', 'zsh', 0),
+                   ('running', 'running', 'shell', 'zsh', 0),
+                   ('planned', 'stopped', 'shell', 'zsh', 1),
+                   ('claim', 'stopped', 'shell', 'zsh', 2),
+                   ('chat', 'stopped', 'codex', 'codex', 0);",
+        )
+        .unwrap();
+        for id in ["stopped", "crashed", "running", "planned", "claim", "chat"] {
+            repo::node::create_tab(
+                &conn,
+                None,
+                "",
+                0,
+                &serde_json::json!({"preset":"single", "slots":[id]}).to_string(),
+            )
+            .unwrap();
+        }
+        close_exited_shells(&mut conn).unwrap();
+        close_exited_shells(&mut conn).unwrap();
+        for id in ["stopped", "crashed"] {
+            assert!(repo::session::get_row(&conn, id).unwrap().is_none());
+        }
+        let mut ids = repo::node::list(&conn)
+            .unwrap()
+            .iter()
+            .flat_map(repo::node::session_ids)
+            .collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, ["chat", "claim", "planned", "running"]);
     }
 
     #[test]

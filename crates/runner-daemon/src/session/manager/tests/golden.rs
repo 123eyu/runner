@@ -286,6 +286,12 @@ fn spawn_goldens() {
                     )
                     .unwrap();
                 if matches!(shape, "resume" | "missing") {
+                    if key == "shell" {
+                        crate::repo::session::mark_running_for_resume_on_launch(
+                            &mut pool.get().unwrap(),
+                        )
+                        .unwrap();
+                    }
                     mgr.kill(&spawned.id).unwrap();
                     let prior = if key == "opencode" {
                         format!("ses_{}", uuid::Uuid::new_v4().simple())

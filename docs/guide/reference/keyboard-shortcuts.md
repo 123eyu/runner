@@ -18,7 +18,7 @@ In macOS terminal panes, **Settings → Terminal → Option as Meta key** defaul
 | New mission | ⇧⌘M | Ctrl+Shift+M |
 | Command palette | ⌘K | Ctrl+K |
 | Toggle sidebar | ⌘S | Ctrl+S |
-| Toggle terminal drawer | ⌥F12 | Alt+F12 |
+| Toggle mission terminal drawer | ⌥F12 | Alt+F12 |
 | Open Settings | ⌘, | Ctrl+, |
 | Previous recently viewed page | ⇧⌘[ | Ctrl+Shift+[ |
 | Next recently viewed page | ⇧⌘] | Ctrl+Shift+] |
@@ -34,9 +34,9 @@ In Projects, number shortcuts follow the visible tabs and missions. In Active, t
 | Next chat pane | ⌘] | Ctrl+] |
 | Split right | ⌘D | Ctrl+D |
 | Split down | ⇧⌘D | Ctrl+Shift+D |
-| Hide focused drawer, close focused split pane, or close chat tab | ⌘W | Ctrl+Shift+W |
-| Stop focused chat, terminal or mission slot | ⇧⌘X | Ctrl+Shift+X |
-| Resume or restart focused stopped session | ⇧⌘R | Ctrl+Shift+R |
+| Hide focused mission drawer, close focused pane, or close chat tab | ⌘W | Ctrl+Shift+W |
+| Stop focused chat or mission slot | ⇧⌘X | Ctrl+Shift+X |
+| Resume focused stopped chat or mission slot | ⇧⌘R | Ctrl+Shift+R |
 | Previous mission feed/session tab | ⌘[ | Ctrl+[ |
 | Next mission feed/session tab | ⌘] | Ctrl+] |
 | Copy terminal selection | ⌘C | Ctrl+C |
@@ -76,3 +76,5 @@ App zoom changes the application controls. Set terminal text size separately in 
 Select an editable shortcut in **Settings → Keyboard shortcuts** and press the new combination. Runner checks conflicts within overlapping contexts. Fixed window and system bindings cannot be reassigned; the tab-selection group can be unbound as a group. Use **Reset all to defaults** to restore the standard map.
 
 These tables follow Runner's shared keymap and its Windows/Linux Ctrl defaults. Agent commands such as slash commands and terminal editing keys belong to the agent itself.
+
+In chat tabs, Stop and Resume shortcuts act only on the focused chat. Terminals have no lifecycle controls, and the drawer shortcut does nothing in chat or terminal tabs.

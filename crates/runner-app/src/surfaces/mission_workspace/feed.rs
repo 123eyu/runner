@@ -375,7 +375,7 @@ impl MissionWorkspace {
                     - self.feed_scrollbar_metrics.get().viewport
                     >= 1.)
                     .then(|| {
-                        div()
+                        let track = div()
                             .id("mission-feed-scrollbar")
                             .debug_selector(|| "MISSION_FEED_SCROLLBAR".into())
                             .absolute()
@@ -385,7 +385,9 @@ impl MissionWorkspace {
                             .w(app_scrollbar_gutter())
                             .capture_any_mouse_down(cx.listener(
                                 |this, event: &gpui::MouseDownEvent, _, cx| {
-                                    if event.button == MouseButton::Left {
+                                    if event.button == MouseButton::Left
+                                        && this.feed_scrollbar.read(cx).is_visible()
+                                    {
                                         this.feed_selecting = false;
                                         this.prepare_feed_scrollbar(cx);
                                         this.feed_list.scrollbar_drag_started();
@@ -417,7 +419,11 @@ impl MissionWorkspace {
                                     cx.stop_propagation();
                                     cx.notify();
                                 },
-                            ))
+                            ));
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .child(track)
                             .child(self.feed_scrollbar.clone())
                     }),
             )

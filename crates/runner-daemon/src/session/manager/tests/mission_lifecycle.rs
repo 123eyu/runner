@@ -896,6 +896,7 @@ fn spawn_direct_writes_session_with_null_mission_id_and_emits_activity() {
     // chat doesn't need a crew or mission — only a role row.
     let role_id = ulid::Ulid::new().to_string();
     let mut role = role("/bin/sh", &["-c", "echo direct"]);
+    role.runtime = "codex".into();
     role.id = role_id.clone();
     role.handle = "directrunner".into();
     insert_role_row(&pool.get().unwrap(), &role);

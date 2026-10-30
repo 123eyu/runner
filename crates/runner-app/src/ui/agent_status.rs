@@ -216,6 +216,30 @@ impl StatusPresentation {
         }
     }
 
+    pub fn island_label_width(&self, window: &Window) -> f32 {
+        let label = self.label();
+        let mut style = window.text_style();
+        style.font_weight = FontWeight::MEDIUM;
+        f32::from(
+            window
+                .text_system()
+                .shape_line(
+                    label.into(),
+                    window.rem_size() * (12. / 16.),
+                    &[style.to_run(label.len())],
+                    None,
+                )
+                .width
+                .ceil(),
+        ) + f32::from(window.rem_size()) * (18. / 16.)
+    }
+
+    pub fn has_island_detail(&self) -> bool {
+        self.short_label_at(Utc::now().timestamp_millis())
+            .detail
+            .is_some()
+    }
+
     pub fn shows_detail(&self, width: f32) -> bool {
         let can_have_detail = self.kind == StatusKind::Working
             || self.needs_you()
@@ -326,7 +350,22 @@ pub fn status_indicator(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    timed_status_indicator(status, label, true, id.into(), false, window, cx)
+    timed_status_indicator(
+        status,
+        label,
+        true,
+        id.into(),
+        StatusIndicatorStyle::List,
+        window,
+        cx,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StatusIndicatorStyle {
+    List,
+    PaneHeader,
+    IslandHeader,
 }
 
 fn timed_status_indicator(
@@ -334,7 +373,7 @@ fn timed_status_indicator(
     label: bool,
     detail: bool,
     id: ElementId,
-    header: bool,
+    style: StatusIndicatorStyle,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -364,7 +403,7 @@ fn timed_status_indicator(
         label,
         detail,
         id,
-        header,
+        style,
         Utc::now().timestamp_millis(),
     )
 }
@@ -381,7 +420,34 @@ pub fn pane_status_indicator(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    timed_status_indicator(status, label, detail, id.into(), true, window, cx)
+    timed_status_indicator(
+        status,
+        label,
+        detail,
+        id.into(),
+        StatusIndicatorStyle::PaneHeader,
+        window,
+        cx,
+    )
+}
+
+fn island_status_indicator(
+    status: StatusPresentation,
+    label: bool,
+    detail: bool,
+    id: impl Into<ElementId>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    timed_status_indicator(
+        status,
+        label,
+        detail,
+        id.into(),
+        StatusIndicatorStyle::IslandHeader,
+        window,
+        cx,
+    )
 }
 
 pub fn header_status_indicator(
@@ -431,9 +497,11 @@ fn render_status_indicator(
     label: bool,
     detail: bool,
     id: ElementId,
-    header: bool,
+    style: StatusIndicatorStyle,
     now: i64,
 ) -> AnyElement {
+    let header = style != StatusIndicatorStyle::List;
+    let island = style == StatusIndicatorStyle::IslandHeader;
     let color = if status.needs_you() {
         theme::warning()
     } else if status.is_error() {
@@ -442,34 +510,43 @@ fn render_status_indicator(
         theme::muted()
     };
     let short_label = status.short_label_at(now);
-    let text_size = rems(
-        if header && !status.needs_you() && !status.is_error() {
-            10.
-        } else {
-            11.
-        } / 16.,
-    );
+    let text_size = if island {
+        theme::text_ui()
+    } else {
+        rems(
+            if header && !status.needs_you() && !status.is_error() {
+                10.
+            } else {
+                11.
+            } / 16.,
+        )
+    };
     let row = div()
         .flex_none()
         .flex()
         .when(!header, |row| row.w_full().min_w(px(0.)))
-        .when(header && label && !detail, |row| {
+        .when(header && !island && label && !detail, |row| {
             row.min_w(rems(header_status_width(label, detail) / 16.))
         })
-        .when(header && (!label || detail), |row| {
+        .when(header && ((!island && !label) || detail), |row| {
             row.w(rems(header_status_width(label, detail) / 16.))
         })
         .items_center()
-        .gap(rems(5. / 16.))
-        .when(
-            !header || !label || !matches!(status.kind, StatusKind::Stopped | StatusKind::Idle),
-            |row| row.child(status_glyph(status.clone(), (id.clone(), "glyph"))),
-        )
+        .gap(rems(if island { 6. / 16. } else { 5. / 16. }))
+        .when(island, |row| {
+            row.debug_selector(|| "ISLAND_STATUS_INDICATOR".into())
+        })
+        .child(status_glyph(status.clone(), (id.clone(), "glyph")))
         .when(label, |row| {
             row.child(
                 div()
                     .flex_none()
                     .text_size(text_size)
+                    .when(island, |label| {
+                        label
+                            .font_weight(FontWeight::MEDIUM)
+                            .debug_selector(|| "ISLAND_STATUS_LABEL".into())
+                    })
                     .text_color(color)
                     .whitespace_nowrap()
                     .child(short_label.base),
@@ -491,7 +568,14 @@ fn render_status_indicator(
                     };
                     [
                         muted().child("·"),
-                        muted().flex_1().min_w(px(0.)).truncate().child(detail),
+                        muted()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .when(island, |detail| {
+                                detail.debug_selector(|| "ISLAND_STATUS_DETAIL".into())
+                            })
+                            .child(detail),
                     ]
                 }),
         );
@@ -1190,5 +1274,530 @@ mod remote_elapsed_tests {
             rollup_presentation(&status, true).waiting_since,
             Some(i64::MAX)
         );
+    }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static PANE_LIFECYCLE_ICON_COLOR: std::cell::Cell<Option<gpui::Hsla>> = const { std::cell::Cell::new(None) };
+}
+
+struct PaneLifecycleControlState {
+    focus: gpui::FocusHandle,
+    _subscriptions: Vec<gpui::Subscription>,
+}
+
+fn pane_lifecycle_tooltip(
+    action: super::SessionControlKind,
+    shortcut: Option<&str>,
+) -> SharedString {
+    let label = crate::i18n::text(if action == super::SessionControlKind::Stop {
+        "ui.stop_chat"
+    } else {
+        "ui.resume_chat"
+    });
+    shortcut.map_or_else(
+        || label.into(),
+        |shortcut| format!("{label} {shortcut}").into(),
+    )
+}
+
+pub fn pane_status_control(
+    status: StatusPresentation,
+    display: (bool, bool),
+    id: SharedString,
+    action: Option<(super::SessionControlKind, Option<String>)>,
+    on_press: impl Fn(&mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let (label, detail) = display;
+    let row_id = id.clone();
+    let row = div()
+        .id(id.clone())
+        .debug_selector(move || format!("PANE_STATUS_ROW:{row_id}"))
+        .ml_2()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(rems(8. / 16.))
+        .child(island_status_indicator(
+            status,
+            label,
+            detail,
+            (ElementId::from(id.clone()), "indicator"),
+            window,
+            cx,
+        ));
+    let Some((action, shortcut)) = action else {
+        return row.into_any_element();
+    };
+    let state = window.use_keyed_state(
+        (ElementId::from(id.clone()), "control-state"),
+        cx,
+        |window, cx| {
+            let focus = cx.focus_handle();
+            let subscriptions = vec![
+                cx.on_focus(&focus, window, |_, window, cx| {
+                    cx.defer_in(window, |_, _, cx| cx.notify())
+                }),
+                cx.on_blur(&focus, window, |_, window, cx| {
+                    cx.defer_in(window, |_, _, cx| cx.notify())
+                }),
+            ];
+            PaneLifecycleControlState {
+                focus,
+                _subscriptions: subscriptions,
+            }
+        },
+    );
+    let focus = state.read(cx).focus.clone().tab_stop(true);
+    let click_focus = focus.clone();
+    let stop = action == super::SessionControlKind::Stop;
+    let color = if stop {
+        theme::danger()
+    } else {
+        theme::accent()
+    };
+    let on_press = std::rc::Rc::new(on_press);
+    let key_press = on_press.clone();
+    let button = div()
+        .id((ElementId::from(id.clone()), "lifecycle"))
+        .debug_selector(move || {
+            if stop {
+                "PANE_LIFECYCLE:Stop chat".into()
+            } else {
+                "PANE_LIFECYCLE:Resume chat".into()
+            }
+        })
+        .track_focus(&focus)
+        .tab_index(0)
+        .tab_stop(true)
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(rems(22. / 16.))
+        .rounded(rems(6. / 16.))
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .text_color(if stop {
+            theme::muted()
+        } else {
+            theme::accent()
+        })
+        .cursor_pointer()
+        .hover(move |style| {
+            style
+                .bg(theme::with_alpha(color, if stop { 0.12 } else { 0.1 }))
+                .border_color(theme::with_alpha(color, if stop { 0.35 } else { 0.4 }))
+                .text_color(color)
+        })
+        .focus_visible(move |style| {
+            style
+                .bg(theme::with_alpha(color, if stop { 0.12 } else { 0.1 }))
+                .border_color(theme::with_alpha(color, if stop { 0.35 } else { 0.4 }))
+                .text_color(color)
+        })
+        .child(
+            div()
+                .flex_none()
+                .size(rems(13. / 16.))
+                .debug_selector(|| "PANE_LIFECYCLE_ICON".into())
+                .child(
+                    gpui::canvas(
+                        |_, _, _| {},
+                        move |bounds, _, window, cx| {
+                            // Svg does not inherit text color; read the button’s hover/focus color during paint.
+                            let color = window.text_style().color;
+                            #[cfg(test)]
+                            PANE_LIFECYCLE_ICON_COLOR.with(|painted| painted.set(Some(color)));
+                            if let Err(error) = window.paint_svg(
+                                bounds,
+                                if stop {
+                                    "circle-stop.svg"
+                                } else {
+                                    "circle-play.svg"
+                                }
+                                .into(),
+                                None,
+                                Default::default(),
+                                color,
+                                cx,
+                            ) {
+                                tracing::warn!(%error, "could not paint pane lifecycle icon");
+                            }
+                        },
+                    )
+                    .size_full(),
+                ),
+        )
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+            window.focus(&click_focus, cx);
+            cx.stop_propagation();
+        })
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            on_press(window, cx);
+        })
+        .on_key_down(move |event, window, cx| {
+            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                cx.stop_propagation();
+                key_press(window, cx);
+            }
+        });
+    row.child(
+        div()
+            .debug_selector(|| "PANE_LIFECYCLE_DIVIDER".into())
+            .flex_none()
+            .w(px(1.))
+            .h(rems(14. / 16.))
+            .bg(theme::border_strong()),
+    )
+    .child(
+        Tooltip::new(
+            (ElementId::from(id), "tooltip"),
+            pane_lifecycle_tooltip(action, shortcut.as_deref()),
+            button,
+        )
+        .focus_handle(focus),
+    )
+    .into_any_element()
+}
+
+#[cfg(test)]
+mod pane_control_tests {
+    use super::*;
+    use gpui::{Context, Render, TestAppContext, VisualTestContext};
+    use std::{cell::Cell, rc::Rc};
+
+    struct Harness {
+        hits: Rc<Cell<usize>>,
+        action: Option<super::super::SessionControlKind>,
+        kind: StatusKind,
+        width: f32,
+        zoom: f32,
+        details: bool,
+    }
+    impl Render for Harness {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let hits = self.hits.clone();
+            window.set_rem_size(px(16. * self.zoom));
+            let mut status = StatusPresentation::new(&AgentStatus::default());
+            status.kind = self.kind;
+            status.estimated = false;
+            if self.details {
+                status.detail = Some(WorkDetail::CompactingContext);
+                status.message = Some("Allow this command with a long detail? ".repeat(30).into());
+            }
+            div()
+                .size_full()
+                .flex()
+                .items_start()
+                .child(pane_status_control(
+                    status,
+                    (self.width >= 300., self.details),
+                    "probe".into(),
+                    self.action.map(|action| {
+                        (
+                            action,
+                            Some(crate::keymap::fixed_shortcut(
+                                if action == super::super::SessionControlKind::Stop {
+                                    "shift-cmd-x"
+                                } else {
+                                    "shift-cmd-r"
+                                },
+                            )),
+                        )
+                    }),
+                    move |_, _| hits.set(hits.get() + 1),
+                    window,
+                    cx,
+                ))
+        }
+    }
+
+    #[test]
+    fn lifecycle_button_is_visible_and_status_remains_inert() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for (kind, action) in [
+            (StatusKind::Idle, super::super::SessionControlKind::Stop),
+            (StatusKind::Working, super::super::SessionControlKind::Stop),
+            (
+                StatusKind::Stopped,
+                super::super::SessionControlKind::Resume,
+            ),
+        ] {
+            let mut cx = TestAppContext::single();
+            let hits = Rc::new(Cell::new(0));
+            let host = cx.add_window(|_, _| Harness {
+                hits: hits.clone(),
+                action: Some(action),
+                kind,
+                width: 640.,
+                zoom: 1.,
+                details: false,
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            let selector = if action == super::super::SessionControlKind::Stop {
+                "PANE_LIFECYCLE:Stop chat"
+            } else {
+                "PANE_LIFECYCLE:Resume chat"
+            };
+            let button = visual.debug_bounds(selector).unwrap();
+            let status = visual.debug_bounds("ISLAND_STATUS_INDICATOR").unwrap();
+            visual.simulate_mouse_move(status.center(), None, Default::default());
+            visual.simulate_click(status.center(), Default::default());
+            assert_eq!(hits.get(), 0);
+            assert_eq!(visual.debug_bounds("ISLAND_STATUS_INDICATOR"), Some(status));
+            assert_eq!(visual.debug_bounds(selector), Some(button));
+            visual.simulate_click(button.center(), Default::default());
+            assert_eq!(hits.get(), 1);
+            visual.simulate_mouse_move(gpui::point(px(800.), px(800.)), None, Default::default());
+            host.update(&mut visual, |_, window, cx| window.focus_next(cx))
+                .unwrap();
+            visual.simulate_keystrokes("enter");
+            assert_eq!(hits.get(), 2);
+        }
+    }
+
+    #[test]
+    fn lifecycle_button_and_divider_keep_design_geometry_in_narrow_panes() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for zoom in [1., 1.3] {
+            for width in [640., 300.] {
+                for action in [
+                    super::super::SessionControlKind::Stop,
+                    super::super::SessionControlKind::Resume,
+                ] {
+                    let mut cx = TestAppContext::single();
+                    let host = cx.add_window(|_, _| Harness {
+                        hits: Rc::new(Cell::new(0)),
+                        action: Some(action),
+                        kind: if action == super::super::SessionControlKind::Stop {
+                            StatusKind::Idle
+                        } else {
+                            StatusKind::Stopped
+                        },
+                        width,
+                        zoom,
+                        details: false,
+                    });
+                    let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                    let button = visual
+                        .debug_bounds(if action == super::super::SessionControlKind::Stop {
+                            "PANE_LIFECYCLE:Stop chat"
+                        } else {
+                            "PANE_LIFECYCLE:Resume chat"
+                        })
+                        .unwrap();
+                    let icon = visual.debug_bounds("PANE_LIFECYCLE_ICON").unwrap();
+                    let divider = visual.debug_bounds("PANE_LIFECYCLE_DIVIDER").unwrap();
+                    let status = visual.debug_bounds("ISLAND_STATUS_INDICATOR").unwrap();
+                    assert!((button.size.width - px(22. * zoom)).abs() < px(0.5));
+                    assert!((button.size.height - px(22. * zoom)).abs() < px(0.5));
+                    assert!((icon.size.width - px(13. * zoom)).abs() < px(0.5));
+                    assert_eq!(divider.size.width, px(1.));
+                    assert!((divider.size.height - px(14. * zoom)).abs() < px(0.5));
+                    assert!((divider.left() - status.right() - px(8. * zoom)).abs() < px(0.5));
+                    assert!((button.left() - divider.right() - px(8. * zoom)).abs() < px(0.5));
+                    assert_eq!(
+                        visual.debug_bounds("ISLAND_STATUS_LABEL").is_some(),
+                        width >= 300.
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_lifecycle_action_has_no_button_or_divider() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for kind in [
+            StatusKind::Starting,
+            StatusKind::Resuming,
+            StatusKind::Working,
+            StatusKind::Stopped,
+        ] {
+            let mut cx = TestAppContext::single();
+            let host = cx.add_window(|_, _| Harness {
+                hits: Rc::new(Cell::new(0)),
+                action: None,
+                kind,
+                width: 640.,
+                zoom: 1.,
+                details: false,
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            assert!(visual.debug_bounds("ISLAND_STATUS_INDICATOR").is_some());
+            assert!(visual.debug_bounds("PANE_LIFECYCLE_DIVIDER").is_none());
+            assert!(visual.debug_bounds("PANE_LIFECYCLE_ICON").is_none());
+        }
+    }
+
+    #[test]
+    fn lifecycle_glyph_paints_the_button_color_at_rest_hover_and_keyboard_focus() {
+        use super::super::SessionControlKind::{Resume, Stop};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for zoom in [1., 1.3] {
+            for action in [Stop, Resume] {
+                PANE_LIFECYCLE_ICON_COLOR.with(|painted| painted.set(None));
+                let mut cx = TestAppContext::single();
+                let host = cx.add_window(|_, _| Harness {
+                    hits: Rc::new(Cell::new(0)),
+                    action: Some(action),
+                    kind: if action == Stop {
+                        StatusKind::Idle
+                    } else {
+                        StatusKind::Stopped
+                    },
+                    width: 640.,
+                    zoom,
+                    details: false,
+                });
+                let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                let button = visual
+                    .debug_bounds(if action == Stop {
+                        "PANE_LIFECYCLE:Stop chat"
+                    } else {
+                        "PANE_LIFECYCLE:Resume chat"
+                    })
+                    .unwrap();
+                let rest = if action == Stop {
+                    theme::muted()
+                } else {
+                    theme::accent()
+                };
+                let active = if action == Stop {
+                    theme::danger()
+                } else {
+                    theme::accent()
+                };
+                PANE_LIFECYCLE_ICON_COLOR.with(|painted| assert_eq!(painted.get(), Some(rest)));
+                visual.simulate_mouse_move(button.center(), None, Default::default());
+                PANE_LIFECYCLE_ICON_COLOR.with(|painted| assert_eq!(painted.get(), Some(active)));
+                visual.simulate_mouse_move(
+                    gpui::point(px(800.), px(800.)),
+                    None,
+                    Default::default(),
+                );
+                PANE_LIFECYCLE_ICON_COLOR.with(|painted| assert_eq!(painted.get(), Some(rest)));
+                host.update(&mut visual, |_, window, cx| window.focus_next(cx))
+                    .unwrap();
+                visual.simulate_keystrokes("right");
+                PANE_LIFECYCLE_ICON_COLOR.with(|painted| assert_eq!(painted.get(), Some(active)));
+                visual.simulate_mouse_move(
+                    gpui::point(px(801.), px(801.)),
+                    None,
+                    Default::default(),
+                );
+                PANE_LIFECYCLE_ICON_COLOR.with(|painted| assert_eq!(painted.get(), Some(rest)));
+            }
+        }
+    }
+
+    #[test]
+    fn lifecycle_tooltip_names_the_action_and_effective_shortcut() {
+        use super::super::SessionControlKind::{Resume, Stop};
+        assert_eq!(
+            pane_lifecycle_tooltip(Stop, Some("⇧⌘X")).as_ref(),
+            "Stop chat ⇧⌘X"
+        );
+        assert_eq!(
+            pane_lifecycle_tooltip(Resume, Some("⇧⌘R")).as_ref(),
+            "Resume chat ⇧⌘R"
+        );
+        assert_eq!(
+            pane_lifecycle_tooltip(Stop, Some("F8")).as_ref(),
+            "Stop chat F8"
+        );
+        assert_eq!(pane_lifecycle_tooltip(Resume, None).as_ref(), "Resume chat");
+    }
+
+    #[test]
+    fn long_status_detail_stays_visible_beside_the_button() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for zoom in [1., 1.3] {
+            for kind in [StatusKind::Approval, StatusKind::Working] {
+                let mut cx = TestAppContext::single();
+                let hits = Rc::new(Cell::new(0));
+                let host = cx.add_window(|_, _| Harness {
+                    hits: hits.clone(),
+                    action: Some(super::super::SessionControlKind::Stop),
+                    kind,
+                    width: 640.,
+                    zoom,
+                    details: true,
+                });
+                let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                let detail = visual.debug_bounds("ISLAND_STATUS_DETAIL").unwrap();
+                let button = visual.debug_bounds("PANE_LIFECYCLE:Stop chat").unwrap();
+                visual.simulate_mouse_move(button.center(), None, Default::default());
+                assert_eq!(visual.debug_bounds("ISLAND_STATUS_DETAIL"), Some(detail));
+                visual.simulate_click(detail.center(), Default::default());
+                assert_eq!(hits.get(), 0);
+                visual.simulate_click(button.center(), Default::default());
+                assert_eq!(hits.get(), 1);
+            }
+        }
+    }
+
+    fn label_width(visual: &mut VisualTestContext, text: &'static str, zoom: f32) -> gpui::Pixels {
+        visual.update(|window, _| {
+            let style = window.text_style();
+            window
+                .text_system()
+                .shape_line(
+                    text.into(),
+                    px(12. * zoom),
+                    &[style.to_run(text.len())],
+                    None,
+                )
+                .width
+                .ceil()
+        })
+    }
+
+    #[test]
+    fn every_island_rest_label_uses_12px_and_a_6px_glyph_gap() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for zoom in [1., 1.3] {
+            for kind in [
+                StatusKind::Starting,
+                StatusKind::Resuming,
+                StatusKind::Working,
+                StatusKind::Idle,
+                StatusKind::Approval,
+                StatusKind::Answer,
+                StatusKind::NeedsYou,
+                StatusKind::Stopped,
+                StatusKind::Error,
+                StatusKind::ResponseFailed,
+                StatusKind::Unavailable,
+            ] {
+                let mut cx = TestAppContext::single();
+                let host = cx.add_window(|_, _| Harness {
+                    hits: Rc::new(Cell::new(0)),
+                    action: None,
+                    kind,
+                    width: 640.,
+                    zoom,
+                    details: false,
+                });
+                let mut visual = VisualTestContext::from_window(host.into(), &cx);
+                visual.run_until_parked();
+                let row = visual.debug_bounds("ISLAND_STATUS_INDICATOR").unwrap();
+                let label = visual.debug_bounds("ISLAND_STATUS_LABEL").unwrap();
+                let mut status = StatusPresentation::new(&AgentStatus::default());
+                status.kind = kind;
+                status.estimated = false;
+                let width = label_width(&mut visual, status.label(), zoom);
+                assert!(
+                    (label.size.width - width).abs() < px(0.5),
+                    "{kind:?}: {label:?}"
+                );
+                assert!((label.left() - row.left() - px(18. * zoom)).abs() < px(0.5));
+            }
+        }
     }
 }

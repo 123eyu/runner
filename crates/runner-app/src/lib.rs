@@ -90,8 +90,7 @@ use runner_app::terminal_ime::TerminalInput;
 use runner_app::ui::{
     Button, ButtonSize, ConfirmDialog, ContextMenu, CopyValueButton, DuplicateSubjectKind,
     DuplicateSubjectOverlay, IconButton, IconButtonSize, MenuItem as UiMenuItem, PopoverMenu,
-    Scrollbar, SessionControl, SessionControlKind, Tooltip, WorkspaceHeader,
-    WORKSPACE_HEADER_HEIGHT,
+    Scrollbar, SessionControlKind, Tooltip, WorkspaceHeader, WORKSPACE_HEADER_HEIGHT,
 };
 use runner_core::protocol::model::SessionStatus;
 use runner_core::protocol::session::DirectSessionEntry;

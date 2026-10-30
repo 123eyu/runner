@@ -3,6 +3,7 @@ use crate::surfaces::*;
 use crate::*;
 
 impl NativeRoot {
+    #[cfg(test)]
     pub(crate) fn tab_label(&self, layout: &PaneLayout, cx: &App) -> String {
         self.tab_label_source(layout, cx).resolve().to_string()
     }

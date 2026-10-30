@@ -14,7 +14,6 @@ pub(crate) struct SessionDisplay {
     pub(crate) resumable: bool,
     pub(crate) native_fork: bool,
     pub(crate) forkable: bool,
-    pub(crate) pinned: bool,
     pub(crate) local: Option<DirectSessionEntry>,
     pub(crate) archived_at: Option<runner_core::protocol::model::Timestamp>,
     pub(crate) project_id: Option<String>,
@@ -31,7 +30,6 @@ impl SessionDisplay {
             resumable: entry.resumable,
             native_fork: entry.native_fork,
             forkable: entry.forkable,
-            pinned: entry.pinned,
             local: Some(entry.clone()),
             archived_at: entry.archived_at,
             project_id: entry.project_id.clone(),
@@ -41,7 +39,7 @@ impl SessionDisplay {
     pub(crate) fn remote(
         id: &str,
         session: &Session,
-        pinned: bool,
+        _pinned: bool,
         native_fork: bool,
         resumable: bool,
     ) -> Self {
@@ -63,7 +61,6 @@ impl SessionDisplay {
             resumable,
             native_fork,
             forkable: native_fork,
-            pinned,
             local: None,
             archived_at: None,
             project_id: None,

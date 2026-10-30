@@ -837,23 +837,6 @@ impl AppStore {
         cx.notify();
     }
 
-    pub(crate) fn set_session_pinned(
-        &mut self,
-        session_id: &str,
-        pinned: bool,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(entry) = self
-            .sessions
-            .iter_mut()
-            .find(|entry| entry.session_id == session_id)
-        {
-            entry.pinned = pinned;
-            self.revisions.sessions = self.revisions.sessions.wrapping_add(1);
-            cx.notify();
-        }
-    }
-
     pub(crate) fn sync_locale(&mut self, cx: &mut Context<Self>) {
         #[cfg(not(test))]
         let system = sys_locale::get_locale();

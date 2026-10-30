@@ -12,7 +12,7 @@ pub(crate) const INITIAL_COLS: u16 = 100;
 
 pub(crate) const INITIAL_ROWS: u16 = 30;
 
-pub(crate) const PANE_HEADER_HEIGHT: f32 = 26.;
+pub(crate) const PANE_HEADER_HEIGHT: f32 = 40.;
 
 pub(crate) const WINDOW_STATE_SAVE_DELAY_MS: u64 = 300;
 
@@ -97,22 +97,9 @@ pub(crate) struct ChatTransition {
 }
 
 #[derive(Clone)]
-pub(crate) enum ChatMenuAction {
-    TogglePin { session_id: String, pinned: bool },
-    RenameSession { session_id: String, current: String },
-    RenameTab { tab_id: String, current: String },
-    Archive(Vec<String>),
-    ArchiveAll(Vec<String>),
-}
-
-#[derive(Clone)]
 pub(crate) enum ChatRenameTarget {
     Session {
         session_id: String,
-        original: String,
-    },
-    Tab {
-        tab_id: String,
         original: String,
     },
 }
@@ -171,9 +158,6 @@ pub(crate) enum TerminalCloseTarget {
         close: PendingPaneClose,
     },
     Tab {
-        session_id: String,
-    },
-    Drawer {
         session_id: String,
     },
     MissionDrawer {
@@ -351,8 +335,6 @@ pub(crate) struct NativeRoot {
     pub(crate) archived_chat_detail: Option<DirectSessionEntry>,
     pub(crate) session_key_copy: Entity<CopyValueButton>,
     pub(crate) archived_session_key_copy: Entity<CopyValueButton>,
-    pub(crate) chat_action_menu: Entity<PopoverMenu>,
-    pub(crate) chat_menu_actions: Vec<ChatMenuAction>,
     pub(crate) pane_action_menus: HashMap<String, Entity<PopoverMenu>>,
     pub(crate) split_menus: HashMap<SplitMenuKey, Entity<PopoverMenu>>,
     pub(crate) pane_bounds: HashMap<PaneKey, Size<Pixels>>,

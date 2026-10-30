@@ -56,6 +56,8 @@ pub struct Button {
     label: SharedString,
     icon: Option<SharedString>,
     shortcut: Option<SharedString>,
+    shortcut_opacity: f32,
+    shortcut_below: bool,
     variant: ButtonVariant,
     size: ButtonSize,
     radius: f32,
@@ -75,6 +77,8 @@ impl Button {
             label: label.into(),
             icon: None,
             shortcut: None,
+            shortcut_opacity: 0.65,
+            shortcut_below: false,
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
             radius: 4.,
@@ -102,6 +106,16 @@ impl Button {
 
     pub fn shortcut(mut self, shortcut: impl Into<SharedString>) -> Self {
         self.shortcut = Some(shortcut.into());
+        self
+    }
+
+    pub fn shortcut_opacity(mut self, opacity: f32) -> Self {
+        self.shortcut_opacity = opacity;
+        self
+    }
+
+    pub fn shortcut_below(mut self, below: bool) -> Self {
+        self.shortcut_below = below;
         self
     }
 
@@ -263,30 +277,51 @@ impl RenderOnce for Button {
             }
         }
 
-        let button = button
-            .when(self.loading, |button| {
-                button.child(spinner(spinner_id, icon_size, foreground))
+        let icon = if self.loading {
+            Some(spinner(spinner_id, icon_size, foreground))
+        } else {
+            icon.map(|icon| {
+                svg()
+                    .flex_none()
+                    .path(icon)
+                    .size(rems(icon_size / 16.))
+                    .text_color(foreground)
+                    .into_any_element()
             })
-            .when_some(icon, |button, icon| {
-                button.child(
-                    svg()
-                        .flex_none()
-                        .path(icon)
-                        .size(rems(icon_size / 16.))
-                        .text_color(foreground),
-                )
-            })
-            .child(self.label)
-            .when_some(self.shortcut, |button, shortcut| {
-                button.child(
+        };
+        let button = if self.shortcut_below {
+            button
+                .flex_col()
+                .gap(rems(2. / 16.))
+                .h_auto()
+                .min_h(rems(height / 16.))
+                .py_1()
+                .child(
                     div()
-                        .flex_none()
-                        .text_size(theme::text_meta())
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::with_alpha(foreground, 0.65))
-                        .child(shortcut),
+                        .debug_selector(|| "BUTTON_LABEL_ROW".into())
+                        .flex()
+                        .items_center()
+                        .gap(rems(6. / 16.))
+                        .children(icon)
+                        .child(self.label),
                 )
-            });
+        } else {
+            button.children(icon).child(self.label)
+        };
+        let button = button.when_some(self.shortcut, |button, shortcut| {
+            button.child(
+                div()
+                    .flex_none()
+                    .text_size(theme::text_meta())
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::with_alpha(foreground, self.shortcut_opacity))
+                    .debug_selector({
+                        let shortcut = shortcut.clone();
+                        move || format!("BUTTON_SHORTCUT:{shortcut}")
+                    })
+                    .child(shortcut),
+            )
+        });
         if let Some(content) = self.tooltip {
             let tooltip = Tooltip::new(tooltip_id, content, button);
             if let Some(focus_handle) = tooltip_focus {

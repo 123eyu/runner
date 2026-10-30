@@ -708,6 +708,43 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_shortcuts_ignore_the_focused_shell() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = gpui::TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        store.update(&mut cx, |store, cx| {
+            crate::app_store::seed_mixed_working_sessions(store);
+            store.refresh_nodes(cx).unwrap();
+        });
+        let host = cx.add_window(|window, cx| {
+            let mut root = crate::NativeRoot::new(
+                "shell-shortcuts".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            );
+            root.apply_tab_rows(cx);
+            assert!(root.tabs.activate_session("busy-shell"));
+            root.route = crate::AppRoute::Chat;
+            root.stop_focused_session(&crate::StopFocusedSession, window, cx);
+            root.resume_focused_session(&crate::ResumeFocusedSession, window, cx);
+            assert!(root.stopping_sessions.is_empty());
+            assert!(root.chat_transitions.is_empty());
+            assert_eq!(
+                root.front_page_session("busy-shell", cx).unwrap().status,
+                SessionStatus::Running
+            );
+            root
+        });
+        host.read_with(&cx, |root, _| assert!(root.stopping_sessions.is_empty()))
+            .unwrap();
+    }
+
+    #[test]
     fn single_pane_tab_close_dispatches_chat_terminal_and_empty_panes() {
         for (runtime, drawers, expected) in [
             (Some("codex"), false, TabCloseBehavior::ArchiveChat),
@@ -920,14 +957,6 @@ mod tests {
                     },
                     "Chat name",
                     "对话名称",
-                ),
-                (
-                    ChatRenameTarget::Tab {
-                        tab_id: "tab".into(),
-                        original: "literal {count} 标签页".into(),
-                    },
-                    "Tab name",
-                    "标签页名称",
                 ),
             ] {
                 windows[1]

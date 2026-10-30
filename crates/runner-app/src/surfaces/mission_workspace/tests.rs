@@ -1470,7 +1470,7 @@ fn mission_rail_scrolls_long_roster_and_goal_above_corner_padding() {
         visual.run_until_parked();
         let rail = visual.debug_bounds("MISSION_RAIL").unwrap();
         let viewport = visual.debug_bounds(viewport_selector).unwrap();
-        assert_eq!(viewport.bottom(), rail.bottom() - px(8.));
+        assert_eq!(viewport.bottom(), rail.bottom() - px(9.));
         let last = visual.debug_bounds(final_selector).unwrap();
         assert!(
             last.bottom() > viewport.bottom(),
@@ -1493,7 +1493,7 @@ fn mission_rail_scrolls_long_roster_and_goal_above_corner_padding() {
 impl gpui::Render for MissionRailLayoutTest {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rail = self.workspace.update(cx, |workspace, cx| {
-            workspace.render_mission_rail(1., true, false, window, cx)
+            workspace.render_mission_rail(1., true, window, cx)
         });
         let handle_text = |selector: &'static str, text: &'static str| {
             div()
@@ -3467,6 +3467,7 @@ fn feed_scrollbar_track_drag_and_wheel_reach_unmeasured_history() {
 #[test]
 fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
     use crate::terminal::control::tests::{attached, change, mirror_named, remote};
+    use gpui::Focusable;
     use runner_core::protocol::terminal::TerminalController;
     let temp = tempfile::tempdir().unwrap();
     let mut cx = gpui::TestAppContext::single();
@@ -3477,6 +3478,7 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
     let core = store.read_with(&cx, |store, _| store.test_core.clone());
     let (left_host, left, left_tx, left_ack) = mirror_named("mission-agent", remote());
     let (right_host, right, right_tx, right_ack) = mirror_named("mission-shell", remote());
+    let (drawer_host, drawer, drawer_tx, drawer_ack) = mirror_named("busy-shell", remote());
     let window = cx.add_window(|window, cx| {
         let mut root = NativeRoot::new(
             "mission-control-test".into(),
@@ -3490,6 +3492,7 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
         root.route = AppRoute::Mission("test-mission".into());
         root.mission_workspace.update(cx, |workspace, cx| {
             workspace.active = true;
+            workspace.warning = Some("Visible warning above the member tabs".into());
             workspace.mission_id = Some("test-mission".into());
             workspace.mission =
                 Some(runner_daemon::ops::mission::mission_get(&core, "test-mission").unwrap());
@@ -3504,6 +3507,11 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
             workspace
                 .attached
                 .insert("mission-shell".into(), attached(right, cx, 72, 45));
+            workspace.layout.drawer.add("busy-shell".into());
+            workspace.layout.drawer.set_open(true);
+            workspace
+                .attached
+                .insert("busy-shell".into(), attached(drawer, cx, 80, 20));
         });
         root
     });
@@ -3512,9 +3520,118 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
         .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission")
         .unwrap();
     let header = visual.debug_bounds("MISSION_HEADER").unwrap();
-    assert!(overlay.top() >= header.bottom() + px(WORKSPACE_TABS_HEIGHT));
+    let notice = visual.debug_bounds("NOTICE_BANNER").unwrap();
+    let tabs = visual.debug_bounds("MISSION_TABS").unwrap();
+    assert!(notice.top() >= header.bottom());
+    assert!(tabs.top() >= notice.bottom());
+    assert!(overlay.top() >= tabs.bottom());
     assert!(left_host.sizes.lock().unwrap().is_empty());
     assert!(right_host.sizes.lock().unwrap().is_empty());
+    assert!(drawer_host.sizes.lock().unwrap().is_empty());
+    let drawer = visual.debug_bounds("MISSION_DRAWER_ISLAND").unwrap();
+    let drawer_cover = visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission-drawer")
+        .unwrap();
+    assert!(overlay.bottom() <= drawer.top());
+    assert!(drawer_cover.top() >= drawer.top());
+    assert!(drawer_cover.bottom() <= drawer.bottom());
+    assert!((drawer_cover.size.height - drawer.size.height).abs() <= px(2.));
+    window
+        .update(&mut visual, |root, window, cx| {
+            root.mission_workspace.update(cx, |workspace, cx| {
+                workspace
+                    .action_menu
+                    .read(cx)
+                    .focus_handle(cx)
+                    .focus(window, cx);
+            });
+        })
+        .unwrap();
+    visual.simulate_keystrokes("enter");
+    visual.simulate_keystrokes("down");
+    visual.simulate_keystrokes("enter");
+    visual.run_until_parked();
+    window
+        .update(&mut visual, |root, window, cx| {
+            root.mission_workspace.update(cx, |workspace, cx| {
+                assert!(workspace.rename_modal.is_some());
+                workspace.rename_modal = None;
+                workspace.root_focus.focus(window, cx);
+                cx.notify();
+            });
+        })
+        .unwrap();
+    for host in [&left_host, &right_host, &drawer_host] {
+        assert!(!host.calls.lock().unwrap().iter().any(|request| matches!(
+            request,
+            runner_core::protocol::Request::terminal_take_back { .. }
+        )));
+    }
+    for zoom in [1., 1.3] {
+        visual.simulate_resize(gpui::size(px(1600.), px(800.)));
+        window
+            .update(&mut visual, |root, window, cx| {
+                root.set_zoom(zoom, window, cx);
+                root.mission_workspace.update(cx, |workspace, cx| {
+                    workspace.layout.drawer.set_height(600.);
+                    cx.notify();
+                });
+            })
+            .unwrap();
+        visual.run_until_parked();
+        let column = visual.debug_bounds("MISSION_COLUMN").unwrap();
+        let tabs = visual.debug_bounds("MISSION_TABS").unwrap();
+        let card = visual.debug_bounds("REMOTE_CONTROL_CARD").unwrap();
+        let action = visual.debug_bounds("REMOTE_CONTROL_ACTION").unwrap();
+        assert!(
+            card.top() >= tabs.bottom(),
+            "card obscures tabs at zoom {zoom}"
+        );
+        assert!(column.contains(&card.origin));
+        assert!(column.contains(&card.bottom_right()));
+        assert!(card.contains(&action.origin));
+        assert!(card.contains(&action.bottom_right()));
+        let hosts = [&left_host, &right_host, &drawer_host];
+        let before = hosts.map(|host| {
+            host.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| {
+                    matches!(
+                        request,
+                        runner_core::protocol::Request::terminal_take_back { .. }
+                    )
+                })
+                .count()
+        });
+        visual.simulate_click(action.center(), gpui::Modifiers::default());
+        for (host, before) in hosts.into_iter().zip(before) {
+            assert_eq!(
+                host.calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|request| matches!(
+                        request,
+                        runner_core::protocol::Request::terminal_take_back { .. }
+                    ))
+                    .count(),
+                before + 1
+            );
+        }
+    }
+    visual.simulate_resize(gpui::size(px(1600.), px(1000.)));
+    window
+        .update(&mut visual, |root, window, cx| {
+            root.set_zoom(1., window, cx);
+            root.mission_workspace.update(cx, |workspace, cx| {
+                workspace.layout.drawer.set_height(280.);
+                cx.notify();
+            });
+        })
+        .unwrap();
+    visual.run_until_parked();
     window
         .update(&mut cx, |root, window, cx| {
             root.mission_workspace.update(cx, |workspace, cx| {
@@ -3530,6 +3647,7 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
         .unwrap();
     change(&left_tx, &left_ack, 1, TerminalController::None);
     change(&right_tx, &right_ack, 1, TerminalController::None);
+    change(&drawer_tx, &drawer_ack, 1, TerminalController::None);
     window
         .update(&mut cx, |root, _, cx| {
             root.mission_workspace.update(cx, |_, cx| cx.notify())
@@ -3539,6 +3657,23 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
     assert!(visual
         .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission")
         .is_some());
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission-drawer")
+        .is_some());
+    window
+        .update(&mut visual, |root, window, cx| {
+            root.mission_workspace.update(cx, |workspace, cx| {
+                workspace.drawer_focus.focus(window, cx);
+            });
+        })
+        .unwrap();
+    visual.simulate_keystrokes("enter");
+    for host in [&left_host, &right_host, &drawer_host] {
+        assert!(host.calls.lock().unwrap().iter().any(|request| matches!(
+            request,
+            runner_core::protocol::Request::terminal_take_back { .. }
+        )));
+    }
     change(&left_tx, &left_ack, 2, TerminalController::Desktop);
     window
         .update(&mut cx, |root, _, cx| {
@@ -3555,7 +3690,11 @@ fn remote_control_covers_the_mission_below_tabs_then_returns_to_pane_cards() {
     assert!(visual
         .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-slot-mission-shell")
         .is_some());
+    assert!(visual
+        .debug_bounds("REMOTE_CONTROL_OVERLAY_take-back-mission-drawer")
+        .is_none());
     change(&right_tx, &right_ack, 2, TerminalController::Desktop);
+    change(&drawer_tx, &drawer_ack, 2, TerminalController::Desktop);
     store.update(&mut cx, |store, cx| {
         store
             .terminal_updates
