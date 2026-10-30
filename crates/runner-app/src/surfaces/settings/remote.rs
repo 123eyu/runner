@@ -23,6 +23,7 @@ pub(crate) struct RemotePaneState {
     opening: bool,
     request_generation: u64,
     enrollment_start: Option<EnrollmentStart>,
+    prompt_pin_after_sign_in: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     error: Option<String>,
     pub(crate) confirm: bool,
     reset_identity: bool,
@@ -56,7 +57,9 @@ impl EnrollmentRequests {
                 "Enrollment cancelled.",
             ));
         }
-        *active = Some(abandoned);
+        if let Some(previous) = active.replace(abandoned) {
+            previous.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         request.await
     }
 }
@@ -75,6 +78,7 @@ impl RemotePaneState {
             opening: false,
             request_generation: 0,
             enrollment_start: None,
+            prompt_pin_after_sign_in: None,
             error: None,
             confirm: false,
             reset_identity: false,
@@ -333,6 +337,7 @@ impl NativeRoot {
         let task = if open_browser {
             let requests = self.app_store.read(cx).enrollment_requests.clone();
             let abandoned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            self.settings_page.remote.prompt_pin_after_sign_in = Some(abandoned.clone());
             let cancelled = abandoned.clone();
             let task = cx
                 .background_spawn(async move {
@@ -375,6 +380,9 @@ impl NativeRoot {
                         }
                     }
                     Err(error) => {
+                        if open_browser {
+                            root.settings_page.remote.prompt_pin_after_sign_in = None;
+                        }
                         if enable_local_only {
                             root.settings_page.remote.local_only_error =
                                 Some(error.message.clone());
@@ -390,6 +398,69 @@ impl NativeRoot {
     }
     fn remote_connect(&mut self, cx: &mut Context<Self>) {
         self.remote_request(true, |c| c.remote_enroll_start(None, false), cx);
+    }
+    pub(crate) fn remote_finish_sign_in(&mut self, cx: &mut Context<Self>) {
+        let Some(attempt) = self.settings_page.remote.prompt_pin_after_sign_in.take() else {
+            return;
+        };
+        if attempt.load(std::sync::atomic::Ordering::SeqCst)
+            || self.route != crate::AppRoute::Settings
+            || !self
+                .app_store
+                .read(cx)
+                .remote_status
+                .as_ref()
+                .is_some_and(|status| {
+                    matches!(
+                        status.state,
+                        RemoteState::Connecting { .. } | RemoteState::Connected { .. }
+                    )
+                })
+        {
+            return;
+        }
+        let generation = self.settings_page.remote.request_generation;
+        let client = self.core(cx).clone();
+        let requests = self.app_store.read(cx).enrollment_requests.clone();
+        let owner = attempt.clone();
+        // Read after enrollment completes; the earlier trust snapshot may predate secret restoration.
+        let trust = cx.background_spawn(async move {
+            let active = requests.active.lock().await;
+            if !active
+                .as_ref()
+                .is_some_and(|active| std::sync::Arc::ptr_eq(active, &owner))
+            {
+                return None;
+            }
+            client.remote_trust().ok()
+        });
+        cx.spawn(async move |weak, cx| {
+            let Some(trust) = trust.await else {
+                return;
+            };
+            let _ = weak.update_in(cx, |root, window, cx| {
+                if !trust.pin_set
+                    && !attempt.load(std::sync::atomic::Ordering::SeqCst)
+                    && root.route == crate::AppRoute::Settings
+                    && !root.remote_overlay_open()
+                    && root.settings_page.remote.request_generation == generation
+                    && root
+                        .app_store
+                        .read(cx)
+                        .remote_status
+                        .as_ref()
+                        .is_some_and(account::signed_in)
+                {
+                    root.remote_open_pin(cx);
+                    root.settings_page.remote.pin.as_ref().unwrap().fields[0]
+                        .read(cx)
+                        .focus
+                        .clone()
+                        .focus(window, cx);
+                }
+            });
+        })
+        .detach();
     }
     fn remote_button(
         &self,
@@ -667,6 +738,27 @@ impl NativeRoot {
         let mut card = account::card()
             .debug_selector(|| "REMOTE_STATUS_CARD".into())
             .child(header)
+            .when(!trust.pin_set && !trust.pin_locked, |card| {
+                card.child(
+                    account::divider()
+                        .debug_selector(|| "REMOTE_PIN_SETUP".into())
+                        .bg(theme::with_alpha(theme::warning(), 0.06))
+                        .child(
+                            SettingsRow::new(
+                                crate::i18n::text("remote.pin_setup"),
+                                self.remote_button(
+                                    "remote-setup-pin",
+                                    "remote.set_pin",
+                                    Self::remote_open_pin,
+                                    cx,
+                                )
+                                .variant(ButtonVariant::Primary),
+                            )
+                            .subtitle(crate::i18n::text("remote.pin_setup_detail"))
+                            .label_icon("key-round.svg", theme::warning()),
+                        ),
+                )
+            })
             .child(
                 account::divider()
                     .p_5()
@@ -846,32 +938,38 @@ impl NativeRoot {
                     .into_any_element(),
             );
         }
-        rows.push(
-            SettingsRow::new(
-                crate::i18n::text("remote.pin"),
-                self.remote_button(
-                    "remote-pin",
-                    if trust.pin_set {
-                        "remote.change_pin"
-                    } else {
-                        "remote.set_pin"
-                    },
-                    Self::remote_open_pin,
-                    cx,
-                )
-                .variant(if trust.pin_set {
-                    ButtonVariant::Secondary
-                } else {
-                    ButtonVariant::Primary
-                }),
-            )
-            .subtitle(crate::i18n::text(if trust.pin_set {
-                "remote.pin_set_detail"
-            } else {
-                "remote.pin_unset_detail"
-            }))
-            .into_any_element(),
-        );
+        if trust.pin_set || trust.pin_locked {
+            rows.push(
+                div()
+                    .debug_selector(|| "REMOTE_PIN_ROW".into())
+                    .child(
+                        SettingsRow::new(
+                            crate::i18n::text("remote.pin"),
+                            self.remote_button(
+                                "remote-pin",
+                                if trust.pin_set {
+                                    "remote.change_pin"
+                                } else {
+                                    "remote.set_pin"
+                                },
+                                Self::remote_open_pin,
+                                cx,
+                            )
+                            .variant(if trust.pin_set {
+                                ButtonVariant::Secondary
+                            } else {
+                                ButtonVariant::Primary
+                            }),
+                        )
+                        .subtitle(crate::i18n::text(if trust.pin_set {
+                            "remote.pin_set_detail"
+                        } else {
+                            "remote.pin_unset_detail"
+                        })),
+                    )
+                    .into_any_element(),
+            );
+        }
         rows.push(
             SettingsRow::new(
                 crate::i18n::text("remote.reset_identity"),
@@ -1481,6 +1579,7 @@ mod tests {
     struct RemoteRequests {
         calls: std::sync::Mutex<Vec<&'static str>>,
         status: std::sync::Mutex<RemoteStatus>,
+        trust: std::sync::Mutex<RemoteTrust>,
         fail_logout: std::sync::atomic::AtomicBool,
     }
     impl runner_core::protocol::Transport for RemoteRequests {
@@ -1493,6 +1592,10 @@ mod tests {
             let mut calls = self.calls.lock().unwrap();
             Ok(match request {
                 Request::remote_status {} => Response::remote_status(Ok(status.clone())),
+                Request::remote_trust {} => {
+                    calls.push("trust");
+                    Response::remote_trust(Ok(self.trust.lock().unwrap().clone()))
+                }
                 Request::remote_enroll_start {
                     origin,
                     confirm_account,
@@ -1779,6 +1882,280 @@ mod tests {
                     Some(trust)
                 );
             }
+        }
+    }
+
+    #[test]
+    fn pin_prompt_requires_this_windows_live_sign_in_and_fresh_trust() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for case in [
+            "new",
+            "confirming",
+            "connecting",
+            "existing",
+            "other-window",
+            "left-settings",
+            "left-during-trust",
+            "startup",
+            "paused",
+            "reconnecting",
+            "daemon-reconnect",
+            "cancelled",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            let requests = std::sync::Arc::new(RemoteRequests::default());
+            requests.trust.lock().unwrap().pin_set = case == "existing";
+            cx.run_until_parked();
+            store.update(&mut cx, |store, _| {
+                store.settings.local_only = false;
+                store.remote_trust = Some(RemoteTrust::default());
+            });
+            let window = switch_window(&mut cx, &store, temp.path(), "sign-in-pin");
+            let peer = switch_window(&mut cx, &store, temp.path(), "peer-pin");
+            store.update(&mut cx, |store, _| {
+                store.client = DaemonClient::new(requests.clone())
+            });
+            window
+                .update(&mut cx, |root, _, cx| {
+                    root.route = crate::AppRoute::Settings;
+                    root.settings_page.pane = SettingsPane::Account;
+                    if case != "startup" && case != "other-window" {
+                        root.remote_connect(cx);
+                    }
+                })
+                .unwrap();
+            cx.run_until_parked();
+            peer.update(&mut cx, |root, _, _| root.route = crate::AppRoute::Settings)
+                .unwrap();
+            let previous = match case {
+                "confirming" | "other-window" => RemoteState::Confirming {
+                    account: Default::default(),
+                    expires_at: chrono::Utc::now(),
+                },
+                "paused" => RemoteState::Paused,
+                "reconnecting" => RemoteState::Reconnecting {
+                    attempt: 1,
+                    next_retry_at: chrono::Utc::now(),
+                },
+                _ => requests.status.lock().unwrap().state.clone(),
+            };
+            store.update(&mut cx, |store, _| {
+                store.remote_status = (case != "startup").then_some(RemoteStatus {
+                    state: previous,
+                    ..Default::default()
+                });
+            });
+            if case == "left-settings" || case == "cancelled" {
+                window
+                    .update(&mut cx, |root, _, cx| {
+                        if case == "cancelled" {
+                            root.remote_cancel_start(cx);
+                        } else {
+                            root.route = crate::AppRoute::Chat;
+                        }
+                    })
+                    .unwrap();
+            }
+            let events = store.read_with(&cx, |store, _| store.test_core.events.clone());
+            if case == "daemon-reconnect" {
+                events.emit("daemon/reconnected", &serde_json::Value::Null);
+                cx.run_until_parked();
+            }
+            events.emit(
+                "remote/status",
+                &RemoteStatus {
+                    state: if case == "connecting" {
+                        RemoteState::Connecting { attempt: 0 }
+                    } else {
+                        RemoteState::Connected {
+                            since: chrono::Utc::now(),
+                        }
+                    },
+                    ..Default::default()
+                },
+            );
+            if case == "left-during-trust" {
+                window
+                    .update(&mut cx, |root, _, _| root.route = crate::AppRoute::Chat)
+                    .unwrap();
+            }
+            cx.run_until_parked();
+            window
+                .read_with(&cx, |root, _| {
+                    assert_eq!(
+                        root.settings_page.remote.pin.is_some(),
+                        matches!(case, "new" | "confirming" | "connecting"),
+                        "{case}"
+                    );
+                })
+                .unwrap();
+            peer.read_with(&cx, |root, _| {
+                assert!(root.settings_page.remote.pin.is_none())
+            })
+            .unwrap();
+            if case == "new" {
+                window
+                    .update(&mut cx, |root, _, _| root.dismiss_remote_dialog())
+                    .unwrap();
+                events.emit(
+                    "remote/status",
+                    &RemoteStatus {
+                        state: RemoteState::Connected {
+                            since: chrono::Utc::now(),
+                        },
+                        ..Default::default()
+                    },
+                );
+                cx.run_until_parked();
+                window
+                    .read_with(&cx, |root, _| {
+                        assert!(root.settings_page.remote.pin.is_none())
+                    })
+                    .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn replaced_sign_in_prompts_only_the_winning_window() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        cx.run_until_parked();
+        store.update(&mut cx, |store, _| store.settings.local_only = false);
+        let first = switch_window(&mut cx, &store, temp.path(), "first-sign-in");
+        let second = switch_window(&mut cx, &store, temp.path(), "second-sign-in");
+        let requests = std::sync::Arc::new(RemoteRequests::default());
+        store.update(&mut cx, |store, _| {
+            store.client = DaemonClient::new(requests.clone())
+        });
+        first
+            .update(&mut cx, |root, _, cx| {
+                root.route = crate::AppRoute::Settings;
+                root.remote_connect(cx);
+            })
+            .unwrap();
+        for _ in 0..100 {
+            if !requests.calls.lock().unwrap().is_empty() {
+                break;
+            }
+            assert!(cx.dispatcher.tick(true));
+        }
+        assert_eq!(*requests.calls.lock().unwrap(), ["sign in"]);
+        first
+            .read_with(&cx, |root, _| assert!(root.settings_page.remote.busy))
+            .unwrap();
+        second
+            .update(&mut cx, |root, _, cx| {
+                root.route = crate::AppRoute::Settings;
+                root.remote_connect(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(*requests.calls.lock().unwrap(), ["sign in", "sign in"]);
+        store.update(&mut cx, |store, _| {
+            store.remote_status = Some(requests.status.lock().unwrap().clone())
+        });
+        store
+            .read_with(&cx, |store, _| store.test_core.events.clone())
+            .emit(
+                "remote/status",
+                &RemoteStatus {
+                    state: RemoteState::Connected {
+                        since: chrono::Utc::now(),
+                    },
+                    ..Default::default()
+                },
+            );
+        cx.run_until_parked();
+        first
+            .read_with(&cx, |root, _| {
+                assert!(root.settings_page.remote.pin.is_none())
+            })
+            .unwrap();
+        second
+            .read_with(&cx, |root, _| {
+                assert!(root.settings_page.remote.pin.is_some())
+            })
+            .unwrap();
+        assert_eq!(
+            *requests.calls.lock().unwrap(),
+            ["sign in", "sign in", "trust"]
+        );
+    }
+
+    #[test]
+    fn setup_row_replaces_pin_row_until_set_and_opens_existing_dialog() {
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for locale in [Locale::English, Locale::SimplifiedChinese] {
+            with_locale(locale, || {
+                let temp = tempfile::tempdir().unwrap();
+                let mut cx = TestAppContext::single();
+                let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+                let window = switch_window(&mut cx, &store, temp.path(), "pin-setup");
+                cx.run_until_parked();
+                window
+                    .update(&mut cx, |root, _, cx| {
+                        root.route = crate::AppRoute::Settings;
+                        root.settings_page.pane = SettingsPane::Remote;
+                        cx.notify();
+                    })
+                    .unwrap();
+                for state in [
+                    RemoteState::Connected {
+                        since: chrono::Utc::now(),
+                    },
+                    RemoteState::Paused,
+                    RemoteState::Reconnecting {
+                        attempt: 1,
+                        next_retry_at: chrono::Utc::now(),
+                    },
+                ] {
+                    for (pin_set, pin_locked) in
+                        [(false, false), (true, false), (false, true), (true, true)]
+                    {
+                        store.update(&mut cx, |store, cx| {
+                            store.settings.local_only = false;
+                            store.remote_status = Some(RemoteStatus {
+                                state: state.clone(),
+                                ..Default::default()
+                            });
+                            store.remote_trust = Some(RemoteTrust {
+                                pin_set,
+                                pin_locked,
+                                ..Default::default()
+                            });
+                            cx.notify();
+                        });
+                        window
+                            .update(&mut cx, |root, _, cx| {
+                                root.dismiss_remote_dialog();
+                                cx.notify();
+                            })
+                            .unwrap();
+                        cx.run_until_parked();
+                        let mut visual = VisualTestContext::from_window(window.into(), &cx);
+                        let setup = !pin_set && !pin_locked;
+                        assert_eq!(visual.debug_bounds("REMOTE_PIN_SETUP").is_some(), setup);
+                        assert_eq!(visual.debug_bounds("REMOTE_PIN_ROW").is_some(), !setup);
+                        if setup {
+                            let row = visual.debug_bounds("REMOTE_PIN_SETUP").unwrap();
+                            visual.simulate_click(
+                                gpui::point(row.right() - px(45.), row.center().y),
+                                Default::default(),
+                            );
+                            window
+                                .read_with(&cx, |root, _| {
+                                    assert!(root.settings_page.remote.pin.is_some())
+                                })
+                                .unwrap();
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -2244,6 +2621,7 @@ mod tests {
         let requests = std::sync::Arc::new(RemoteRequests {
             calls: Default::default(),
             status: Default::default(),
+            trust: Default::default(),
             fail_logout: Default::default(),
         });
         store.update(&mut cx, |store, _| {

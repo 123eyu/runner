@@ -102,6 +102,7 @@ impl StoreRefreshKind {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct StoreRevisions {
     pub(crate) remote_notice: u64,
+    pub(crate) remote_enrollment: u64,
     pub(crate) terminal_wake: u64,
     pub(crate) sessions: u64,
     pub(crate) roles: u64,
@@ -352,6 +353,23 @@ impl AppStore {
         let warning = match update {
             RemoteUpdate::Paired(_) => return,
             RemoteUpdate::Status(status) => {
+                if live
+                    && self.remote_status.as_ref().is_some_and(|previous| {
+                        matches!(
+                            previous.state,
+                            runner_core::remote::RemoteState::Enrolling { .. }
+                                | runner_core::remote::RemoteState::Confirming { .. }
+                        )
+                    })
+                    && !matches!(
+                        status.state,
+                        runner_core::remote::RemoteState::Enrolling { .. }
+                            | runner_core::remote::RemoteState::Confirming { .. }
+                    )
+                {
+                    self.revisions.remote_enrollment =
+                        self.revisions.remote_enrollment.wrapping_add(1);
+                }
                 let warning = (live
                     && crate::surfaces::settings::remote::warn_transition(
                         self.remote_status.as_ref(),

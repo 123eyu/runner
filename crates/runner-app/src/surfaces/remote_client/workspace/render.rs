@@ -483,6 +483,7 @@ impl RemoteClient {
                                         "client.reconnect"
                                     }),
                                 )
+                                .debug_selector("REMOTE_RECONNECT_ACTION")
                                 .on_press(move |window, cx| {
                                     let _ = retry.update(cx, |root, cx| {
                                         if pair {

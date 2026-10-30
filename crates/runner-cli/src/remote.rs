@@ -317,6 +317,7 @@ async fn execute_connected(
                                 .unwrap_or("unknown"),
                             status.host_name.as_deref().unwrap_or("unknown")
                         );
+                        print_login_pin_hint(client.clone(), &mut std::io::stdout()).await;
                         return Ok(0);
                     }
                     RemoteState::Stopped { reason } => {
@@ -387,6 +388,17 @@ async fn execute_connected(
                 }
             }
         }
+    }
+}
+async fn print_login_pin_hint(client: DaemonClient, output: &mut impl Write) {
+    let Ok(trust) = typed(client, |c| c.remote_trust()).await else {
+        return;
+    };
+    if !trust.pin_set {
+        let _ = writeln!(
+            output,
+            "Set a PIN so your other computers can pair with this one: runner remote pin"
+        );
     }
 }
 async fn pair_computer(
@@ -644,6 +656,97 @@ mod tests {
         assert!(output.is_empty());
         assert_eq!(input.position(), 0);
     }
+    #[tokio::test]
+    async fn login_completion_keeps_success_when_hint_is_unavailable() {
+        use runner_core::protocol::{EventSubscription, Request, Response, Transport};
+        struct Source(Option<bool>);
+        impl Transport for Source {
+            fn call(
+                &self,
+                request: Request,
+            ) -> Result<Response, runner_core::protocol::ClientError> {
+                let connected = RemoteStatus {
+                    state: RemoteState::Connected {
+                        since: chrono::Utc::now(),
+                    },
+                    ..Default::default()
+                };
+                Ok(match request {
+                    Request::remote_status {} => Response::remote_status(Ok(connected)),
+                    Request::remote_enroll_start { .. } => {
+                        Response::remote_enroll_start(Ok(connected))
+                    }
+                    Request::remote_trust {} => Response::remote_trust(
+                        self.0
+                            .map(|pin_set| RemoteTrust {
+                                pin_set,
+                                ..Default::default()
+                            })
+                            .ok_or_else(|| {
+                                runner_core::protocol::ClientError::msg("trust unavailable")
+                            }),
+                    ),
+                    _ => panic!("unexpected login request"),
+                })
+            }
+            fn subscribe(&self) -> Box<dyn EventSubscription> {
+                Box::new(NoEvents)
+            }
+        }
+        struct NoEvents;
+        impl EventSubscription for NoEvents {
+            fn recv(
+                &mut self,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                runner_core::protocol::ClientEvent,
+                                runner_core::protocol::EventError,
+                            >,
+                        > + Send
+                        + '_,
+                >,
+            > {
+                Box::pin(std::future::pending())
+            }
+        }
+        struct Unwritable;
+        impl Write for Unwritable {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        for pin_set in [Some(false), Some(true), None] {
+            let client = DaemonClient::new(std::sync::Arc::new(Source(pin_set)));
+            let mut output = Vec::new();
+            print_login_pin_hint(client.clone(), &mut output).await;
+            assert_eq!(
+                String::from_utf8(output).unwrap(),
+                if pin_set == Some(false) {
+                    "Set a PIN so your other computers can pair with this one: runner remote pin\n"
+                } else {
+                    ""
+                }
+            );
+            print_login_pin_hint(client.clone(), &mut Unwritable).await;
+            assert_eq!(
+                execute_connected(
+                    &RemoteCommand::Login { server: None },
+                    false,
+                    client.clone(),
+                    client.subscribe()
+                )
+                .await
+                .unwrap(),
+                0
+            );
+        }
+    }
+
     #[test]
     fn only_person_at_two_terminals_can_login() {
         assert!(login_allowed(true, true, false));

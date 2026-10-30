@@ -13,6 +13,9 @@ impl NativeRoot {
         let previous = self.store_revisions;
         self.store_revisions = revisions;
         let reactions = revisions.reactions_since(previous);
+        if revisions.remote_enrollment != previous.remote_enrollment {
+            self.remote_finish_sign_in(cx);
+        }
         if revisions.remote_notice != previous.remote_notice {
             let status = self.app_store.read(cx).remote_warning.clone();
             if let Some(status) = status {

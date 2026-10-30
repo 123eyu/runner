@@ -14,6 +14,9 @@ pub(super) enum PairState {
     WrongPin,
     Locked,
     NoPin,
+    Offline,
+    TimedOut,
+    Unreachable,
     Failed,
 }
 impl PairState {
@@ -24,12 +27,40 @@ impl PairState {
             Self::Locked
         } else if error.contains("noPin") {
             Self::NoPin
+        } else if error.contains("offline (4409)") {
+            Self::Offline
+        } else if error.contains("Pairing timed out") {
+            Self::TimedOut
+        } else if [
+            "Remote service is unavailable",
+            "Remote route refused",
+            "Remote route closed",
+            "Could not list computers",
+        ]
+        .iter()
+        .any(|message| error.contains(message))
+        {
+            Self::Unreachable
         } else {
             Self::Failed
         }
     }
     fn accepts_pin(self) -> bool {
-        matches!(self, Self::Entry | Self::WrongPin | Self::Failed)
+        matches!(
+            self,
+            Self::Entry
+                | Self::WrongPin
+                | Self::Offline
+                | Self::TimedOut
+                | Self::Unreachable
+                | Self::Failed
+        )
+    }
+    fn retry(self) -> bool {
+        matches!(
+            self,
+            Self::Offline | Self::TimedOut | Self::Unreachable | Self::Failed
+        )
     }
 }
 pub(crate) struct PairDialog {
@@ -68,20 +99,30 @@ impl RemoteClient {
         let changed = clients.read(cx).changed_identities.contains(&computer.id);
         let again = changed || clients.read(cx).connection(&computer.id) == Connection::Revoked;
         let field = cx.new(PinField::new);
-        field.read(cx).focus.clone().focus(window, cx);
+        let primary = cx.focus_handle();
+        let state = if computer.online {
+            PairState::Entry
+        } else {
+            PairState::Offline
+        };
+        if state == PairState::Offline {
+            primary.focus(window, cx);
+        } else {
+            field.read(cx).focus.clone().focus(window, cx);
+        }
         self.ui.pair_generation += 1;
         self.ui.picker_open = false;
         self.ui.pair = Some(PairDialog {
             computer,
             purpose,
-            state: PairState::Entry,
+            state,
             again,
             changed,
             _subscription: cx.observe(&field, |_, _, cx| cx.notify()),
             field,
             focus: cx.focus_handle(),
             secondary: cx.focus_handle(),
-            primary: cx.focus_handle(),
+            primary,
             generation: self.ui.pair_generation,
         });
         cx.notify();
@@ -102,17 +143,31 @@ impl RemoteClient {
             self.ui.pair_generation += 1;
             return true;
         };
-        if computer.fingerprint == dialog.computer.fingerprint {
-            return false;
+        let identity_changed = computer.fingerprint != dialog.computer.fingerprint;
+        if !identity_changed {
+            let dialog = self.ui.pair.as_mut().unwrap();
+            dialog.computer = computer.clone();
+            if dialog.state != PairState::Offline
+                || !dialog.computer.online
+                || dialog.field.read(cx).value().0.len() == 6
+            {
+                return false;
+            }
         }
         self.ui.pair_generation += 1;
         let generation = self.ui.pair_generation;
-        let field = cx.new(PinField::new);
+        let field = if identity_changed {
+            cx.new(PinField::new)
+        } else {
+            self.ui.pair.as_ref().unwrap().field.clone()
+        };
         let dialog = self.ui.pair.as_mut().unwrap();
-        dialog.computer = computer;
+        if identity_changed {
+            dialog.computer = computer;
+            dialog.again = true;
+            dialog.changed = true;
+        }
         dialog.generation = generation;
-        dialog.again = true;
-        dialog.changed = true;
         dialog.state = PairState::Entry;
         dialog.field = field.clone();
         dialog._subscription = cx.observe(&field, |_, _, cx| cx.notify());
@@ -132,6 +187,15 @@ impl RemoteClient {
         .detach();
         cx.notify();
         true
+    }
+    fn retry_computer_pair(&mut self, window: &mut Window, cx: &mut Context<NativeRoot>) {
+        if self.ui.pair.as_ref().is_some_and(|dialog| {
+            dialog.state == PairState::Offline && dialog.field.read(cx).value().0.len() != 6
+        }) {
+            self.refresh_computers(cx);
+        } else {
+            self.submit_computer_pin(window, cx);
+        }
     }
     pub(super) fn submit_computer_pin(
         &mut self,
@@ -220,17 +284,24 @@ impl RemoteClient {
                         }
                     }
                     Err(error) => {
-                        let field = cx.new(PinField::new);
                         let dialog = root.remote_client.ui.pair.as_mut().unwrap();
                         let identity_changed =
                             error.message == "Remote computer identity changed before pairing.";
                         dialog.state = PairState::refusal(&error.message);
-                        field.update(cx, |field, _| {
-                            field.invalid = dialog.state == PairState::WrongPin
+                        let field = if dialog.state == PairState::WrongPin {
+                            let field = cx.new(PinField::new);
+                            dialog.field = field.clone();
+                            dialog._subscription = cx.observe(&field, |_, _, cx| cx.notify());
+                            field
+                        } else {
+                            dialog.field.clone()
+                        };
+                        field.update(cx, |field, cx| {
+                            field.disabled = false;
+                            field.invalid = dialog.state == PairState::WrongPin;
+                            cx.notify();
                         });
-                        dialog.field = field.clone();
-                        dialog._subscription = cx.observe(&field, |_, _, cx| cx.notify());
-                        if dialog.state.accepts_pin() {
+                        if dialog.state == PairState::WrongPin {
                             field.read(cx).focus.clone().focus(window, cx);
                         } else {
                             dialog.primary.focus(window, cx);
@@ -253,11 +324,13 @@ impl RemoteClient {
         let dialog = self.ui.pair.as_ref()?;
         let name = &dialog.computer.name;
         let blocked = matches!(dialog.state, PairState::Locked | PairState::NoPin);
+        let offline = dialog.state == PairState::Offline;
         let checking = dialog.state == PairState::Checking;
         let title = label(
             match dialog.state {
                 PairState::Locked => "client.pin_locked_title",
                 PairState::NoPin => "client.no_pin_title",
+                PairState::Offline => "client.pair_offline_title",
                 _ if dialog.again => "client.pair_again_title",
                 _ => "client.pair_title",
             },
@@ -267,6 +340,7 @@ impl RemoteClient {
             match dialog.state {
                 PairState::Locked => "client.pin_locked_detail",
                 PairState::NoPin => "client.no_pin_detail",
+                PairState::Offline => "client.pair_offline_detail",
                 _ if dialog.again => "client.pair_again_detail",
                 _ => "client.pair_detail",
             },
@@ -275,7 +349,10 @@ impl RemoteClient {
         let hint = match dialog.state {
             PairState::Checking => label("client.checking_pin", name),
             PairState::WrongPin => label("client.wrong_pin", name),
-            PairState::Failed => crate::i18n::text("client.pair_failed").into(),
+            PairState::Offline => status_label(&dialog.computer, false),
+            PairState::TimedOut => label("client.pair_timed_out", name),
+            PairState::Unreachable => label("client.pair_unreachable", name),
+            PairState::Failed => label("client.pair_failed", name),
             _ => crate::i18n::tf(
                 if dialog.changed {
                     "client.fingerprint_changed"
@@ -293,7 +370,7 @@ impl RemoteClient {
         let submit = cx.weak_entity();
         let complete = dialog.field.read(cx).value().0.len() == 6;
         let field = dialog.field.clone();
-        let mut stops = if blocked || checking {
+        let mut stops = if blocked || checking || offline {
             Vec::new()
         } else {
             vec![field.read(cx).focus.clone()]
@@ -301,7 +378,7 @@ impl RemoteClient {
         if !blocked {
             stops.push(dialog.secondary.clone());
         }
-        if blocked || (complete && !checking) {
+        if blocked || offline || (complete && !checking) {
             stops.push(dialog.primary.clone());
         }
         let focus = dialog.focus.clone();
@@ -336,7 +413,7 @@ impl RemoteClient {
                                 root.remote_client.ui.pair = None;
                                 cx.notify();
                             } else {
-                                root.remote_client.submit_computer_pin(window, cx);
+                                root.remote_client.retry_computer_pair(window, cx);
                             }
                             cx.stop_propagation();
                         }
@@ -390,9 +467,10 @@ impl RemoteClient {
                                 .text_color(theme::muted())
                                 .child(detail),
                         )
-                        .when(!blocked, |body| {
+                        .when(!blocked && !offline, |body| {
                             body.child(
                                 div()
+                                    .debug_selector(|| "COMPUTER_PAIR_PIN".into())
                                     .flex()
                                     .flex_col()
                                     .gap_2()
@@ -404,12 +482,14 @@ impl RemoteClient {
                                     )
                                     .child(field),
                             )
-                            .child(
+                        })
+                        .when(!blocked, |body| {
+                            body.child(
                                 div()
                                     .text_size(theme::text_meta())
                                     .text_color(if dialog.state == PairState::WrongPin {
                                         theme::danger()
-                                    } else if dialog.changed {
+                                    } else if dialog.changed || (dialog.state.retry() && !offline) {
                                         theme::warning()
                                     } else {
                                         theme::faint()
@@ -448,12 +528,15 @@ impl RemoteClient {
                                             "ui.close"
                                         } else if checking {
                                             "client.pairing"
+                                        } else if dialog.state.retry() {
+                                            "remote.try_again"
                                         } else {
                                             "client.pair"
                                         }),
                                     )
                                     .focus_handle(dialog.primary.clone())
-                                    .disabled(!blocked && (!complete || checking))
+                                    .debug_selector("COMPUTER_PAIR_PRIMARY")
+                                    .disabled(!blocked && !offline && (!complete || checking))
                                     .on_press(
                                         move |window, cx| {
                                             let _ = submit.update(cx, |root, cx| {
@@ -463,7 +546,7 @@ impl RemoteClient {
                                                     cx.notify();
                                                 } else {
                                                     root.remote_client
-                                                        .submit_computer_pin(window, cx);
+                                                        .retry_computer_pair(window, cx);
                                                 }
                                             });
                                         },
