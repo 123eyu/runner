@@ -185,6 +185,11 @@ fn observed_input_tier_precedes_the_byte_latch_and_hidden_drafts_park() {
         manager_with_runtime(crate::shell_path::LoginShellEnv::default(), inert_runtime());
     let session_id = "observed-input";
     install_test_session_handle(&manager, session_id);
+    manager.note_forwarder_transition(
+        session_id,
+        SessionActivityState::Idle,
+        StatusSource::Forwarder,
+    );
     {
         let state = manager.session_state(session_id).unwrap();
         let mut state = state.lock().unwrap();
@@ -218,6 +223,17 @@ fn observed_input_tier_precedes_the_byte_latch_and_hidden_drafts_park() {
         other => panic!("observed Idle must override a stale byte latch, got {other:?}"),
     };
     manager.finish_delivery(session_id, token);
+
+    manager
+        .session_state(session_id)
+        .unwrap()
+        .lock()
+        .unwrap()
+        .model
+        .apply(
+            SessionEvent::TestInputAt(Some(now)),
+            crate::session::clock::state_now(),
+        );
 
     manager.report_input_state(
         session_id,
@@ -279,6 +295,153 @@ struct DeliveryEventCapture(Mutex<Vec<router::SessionDeliveryEvent>>);
 impl router::SessionDeliveryListener for DeliveryEventCapture {
     fn session_delivery_event(&self, _session_id: &str, event: router::SessionDeliveryEvent) {
         self.0.lock().unwrap().push(event);
+    }
+}
+
+#[test]
+fn observed_draft_cap_releases_readiness_and_reservation_only_while_idle() {
+    let manager =
+        manager_with_runtime(crate::shell_path::LoginShellEnv::default(), inert_runtime());
+    let id = "capped-draft";
+    install_test_session_handle(&manager, id);
+    let start = Instant::now();
+    crate::session::clock::at(start, 1000, || {
+        let state = manager.session_state(id).unwrap();
+        let mut state = state.lock().unwrap();
+        state.model.apply(
+            SessionEvent::Transition {
+                state: SessionActivityState::Idle,
+                source: StatusSource::Forwarder,
+                live: true,
+            },
+            crate::session::clock::state_now(),
+        );
+        state.model.apply(
+            SessionEvent::TestInputAt(Some(start)),
+            crate::session::clock::state_now(),
+        );
+    });
+    manager.report_input_state(
+        id,
+        InputObservation {
+            state: InputState::Drafting,
+            since: start,
+            composing: false,
+            composer_visible: true,
+        },
+    );
+    crate::session::clock::at(start + Duration::from_secs(599), 600000, || {
+        assert_eq!(
+            manager.delivery_readiness(id),
+            router::DeliveryReadiness::Drafting
+        );
+        assert!(matches!(
+            manager.reserve_delivery(id).unwrap(),
+            router::DeliveryReservation::Drafting { .. }
+        ));
+    });
+    crate::session::clock::at(start + Duration::from_secs(600), 601000, || {
+        assert_eq!(
+            manager.delivery_readiness(id),
+            router::DeliveryReadiness::Ready { idle: true }
+        );
+        let router::DeliveryReservation::Ready(token) = manager.reserve_delivery(id).unwrap()
+        else {
+            panic!("cap must permit the next attempt");
+        };
+        manager.finish_delivery(id, token);
+        manager
+            .session_state(id)
+            .unwrap()
+            .lock()
+            .unwrap()
+            .model
+            .apply(
+                SessionEvent::Transition {
+                    state: SessionActivityState::Busy,
+                    source: StatusSource::Forwarder,
+                    live: true,
+                },
+                crate::session::clock::state_now(),
+            );
+        assert_eq!(
+            manager.delivery_readiness(id),
+            router::DeliveryReadiness::Ready { idle: false }
+        );
+        assert_eq!(
+            manager.reserve_delivery(id).unwrap(),
+            router::DeliveryReservation::Unavailable
+        );
+    });
+}
+
+#[test]
+fn connection_compositions_clear_on_disconnect_and_terminal_handover() {
+    use runner_core::protocol::terminal::InputEvent;
+    for browser in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut core = crate::test_support::test_core_in(temp.path().to_owned());
+        core.sessions = mgr_with_fake(None, fake_runtime());
+        let events: Arc<dyn SessionEvents> = Arc::new(core.session_events());
+        let id = "orphaned-composition";
+        core.sessions
+            .prepare_unlisted_terminal(id, (80, 24), &core.db, &events)
+            .unwrap();
+        install_test_session_handle(&core.sessions, id);
+        let capture = Arc::new(DeliveryEventCapture::default());
+        let listener: Arc<dyn router::SessionDeliveryListener> = capture.clone();
+        core.sessions
+            .register_delivery_listener(id, Arc::downgrade(&listener));
+        core.sessions
+            .observe_terminal_input(id, 1, InputEvent::Composing { composing: true })
+            .unwrap();
+        assert_eq!(
+            core.sessions.delivery_readiness(id),
+            router::DeliveryReadiness::Drafting
+        );
+        core.sessions.clear_connection_compositions(2);
+        assert_eq!(
+            core.sessions.delivery_readiness(id),
+            router::DeliveryReadiness::Drafting
+        );
+        if browser {
+            core.sessions
+                .browser_resize(id, 1, "Browser", 80, 24, true, false, &core.db)
+                .unwrap();
+        } else {
+            core.sessions.clear_connection_compositions(1);
+        }
+        assert!(capture
+            .0
+            .lock()
+            .unwrap()
+            .contains(&router::SessionDeliveryEvent::InputCleared));
+        assert!(!matches!(
+            core.sessions.delivery_readiness(id),
+            router::DeliveryReadiness::Drafting
+        ));
+        core.sessions
+            .take_back_terminal(id, 80, 24, &core.db)
+            .unwrap();
+        core.sessions
+            .observe_terminal_input(id, 2, InputEvent::Composing { composing: true })
+            .unwrap();
+        core.sessions
+            .observe_terminal_input(id, 1, InputEvent::Composing { composing: false })
+            .unwrap();
+        assert_eq!(
+            core.sessions.delivery_readiness(id),
+            router::DeliveryReadiness::Drafting,
+            "a stale clear cannot cancel another client's preedit"
+        );
+        core.sessions
+            .take_terminal_input_control(id, 3, &core.db)
+            .unwrap();
+        assert!(!matches!(
+            core.sessions.delivery_readiness(id),
+            router::DeliveryReadiness::Drafting
+        ));
+        core.sessions.drain_terminal_workers();
     }
 }
 

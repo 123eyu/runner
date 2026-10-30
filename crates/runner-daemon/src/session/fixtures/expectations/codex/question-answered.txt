@@ -9,8 +9,8 @@ session_status_rows=published
 400 status=running/working/hook
   busy@hook [running/working/hook]
 500
-600 quiescent=false result={"gate":"ready"}
-600 quiescent=true delivery=["DeliveryFinished"]
+600 result={"gate":"unavailable"}
+600
 700 delivery=["ReadinessChanged"]
 800 status=running/ready/hook outcome="completed" activity="idle" delivery=["Idle"]
   idle@hook [running/ready/hook outcome="completed"]

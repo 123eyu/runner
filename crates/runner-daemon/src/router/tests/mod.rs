@@ -327,6 +327,36 @@ fn attempts_use_current_backlog_and_submit_at_the_deadline() {
 }
 
 #[test]
+fn new_messages_wait_for_the_working_members_idle_transition() {
+    let mut f = Fixture::new();
+    f.readiness(DeliveryReadiness::Ready { idle: false });
+    f.backlog(1);
+    f.after(Duration::from_secs(10 * 60));
+    assert!(f.writes().is_empty());
+    f.backlog(2);
+    assert!(f.writes().is_empty());
+    f.readiness(DeliveryReadiness::Ready { idle: true });
+    f.session(SessionDeliveryEvent::Idle);
+    assert_eq!(f.notices(), 1);
+    assert!(f.writes()[0].contains("2 new messages"));
+    f.after(SUBMIT_DELAY);
+    assert_eq!(f.writes()[1], "\r");
+}
+
+#[test]
+fn cursor_input_keeps_a_seen_notice_paused_past_the_draft_cap_without_enter() {
+    let mut f = Fixture::new();
+    leave_unsent_notice(&mut f, Leftover::UnsubmittedThenMoved);
+    let writes = f.writes();
+    f.port.0.lock().unwrap().revision += 1;
+    f.backlog(2);
+    f.after(Duration::from_secs(11 * 60));
+    f.session(SessionDeliveryEvent::Idle);
+    assert_eq!(f.writes(), writes);
+    assert_eq!(f.block_reason().as_deref(), Some("unsubmitted"));
+}
+
+#[test]
 fn an_ack_cancels_a_held_notification() {
     let mut f = Fixture::new();
     f.readiness(DeliveryReadiness::Drafting);
@@ -371,7 +401,7 @@ fn all_readiness_holds_release_on_the_matching_session_event() {
         f.readiness(readiness);
         f.backlog(1);
         assert!(f.writes().is_empty(), "{readiness:?}");
-        f.readiness(DeliveryReadiness::Ready { idle: false });
+        f.readiness(DeliveryReadiness::Ready { idle: true });
         f.session(event);
         f.after(Duration::from_secs(2));
         assert_eq!(
@@ -851,7 +881,7 @@ enum Leftover {
 
 fn leave_unsent_notice(f: &mut Fixture, leftover: Leftover) {
     f.port.0.lock().unwrap().sticky = true;
-    f.readiness(DeliveryReadiness::Ready { idle: false });
+    f.readiness(DeliveryReadiness::Ready { idle: true });
     f.backlog(1);
     f.after(SUBMIT_DELAY);
     if matches!(

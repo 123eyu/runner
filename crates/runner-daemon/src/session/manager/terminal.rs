@@ -38,6 +38,7 @@ impl Controller {
 pub(super) struct ControlState {
     attachments: HashMap<(u64, String, u64), String>,
     groups: HashMap<String, Controller>,
+    compositions: HashMap<String, u64>,
 }
 
 pub(super) enum ResizeControl {
@@ -419,6 +420,97 @@ impl SessionManager {
         self.queue_terminal_input(id, bytes)
     }
 
+    pub fn observe_terminal_input(
+        &self,
+        id: &str,
+        connection: u64,
+        input: runner_core::protocol::terminal::InputEvent,
+    ) -> Result<()> {
+        use runner_core::protocol::terminal::InputEvent;
+        let mut control = self.terminal_control.lock().unwrap();
+        let model = {
+            let state = self
+                .session_state(id)
+                .ok_or_else(|| Error::msg("terminal not found"))?;
+            let state = state.lock().unwrap();
+            if state.controller != Controller::Desktop {
+                return Err(Error::msg("terminal is controlled elsewhere"));
+            }
+            state
+                .terminal
+                .clone()
+                .ok_or_else(|| Error::msg("terminal not found"))?
+        };
+        match input {
+            InputEvent::Composing { composing: true } => {
+                if control
+                    .compositions
+                    .get(id)
+                    .is_some_and(|owner| *owner != connection)
+                {
+                    self.clear_composition(id, &mut control);
+                }
+                control.compositions.insert(id.to_owned(), connection);
+            }
+            InputEvent::Composing { composing: false } => {
+                if control
+                    .compositions
+                    .get(id)
+                    .is_some_and(|owner| *owner != connection)
+                {
+                    return Ok(());
+                }
+                control.compositions.remove(id);
+            }
+            _ => {}
+        }
+        model.observe_input(&input);
+        Ok(())
+    }
+
+    fn clear_composition(&self, id: &str, control: &mut ControlState) {
+        if control.compositions.remove(id).is_some() {
+            if let Ok(model) = self.terminal_model(id) {
+                model.observe_input(&runner_core::protocol::terminal::InputEvent::Composing {
+                    composing: false,
+                });
+                self.notify_delivery_event(id, router::SessionDeliveryEvent::InputCleared);
+            }
+        }
+    }
+
+    pub(crate) fn clear_connection_compositions(&self, connection: u64) {
+        let mut control = self.terminal_control.lock().unwrap();
+        let ids: Vec<_> = control
+            .compositions
+            .iter()
+            .filter(|(_, owner)| **owner == connection)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            self.clear_composition(&id, &mut control);
+        }
+    }
+
+    pub(crate) fn take_terminal_input_control(
+        &self,
+        id: &str,
+        connection: u64,
+        pool: &DbPool,
+    ) -> Result<()> {
+        let mut control = self.terminal_control.lock().unwrap();
+        for id in self.control_group(id, pool)?.1 {
+            if control
+                .compositions
+                .get(&id)
+                .is_some_and(|owner| *owner != connection)
+            {
+                self.clear_composition(&id, &mut control);
+            }
+        }
+        Ok(())
+    }
+
     fn queue_terminal_input(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let state = self
             .session_state(id)
@@ -510,11 +602,17 @@ impl SessionManager {
         for id in &ids {
             control.groups.remove(&format!("session:{id}"));
         }
-        self.set_group_controller(&ids, "", &controller);
+        self.set_group_controller(&ids, "", &controller, &mut control);
         Ok(())
     }
 
-    fn set_group_controller(&self, ids: &[String], except: &str, controller: &Controller) {
+    fn set_group_controller(
+        &self,
+        ids: &[String],
+        except: &str,
+        controller: &Controller,
+        control: &mut ControlState,
+    ) {
         for id in ids.iter().filter(|id| id.as_str() != except) {
             let Some(state) = self.session_state(id) else {
                 continue;
@@ -525,6 +623,8 @@ impl SessionManager {
             }
             state.controller = controller.clone();
             Self::push_controller(&mut state);
+            drop(state);
+            self.clear_composition(id, control);
         }
     }
 
@@ -645,7 +745,7 @@ impl SessionManager {
         let mut control = self.terminal_control.lock().unwrap();
         let (group, ids) = self.control_group(id, pool)?;
         control.groups.insert(group, Controller::Desktop);
-        self.set_group_controller(&ids, id, &Controller::Desktop);
+        self.set_group_controller(&ids, id, &Controller::Desktop, &mut control);
         self.resize_controlled(id, cols, rows, pool, ResizeControl::TakeBack)
     }
     #[allow(clippy::too_many_arguments)]
@@ -695,7 +795,9 @@ impl SessionManager {
                         channel,
                         name: name.into(),
                     },
+                    &mut control,
                 );
+                self.clear_composition(id, &mut control);
             }
         }
         self.resize_controlled(

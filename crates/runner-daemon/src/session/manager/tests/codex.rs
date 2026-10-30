@@ -170,11 +170,21 @@ fn codex_observations_preserve_delivery_and_drafts_and_interrupt_attention() {
                     return feedback;
                 }
                 count += 1;
-                let token = match core.sessions.reserve_delivery("codex-status").unwrap() {
-                    router::DeliveryReservation::Ready(token) => token,
-                    other => panic!("{other:?}"),
-                };
-                core.sessions.finish_delivery("codex-status", token);
+                let reservation = core.sessions.reserve_delivery("codex-status").unwrap();
+                if core
+                    .sessions
+                    .agent_status("codex-status")
+                    .observation
+                    .activity
+                    == Activity::Working
+                {
+                    assert_eq!(reservation, router::DeliveryReservation::Unavailable);
+                } else {
+                    let router::DeliveryReservation::Ready(token) = reservation else {
+                        panic!("{reservation:?}");
+                    };
+                    core.sessions.finish_delivery("codex-status", token);
+                }
                 let state = core.sessions.session_state("codex-status").unwrap();
                 state.lock().unwrap().model.apply(
                     SessionEvent::TestPending(true),
@@ -909,10 +919,10 @@ fn codex_native_attention_publication_holds_delivery_and_preserves_drafts() {
             SessionEvent::TestPending(false),
             crate::session::clock::state_now(),
         );
-        assert!(matches!(
+        assert_eq!(
             manager.reserve_delivery(id).unwrap(),
-            router::DeliveryReservation::Ready(_)
-        ));
+            router::DeliveryReservation::Unavailable
+        );
         if mission {
             let rows = event_log.read_from(0).unwrap();
             let statuses = events.status.lock().unwrap();

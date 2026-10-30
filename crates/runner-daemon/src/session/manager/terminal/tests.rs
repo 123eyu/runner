@@ -2196,6 +2196,16 @@ fn browser_input_uses_the_terminal_queue_and_the_desktop_input_observation() {
         observation.state,
         runner_terminal::input_state::InputState::Drafting
     );
+    core.sessions
+        .session_state(&spawned.id)
+        .unwrap()
+        .lock()
+        .unwrap()
+        .model
+        .apply(
+            crate::session::state::SessionEvent::TestInputAt(Some(Instant::now())),
+            crate::session::clock::state_now(),
+        );
     model.publish_input(Some(observation));
     assert!(matches!(
         core.sessions.delivery_readiness(&spawned.id),

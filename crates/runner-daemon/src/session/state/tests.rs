@@ -8,6 +8,158 @@ fn now() -> Now {
 }
 
 #[test]
+fn observed_draft_cap_uses_the_last_keystroke_and_composition_updates_refresh_it() {
+    use crate::router::DeliveryReservation as D;
+    let start = now();
+    let mut model = SessionModel::default();
+    let observation = |composing| InputObservation {
+        state: InputState::Drafting,
+        since: start.monotonic,
+        composing,
+        composer_visible: true,
+    };
+    model.apply(
+        SessionEvent::Composer {
+            observation: observation(false),
+            live: true,
+        },
+        start,
+    );
+    assert_eq!(
+        model.draft_hold(start.monotonic),
+        None,
+        "no keystroke since attach"
+    );
+    model.apply(
+        SessionEvent::Input {
+            class: Some(LocalInputClass::SetPending),
+            submitted: false,
+        },
+        start,
+    );
+    assert_eq!(
+        model.draft_hold(start.monotonic + OBSERVED_DRAFT_HOLD_CAP - Duration::from_millis(1)),
+        Some(D::Drafting {
+            composer_visible: true
+        })
+    );
+    let boundary = Now {
+        monotonic: start.monotonic + OBSERVED_DRAFT_HOLD_CAP,
+        ..start
+    };
+    assert_eq!(model.draft_hold(boundary.monotonic), None);
+    model.apply(
+        SessionEvent::Composer {
+            observation: observation(true),
+            live: true,
+        },
+        boundary,
+    );
+    assert_eq!(model.last_local_input_at(), Some(boundary.monotonic));
+    assert_eq!(
+        model.draft_hold(boundary.monotonic),
+        Some(D::Drafting {
+            composer_visible: true
+        })
+    );
+    let update = Now {
+        monotonic: boundary.monotonic + Duration::from_secs(1),
+        ..start
+    };
+    model.apply(
+        SessionEvent::Composer {
+            observation: observation(true),
+            live: true,
+        },
+        update,
+    );
+    assert_eq!(model.last_local_input_at(), Some(update.monotonic));
+    assert_eq!(
+        model.draft_hold(boundary.monotonic + OBSERVED_DRAFT_HOLD_CAP),
+        Some(D::Drafting {
+            composer_visible: true
+        })
+    );
+}
+
+#[test]
+fn native_editor_drafts_and_runners_notice_are_not_capped() {
+    use crate::router::DeliveryReservation as D;
+    for native in [false, true] {
+        let start = now();
+        let mut model = SessionModel::default();
+        if native {
+            editor_draft(&mut model, true, start);
+        } else {
+            model.apply(
+                SessionEvent::Composer {
+                    observation: InputObservation {
+                        state: InputState::Unsent,
+                        since: start.monotonic,
+                        composing: false,
+                        composer_visible: true,
+                    },
+                    live: true,
+                },
+                start,
+            );
+        }
+        assert_eq!(
+            model.draft_hold(start.monotonic + Duration::from_secs(26 * 60)),
+            Some(if native {
+                D::Drafting {
+                    composer_visible: true,
+                }
+            } else {
+                D::Unsent
+            })
+        );
+    }
+}
+
+#[test]
+fn rejected_return_keeps_the_observed_drafts_keystroke_for_the_cap() {
+    let start = now();
+    let mut model = SessionModel::default();
+    let observation = |state| InputObservation {
+        state,
+        since: start.monotonic,
+        composing: false,
+        composer_visible: true,
+    };
+    model.apply(
+        SessionEvent::Composer {
+            observation: observation(InputState::Submitted),
+            live: true,
+        },
+        start,
+    );
+    model.apply(
+        SessionEvent::Input {
+            class: Some(LocalInputClass::ClearPending),
+            submitted: true,
+        },
+        start,
+    );
+    model.apply(
+        SessionEvent::Composer {
+            observation: observation(InputState::Drafting),
+            live: true,
+        },
+        start,
+    );
+    assert_eq!(model.last_local_input_at(), Some(start.monotonic));
+    assert!(matches!(
+        model.draft_hold(start.monotonic + Duration::from_secs(599)),
+        Some(crate::router::DeliveryReservation::Drafting { .. })
+    ));
+    assert_eq!(
+        model.draft_hold(start.monotonic + OBSERVED_DRAFT_HOLD_CAP),
+        None
+    );
+}
+
+#[test]
 fn recorded_drafts_keep_delivery_held_after_recent_input_expires() {
     use alacritty_terminal::term::test::TermSize;
     use alacritty_terminal::vte::ansi::Processor;
@@ -322,6 +474,7 @@ fn rule_5_typing_suppresses_echo_and_submit_uses_the_combined_draft_rule() {
     );
     assert!(effects.input_cleared);
     assert_eq!(model.status().observation.activity, Activity::Working);
+    model.apply(SessionEvent::TestInputAt(Some(at.monotonic)), at);
     model.apply(
         SessionEvent::Composer {
             observation: InputObservation {
