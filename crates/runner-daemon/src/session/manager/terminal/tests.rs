@@ -686,7 +686,7 @@ fn hidden_terminal_answers_each_query_once() {
         ),
         (
             runner_terminal::palette::ROSE_PINE_DAWN,
-            b"\x1b]11;rgb:fafa/f4f4/eded\x1b\\".as_slice(),
+            b"\x1b]11;rgb:f5f5/f1f1/ebeb\x1b\\".as_slice(),
         ),
     ] {
         let temp = tempfile::tempdir().unwrap();

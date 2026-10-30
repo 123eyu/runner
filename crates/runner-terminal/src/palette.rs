@@ -56,13 +56,13 @@ pub const BACKGROUND: Rgb = RUNNER.background;
 pub const FOREGROUND: Rgb = RUNNER.foreground;
 pub const CURSOR: Rgb = RUNNER.cursor;
 
-/// Official Rosé Pine Dawn terminal values: black is overlay, white is
-/// text, cyan is rose, as the theme itself defines them.
+/// Rosé Pine Dawn with Runner’s muted ground: black is overlay, white is
+/// text and cyan is rose, as the theme itself defines them.
 pub const ROSE_PINE_DAWN: TerminalPalette = TerminalPalette {
-    background: rgb(0xfa, 0xf4, 0xed),
+    background: rgb(0xf5, 0xf1, 0xeb),
     foreground: rgb(0x57, 0x52, 0x79),
     cursor: rgb(0x57, 0x52, 0x79),
-    cursor_accent: rgb(0xfa, 0xf4, 0xed),
+    cursor_accent: rgb(0xf5, 0xf1, 0xeb),
     selection: rgb(0xdf, 0xda, 0xd9),
     ansi: [
         rgb(0xf2, 0xe9, 0xe1),
@@ -201,8 +201,8 @@ mod tests {
     }
 
     #[test]
-    fn rose_pine_dawn_matches_the_official_palette() {
-        assert_eq!(ROSE_PINE_DAWN.background, rgb(0xfa, 0xf4, 0xed));
+    fn rose_pine_dawn_uses_runner_ground_and_upstream_ink() {
+        assert_eq!(ROSE_PINE_DAWN.background, rgb(0xf5, 0xf1, 0xeb));
         assert_eq!(ROSE_PINE_DAWN.foreground, rgb(0x57, 0x52, 0x79));
         assert_eq!(ROSE_PINE_DAWN.cursor_accent, ROSE_PINE_DAWN.background);
         assert_eq!(ROSE_PINE_DAWN.ansi[0], rgb(0xf2, 0xe9, 0xe1));

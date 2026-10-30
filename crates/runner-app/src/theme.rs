@@ -187,14 +187,14 @@ pub const CATPPUCCIN_MOCHA: ThemeColors = ThemeColors {
 };
 
 pub const RUNNER_LIGHT: ThemeColors = ThemeColors {
-    bg: 0xf6f6f8,
-    panel: 0xffffff,
+    bg: 0xf2f3f5,
+    panel: 0xf8f8fa,
     raised: 0xecedf1,
-    line: 0xe4e5ea,
-    line_strong: 0xd6d8df,
-    sidebar: 0xeeeff3,
-    sidebar_selected: 0xe1e3e9,
-    sidebar_selected_border: 0xd3d6de,
+    line: 0xd9dbe1,
+    line_strong: 0xcdd0d7,
+    sidebar: 0xe2e4e9,
+    sidebar_selected: 0xd6d9e0,
+    sidebar_selected_border: 0xcaced7,
     fg: 0x1c1d22,
     fg_2: 0x5f616b,
     fg_3: 0x9a9ca6,
@@ -553,7 +553,10 @@ mod tests {
             let opaque_raised = raised();
             let opaque_selection = sidebar_selected();
             set_glass(true);
-            assert_eq!(chrome().a, if variant.is_light() { 0.90 } else { 0.88 });
+            assert_eq!(
+                chrome(),
+                with_alpha(sidebar(), if variant.is_light() { 0.90 } else { 0.88 })
+            );
             assert_eq!(bg(), opaque_bg);
             assert_eq!(panel(), opaque_panel);
             assert_eq!(raised(), opaque_raised);
@@ -628,14 +631,14 @@ mod tests {
         assert_eq!(
             RUNNER_LIGHT,
             ThemeColors {
-                bg: 0xf6f6f8,
-                panel: 0xffffff,
+                bg: 0xf2f3f5,
+                panel: 0xf8f8fa,
                 raised: 0xecedf1,
-                line: 0xe4e5ea,
-                line_strong: 0xd6d8df,
-                sidebar: 0xeeeff3,
-                sidebar_selected: 0xe1e3e9,
-                sidebar_selected_border: 0xd3d6de,
+                line: 0xd9dbe1,
+                line_strong: 0xcdd0d7,
+                sidebar: 0xe2e4e9,
+                sidebar_selected: 0xd6d9e0,
+                sidebar_selected_border: 0xcaced7,
                 fg: 0x1c1d22,
                 fg_2: 0x5f616b,
                 fg_3: 0x9a9ca6,
@@ -652,7 +655,7 @@ mod tests {
     fn shipped_roles_match_react_tokens() {
         assert_eq!(CARBON.accent, 0x00ff9c);
         assert_eq!(CATPPUCCIN_MOCHA.sidebar_selected, 0x3b3d52);
-        assert_eq!(RUNNER_LIGHT.panel, 0xffffff);
+        assert_eq!(RUNNER_LIGHT.panel, 0xf8f8fa);
         assert_eq!(CATPPUCCIN_LATTE.sidebar_selected_border, 0xc8ccda);
     }
 }
