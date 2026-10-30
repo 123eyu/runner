@@ -1920,10 +1920,13 @@ mod tests {
                     "{label}: pane {pane:?} content {content_top:?}"
                 );
 
-                // The scrollbar entity's root carries no selector, so prove its
-                // right-anchored, top-inset track by where a click jumps the
-                // scroll: above the thumb jumps to the top, below it to the
-                // bottom, and a click outside the gutter changes nothing.
+                let hit_strip = window.debug_bounds("SCROLLBAR_TRACK").unwrap();
+                assert!(near(hit_strip.left(), px(width - GUTTER * zoom)), "{label}");
+                assert!(near(hit_strip.right(), px(width)), "{label}");
+                assert!(near(hit_strip.top(), track.top()), "{label}");
+                assert!(near(hit_strip.bottom(), track.bottom()), "{label}");
+
+                // Hover reveals the track before probing its clicks.
                 let max = scroll.max_offset().y;
                 assert!(max > px(0.), "{label}: the pane should overflow");
                 let inside_left = px(width - GUTTER * zoom + 1.);
@@ -1937,6 +1940,7 @@ mod tests {
                     host.update(&mut window, |_, window, _| window.refresh())
                         .unwrap();
                     window.run_until_parked();
+                    window.simulate_mouse_move(at, None, Modifiers::default());
                     window.simulate_click(at, Modifiers::default());
                     scroll.offset().y
                 };

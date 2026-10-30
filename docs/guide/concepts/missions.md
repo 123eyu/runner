@@ -24,7 +24,7 @@ A composition left open when the app quits or terminal control moves to another 
 
 An inbox notice that Runner typed itself is not a draft. If the agent ignored its Return, the slot shows **Message not submitted — press Return**. Runner presses Return on that notice again when the agent's turn ends or a prompt closes, and otherwise about every two minutes. It presses Return automatically only while you have pressed no keys since its notice. Moving the cursor keeps the text labelled as Runner’s notice, but leaves submission to you; changing the text makes it your draft. Runner never types a second notice over its own leftover, even after ten minutes. If a member's delivery stays held for more than two minutes while it has unread messages, Runner adds one warning to the feed that names the member and the reason. `runner mission show` lists that warning under RECENT WARNINGS. A member that is still starting, which can last through its whole first turn, gets no such warning.
 
-The scrollbar on the feed’s right edge shows your position in long histories. Drag its thumb, click its track, or scroll over it to move through the feed. New messages keep the feed at the bottom while you are near the end; while reading older messages, use **New messages** to return to the bottom.
+The scrollbar on the feed’s right edge appears while you scroll or hover the feed, then hides after you leave. It shows your position in long histories. Drag its thumb, click its track, or scroll over it to move through the feed. New messages keep the feed at the bottom while you are near the end; while reading older messages, use **New messages** to return to the bottom.
 
 ## Permissions
 

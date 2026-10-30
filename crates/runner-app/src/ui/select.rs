@@ -1042,14 +1042,20 @@ pub(crate) fn option_menu(
         )
         .child(
             div()
-                .debug_selector(|| "STYLED_SELECT_SCROLLBAR".into())
                 .absolute()
-                // Inset by the list's padding, clear of the rounded top and
-                // bottom.
                 .top(rems(4. / 16.))
                 .bottom(rems(4. / 16.))
+                .left_0()
                 .right_0()
-                .w(app_scrollbar_gutter())
+                .child(
+                    div()
+                        .debug_selector(|| "STYLED_SELECT_SCROLLBAR".into())
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .right_0()
+                        .w(app_scrollbar_gutter()),
+                )
                 .child(scrollbar),
         )
         .child(
@@ -1733,5 +1739,61 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["codex", "copilot", "pi", "antigravity"]
         );
+    }
+
+    #[test]
+    fn overflowing_select_scrollbar_reveals_over_options_and_lingers_on_leave() {
+        use gpui::point;
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for zoom in [1., 1.3] {
+            let mut cx = TestAppContext::single();
+            let host = cx.add_window(|window, cx| {
+                window.resize(gpui::size(px(800.), px(600.)));
+                let select = cx.new(|cx| {
+                    StyledSelect::new(
+                        "scroll-hover-select",
+                        cx.focus_handle(),
+                        "0",
+                        (0..60)
+                            .map(|i| SelectOption::new(i.to_string(), format!("Option {i}")))
+                            .collect(),
+                        Rc::new(|_, _, _| {}),
+                        cx,
+                    )
+                    .compact(true)
+                    .width(px(120.))
+                    .min_menu_width(px(240.))
+                });
+                CompactSelectHost { select, zoom }
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            let trigger = visual.debug_bounds("STYLED_SELECT_TRIGGER").unwrap();
+            visual.simulate_click(trigger.center(), Modifiers::default());
+            visual.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::default());
+            visual
+                .executor()
+                .advance_clock(std::time::Duration::from_secs(1));
+            visual.run_until_parked();
+            assert!(visual.debug_bounds("SCROLLBAR_THUMB").is_none());
+            let list = visual.debug_bounds("STYLED_SELECT_SCROLL").unwrap();
+            let strip = visual.debug_bounds("STYLED_SELECT_SCROLLBAR").unwrap();
+            visual.simulate_mouse_move(list.center(), None, Modifiers::default());
+            visual.run_until_parked();
+            let thumb = visual.debug_bounds("SCROLLBAR_THUMB").unwrap();
+            assert!((thumb.size.width - px(4. * zoom)).abs() < px(0.5));
+            assert!((strip.size.width - px(10. * zoom)).abs() < px(0.5));
+            assert!((strip.right() - thumb.right() - px(3. * zoom)).abs() < px(0.5));
+            visual.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::default());
+            visual
+                .executor()
+                .advance_clock(std::time::Duration::from_millis(899));
+            visual.run_until_parked();
+            assert!(visual.debug_bounds("SCROLLBAR_THUMB").is_some());
+            visual
+                .executor()
+                .advance_clock(std::time::Duration::from_millis(1));
+            visual.run_until_parked();
+            assert!(visual.debug_bounds("SCROLLBAR_THUMB").is_none());
+        }
     }
 }

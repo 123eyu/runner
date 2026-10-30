@@ -730,6 +730,7 @@ impl RenderOnce for PaginatedListPage {
                             .child(
                                 div()
                                     .id("paginated-list-scroll")
+                                    .debug_selector(|| "PAGINATED_LIST_SCROLL".into())
                                     .size_full()
                                     .flex()
                                     .flex_col()
@@ -744,8 +745,8 @@ impl RenderOnce for PaginatedListPage {
                                     .absolute()
                                     .top_0()
                                     .bottom_0()
+                                    .left_0()
                                     .right(rems(-LIST_PAGE_PADDING_X / 16.))
-                                    .w(rems(LIST_PAGE_PADDING_X / 16.))
                                     .child(div().relative().size_full().child(scrollbar)),
                             ),
                     )

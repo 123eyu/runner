@@ -30,6 +30,16 @@ pub(crate) fn assert_fill(
     FILLS.with_borrow(|fills| assert_eq!(fills.get(id), Some(&expected), "{id}"));
 }
 
+pub(crate) fn assert_fill_color(
+    window: &mut VisualTestContext,
+    id: &'static str,
+    color: Option<gpui::Hsla>,
+) {
+    assert!(window.debug_bounds(id).is_some(), "missing surface {id}");
+    let expected = color.map(Fill::from);
+    FILLS.with_borrow(|fills| assert_eq!(fills.get(id), Some(&expected), "{id}"));
+}
+
 pub(crate) fn record_border<T: Styled + InteractiveElement>(id: &'static str, mut element: T) -> T {
     BORDERS.with_borrow_mut(|borders| borders.insert(id, element.style().border_color));
     element.debug_selector(|| id.into())
