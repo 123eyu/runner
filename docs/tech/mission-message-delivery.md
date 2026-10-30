@@ -1,6 +1,6 @@
 # Mission message delivery: from the log to an agent's inbox
 
-Checked against Runner `5e247356` on 2026-10-29. This note follows the implemented delivery path for mission members: message storage, inbox projection, terminal notification, reading and recovery. The broader [sessions and routing walkthrough](./sessions-and-routing.md) explains daemon and session ownership; [architecture §8.5](../arch/arch.md#85-delivery-model) defines the delivery model. [#1046](../features/1046-hook-inbox-delivery.md) proposes replacing composer nudges with complete native runtime channels; that replacement is not implemented in this revision.
+Checked against Runner `5e247356` on 2026-10-29. This note follows the implemented delivery path for mission members: message storage, inbox projection, terminal notification, reading and recovery. The broader [sessions and routing walkthrough](./sessions-and-routing.md) explains daemon and session ownership; [architecture §8.5](../arch/arch.md#85-delivery-model) defines the delivery model. [#1046](../features/1046-hook-inbox-delivery.md) proposes typing notices only into idle members, ending a draft hold ten minutes after the person's last keystroke and clearing an input-method composition the app can no longer finish; none of this is implemented in this revision.
 
 ## 1. What delivery means
 
