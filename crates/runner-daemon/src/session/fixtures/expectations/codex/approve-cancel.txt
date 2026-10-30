@@ -11,8 +11,8 @@ session_status_rows=published
 500 status=running/working/hook detail="using_tools"
   busy@hook [running/working/hook detail="using_tools"]
 600
-700 quiescent=false result={"gate":"ready"}
-700 quiescent=true delivery=["DeliveryFinished"]
+700 result={"gate":"unavailable"}
+700
 800 delivery=["ReadinessChanged"]
 900 quiescent=false delivery=["InputQueueDrained"]
 1000 status=running/working/hook detail="using_tools" unread_since=1767225601000 completion_armed=false result={"completion_consumed":true,"viewed":false}

@@ -30,6 +30,6 @@ session_status_rows=published
   idle@hook [running/idle/hook unread_since=1767225605200]
 6300 status=running/working/hook unread_since=1767225605200 activity="busy" completion_armed=true
   busy@hook [running/working/hook unread_since=1767225605200]
-6400 quiescent=false result={"gate":"ready"}
-6500 quiescent=true delivery=["DeliveryFinished"]
+6400 result={"gate":"unavailable"}
+6500
 6600 status=running/working/hook

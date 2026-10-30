@@ -290,23 +290,19 @@ impl SessionManager {
         let gate = session.lock().unwrap().delivery_gate.clone();
         let mut delivery = gate.state.lock().unwrap();
         let session = session.lock().unwrap();
-        Ok(
-            match session.delivery_readiness(&delivery, crate::session::clock::now()) {
-                R::Ready { .. } => {
-                    delivery.in_flight = true;
-                    D::Ready(delivery.generation)
-                }
-                R::Pending | R::Unavailable => D::Unavailable,
-                R::Starting => D::Starting,
-                R::NeedsYou => D::HumanInteraction,
-                R::InFlight => D::InFlight,
-                R::RecentlyTyping(delay) => D::RecentlyTyping(delay),
-                R::Drafting | R::Unsent => session
-                    .model
-                    .draft_hold(crate::session::clock::now())
-                    .unwrap(),
-            },
-        )
+        let now = crate::session::clock::now();
+        Ok(match session.delivery_readiness(&delivery, now) {
+            R::Ready { idle: true } => {
+                delivery.in_flight = true;
+                D::Ready(delivery.generation)
+            }
+            R::Ready { idle: false } | R::Pending | R::Unavailable => D::Unavailable,
+            R::Starting => D::Starting,
+            R::NeedsYou => D::HumanInteraction,
+            R::InFlight => D::InFlight,
+            R::RecentlyTyping(delay) => D::RecentlyTyping(delay),
+            R::Drafting | R::Unsent => session.model.draft_hold(now).unwrap(),
+        })
     }
 
     pub fn report_input_state(&self, session_id: &str, observation: InputObservation) {

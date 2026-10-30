@@ -1,6 +1,6 @@
 # Mission message delivery: from the log to an agent's inbox
 
-Checked against Runner `5e247356` on 2026-10-29. This note follows the implemented delivery path for mission members: message storage, inbox projection, terminal notification, reading and recovery. The broader [sessions and routing walkthrough](./sessions-and-routing.md) explains daemon and session ownership; [architecture §8.5](../arch/arch.md#85-delivery-model) defines the delivery model. [#1046](../features/1046-hook-inbox-delivery.md) proposes typing notices only into idle members, ending a draft hold ten minutes after the person's last keystroke and clearing an input-method composition the app can no longer finish; none of this is implemented in this revision.
+Updated for #1046 on 2026-10-30. This note follows the implemented delivery path for mission members: message storage, inbox projection, terminal notification, reading and recovery. The broader [sessions and routing walkthrough](./sessions-and-routing.md) explains daemon and session ownership; [architecture §8.5](../arch/arch.md#85-delivery-model) defines the delivery model. [#1046](../features/1046-hook-inbox-delivery.md) adds idle-only notices, a ten-minute cap on screen-observed draft holds and cleanup of orphaned input-method compositions.
 
 ## 1. What delivery means
 
@@ -107,13 +107,13 @@ The dispatcher uses the `StdinInjector` port implemented by `SessionManager`. Re
 | `Drafting` | Composer observations or pending local input require preserving a draft. |
 | `Unsent` | The composer's tracked input still contains Runner's own unsubmitted notice. |
 | `RecentlyTyping` | Recent local input requires a timed hold. |
-| `Ready { idle }` | An attempt may start; the idle flag separately controls periodic redelivery. |
+| `Ready { idle }` | An attempt may start only with `idle: true`, including for a new message. |
 
 [`StartupDelivery`](../../crates/runner-daemon/src/session/manager/startup.rs) uses suitable hook ready/idle evidence, with an outcome required when an initial turn is pending. Output-only fallback requires output to have begun, a ten-second startup grace and the normal quiet interval. A short pause during initialization is insufficient.
 
-Draft holds come from [`SessionModel::draft_hold`](../../crates/runner-daemon/src/session/state/mod.rs), using native input observations when available, otherwise terminal observations and local-input tracking. [`InputTracker`](../../crates/runner-terminal/src/input_state.rs) interprets the runtime's composer. Recent local input holds delivery for up to two seconds. An unknown composer with no pending local input or recent typing does not itself create a hold; draft protection depends on the evidence these paths can observe.
+Draft holds come from [`SessionModel::draft_hold`](../../crates/runner-daemon/src/session/state/mod.rs), using native input observations when available, otherwise terminal observations and local-input tracking. [`InputTracker`](../../crates/runner-terminal/src/input_state.rs) interprets the runtime's composer. Recent local input holds delivery for up to two seconds. A screen-observed `Drafting` holds only while `last_local_input_at` is less than ten minutes old; no keystroke since attach means no draft hold. Every input-method composition update refreshes that time, even if its reported state stays unchanged. Pi’s native `EditorDraft` remains uncapped, as does Runner’s own `Unsent` notice. An unknown composer with no pending local input or recent typing does not itself create a hold; draft protection depends on the evidence these paths can observe.
 
-An initial notice can be attempted while the agent is working if the other gates permit it. Idle is a requirement for periodic redelivery, not every first attempt.
+Every new attempt requires `Ready { idle: true }`, checked by the dispatcher and again at reservation. A message posted during a turn stays queued; the existing Idle transition requests delivery when the turn ends.
 
 ## 6. Typing, submitting and confirming
 
@@ -150,7 +150,7 @@ The confirmation window is evidence collection after submission, not an added de
 
 ### A notice left in the composer
 
-A positively seen leftover prevents a second notice from being typed on top of it. Later eligible Idle/readiness events or reconciliation after backoff can try submitting that same notice again, provided the unchanged-input checks pass. These retries send Enter, not another copy of the text. Editing the composer invalidates the ownership evidence needed for automatic resubmission.
+A positively seen leftover prevents a second notice from being typed on top of it. Later eligible Idle/readiness events or reconciliation after backoff can try submitting that same notice again, provided the unchanged-input checks pass. These retries send Enter, not another copy of the text. Ownership follows the composer text matching its recorded `submitted_form`, so moving the cursor keeps the notice labelled **Message not submitted — press Return**. Any person input changes the revision and prevents automatic Return; a key that changes the text turns it into the person’s draft. Submit / clear retains its revision guard. The pause on a positively seen leftover takes priority over the draft cap.
 
 A resize or redraw can make the original probe unknown. The dispatcher can release a previously seen leftover on input-clear evidence only when readiness is also `Ready`; a probe that still positively sees the text retains the pause. `ReadinessChanged` is not itself proof that input cleared. The special `SilenceIdle` handling prevents the redraw after an ignored Enter from creating a rapid retry loop.
 
@@ -174,9 +174,11 @@ Keep these positions distinct: the bus tail offset tracks projected bytes; the r
 
 ## 8. Retry, human interaction and recovery
 
-Backlog changes request delivery without waiting for the periodic reconciliation tick. Periodic redelivery reconciles every 30 seconds and on Idle, requires an idle recipient and observes the two-minute backoff since its last attempt. Readiness changes and respawn have their own retry paths; the backoff is not a universal delay on new messages. An acknowledgment that clears the backlog cancels a notice still waiting behind a readiness hold.
+Backlog changes request delivery without waiting for the periodic reconciliation tick, but every new attempt waits for idle. Screen-observed drafts expire ten minutes after the last local keystroke, with the next reconciliation or eligible session event retrying delivery; a real abandoned draft can then receive the notice and be submitted with it. Pi’s native drafts and Runner’s own leftover notices never expire through this cap. Periodic redelivery reconciles every 30 seconds and on Idle, requires an idle recipient and observes the two-minute backoff since its last attempt. Readiness changes and respawn have their own retry paths; the backoff is not a universal delay on new messages. An acknowledgment that clears the backlog cancels a notice still waiting behind a readiness hold.
 
 `router/delivery-blocked` reports the unread count and a reason for `draft`, `needs_you` or `unsubmitted`. Draft and approval holds show **Inbox waiting**; an unsubmitted notice asks the person to press Return. Other gates can hold delivery without this UI state. The daemon logs hold changes and warns once when a qualifying hold outlasts the backoff. Unavailable sessions have a separate queued-until-resume warning, with initial reconstruction avoiding repeated warnings for already-stopped sessions.
+
+The daemon associates each desktop composition with the client connection that started it. Connection close or terminal-control handover clears the orphaned flag and emits `InputCleared`; it never commits the composition text. A late clear from a previous connection cannot clear another client’s composition. The app retries failed `Composing { composing: false }` requests while it retains control, cancelling the retry when a new composition starts.
 
 Human traffic joins the same inbox path through [`router/handlers.rs`](../../crates/runner-daemon/src/router/handlers.rs):
 

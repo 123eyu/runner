@@ -230,6 +230,8 @@ fn direct_chat_typing_stays_idle_until_submit() {
     );
 
     let deadline = Instant::now() + Duration::from_secs(3);
+    fake.push_status(0, SessionActivityState::Idle);
+    wait_for_session_status_event(&cap, &spawned.id, SessionActivityState::Idle);
     let stale_token = loop {
         match mgr.reserve_delivery(&spawned.id).unwrap() {
             router::DeliveryReservation::Ready(token) => break token,

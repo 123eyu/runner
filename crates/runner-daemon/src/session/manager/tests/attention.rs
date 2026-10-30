@@ -22,11 +22,10 @@ fn normalized_status_snapshot_wait_gate_resolution_and_bridge_failure() {
         ..Default::default()
     };
     manager.publish_observation("status", observation.clone(), events.as_ref());
-    let token = match manager.reserve_delivery("status").unwrap() {
-        router::DeliveryReservation::Ready(token) => token,
-        other => panic!("{other:?}"),
-    };
-    manager.finish_delivery("status", token);
+    assert_eq!(
+        manager.reserve_delivery("status").unwrap(),
+        router::DeliveryReservation::Unavailable
+    );
     observation.interactions.push(HumanInteraction {
         id: "wait".into(),
         reason: WaitReason::Answer,
@@ -82,10 +81,10 @@ fn normalized_status_snapshot_wait_gate_resolution_and_bridge_failure() {
             SessionEvent::TestPending(false),
             crate::session::clock::state_now(),
         );
-    assert!(matches!(
-        manager.reserve_delivery("status").unwrap(),
-        router::DeliveryReservation::Ready(_)
-    ));
+    let router::DeliveryReservation::Ready(token) = manager.reserve_delivery("status").unwrap()
+    else {
+        panic!("idle must permit reservation");
+    };
     manager.finish_delivery("status", token);
     manager.status_bridge_failed("status", events.as_ref());
     let status = manager.status_snapshot()["status"].clone();
@@ -349,6 +348,11 @@ fn reserved_write_backpressure_does_not_block_status_observation() {
     let runtime = fake_runtime();
     let manager = mgr_with_fake(None, Arc::clone(&runtime));
     install_test_session_handle(&manager, "blocked-write");
+    manager.note_forwarder_transition(
+        "blocked-write",
+        SessionActivityState::Idle,
+        StatusSource::Forwarder,
+    );
     let token = match manager.reserve_delivery("blocked-write").unwrap() {
         router::DeliveryReservation::Ready(token) => token,
         other => panic!("{other:?}"),

@@ -159,13 +159,29 @@ impl StartupFixture {
         self.drive();
         *self.now.lock().unwrap() += Duration::from_secs(2);
         self.drive();
-        assert!(self
-            .fake
-            .inputs
+        assert!(
+            self.fake
+                .inputs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|input| matches!(input, FakeInput::Key { key, .. } if key == "Enter")),
+            "readiness={:?}",
+            self.manager.delivery_readiness("session")
+        );
+    }
+
+    fn typed(&self) {
+        self.manager
+            .session_state("session")
+            .unwrap()
             .lock()
             .unwrap()
-            .iter()
-            .any(|input| matches!(input, FakeInput::Key { key, .. } if key == "Enter")));
+            .model
+            .apply(
+                SessionEvent::TestInputAt(Some(Instant::now())),
+                crate::session::clock::state_now(),
+            );
     }
 }
 
@@ -237,6 +253,11 @@ fn router_holds_startup_deliveries_until_hook_turn_completion_and_resets_on_resu
                 &resume.stop_flag(),
                 now + Duration::from_secs(10),
             );
+            fixture.manager.note_forwarder_transition(
+                "session",
+                SessionActivityState::Idle,
+                StatusSource::Forwarder,
+            );
         } else {
             fixture.event(runtime, AgentEvent::StartupReady);
         }
@@ -288,6 +309,11 @@ fn router_output_fallback_requires_output_startup_grace_and_idle_including_bridg
         fixture
             .manager
             .release_settled_startup("session", &launch, now + Duration::from_secs(13));
+        fixture.manager.note_forwarder_transition(
+            "session",
+            SessionActivityState::Idle,
+            StatusSource::Forwarder,
+        );
         fixture.submitted();
     }
 }
@@ -385,6 +411,7 @@ fn completed_startup_keeps_a_human_draft_held_until_input_clears() {
     fixture.queue("task");
     let now = Instant::now();
     let _output = fixture.launch("codex", true, now);
+    fixture.typed();
     fixture.manager.report_input_state(
         "session",
         InputObservation {
@@ -616,16 +643,22 @@ fn resized_unsubmitted_input_waits_for_composer_output_after_a_successful_local_
     });
     advance(Duration::from_secs(120));
     let now = *fixture.now.lock().unwrap();
-    assert!(matches!(
+    assert_eq!(
         crate::session::clock::at(now, 0, || fixture.manager.delivery_readiness("session")),
-        DeliveryReadiness::Ready { .. }
-    ));
+        DeliveryReadiness::Unsent
+    );
     assert_eq!(fixture.fake.inputs.lock().unwrap().len(), 4);
     assert!(terminal
         .input_rows()
         .iter()
         .any(|row| row.contains("[inbox]")));
     emit(b"\x1b[2J\x1b[H> ");
+    fixture.event(
+        Runtime::ClaudeCode,
+        AgentEvent::TurnEnded {
+            outcome: TurnOutcome::Completed,
+        },
+    );
     crate::session::clock::at(now, 0, || fixture.drive());
     advance(Duration::from_millis(500));
     let inputs = fixture.fake.inputs.lock().unwrap();
@@ -787,6 +820,7 @@ fn rejected_native_probe_submits_hold_readiness_without_more_output() {
         });
         terminal.observe_input(&submit);
         emit("\x1b[2;1H\x1b[K› line one\x1b[3;1H  line two\x1b[4;3H".as_bytes());
+        fixture.typed();
         let (readiness, reservation) =
             crate::session::clock::at(Instant::now() + Duration::from_secs(120), 0, || {
                 (
@@ -859,6 +893,7 @@ fn codex_submitted_history_releases_readiness_but_a_later_collapsed_draft_holds(
                 ..
             } => {
                 terminal.observe_input(&input);
+                fixture.typed();
                 continue;
             }
             _ => panic!("unexpected event in the submitted history fixture"),
@@ -943,6 +978,15 @@ fn generated_submissions_accept_rotating_placeholders_and_deliver_later_backlogs
         ));
         assert_eq!(terminal.input_reset_guard(), revision);
         crate::session::clock::at(now, 0, || fixture.queue("second"));
+        assert!(
+            !matches!(fixture.fake.inputs.lock().unwrap().last(), Some(FakeInput::Bytes { bytes, .. }) if String::from_utf8_lossy(bytes).contains("2 new messages"))
+        );
+        fixture.event(
+            Runtime::ClaudeCode,
+            AgentEvent::TurnEnded {
+                outcome: TurnOutcome::Completed,
+            },
+        );
         advance(Duration::from_millis(300));
         let inputs = fixture.fake.inputs.lock().unwrap().clone();
         assert!(

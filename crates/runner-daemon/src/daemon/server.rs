@@ -477,6 +477,38 @@ struct ConnectionWindows {
 
 impl ConnectionWindows {
     fn dispatch(&self, request: Request) -> Option<Response> {
+        if matches!(
+            request,
+            Request::terminal_observe_input { .. } | Request::terminal_take_back { .. }
+        ) {
+            let _owners = self.owners.lock().unwrap();
+            if self.closed.is_cancelled() {
+                return None;
+            }
+            return Some(match request {
+                Request::terminal_observe_input { session_id, input } => {
+                    Response::terminal_observe_input(
+                        self.core
+                            .sessions
+                            .observe_terminal_input(&session_id, self.id, input)
+                            .map_err(|error| ClientError::msg(error.to_string())),
+                    )
+                }
+                Request::terminal_take_back { ref session_id, .. } => {
+                    if let Err(error) = self.core.sessions.take_terminal_input_control(
+                        session_id,
+                        self.id,
+                        &self.core.db,
+                    ) {
+                        return Some(Response::terminal_take_back(Err(ClientError::msg(
+                            error.to_string(),
+                        ))));
+                    }
+                    super::dispatch(&self.core, request)
+                }
+                _ => unreachable!(),
+            });
+        }
         if let Request::remote_follow { computer, follow } = request {
             return Some(Response::remote_follow(
                 super::block_on(async {
@@ -612,6 +644,7 @@ impl ConnectionWindows {
     fn remove(&self) {
         self.core.remote.owner_gone(self.id);
         let mut owners = self.owners.lock().unwrap();
+        self.core.sessions.clear_connection_compositions(self.id);
         owners.retain(|label, owner| {
             if *owner != self.id {
                 return true;
@@ -1058,6 +1091,68 @@ pub(crate) async fn remote_test_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connection_cleanup_and_desktop_takeback_release_owned_compositions() {
+        use runner_core::protocol::terminal::InputEvent;
+        let root = tempfile::tempdir().unwrap();
+        let core = crate::test_support::test_core_in(root.path().to_owned());
+        let events: Arc<dyn crate::session::manager::SessionEvents> =
+            Arc::new(core.session_events());
+        core.sessions
+            .prepare_unlisted_terminal("preedit", (80, 24), &core.db, &events)
+            .unwrap();
+        let owners = Arc::new(Mutex::default());
+        let connection = |id| ConnectionWindows {
+            core: core.clone(),
+            owners: owners.clone(),
+            id,
+            closed: CancellationToken::new(),
+        };
+        let first = connection(1);
+        let second = connection(2);
+        let model = core.sessions.terminal_model("preedit").unwrap();
+        let compose = || Request::terminal_observe_input {
+            session_id: "preedit".into(),
+            input: InputEvent::Composing { composing: true },
+        };
+        assert!(matches!(
+            first.dispatch(compose()),
+            Some(Response::terminal_observe_input(Ok(())))
+        ));
+        let revision = model.input_reset_guard();
+        second.remove();
+        assert_eq!(
+            model.input_reset_guard(),
+            revision,
+            "unrelated connection cleanup"
+        );
+        first.closed.cancel();
+        first.remove();
+        assert!(
+            model.input_reset_guard() > revision,
+            "disconnect must clear the preedit"
+        );
+        assert!(
+            first.dispatch(compose()).is_none(),
+            "a queued request cannot recreate an orphan"
+        );
+        second.dispatch(compose()).unwrap();
+        let revision = model.input_reset_guard();
+        connection(3)
+            .dispatch(Request::terminal_take_back {
+                session_id: "preedit".into(),
+                cols: 80,
+                rows: 24,
+            })
+            .unwrap();
+        assert!(
+            model.input_reset_guard() > revision,
+            "another desktop client's takeback clears preedit"
+        );
+        drop(model);
+        core.sessions.drain_terminal_workers();
+    }
 
     #[tokio::test]
     async fn desktop_transports_reject_stale_input_after_split_tab_takeover() {

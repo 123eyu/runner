@@ -19,6 +19,6 @@ session_status_rows=published
   busy@hook [running/working/hook detail="using_tools"]
 1100 status=running/working/hook
   busy@hook [running/working/hook]
-1200 quiescent=false result={"gate":"ready"}
-1300 quiescent=true delivery=["DeliveryFinished"]
+1200 result={"gate":"unavailable"}
+1300
 1400 status=running/working/hook unread_since=1767225601400 completion_armed=false result={"completion_consumed":true,"viewed":false}

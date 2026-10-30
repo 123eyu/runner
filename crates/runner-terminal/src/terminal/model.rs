@@ -628,7 +628,11 @@ mod delivery_tests {
         model.observe_input(&InputEvent::Key {
             kind: crate::mappings::InputKind::Navigate,
         });
-        let revision = model.input_reset_guard();
+        assert!(model
+            .input_tracker
+            .lock()
+            .unwrap()
+            .unsent_notice(&model.term.lock()));
         assert_eq!(model.with_unchanged_input(revision, &blind, || ()), None);
         let workers = model.take_workers();
         drop(model);

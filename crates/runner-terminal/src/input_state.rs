@@ -125,7 +125,9 @@ impl InputTracker {
                 }
                 InputKind::Edit | InputKind::Cancel => {
                     if let TrackerState::Drafting(composer) = &mut self.state {
-                        composer.submitted_form = None;
+                        if self.delivery_revision.is_none() {
+                            composer.submitted_form = None;
+                        }
                         // A redraw such as a Codex rollback can leave a transcript row with the
                         // prompt prefix at the tracked row; edits go to the live editor.
                         if let Some(row) = cursor_prompt_row(term, &composer.prefix) {
@@ -136,7 +138,20 @@ impl InputTracker {
                 InputKind::Navigate | InputKind::Submit => {}
             },
         }
-        self.emit_if_changed(now)
+        let observation = self.emit_if_changed(now);
+        if matches!(event, InputEvent::Composing { composing: true }) {
+            observation.or_else(|| {
+                let current = self.current_reported_state();
+                Some(InputObservation {
+                    state: current.state,
+                    since: self.public_since,
+                    composing: current.composing,
+                    composer_visible: current.composer_visible,
+                })
+            })
+        } else {
+            observation
+        }
     }
 
     pub fn track_delivery_input<T>(&mut self, text: &str, now: Instant, term: &Term<T>) {
@@ -147,7 +162,7 @@ impl InputTracker {
         self.observe_content(text, true, now, term);
     }
 
-    /// The composer row still reads as it did at the router's Enter, with no person input since.
+    /// The composer row still reads as it did at the router's Enter.
     pub fn unsent_notice<T>(&self, term: &Term<T>) -> bool {
         self.delivery_owned()
             && matches!(
@@ -160,7 +175,12 @@ impl InputTracker {
     }
 
     fn delivery_owned(&self) -> bool {
-        self.delivery_revision == Some(self.input_revision)
+        self.delivery_revision.is_some()
+            && matches!(
+                &self.state,
+                TrackerState::Drafting(composer) | TrackerState::Submitted(composer)
+                    if composer.submitted_form.as_ref() == Some(&composer.last_form)
+            )
     }
 
     pub fn track_delivery_submit<T>(&mut self, now: Instant, term: &Term<T>) {
@@ -310,7 +330,12 @@ impl InputTracker {
                 TrackerState::Reprobing { probe, composer }
             }
             TrackerState::Drafting(mut composer) => {
-                composer.submitted_form = None;
+                if self.delivery_revision.is_none() {
+                    composer.submitted_form = None;
+                }
+                TrackerState::Drafting(composer)
+            }
+            TrackerState::Submitted(composer) if self.delivery_revision.is_some() => {
                 TrackerState::Drafting(composer)
             }
             TrackerState::Submitted(composer) => TrackerState::Reprobing {
@@ -321,6 +346,9 @@ impl InputTracker {
     }
 
     fn submit<T>(&mut self, _now: Instant, term: &Term<T>, origin: SubmitOrigin) {
+        if origin == SubmitOrigin::Native && !self.delivery_owned() {
+            self.delivery_revision = None;
+        }
         let state = std::mem::replace(&mut self.state, TrackerState::Idle);
         match state {
             TrackerState::Probing(mut probe) => {
@@ -409,19 +437,16 @@ impl InputTracker {
             return TrackerState::Idle;
         }
 
-        if submitted {
-            let submitted_form = composer
-                .submitted_form
-                .as_ref()
-                .expect("submitted composer keeps its submitted form");
+        if let Some(submitted_form) = composer.submitted_form.as_ref() {
             if current == *submitted_form {
                 return TrackerState::Drafting(composer);
             }
-            return TrackerState::Idle;
-        }
-
-        if let Some(submitted_form) = composer.submitted_form.as_ref() {
-            if current == *submitted_form {
+            if self
+                .delivery_revision
+                .is_some_and(|revision| revision != self.input_revision)
+            {
+                composer.submitted_form = None;
+                composer.last_form = current;
                 return TrackerState::Drafting(composer);
             }
             return TrackerState::Idle;
@@ -1312,11 +1337,7 @@ mod tests {
                     .observe_output(start + Duration::from_millis(1), &term)
                     .unwrap()
                     .state,
-                if injected {
-                    InputState::Unsent
-                } else {
-                    InputState::Drafting
-                }
+                InputState::Drafting
             );
             if injected {
                 tracker.track_delivery_submit(start + Duration::from_millis(2), &term);
@@ -1705,14 +1726,16 @@ mod tests {
             if person {
                 continue;
             }
+            tracker.observe_input(
+                &InputEvent::Key {
+                    kind: InputKind::Content { text: "!".into() },
+                },
+                start + Duration::from_secs(26 * 60 + 1),
+                &term,
+            );
+            feed(&mut term, format!("\r\x1b[K› {text}!").as_bytes());
             let observation = tracker
-                .observe_input(
-                    &InputEvent::Key {
-                        kind: InputKind::Content { text: "!".into() },
-                    },
-                    start + Duration::from_secs(26 * 60 + 1),
-                    &term,
-                )
+                .observe_output(start + Duration::from_secs(26 * 60 + 2), &term)
                 .unwrap();
             assert_eq!(observation.state, InputState::Drafting);
             assert!(!tracker.unsent_notice(&term));
@@ -2058,6 +2081,63 @@ mod tests {
             )
             .unwrap();
         assert_eq!(idle.state, InputState::Idle);
+    }
+
+    #[test]
+    fn every_preedit_update_reports_activity_even_when_the_state_is_unchanged() {
+        let start = Instant::now();
+        let term = new_term(30, 3);
+        let mut tracker = InputTracker::new(start);
+        tracker.initial_observation(start);
+        for seconds in [600, 601] {
+            let observation = tracker
+                .observe_input(
+                    &InputEvent::Composing { composing: true },
+                    start + Duration::from_secs(seconds),
+                    &term,
+                )
+                .unwrap();
+            assert!(observation.composing);
+            assert_eq!(observation.state, InputState::Drafting);
+        }
+    }
+
+    #[test]
+    fn person_keys_keep_notice_ownership_until_the_composer_text_changes() {
+        for kind in [
+            InputKind::Navigate,
+            InputKind::Edit,
+            InputKind::Cancel,
+            InputKind::Submit,
+        ] {
+            let start = Instant::now();
+            let mut term = new_term(80, 4);
+            feed(&mut term, "\x1b[2;1H› Ask Codex".as_bytes());
+            let mut tracker = InputTracker::new(start);
+            tracker.initial_observation(start);
+            tracker.track_delivery_input("[inbox] task", start, &term);
+            feed(&mut term, "\r\x1b[K› [inbox] task".as_bytes());
+            tracker.observe_output(start, &term);
+            tracker.track_delivery_submit(start, &term);
+            tracker.observe_output(start, &term);
+            let revision = tracker.reset_guard();
+            tracker.observe_input(&InputEvent::Key { kind }, start, &term);
+            feed(&mut term, b"\x1b[D");
+            tracker.observe_output(start + Duration::from_secs(11 * 60), &term);
+            assert_eq!(tracker.current_reported_state().state, InputState::Unsent);
+            assert!(tracker.unsent_notice(&term));
+            assert_ne!(tracker.reset_guard(), revision);
+            assert!(tracker.reset_if_unchanged(revision, start).is_none());
+            feed(&mut term, "\r\x1b[K› recalled prompt".as_bytes());
+            assert_eq!(
+                tracker
+                    .observe_output(start + Duration::from_secs(11 * 60 + 1), &term)
+                    .unwrap()
+                    .state,
+                InputState::Drafting
+            );
+            assert!(!tracker.unsent_notice(&term));
+        }
     }
 
     #[test]

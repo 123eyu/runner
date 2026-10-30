@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions as _, Scroll};
@@ -372,6 +372,7 @@ pub struct TerminalMirror {
     metadata: Mutex<TerminalMetadata>,
     control: Mutex<TerminalControl>,
     composition_clear_pending: Mutex<bool>,
+    composition_clear_retry: AtomicBool,
     palette: Mutex<PaletteState>,
     waker: Arc<dyn Fn() + Send + Sync>,
     viewers: Arc<AtomicUsize>,
@@ -570,6 +571,7 @@ impl TerminalMirror {
             metadata: Mutex::default(),
             control: Mutex::default(),
             composition_clear_pending: Mutex::new(false),
+            composition_clear_retry: AtomicBool::new(false),
             palette: Mutex::new(PaletteState::new(palette::RUNNER)),
             waker,
             viewers,
@@ -605,7 +607,7 @@ impl TerminalMirror {
         Ok(mirror)
     }
 
-    fn restore(&self, attachment: &TerminalAttachment) {
+    fn restore(self: &Arc<Self>, attachment: &TerminalAttachment) {
         let mut sequence = self.sequence.lock().unwrap();
         let mut parser = self.parser.lock().unwrap();
         let mut term = self.term.lock();
@@ -805,20 +807,54 @@ impl TerminalMirror {
         });
         self.write_user_bytes(text.as_bytes())
     }
-    pub fn set_composing(&self, composing: bool) {
+    pub fn set_composing(self: &Arc<Self>, composing: bool) {
         let mut pending = self.composition_clear_pending.lock().unwrap();
         if self.control().desktop() {
-            if self
+            let sent = self
                 .client
                 .terminal_observe_input(&self.session_id, InputEvent::Composing { composing })
-                .is_ok()
-            {
-                *pending = false;
-            }
+                .is_ok();
+            *pending = !composing && !sent;
         } else if !composing {
             // Clear the daemon's preedit after handover without sending input while covered.
             *pending = true;
         }
+        drop(pending);
+        self.retry_composition_clear();
+    }
+
+    fn retry_composition_clear(self: &Arc<Self>) {
+        let pending = self.composition_clear_pending.lock().unwrap();
+        if !*pending
+            || !self.control().desktop()
+            || self.composition_clear_retry.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        drop(pending);
+        let weak = Arc::downgrade(self);
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(100));
+            let Some(mirror) = weak.upgrade() else {
+                return;
+            };
+            let mut pending = mirror.composition_clear_pending.lock().unwrap();
+            if *pending && mirror.control().desktop() {
+                *pending = mirror
+                    .client
+                    .terminal_observe_input(
+                        &mirror.session_id,
+                        InputEvent::Composing { composing: false },
+                    )
+                    .is_err();
+            }
+            if !*pending || !mirror.control().desktop() {
+                mirror
+                    .composition_clear_retry
+                    .store(false, Ordering::Release);
+                return;
+            }
+        });
     }
     pub fn paste(&self, text: &str) -> std::result::Result<(), ClientError> {
         let bracketed = self
@@ -852,7 +888,7 @@ impl TerminalMirror {
             .client
             .terminal_reset_input_state(&self.session_id, guard);
     }
-    fn apply_controller(&self, controller: TerminalController) -> bool {
+    fn apply_controller(self: &Arc<Self>, controller: TerminalController) -> bool {
         let changed = {
             let mut control = self.control.lock().unwrap();
             let changed = control.controller != controller;
@@ -872,6 +908,8 @@ impl TerminalMirror {
         {
             *pending = false;
         }
+        drop(pending);
+        self.retry_composition_clear();
         changed
     }
 

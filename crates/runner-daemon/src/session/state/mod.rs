@@ -12,6 +12,7 @@ use super::status::{
 pub const CTRL_C_INTERRUPT: u8 = 1;
 pub const ESCAPE_INTERRUPT: u8 = 2;
 const RECENT_LOCAL_INPUT_WINDOW: Duration = Duration::from_secs(2);
+const OBSERVED_DRAFT_HOLD_CAP: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StatusSource {
@@ -324,9 +325,15 @@ impl SessionModel {
         use crate::router::DeliveryReservation;
         match self.native_input.or(self.observed_input) {
             Some(observed) if observed.state == InputState::Drafting => {
-                return Some(DeliveryReservation::Drafting {
-                    composer_visible: observed.composer_visible,
-                })
+                if self.native_input.is_some()
+                    || self.last_local_input_at.is_some_and(|last| {
+                        now.saturating_duration_since(last) < OBSERVED_DRAFT_HOLD_CAP
+                    })
+                {
+                    return Some(DeliveryReservation::Drafting {
+                        composer_visible: observed.composer_visible,
+                    });
+                }
             }
             Some(observed) if observed.state == InputState::Unsent => {
                 return Some(DeliveryReservation::Unsent)
@@ -626,6 +633,9 @@ impl SessionModel {
                 if effects.input_cleared {
                     self.last_local_input_at = None;
                 }
+                if observation.composing {
+                    self.last_local_input_at = Some(now.monotonic);
+                }
                 self.observed_input = Some(ObservedInput {
                     state: observation.state,
                     since: observation.since,
@@ -777,7 +787,9 @@ impl SessionModel {
                 self.local_input_pending = false;
                 self.last_local_input_at = self
                     .observed_input
-                    .is_some_and(|observed| observed.state == InputState::Idle)
+                    .is_some_and(|observed| {
+                        observed.state == InputState::Idle || self.native_input.is_none()
+                    })
                     .then_some(now);
                 true
             }

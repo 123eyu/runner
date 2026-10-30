@@ -22,6 +22,7 @@ pub(crate) struct RecordingHost {
     processed: Mutex<Option<mpsc::Sender<()>>>,
     input_tracker: Mutex<Option<runner_terminal::input_state::InputTracker>>,
     input_observation: Mutex<Option<runner_terminal::input_state::InputObservation>>,
+    composition_clear_failures: Mutex<usize>,
 }
 struct Frames(mpsc::Receiver<TerminalFrame>);
 impl TerminalSubscription for Frames {
@@ -43,6 +44,16 @@ impl Transport for RecordingHost {
             }
             Request::terminal_take_back { .. } => Response::terminal_take_back(Ok(())),
             Request::terminal_observe_input { input, .. } => {
+                if matches!(
+                    input,
+                    runner_core::protocol::terminal::InputEvent::Composing { composing: false }
+                ) {
+                    let mut failures = self.composition_clear_failures.lock().unwrap();
+                    if *failures > 0 {
+                        *failures -= 1;
+                        return Err(ClientError::msg("transient composition clear failure"));
+                    }
+                }
                 if let Some(tracker) = self.input_tracker.lock().unwrap().as_mut() {
                     if let Some(observation) = tracker.observe_input(
                         input,
@@ -710,5 +721,47 @@ fn composition_started_before_takeover_clears_authoritative_drafting_on_desktop_
             host.input_observation.lock().unwrap().unwrap().state,
             InputState::Idle
         );
+    }
+}
+
+#[test]
+fn failed_composition_clear_retries_without_output_and_cannot_clear_a_new_preedit() {
+    use runner_terminal::input_state::{InputState, InputTracker};
+    for restart in [false, true] {
+        let (host, terminal, _tx, _ack) = mirror(TerminalController::Desktop);
+        let now = std::time::Instant::now();
+        let mut tracker = InputTracker::new(now);
+        *host.input_observation.lock().unwrap() = Some(tracker.initial_observation(now));
+        *host.input_tracker.lock().unwrap() = Some(tracker);
+        let mut input = TerminalInput::new(terminal.clone());
+        input.replace_and_mark_text(None, "拼", None);
+        *host.composition_clear_failures.lock().unwrap() = 1;
+        input.cancel_composition();
+        assert!(host.input_observation.lock().unwrap().unwrap().composing);
+        if restart {
+            input.replace_and_mark_text(None, "音", None);
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !restart && host.input_observation.lock().unwrap().unwrap().composing {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "failed clear was never retried"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if restart {
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let observation = host.input_observation.lock().unwrap().unwrap();
+        assert_eq!(observation.composing, restart);
+        assert_eq!(
+            observation.state,
+            if restart {
+                InputState::Drafting
+            } else {
+                InputState::Idle
+            }
+        );
+        assert!(host.inputs.lock().unwrap().is_empty());
     }
 }

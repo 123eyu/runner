@@ -32,6 +32,6 @@ session_status_rows=published
 8300 status=running/working/hook unread_since=1767225607300 completion_armed=true
   busy@hook [running/working/hook unread_since=1767225607300]
 8400
-8500 quiescent=false result={"gate":"ready"}
-8600 quiescent=true delivery=["DeliveryFinished"]
+8500 result={"gate":"unavailable"}
+8600
 8700 status=running/working/hook

@@ -481,7 +481,7 @@ impl Dispatcher {
                 blocked_reason(readiness),
             );
             match readiness {
-                DeliveryReadiness::Ready { .. } => {
+                DeliveryReadiness::Ready { idle: true } => {
                     match router.injector.reserve_delivery(&subscriber.session_id) {
                         Ok(DeliveryReservation::Ready(token)) => {
                             let unread = router
