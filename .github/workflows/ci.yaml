@@ -31,7 +31,9 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Install nextest
-        run: curl -LsSf https://get.nexte.st/0.9.148/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+        run: |
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+          curl -LsSf https://get.nexte.st/0.9.148/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 
       - name: Remove other Rust toolchains
         shell: bash
