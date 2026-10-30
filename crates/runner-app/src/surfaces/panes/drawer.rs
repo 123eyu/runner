@@ -1,5 +1,7 @@
 use super::*;
 
+pub(crate) const TERMINAL_DRAWER_HEADER_HEIGHT: f32 = 40.;
+
 pub(crate) type TerminalDrawerSessionCallback = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
 pub(crate) type TerminalDrawerActionCallback = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -93,15 +95,13 @@ pub(crate) fn render_terminal_drawer_strip(
     let hide_id = SharedString::from(format!("{id_prefix}-hide-terminal-drawer"));
     div()
         .flex_none()
-        .h(rems(32. / 16.))
+        .h(rems(TERMINAL_DRAWER_HEADER_HEIGHT / 16.))
         .w_full()
         .pl(rems(10. / 16.))
-        .pr(rems(8. / 16.))
+        .pr(rems(10. / 16.))
         .flex()
         .items_center()
         .gap(rems(6. / 16.))
-        .border_b_1()
-        .border_color(theme::border())
         .map(|element| {
             #[cfg(test)]
             let element = crate::theme_snapshot::record_fill("DRAWER_HEADER", element);

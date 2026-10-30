@@ -177,7 +177,7 @@ impl NativeRoot {
             .flex()
             .children(sidebar)
             .child(
-                (if self.front_page_is_chat() {
+                (if self.front_page_has_islands() {
                     runner_app::ui::work_card::island_area(self.front_page_sidebar_collapsed())
                 } else {
                     runner_app::ui::work_card::work_card(self.front_page_sidebar_collapsed())
@@ -560,7 +560,13 @@ mod tests {
                 card.left(),
                 chrome.left()
                     + px(store.read_with(&visual, |store, _| store.settings.sidebar_width))
-                    + px(if path.starts_with("/chats/") { 6. } else { 0. }),
+                    + px(
+                        if path.starts_with("/chats/") || path.starts_with("/missions/") {
+                            6.
+                        } else {
+                            0.
+                        }
+                    ),
                 "{path}"
             );
             for selector in if path.starts_with("/chats/") {
@@ -575,7 +581,11 @@ mod tests {
                     child.left() >= card.left() && child.right() <= card.right(),
                     "{path}: {selector} {child:?} in {card:?}"
                 );
-                let inset = if path.starts_with("/chats/") { 0. } else { 1. };
+                let inset = if path.starts_with("/chats/") || *selector == "MISSION_RAIL" {
+                    0.
+                } else {
+                    1.
+                };
                 assert_eq!(child.top(), card.top() + px(inset), "{path}: {selector}");
                 assert!(child.bottom() <= card.bottom(), "{path}: {selector}");
                 if matches!(*selector, "CHAT_SIDE_PANEL" | "MISSION_RAIL") {

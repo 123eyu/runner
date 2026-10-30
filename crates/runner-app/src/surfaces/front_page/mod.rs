@@ -73,6 +73,14 @@ impl crate::NativeRoot {
 }
 
 impl crate::NativeRoot {
+    pub(crate) fn front_page_has_islands(&self) -> bool {
+        self.remote_client.is_active()
+            || matches!(
+                self.route,
+                crate::surfaces::AppRoute::Chat | crate::surfaces::AppRoute::Mission(_)
+            )
+    }
+
     pub(crate) fn front_page_is_chat(&self) -> bool {
         if self.remote_client.is_active() {
             !matches!(

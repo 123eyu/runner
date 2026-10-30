@@ -451,7 +451,7 @@ impl NativeRoot {
 
     pub(crate) fn render_sidebar_resize_handle(&self, divider: f32, cx: &App) -> AnyElement {
         let zoom = self.settings(cx).app_zoom;
-        let left = if self.front_page_is_chat() && !self.front_page_sidebar_collapsed() {
+        let left = if self.front_page_has_islands() && !self.front_page_sidebar_collapsed() {
             divider
         } else {
             divider - resize_strip_inset(zoom)

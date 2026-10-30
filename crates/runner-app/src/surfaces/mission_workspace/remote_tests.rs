@@ -61,6 +61,180 @@ fn entry(id: &str, kind: serde_json::Value) -> FeedEntry {
 }
 
 #[test]
+fn mission_drawer_island_stacks_below_mission_with_full_height_rail() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let (_temp, mut cx, window, _, fake) = setup();
+    let workspace = workspace(window, &cx);
+    let mut data = overview();
+    let mut shell = data.sessions["member"].clone();
+    shell.kind = runner_core::companion::SessionKind::Shell;
+    shell.runtime = None;
+    data.sessions.insert("shell".into(), shell);
+    data.missions[0].shells = vec!["shell".into()];
+    fake.set_overview(data);
+    cx.run_until_parked();
+    workspace.update(&mut cx, |workspace, cx| {
+        workspace.layout.drawer.set_open(true);
+        cx.notify();
+    });
+    let mut visual = VisualTestContext::from_window(window.into(), &cx);
+    visual.simulate_resize(gpui::size(px(1600.), px(1000.)));
+    for zoom in [1., 1.3] {
+        for collapsed in [false, true] {
+            for rail_open in [true, false] {
+                window
+                    .update(&mut visual, |root, window, cx| {
+                        root.set_zoom(zoom, window, cx);
+                        root.set_sidebar_collapsed(collapsed, false, cx);
+                        root.sidebar_visibility = SidebarVisibilityTransition::new(!collapsed);
+                        workspace.update(cx, |workspace, cx| {
+                            workspace.update_app_settings(cx, false, |settings| {
+                                settings.mission_rail_open = rail_open;
+                                true
+                            });
+                            workspace.rail_visibility = SidebarVisibilityTransition::new(rail_open);
+                            cx.notify();
+                        });
+                        cx.notify();
+                    })
+                    .unwrap();
+                visual.run_until_parked();
+                let area = visual.debug_bounds("APP_CONTENT_COLUMN").unwrap();
+                let mission = visual.debug_bounds("MISSION_ISLAND").unwrap();
+                let drawer = visual.debug_bounds("MISSION_TERMINAL_DRAWER").unwrap();
+                assert_eq!(mission.left(), area.left());
+                assert_eq!(mission.top(), area.top());
+                let drawer_island = visual.debug_bounds("MISSION_DRAWER_ISLAND").unwrap();
+                let row_gutter = visual.debug_bounds("MISSION_DRAWER_GUTTER").unwrap();
+                let drawer_header = visual.debug_bounds("DRAWER_HEADER").unwrap();
+                assert_eq!(drawer_island.bottom(), area.bottom());
+                assert!((drawer_island.top() - mission.bottom() - px(6. * zoom)).abs() < px(0.5));
+                assert_eq!(row_gutter.top(), mission.bottom());
+                assert_eq!(row_gutter.bottom(), drawer_island.top());
+                assert!((drawer_island.size.height - px(280. * zoom)).abs() < px(0.5));
+                assert!((drawer_header.size.height - px(40. * zoom)).abs() < px(0.5));
+                assert!(
+                    drawer.left() > drawer_island.left() && drawer.right() < drawer_island.right()
+                );
+                assert!(drawer.bottom() < drawer_island.bottom());
+                for fraction in [0.01, 0.5, 0.99] {
+                    assert!(row_gutter.contains(&gpui::point(
+                        row_gutter.center().x,
+                        row_gutter.top() + row_gutter.size.height * fraction
+                    )));
+                }
+                visual.update(|window, cx| {
+                    workspace.update(cx, |workspace, cx| workspace.drawer_focus.focus(window, cx))
+                });
+                visual.run_until_parked();
+                let focus_border = theme::with_alpha(
+                    theme::text(),
+                    if theme::active_variant().is_light() {
+                        0.22
+                    } else {
+                        0.2
+                    },
+                );
+                crate::theme_snapshot::assert_border(
+                    &mut visual,
+                    "MISSION_DRAWER_ISLAND",
+                    focus_border,
+                );
+                crate::theme_snapshot::assert_border(
+                    &mut visual,
+                    "MISSION_ISLAND",
+                    theme::border(),
+                );
+                visual.update(|window, cx| {
+                    workspace.update(cx, |workspace, cx| workspace.root_focus.focus(window, cx))
+                });
+                visual.run_until_parked();
+                crate::theme_snapshot::assert_border(&mut visual, "MISSION_ISLAND", focus_border);
+                crate::theme_snapshot::assert_border(
+                    &mut visual,
+                    "MISSION_DRAWER_ISLAND",
+                    theme::border(),
+                );
+                if collapsed {
+                    assert!((area.left() - px(8. * zoom)).abs() < px(0.5));
+                } else {
+                    let sidebar = visual.debug_bounds("APP_SIDEBAR").unwrap();
+                    let gutter = visual.debug_bounds("SIDEBAR_RESIZE_GUTTER").unwrap();
+                    assert!((area.left() - sidebar.right() - px(6. * zoom)).abs() < px(0.5));
+                    assert_eq!(
+                        (gutter.left(), gutter.right()),
+                        (sidebar.right(), area.left())
+                    );
+                }
+                if rail_open {
+                    let rail = visual.debug_bounds("MISSION_RAIL").unwrap();
+                    let gutter = visual.debug_bounds("MISSION_RAIL_GUTTER").unwrap();
+                    assert!((rail.left() - mission.right() - px(6. * zoom)).abs() < px(0.5));
+                    assert_eq!(rail.right(), area.right());
+                    assert_eq!((rail.top(), rail.bottom()), (area.top(), area.bottom()));
+                    assert_eq!(gutter.left(), mission.right());
+                    assert_eq!(gutter.right(), rail.left());
+                    for fraction in [0.01, 0.5, 0.99] {
+                        assert!(gutter.contains(&gpui::point(
+                            gutter.left() + gutter.size.width * fraction,
+                            gutter.center().y,
+                        )));
+                    }
+                } else {
+                    assert_eq!(mission.right(), area.right());
+                    assert!(visual.debug_bounds("MISSION_RAIL_GUTTER").is_none());
+                }
+            }
+        }
+        for (height, expected_rows) in if zoom == 1. {
+            [(120., 4), (280., 11), (600., 29)]
+        } else {
+            [(120., 4), (280., 11), (600., 28)]
+        } {
+            workspace.update(&mut visual, |workspace, cx| {
+                workspace.layout.drawer.set_height(height);
+                cx.notify();
+            });
+            visual.run_until_parked();
+            let island = visual.debug_bounds("MISSION_DRAWER_ISLAND").unwrap();
+            assert!((island.size.height - px(height * zoom)).abs() < px(0.5));
+            let rows = visual.update(|window, cx| {
+                workspace
+                    .read(cx)
+                    .estimated_mission_drawer_terminal_size_for_height(height, window, cx)
+                    .1
+            });
+            assert_eq!(rows, expected_rows, "drawer height={height}, zoom={zoom}");
+        }
+        workspace.update(&mut visual, |workspace, cx| {
+            workspace.layout.drawer.set_height(280.);
+            cx.notify();
+        });
+    }
+    workspace.update(&mut visual, |workspace, cx| {
+        workspace.layout.drawer.set_open(false);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("MISSION_DRAWER_ISLAND").is_none());
+    let area = visual.debug_bounds("APP_CONTENT_COLUMN").unwrap();
+    assert_eq!(
+        visual.debug_bounds("MISSION_ISLAND").unwrap().bottom(),
+        area.bottom()
+    );
+    workspace.update(&mut visual, |workspace, cx| {
+        workspace.layout.drawer.set_open(true);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("MISSION_DRAWER_ISLAND").is_some());
+    assert_eq!(
+        workspace.read_with(&visual, |workspace, _| workspace.layout.drawer.height()),
+        280.
+    );
+}
+
+#[test]
 fn remote_mission_uses_shared_sections_without_local_rows_or_private_metadata() {
     let _theme = crate::theme_snapshot::ThemeGuard::new();
     let (_temp, mut cx, window, store, fake) = setup();

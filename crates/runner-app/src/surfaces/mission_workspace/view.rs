@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, rems, AnyElement, App, CursorStyle, DragMoveEvent, FontWeight, MouseButton,
-    SharedString, Window, WindowControlArea,
+    div, px, rems, AnyElement, App, DragMoveEvent, FontWeight, MouseButton, SharedString, Window,
+    WindowControlArea,
 };
+use runner_app::ui::resize::{resize_strip, ResizeAxis};
 use runner_app::ui::{
     Button, ButtonSize, IconButton, SessionControl, SessionControlKind, SessionControlVariant,
     SessionOverlay, SessionOverlayKind,
@@ -99,6 +100,8 @@ impl MissionWorkspace {
             cx,
         );
         let notices = self.render_mission_notices(cx);
+        let covered_top = Rc::new(Cell::new(None));
+        let column_top = Rc::new(Cell::new(None));
         let body = if self.loading {
             div()
                 .relative()
@@ -112,8 +115,26 @@ impl MissionWorkspace {
         } else if self.mission_view().is_none() {
             self.render_mission_load_error(cx)
         } else {
-            self.render_loaded_mission(window, cx)
+            self.render_loaded_mission(covered_top.clone(), window, cx)
         };
+        let control_ids = self.control_session_ids(cx);
+        let group_control = crate::terminal::control::mission_covered(
+            control_ids.iter().map(|id| self.attached.get(id)),
+        );
+        let drawer_visible = !self.loading
+            && self.mission_view().is_some()
+            && mission_drawer_available(self.archived(), self.secondary && !group_control)
+            && self.layout.drawer.open();
+        let drawer_focused = drawer_visible && self.drawer_focused(window, cx);
+        let drawer = drawer_visible.then(|| self.render_mission_terminal_drawer(cx));
+        let focus_border = theme::with_alpha(
+            theme::text(),
+            if theme::active_variant().is_light() {
+                0.22
+            } else {
+                0.2
+            },
+        );
         let banner = self
             .shell
             .upgrade()
@@ -150,6 +171,146 @@ impl MissionWorkspace {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| this.finish_terminal_drawer_resize(cx)),
             );
+        let center = div()
+            .debug_selector(|| "MISSION_ISLAND".into())
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .rounded(rems(12. / 16.))
+            .border_1()
+            .border_color(if drawer_focused {
+                theme::border()
+            } else {
+                focus_border
+            })
+            .bg(theme::bg())
+            .map(|element| {
+                #[cfg(test)]
+                let element = crate::theme_snapshot::record_border("MISSION_ISLAND", element);
+                element
+            })
+            .overflow_hidden()
+            .child(center);
+        let center = div()
+            .debug_selector(|| "MISSION_COLUMN".into())
+            .relative()
+            .flex_1()
+            .min_w(px(0.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .child({
+                let column_top = column_top.clone();
+                gpui::canvas(
+                    move |bounds, _, _| column_top.set(Some(bounds.top())),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+            })
+            .child(center)
+            .children(drawer.map(|drawer| {
+                div()
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        resize_strip(
+                            "mission-drawer-gutter",
+                            ResizeAxis::Rows,
+                            false,
+                            self.settings(cx).app_zoom,
+                            None,
+                            false,
+                        )
+                        .id("mission-terminal-drawer-resize")
+                        .debug_selector(|| "MISSION_DRAWER_GUTTER".into())
+                        .on_drag(
+                            DrawerResizeDrag,
+                            |drag: &DrawerResizeDrag, _, _, cx: &mut App| cx.new(|_| drag.clone()),
+                        ),
+                    )
+                    .child({
+                        let drawer = div()
+                            .debug_selector(|| "MISSION_DRAWER_ISLAND".into())
+                            .relative()
+                            .h(rems(self.layout.drawer.height() / 16.))
+                            .min_h(rems(MIN_DRAWER_HEIGHT / 16.))
+                            .max_h(rems(MAX_DRAWER_HEIGHT / 16.))
+                            .flex_none()
+                            .flex()
+                            .flex_col()
+                            .rounded(rems(12. / 16.))
+                            .border_1()
+                            .border_color(if drawer_focused {
+                                focus_border
+                            } else {
+                                theme::border()
+                            })
+                            .bg(theme::bg())
+                            .map(|element| {
+                                #[cfg(test)]
+                                let element = crate::theme_snapshot::record_border(
+                                    "MISSION_DRAWER_ISLAND",
+                                    element,
+                                );
+                                element
+                            })
+                            .pb(rems(8. / 16.))
+                            .overflow_hidden()
+                            .child(drawer);
+                        if group_control {
+                            crate::terminal::control::cover(
+                                drawer,
+                                "take-back-mission-drawer",
+                                &control_ids
+                                    .iter()
+                                    .filter_map(|id| self.attached.get(id))
+                                    .collect::<Vec<_>>(),
+                                crate::terminal::control::GroupKind::MissionDrawer,
+                            )
+                        } else {
+                            drawer
+                        }
+                    })
+            }))
+            .on_drag_move::<DrawerResizeDrag>(cx.listener(
+                |this, event: &DragMoveEvent<DrawerResizeDrag>, _, cx| {
+                    this.resize_terminal_drawer(event, cx);
+                },
+            ))
+            .on_drop(cx.listener(|this, _: &DrawerResizeDrag, _, cx| {
+                this.finish_terminal_drawer_resize(cx)
+            }));
+        let center = center.children(group_control.then(|| {
+            let card = crate::terminal::control::mission_card(
+                &control_ids
+                    .iter()
+                    .filter_map(|id| self.attached.get(id))
+                    .collect::<Vec<_>>(),
+            );
+            gpui::container_query(move |_, _, _| {
+                let inset = covered_top
+                    .get()
+                    .zip(column_top.get())
+                    .map_or(px(0.), |(body, column)| (body - column).max(px(0.)));
+                div().size_full().pt(inset).flex().flex_col().child(
+                    div()
+                        .flex_1()
+                        .min_h(px(0.))
+                        .p_6()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .children(card),
+                )
+            })
+            .absolute()
+            .inset_0()
+        }));
         let rail_open = self.settings(cx).mission_rail_open;
         let (rail_visibility, rail_animating) = self.rail_visibility.animate_to(
             if rail_open { 1. } else { 0. },
@@ -171,13 +332,39 @@ impl MissionWorkspace {
                 workspace.render_mission_rail(
                     rail_visibility,
                     rail_open || rail_animating,
-                    rail_open && !rail_animating,
                     window,
                     cx,
                 )
             },
             cx,
         );
+        let rail_resize = (rail_open || rail_animating).then(|| {
+            let zoom = self.settings(cx).app_zoom;
+            resize_strip(
+                "mission-rail-resize",
+                ResizeAxis::Columns,
+                false,
+                zoom,
+                None,
+                false,
+            )
+            .id("mission-rail-resize")
+            .debug_selector(|| "MISSION_RAIL_GUTTER".into())
+            .map(|handle| {
+                #[cfg(any(windows, target_os = "linux"))]
+                let handle = handle.occlude();
+                handle
+            })
+            .absolute()
+            .top_0()
+            .right(px(self.settings(cx).mission_rail_width
+                * rail_visibility
+                * zoom))
+            .on_drag(
+                MissionRailResizeDrag,
+                |drag: &MissionRailResizeDrag, _, _, cx: &mut App| cx.new(|_| drag.clone()),
+            )
+        });
         div()
             .relative()
             .key_context("Mission")
@@ -187,7 +374,11 @@ impl MissionWorkspace {
             .h_full()
             .flex()
             .child(center)
+            .children(
+                (rail_open || rail_animating).then(|| div().w(rems(6. / 16.)).h_full().flex_none()),
+            )
             .child(rail)
+            .children(rail_resize)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -401,9 +592,7 @@ impl MissionWorkspace {
         .trailing_actions(drawer_action.into_iter().chain(rail_action))
         .into_div()
         .rounded_tl(rems(11. / 16.))
-        .when(!self.settings(cx).mission_rail_open, |header| {
-            header.rounded_tr(rems(11. / 16.))
-        })
+        .rounded_tr(rems(11. / 16.))
         .debug_selector(|| "MISSION_HEADER_ROW".into())
         .map(|element| {
             #[cfg(test)]
@@ -524,7 +713,7 @@ impl MissionWorkspace {
             "mission-drawer-strip",
             gpui::StyleRefinement::default()
                 .w_full()
-                .h(rems(32. / 16.))
+                .h(rems(super::panes::TERMINAL_DRAWER_HEADER_HEIGHT / 16.))
                 .flex_none(),
             |workspace, _, cx| workspace.render_mission_drawer_strip(cx),
             cx,
@@ -547,6 +736,7 @@ impl MissionWorkspace {
             });
         div()
             .id("mission-terminal-drawer")
+            .debug_selector(|| "MISSION_TERMINAL_DRAWER".into())
             .track_focus(&self.drawer_focus)
             .flex_1()
             .min_h(px(0.))
@@ -822,7 +1012,12 @@ impl MissionWorkspace {
         )
     }
 
-    fn render_loaded_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_loaded_mission(
+        &mut self,
+        covered_top: Rc<Cell<Option<Pixels>>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if !self.presentation.is_remote()
             && self.members().iter().any(|session| {
                 self.app_store
@@ -894,7 +1089,15 @@ impl MissionWorkspace {
             .min_h(px(0.))
             .flex_1()
             .overflow_hidden()
-            .child(pane);
+            .child(pane)
+            .child(
+                gpui::canvas(
+                    move |bounds, _, _| covered_top.set(Some(bounds.top())),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            );
         if self.archiving {
             panes = panes.child(SessionOverlay::transition(
                 "mission-archiving",
@@ -912,67 +1115,14 @@ impl MissionWorkspace {
         if self.secondary && !self.duplicate_dismissed && !group_control {
             panes = panes.child(self.render_duplicate_mission_overlay(cx));
         }
-        let drawer = (mission_drawer_available(self.archived(), self.secondary && !group_control)
-            && self.layout.drawer.open())
-        .then(|| self.render_mission_terminal_drawer(cx));
-        let drawer_height = self.layout.drawer.height();
-        let drawer_resizing = self.drawer_resizing;
         let surface = div()
             .relative()
             .min_h(px(0.))
             .flex_1()
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .relative()
-                    .min_h(px(0.))
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .child(tabs)
-                    .child(panes),
-            )
-            .children(drawer.map(|drawer| {
-                div()
-                    .flex_none()
-                    .h(rems(drawer_height / 16.))
-                    .min_h(rems(MIN_DRAWER_HEIGHT / 16.))
-                    .max_h(rems(MAX_DRAWER_HEIGHT / 16.))
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .id("mission-terminal-drawer-resize")
-                            .flex_none()
-                            .h(rems(5. / 16.))
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .cursor(CursorStyle::ResizeUpDown)
-                            .child(
-                                div()
-                                    .h(rems(if drawer_resizing { 2. / 16. } else { 1. / 16. }))
-                                    .w_full()
-                                    .bg(theme::border_strong()),
-                            )
-                            .on_drag(
-                                DrawerResizeDrag,
-                                |drag: &DrawerResizeDrag, _, _, cx: &mut App| {
-                                    cx.new(|_| drag.clone())
-                                },
-                            ),
-                    )
-                    .child(drawer)
-            }))
-            .on_drag_move::<DrawerResizeDrag>(cx.listener(
-                |this, event: &DragMoveEvent<DrawerResizeDrag>, _, cx| {
-                    this.resize_terminal_drawer(event, cx);
-                },
-            ))
-            .on_drop(cx.listener(|this, _: &DrawerResizeDrag, _, cx| {
-                this.finish_terminal_drawer_resize(cx);
-            }));
+            .child(tabs)
+            .child(panes);
         let surface = if group_control {
             crate::terminal::control::cover(
                 surface,
@@ -981,7 +1131,7 @@ impl MissionWorkspace {
                     .iter()
                     .filter_map(|id| self.attached.get(id))
                     .collect::<Vec<_>>(),
-                crate::terminal::control::GroupKind::Mission(WORKSPACE_TABS_HEIGHT),
+                crate::terminal::control::GroupKind::MissionBody(WORKSPACE_TABS_HEIGHT),
             )
         } else {
             surface

@@ -2,6 +2,8 @@
 
 A mission holds agents working on one goal, their terminals, and a shared record of messages and questions. Start from a saved crew, or create an empty mission and add members as needed.
 
+A mission tab has one island for its header, member tabs, feed and composer, beside a full-height Sessions/Info side panel island. The terminal drawer opens as its own island below the mission, with shell tabs, + and a hide button in its header. The expanded sidebar, side panel and drawer are separated by 6 px resize gutters. The drawer keeps its saved height; focusing its shell brightens its border and leaves the mission border at rest. Collapse a panel or hide the drawer to give the mission more room.
+
 ## Goal and membership
 
 For a crew mission, Runner starts a session per slot and delivers the goal to every member, together with their role instructions, team conventions and coordination instructions. Members act on their own part and wait for any required handoff. The mission captures its own roster, so the crew remains a reusable template.
