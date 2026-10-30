@@ -640,7 +640,15 @@ impl NativeRoot {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let session_ids = layout.session_ids();
+        let session_ids = layout
+            .session_ids()
+            .into_iter()
+            .filter(|id| {
+                self.front_page_session(id, cx).is_some_and(|entry| {
+                    !Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
+                })
+            })
+            .collect::<Vec<_>>();
         if session_ids.is_empty() {
             return None;
         }

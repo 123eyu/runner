@@ -249,15 +249,6 @@ impl MissionWorkspace {
         }
     }
 
-    pub(super) fn resume_terminal_drawer_shell(
-        &mut self,
-        session_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.resume_terminal_drawer_shell_impl(session_id, false, window, cx);
-    }
-
     pub(super) fn resume_terminal_drawer_shell_on_launch(
         &mut self,
         session_id: &str,

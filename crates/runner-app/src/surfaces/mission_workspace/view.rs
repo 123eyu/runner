@@ -244,6 +244,9 @@ impl MissionWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.drawer_focused(window, cx) {
+            return;
+        }
         let status = match &self.active_tab {
             MissionTab::Session(session_id) => self
                 .members()
@@ -743,7 +746,7 @@ impl MissionWorkspace {
                     format!("mission-drawer-resuming-{session_id}"),
                     SessionOverlayKind::Resuming,
                 )
-                .label(crate::i18n::text("ui.restarting_terminal"))
+                .label(crate::i18n::text("ui.starting_terminal"))
                 .into_any_element(),
             ),
             chat_lifecycle::PaneOverlayState::Starting => Some(
@@ -754,40 +757,7 @@ impl MissionWorkspace {
                 .label(crate::i18n::text("ui.starting_terminal"))
                 .into_any_element(),
             ),
-            chat_lifecycle::PaneOverlayState::Ended { exit_code, .. } => {
-                let restart_root = cx.entity();
-                let close_root = restart_root.clone();
-                let restart_id = session_id.clone();
-                let close_id = session_id.clone();
-                Some(
-                    SessionOverlay::shell_exited(
-                        format!("mission-drawer-ended-{session_id}"),
-                        chat_lifecycle::shell_exited_subtitle(
-                            exit_code,
-                            &entry.default_label(),
-                            entry.cwd.as_deref(),
-                            runner_core::app_paths::home_dir()
-                                .as_deref()
-                                .and_then(|home| home.to_str()),
-                        ),
-                        move |window, cx| {
-                            restart_root.update(cx, |this, cx| {
-                                this.resume_terminal_drawer_shell(&restart_id, window, cx)
-                            });
-                        },
-                        move |window, cx| {
-                            close_root.update(cx, |this, cx| {
-                                this.close_terminal_drawer_shell(&close_id, window, cx)
-                            });
-                        },
-                    )
-                    .actions_visible(
-                        self.remote_supports(&["resume"]),
-                        self.remote_supports(&["close"]),
-                    )
-                    .into_any_element(),
-                )
-            }
+            chat_lifecycle::PaneOverlayState::Ended { .. } => None,
             chat_lifecycle::PaneOverlayState::Archiving
             | chat_lifecycle::PaneOverlayState::None => None,
         };

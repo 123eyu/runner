@@ -32,7 +32,7 @@ use runner_core::protocol::model::Runtime;
 use crate::chat_icon::runtime_mark;
 
 use crate::surfaces::chat_lifecycle::{
-    ended_subtitle, resolve_pane_overlay, shell_exited_subtitle, PaneOverlayState, TransitionKind,
+    ended_subtitle, resolve_pane_overlay, PaneOverlayState, TransitionKind,
 };
 
 use crate::surfaces::front_page::model::SessionDisplay;
@@ -369,15 +369,17 @@ fn pane_action_indexes(
     client: &crate::surfaces::front_page::FrontPageClient,
 ) -> Vec<usize> {
     let mut indexes = Vec::new();
-    if client.supports(&[if entry.status == SessionStatus::Running {
-        "stop"
-    } else {
-        "resume"
-    }]) {
+    if entry.agent_runtime != "shell"
+        && client.supports(&[if entry.status == SessionStatus::Running {
+            "stop"
+        } else {
+            "resume"
+        }])
+    {
         indexes.push(0);
     }
     if client.supports(&["rename"]) {
-        indexes.push(1);
+        indexes.push(if entry.agent_runtime == "shell" { 0 } else { 1 });
     }
     if entry.agent_runtime != "shell" && client.supports(&["archive", "layout"]) {
         indexes.push(2);
@@ -393,6 +395,13 @@ fn pane_action_items_for(
     resume_shortcut: Option<String>,
 ) -> Vec<UiMenuItem> {
     let shell = Runtime::parse(runtime).is_some_and(Runtime::is_shell);
+    if shell {
+        return vec![
+            UiMenuItem::new(crate::i18n::message("ui.rename_chat_action"))
+                .icon("pencil.svg")
+                .disabled(disabled),
+        ];
+    }
     let (label, icon, shortcut) = if running {
         (crate::i18n::message("ui.stop"), "square.svg", stop_shortcut)
     } else if shell {
@@ -1187,14 +1196,14 @@ mod tests {
                 .iter()
                 .map(|item| item.label.as_ref())
                 .collect::<Vec<_>>(),
-            ["Restart", "Rename…"]
+            ["Rename…"]
         );
         assert_eq!(
             terminal[0]
                 .shortcut
                 .as_ref()
                 .map(|shortcut| shortcut.as_ref()),
-            Some("⇧⌘R")
+            None
         );
         assert_eq!(
             pane_close_behavior(Some("shell")),

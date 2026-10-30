@@ -967,14 +967,18 @@ fn managed_connection_caps_automatic_restarts_and_allows_explicit_retry() {
                 managed.client().session_live_ids().unwrap().is_empty(),
                 "Try again must not resume sessions"
             );
-            let resumed = managed
-                .client()
-                .session_resume(&session.id, Some(80), Some(24))
-                .unwrap();
-            assert_eq!(resumed.id, session.id);
+            assert!(
+                managed
+                    .client()
+                    .session_resume(&session.id, Some(80), Some(24))
+                    .is_err(),
+                "crashed shells must be closed before explicit recovery"
+            );
+            let fresh = daemon.shell(&managed.client());
+            assert_ne!(fresh.id, session.id);
             assert_eq!(
                 managed.client().session_live_ids().unwrap().as_slice(),
-                std::slice::from_ref(&session.id)
+                std::slice::from_ref(&fresh.id)
             );
         }
     }
@@ -1051,13 +1055,18 @@ fn failed_automatic_replacement_waits_for_explicit_retry() {
     });
     assert!(managed.client().role_list().is_ok());
     assert!(managed.client().session_live_ids().unwrap().is_empty());
-    assert_eq!(
+    assert!(
         managed
             .client()
             .session_resume(&session.id, Some(80), Some(24))
-            .unwrap()
-            .id,
-        session.id
+            .is_err(),
+        "crashed shells must be closed before explicit recovery"
+    );
+    let fresh = daemon.shell(&managed.client());
+    assert_ne!(fresh.id, session.id);
+    assert_eq!(
+        managed.client().session_live_ids().unwrap().as_slice(),
+        std::slice::from_ref(&fresh.id)
     );
     managed.shutdown().unwrap();
 }

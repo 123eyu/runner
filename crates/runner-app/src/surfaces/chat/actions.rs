@@ -7,6 +7,14 @@ impl NativeRoot {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .front_page_session(session_id, cx)
+            .is_some_and(|entry| {
+                Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
+            })
+        {
+            return;
+        }
         let remote = self.front_page_client(cx).is_remote();
         if !remote {
             if self.chat_secondary_state(session_id, cx).secondary {
@@ -147,7 +155,10 @@ impl NativeRoot {
         for session_id in session_ids {
             let resumable = self
                 .front_page_session(&session_id, cx)
-                .is_some_and(|entry| entry.status != SessionStatus::Running)
+                .is_some_and(|entry| {
+                    entry.status != SessionStatus::Running
+                        && !Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
+                })
                 && !self.session_lifecycle_disabled(&session_id, cx)
                 && (self.remote_client.is_active()
                     || !self.chat_transitions.contains_key(&session_id));

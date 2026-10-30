@@ -550,7 +550,7 @@ impl NativeRoot {
                                 format!("resuming-{session_id}"),
                                 SessionOverlayKind::Resuming,
                             )
-                            .label(crate::i18n::text("ui.restarting_terminal"))
+                            .label(crate::i18n::text("ui.starting_terminal"))
                             .into_any_element()
                         } else {
                             SessionOverlay::transition(
@@ -578,53 +578,7 @@ impl NativeRoot {
                         exit_code,
                     } => {
                         if Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell) {
-                            let restart_root = cx.entity();
-                            let close_root = restart_root.clone();
-                            let restart_id = session_id.clone();
-                            let close_id = session_id.clone();
-                            let restart_pane = pane_id.clone();
-                            let close_pane = pane_id.clone();
-                            Some(
-                                SessionOverlay::shell_exited(
-                                    format!("ended-{session_id}"),
-                                    shell_exited_subtitle(
-                                        exit_code,
-                                        &entry.default_label(),
-                                        entry.cwd.as_deref(),
-                                        self.remote_client
-                                            .is_local()
-                                            .then(runner_core::app_paths::home_dir)
-                                            .flatten()
-                                            .as_deref()
-                                            .and_then(|home| home.to_str()),
-                                    ),
-                                    move |window, cx| {
-                                        restart_root.update(cx, |this, cx| {
-                                            this.resume_chat(&restart_pane, &restart_id, window, cx)
-                                        });
-                                    },
-                                    move |window, cx| {
-                                        close_root.update(cx, |this, cx| {
-                                            this.close_terminal_pane(
-                                                &close_pane,
-                                                &close_id,
-                                                window,
-                                                cx,
-                                            )
-                                        });
-                                    },
-                                )
-                                .actions_visible(
-                                    self.front_page_client(cx).supports(&["resume"]),
-                                    self.front_page_client(cx).supports(&["close", "layout"]),
-                                )
-                                .when(cfg!(test), |overlay| {
-                                    overlay.primary_debug_selector(format!(
-                                        "BUTTON:ended-{session_id}-restart"
-                                    ))
-                                })
-                                .into_any_element(),
-                            )
+                            None
                         } else {
                             let resume_root = cx.entity();
                             let archive_root = resume_root.clone();

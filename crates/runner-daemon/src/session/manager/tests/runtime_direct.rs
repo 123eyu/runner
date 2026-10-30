@@ -77,6 +77,7 @@ fn shell_runtime_spawns_and_resumes_as_plain_login_shell() {
     assert_eq!(stored.agent_command.as_deref(), Some("/bin/zsh"));
     assert!(stored.agent_session_key.is_none());
 
+    crate::repo::session::mark_running_for_resume_on_launch(&mut pool.get().unwrap()).unwrap();
     mgr.kill(&spawned.id).unwrap();
     mgr.resume_on_launch(
         &spawned.id,
@@ -848,4 +849,74 @@ fn runtime_only_resume_resolves_recorded_catalog_command_live() {
 
     mgr.kill("runtime-live-path").unwrap();
     mgr.kill("runtime-dead-path").unwrap();
+}
+
+#[test]
+fn terminal_shell_exit_removes_its_pane_for_any_exit_code() {
+    for exit_code in [Some(0), Some(3), None] {
+        let pool = pool_with_schema();
+        let fake = fake_runtime();
+        fake.set_status_exit_code(exit_code);
+        let mgr = mgr_with_fake(None, fake.clone());
+        let cap = capture();
+        let shell = runtime_direct_role("shell", Some("sh"), None, None).unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let session = mgr
+            .spawn_runtime_direct(
+                &shell,
+                None,
+                Some(data.path().to_str().unwrap()),
+                None,
+                None,
+                data.path(),
+                pool.clone(),
+                cap.clone(),
+            )
+            .unwrap();
+        let mut layout = runner_core::pane_layout::PaneLayout::single(Some(&session.id), &[]);
+        if exit_code == Some(3) {
+            pool.get().unwrap().execute("INSERT INTO sessions (id, status, agent_runtime, agent_command) VALUES ('peer-chat', 'running', 'codex', 'codex')", []).unwrap();
+            let peer = layout
+                .split("p1", runner_core::pane_layout::SplitOrientation::Row)
+                .unwrap();
+            layout.assign_session(&peer, "peer-chat").unwrap();
+            layout
+                .split(&peer, runner_core::pane_layout::SplitOrientation::Column)
+                .unwrap();
+        }
+        crate::repo::node::create_tab(
+            &pool.get().unwrap(),
+            None,
+            "",
+            0,
+            &layout.serialize().unwrap(),
+        )
+        .unwrap();
+        fake.close_spawn(0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while cap.exit.lock().unwrap().is_empty()
+            || mgr
+                .raw_session_state(&session.id)
+                .is_some_and(|state| state.lock().unwrap().handle.is_some())
+        {
+            assert!(std::time::Instant::now() < deadline, "shell did not exit");
+            std::thread::yield_now();
+        }
+        let conn = pool.get().unwrap();
+        assert!(crate::repo::session::get_row(&conn, &session.id)
+            .unwrap()
+            .is_none());
+        let tabs = crate::repo::node::list(&conn).unwrap();
+        if exit_code == Some(3) {
+            assert_eq!(tabs.len(), 1);
+            let remaining = runner_core::pane_layout::PaneLayout::from_node_row(&tabs[0]).unwrap();
+            assert_eq!(remaining.session_ids(), ["peer-chat"]);
+            assert_eq!(remaining.root.leaves().len(), 2);
+            assert!(
+                matches!(remaining.root, runner_core::pane_layout::PaneNode::Split(ref split) if split.orientation == runner_core::pane_layout::SplitOrientation::Column)
+            );
+        } else {
+            assert!(tabs.is_empty());
+        }
+    }
 }

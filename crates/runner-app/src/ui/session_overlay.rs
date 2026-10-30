@@ -7,7 +7,7 @@ use gpui::{
 };
 
 use crate::theme;
-use crate::ui::button::{spinner, Button, ButtonSize, ButtonVariant, PressHandler};
+use crate::ui::button::{spinner, Button, ButtonVariant, PressHandler};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SessionOverlayKind {
@@ -20,7 +20,6 @@ pub enum SessionOverlayKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum EndedStyle {
     Chat,
-    Shell,
     Slot,
 }
 
@@ -75,27 +74,6 @@ impl SessionOverlay {
             secondary_visible: true,
             primary_selector: None,
             ended_style: EndedStyle::Chat,
-        }
-    }
-
-    pub fn shell_exited(
-        id: impl Into<SharedString>,
-        subtitle: impl Into<SharedString>,
-        on_restart: impl Fn(&mut Window, &mut App) + 'static,
-        on_close: impl Fn(&mut Window, &mut App) + 'static,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            kind: SessionOverlayKind::Ended,
-            label: None,
-            title: Some(crate::i18n::text("ui.shell_exited").into()),
-            subtitle: Some(subtitle.into()),
-            on_primary: Some(Rc::new(on_restart)),
-            on_secondary: Some(Rc::new(on_close)),
-            primary_visible: true,
-            secondary_visible: true,
-            primary_selector: None,
-            ended_style: EndedStyle::Shell,
         }
     }
 
@@ -220,18 +198,10 @@ impl RenderOnce for SessionOverlay {
                     .title
                     .unwrap_or_else(|| crate::i18n::text("ui.chat_paused").into());
                 let subtitle = self.subtitle.expect("ended overlay subtitle");
-                let shell = self.ended_style == EndedStyle::Shell;
                 let slot = self.ended_style == EndedStyle::Slot;
                 let primary_click = Rc::clone(&primary);
                 let secondary_click = Rc::clone(&secondary);
-                let header = if shell {
-                    div()
-                        .text_size(theme::text_body())
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text())
-                        .child(title)
-                        .into_any_element()
-                } else {
+                let header = {
                     div()
                         .flex()
                         .items_center()
@@ -252,34 +222,7 @@ impl RenderOnce for SessionOverlay {
                         )
                         .into_any_element()
                 };
-                let actions = if shell {
-                    div()
-                        .debug_selector(|| "SESSION_ENDED_ACTIONS".into())
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .children(self.primary_visible.then(|| {
-                            Button::new(
-                                SharedString::from(format!("{id}-restart")),
-                                crate::i18n::text("ui.restart"),
-                            )
-                            .size(ButtonSize::Sm)
-                            .variant(ButtonVariant::Primary)
-                            .when_some(self.primary_selector.clone(), |button, selector| {
-                                button.debug_selector(selector)
-                            })
-                            .on_press(move |window, cx| primary_click(window, cx))
-                        }))
-                        .children(self.secondary_visible.then(|| {
-                            Button::new(
-                                SharedString::from(format!("{id}-close")),
-                                crate::i18n::text("ui.close"),
-                            )
-                            .size(ButtonSize::Sm)
-                            .on_press(move |window, cx| secondary_click(window, cx))
-                        }))
-                        .into_any_element()
-                } else {
+                let actions = {
                     div()
                         .debug_selector(|| "SESSION_ENDED_ACTIONS".into())
                         .flex()
@@ -326,8 +269,8 @@ impl RenderOnce for SessionOverlay {
                     .justify_center()
                     .px_4()
                     .bg(theme::with_alpha(theme::bg(), 0.7))
-                    .when(shell, |overlay| overlay.items_center())
-                    .when(!shell, |overlay| overlay.items_end().pb(rems(56. / 16.)))
+                    .items_end()
+                    .pb(rems(56. / 16.))
                     .child(
                         div()
                             .debug_selector(|| "SESSION_ENDED_CARD".into())
@@ -337,21 +280,11 @@ impl RenderOnce for SessionOverlay {
                             .border_1()
                             .border_color(theme::border())
                             .bg(theme::panel())
-                            .when(shell, |card| {
-                                card.max_w(rems(380. / 16.))
-                                    .items_center()
-                                    .gap(rems(10. / 16.))
-                                    .rounded(rems(4. / 16.))
-                                    .py_5()
-                                    .px(rems(24. / 16.))
-                            })
-                            .when(!shell, |card| {
-                                card.max_w(rems(672. / 16.))
-                                    .gap(rems(14. / 16.))
-                                    .rounded_xl()
-                                    .p_5()
-                                    .shadow_lg()
-                            })
+                            .max_w(rems(672. / 16.))
+                            .gap(rems(14. / 16.))
+                            .rounded_xl()
+                            .p_5()
+                            .shadow_lg()
                             .child(header)
                             .child(
                                 div()
@@ -359,14 +292,9 @@ impl RenderOnce for SessionOverlay {
                                     .w_full()
                                     .min_w_0()
                                     .whitespace_normal()
-                                    .text_size(if shell {
-                                        theme::text_ui()
-                                    } else {
-                                        theme::text_body()
-                                    })
-                                    .line_height(rems(if shell { 17.4 / 16. } else { 18. / 16. }))
+                                    .text_size(theme::text_body())
+                                    .line_height(rems(18. / 16.))
                                     .text_color(theme::muted())
-                                    .when(shell, |subtitle| subtitle.text_center())
                                     .child(subtitle),
                             )
                             .child(actions),
@@ -384,24 +312,11 @@ mod tests {
 
     struct EndedOverlayTest;
 
-    struct ShellExitedOverlayTest;
-
     impl Render for EndedOverlayTest {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div().size_full().child(SessionOverlay::ended(
                 "test-ended",
                 "The PTY is closed. Resume to start a fresh agent process — there's no saved conversation to pick up from this row.",
-                |_, _| {},
-                |_, _| {},
-            ))
-        }
-    }
-
-    impl Render for ShellExitedOverlayTest {
-        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            div().size_full().child(SessionOverlay::shell_exited(
-                "test-shell-exited",
-                "exit 0 · zsh · ~/workspace/oec",
                 |_, _| {},
                 |_, _| {},
             ))
@@ -449,27 +364,7 @@ mod tests {
         assert!(subtitle.right() <= card.right(), "{subtitle:?} vs {card:?}");
     }
 
-    #[test]
-    fn shell_exited_overlay_uses_the_compact_design_card() {
-        let mut cx = TestAppContext::single();
-        let window = cx.add_window(|window, _| {
-            window.set_rem_size(px(16.));
-            ShellExitedOverlayTest
-        });
-        cx.run_until_parked();
-        let mut window = VisualTestContext::from_window(window.into(), &cx);
-        let card = window
-            .debug_bounds("SESSION_ENDED_CARD")
-            .expect("card bounds");
-        let actions = window
-            .debug_bounds("SESSION_ENDED_ACTIONS")
-            .expect("actions bounds");
-        assert_eq!(card.size.width, px(380.));
-        assert!(card.top() < actions.top());
-        assert!(actions.bottom() < card.bottom());
-    }
     struct SlotStoppedOverlayTest;
-
     impl Render for SlotStoppedOverlayTest {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             div().size_full().child(SessionOverlay::ended(

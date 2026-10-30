@@ -241,8 +241,10 @@ impl NativeRoot {
                                     return;
                                 };
                                 match index {
-                                    0 => this.activate_primary_pane_action(&session_id, window, cx),
-                                    1 => {
+                                    0 if entry.agent_runtime != "shell" => {
+                                        this.activate_primary_pane_action(&session_id, window, cx)
+                                    }
+                                    0 | 1 => {
                                         if let Some(entry) =
                                             this.front_page_session(&session_id, cx)
                                         {

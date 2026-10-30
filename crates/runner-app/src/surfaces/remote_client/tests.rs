@@ -2438,9 +2438,12 @@ fn paused_remote_chats_and_shells_wait_for_a_running_push_before_attaching() {
                     window.update(&mut cx, choose_host).unwrap();
                     cx.run_until_parked();
                     let mut visual = VisualTestContext::from_window(window.into(), &cx);
-                    assert!(visual.debug_bounds("SESSION_ENDED_CARD").is_some());
+                    assert_eq!(visual.debug_bounds("SESSION_ENDED_CARD").is_some(), !shell);
                     assert!(visual.debug_bounds("REMOTE_TERMINAL_FAILED").is_none());
                     assert!(fake.attaches.lock().unwrap().is_empty());
+                    if shell {
+                        continue;
+                    }
                     let size = window
                         .read_with(&visual, |root, _| {
                             root.remote_client.remote_terminal_size("s")

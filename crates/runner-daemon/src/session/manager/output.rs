@@ -2,6 +2,7 @@ use super::*;
 use crate::session::pty_runtime::interrupt_key;
 pub(crate) use crate::session::state::LocalInputClass;
 use crate::session::state::CTRL_C_INTERRUPT;
+use rusqlite::OptionalExtension;
 
 // Match alacritty's read budget while bounding a single terminal-lock hold.
 const MAX_OUTPUT_BURST: usize = 1024 * 1024;
@@ -340,8 +341,9 @@ impl SessionManager {
                 crate::model::SessionStatus::Crashed
             };
             let mut checkout_failed = false;
+            let mut closed_shell = false;
             let mut reconcile = |clear_key: bool| -> Result<bool> {
-                let conn = pool.get().inspect_err(|_| {
+                let mut conn = pool.get().inspect_err(|_| {
                     checkout_failed = true;
                 })?;
                 #[cfg(windows)]
@@ -358,6 +360,24 @@ impl SessionManager {
                         Utc::now(),
                     )?
                 };
+                if Runtime::parse(&role.runtime).is_some_and(Runtime::is_shell)
+                    && mission_id.is_none()
+                {
+                    let resume: bool = conn
+                        .query_row(
+                            "SELECT resume_on_launch != 0 FROM sessions WHERE id = ?1",
+                            [&session_id],
+                            |row| row.get(0),
+                        )
+                        .optional()?
+                        .unwrap_or(false);
+                    #[cfg(windows)]
+                    let resume = resume || session_end.preserve_key();
+                    if !resume {
+                        crate::ops::session::close_shell_row(&mut conn, &session_id)?;
+                        closed_shell = true;
+                    }
+                }
                 Ok(changed > 0)
             };
             let result = if resume_failed {
@@ -408,6 +428,9 @@ impl SessionManager {
                 success,
             });
             let _ = manager_t.forget_runtime_handle(&session_id, &rt_session);
+            if closed_shell {
+                manager_t.forget_session_state(&session_id);
+            }
         })
     }
 

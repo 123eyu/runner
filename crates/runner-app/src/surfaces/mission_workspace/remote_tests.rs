@@ -413,6 +413,56 @@ fn remote_answers_use_question_ids_and_posts_preserve_failed_drafts_without_synt
 }
 
 #[test]
+fn lifecycle_shortcuts_ignore_a_focused_mission_drawer_shell() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    for status in [
+        runner_core::companion::Status::Working,
+        runner_core::companion::Status::Stopped,
+    ] {
+        let (_temp, mut cx, window, _, fake) = setup();
+        cx.update(|cx| {
+            crate::keymap::install_bindings(cx, &crate::keymap::KeymapOverrides::new(), false)
+        });
+        let workspace = workspace(window, &cx);
+        let mut data = overview();
+        data.sessions.get_mut("member").unwrap().status.status = status;
+        let mut shell = data.sessions["member"].clone();
+        shell.kind = runner_core::companion::SessionKind::Shell;
+        shell.status.status = runner_core::companion::Status::Working;
+        shell.runtime = None;
+        data.sessions.insert("shell".into(), shell);
+        data.missions[0].shells = vec!["shell".into()];
+        fake.set_overview(data);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |_, window, cx| {
+                workspace.update(cx, |workspace, cx| {
+                    workspace.select_mission_session("member", window, cx);
+                    workspace.layout.drawer.set_open(true);
+                    cx.notify();
+                })
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(window.into(), &cx);
+        visual.run_until_parked();
+        window
+            .update(&mut visual, |_, window, cx| {
+                workspace.update(cx, |workspace, cx| {
+                    workspace.drawer_focus.focus(window, cx);
+                    assert!(workspace.drawer_focused(window, cx));
+                    assert_eq!(workspace.active_tab, MissionTab::Session("member".into()));
+                })
+            })
+            .unwrap();
+        visual.simulate_keystrokes(&crate::keymap::platform_default("shift-cmd-x"));
+        visual.simulate_keystrokes(&crate::keymap::platform_default("shift-cmd-r"));
+        visual.run_until_parked();
+        assert_eq!(fake.request_count("stop"), 0);
+        assert_eq!(fake.request_count("resume"), 0);
+    }
+}
+
+#[test]
 fn remote_mission_shell_retry_keeps_successful_start_and_waits_for_drawer_push() {
     let _theme = crate::theme_snapshot::ThemeGuard::new();
     let (_temp, mut cx, window, _, fake) = setup();
@@ -1226,9 +1276,8 @@ fn older_pagination_cannot_clear_a_failed_catch_up_and_recovers_after_the_gap_is
 }
 
 #[test]
-fn existing_mission_shells_remain_navigable_with_independently_gated_exited_actions() {
+fn existing_mission_shells_have_no_exited_lifecycle_actions() {
     let _theme = crate::theme_snapshot::ThemeGuard::new();
-    let mut widths = Vec::new();
     for features in [
         vec![],
         vec!["resume"],
@@ -1270,27 +1319,11 @@ fn existing_mission_shells_remain_navigable_with_independently_gated_exited_acti
         workspace.read_with(&visual, |workspace, _| {
             assert!(workspace.layout.drawer.open())
         });
-        let actions = visual.debug_bounds("SESSION_ENDED_ACTIONS").unwrap();
-        widths.push(f32::from(actions.size.width));
-        if features.is_empty() {
-            assert_eq!(actions.size.width, px(0.));
-        } else if features.len() == 1 {
-            assert!(actions.size.width > px(0.));
-            visual.simulate_click(actions.center(), Default::default());
-            visual.run_until_parked();
-            assert_eq!(fake.request_count(features[0]), 1);
-            let hidden = if features[0] == "resume" {
-                "close"
-            } else {
-                "resume"
-            };
-            assert_eq!(fake.request_count(hidden), 0);
+        assert!(visual.debug_bounds("SESSION_ENDED_ACTIONS").is_none());
+        for action in ["resume", "close", "startShell", "layout"] {
+            assert_eq!(fake.request_count(action), 0);
         }
-        assert_eq!(fake.request_count("startShell"), 0);
-        assert_eq!(fake.request_count("layout"), 0);
     }
-    assert!(widths[3] > widths[1]);
-    assert!(widths[3] > widths[2]);
 }
 
 #[test]
