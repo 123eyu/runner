@@ -413,7 +413,7 @@ pub(crate) fn computers() -> Vec<Computer> {
         },
     ]
 }
-fn overview() -> Overview {
+pub(crate) fn overview() -> Overview {
     serde_json::from_value(serde_json::json!({"projects":[{"id":"p", "name":"Remote project"}], "tabs":[{"id":"remote-tab","project":"p","name":"Remote tab","pinned":true,"panes":{"session":"s"},"shells":[]}],"missions":[{"id":"remote-mission","title":"Remote mission","project":null,"crew":"Duo","state":"running","pinned":false,"members":[],"asks":[],"shells":[]}],"sessions":{"s":{"kind":"chat","title":"Remote session","runtime":"codex","status":"needsYou","reason":"approval","unread":true}}})).unwrap()
 }
 
@@ -2997,7 +2997,7 @@ fn captured_load_reply_cannot_replace_newer_pushes_or_a_newer_request() {
 #[test]
 fn input_error_events_render_for_current_remote_chat_mission_and_drawer_during_route_loss() {
     let _theme = crate::theme_snapshot::ThemeGuard::new();
-    for surface in ["chat", "mission", "chat-drawer", "mission-drawer"] {
+    for surface in ["chat", "mission", "mission-drawer"] {
         for order in ["connected", "connection-first", "error-first"] {
             let temp = tempfile::tempdir().unwrap();
             let mut cx = TestAppContext::single();

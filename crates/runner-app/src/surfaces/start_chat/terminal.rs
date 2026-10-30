@@ -171,19 +171,7 @@ impl NativeRoot {
         }
         let mission_drawer_available = matches!(self.route, AppRoute::Mission(_))
             && self.mission_workspace.read(cx).drawer_available(cx);
-        let target = if remote {
-            if self.active_tab_is_terminal(cx) {
-                NewTerminalTarget::Tab
-            } else {
-                NewTerminalTarget::ChatDrawer
-            }
-        } else {
-            new_terminal_target(
-                &self.route,
-                mission_drawer_available,
-                self.active_tab_is_terminal(cx),
-            )
-        };
+        let target = new_terminal_target(&self.route, mission_drawer_available && !remote);
         if target == NewTerminalTarget::MissionDrawer {
             self.mission_workspace
                 .update(cx, |workspace, workspace_cx| {
@@ -204,10 +192,6 @@ impl NativeRoot {
             self.set_route(AppRoute::Chat, cx);
             self.activate_tab(&original.id, window, cx);
         }
-        if target == NewTerminalTarget::ChatDrawer {
-            self.add_terminal_drawer_shell(window, cx);
-            return;
-        }
         if let Some(pane_id) = new_terminal_empty_pane(&original) {
             let (scope, cwd) = if remote {
                 (
@@ -223,8 +207,10 @@ impl NativeRoot {
                 self.terminal_start_location(cx)
             };
             self.spawn_terminal_in_pane(pane_id, original, scope, cwd, window, cx);
-        } else {
+        } else if self.active_tab_is_terminal(cx) {
             self.split_pane(&original.focused_pane_id, SplitOrientation::Row, window, cx);
+        } else {
+            self.new_terminal_action(&NewTerminal, window, cx);
         }
     }
 
@@ -235,46 +221,10 @@ impl NativeRoot {
             });
             return;
         }
-        if self.remote_client.is_active() {
-            let Some(layout) = self.front_page_layout() else {
-                return;
-            };
-            if layout.drawer_open() {
-                self.hide_terminal_drawer(window, cx);
-            } else if layout.drawer_shells().is_empty() {
-                self.add_terminal_drawer_shell(window, cx);
-            } else {
-                if let Some(layout) = self.front_page_layout_mut() {
-                    layout.set_drawer_open(true);
-                }
-                self.remote_client.attach_remote_panes(cx);
-                cx.notify();
-            }
-            return;
-        }
-
         if matches!(self.route, AppRoute::Mission(_)) {
-            self.mission_workspace
-                .update(cx, |workspace, workspace_cx| {
-                    workspace.toggle_terminal_drawer(window, workspace_cx)
-                });
-            return;
-        }
-        if self.route != AppRoute::Chat || self.active_tab_is_terminal(cx) {
-            return;
-        }
-        let Some(layout) = self.tabs.active() else {
-            return;
-        };
-        if layout.drawer_open() {
-            self.hide_terminal_drawer(window, cx);
-        } else if layout.drawer_shells().is_empty() {
-            self.add_terminal_drawer_shell(window, cx);
-        } else {
-            if let Some(layout) = self.tabs.active_mut() {
-                layout.set_drawer_open(true);
-            }
-            self.finish_terminal_drawer_update(window, cx);
+            self.mission_workspace.update(cx, |workspace, cx| {
+                workspace.toggle_terminal_drawer(window, cx)
+            });
         }
     }
 
@@ -298,127 +248,6 @@ impl NativeRoot {
             layout.set_drawer_open(false);
         }
         self.finish_terminal_drawer_update(window, cx);
-    }
-
-    pub(crate) fn activate_terminal_drawer_shell(
-        &mut self,
-        session_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.remote_client.is_active() {
-            if let Some(layout) = self.front_page_layout_mut() {
-                layout.activate_drawer_shell(session_id);
-            }
-            self.remote_client.attach_remote_panes(cx);
-            self.remote_client
-                .focus_remote_terminal(session_id, window, cx);
-            cx.notify();
-            return;
-        }
-
-        if !self
-            .tabs
-            .active_mut()
-            .is_some_and(|layout| layout.activate_drawer_shell(session_id))
-        {
-            return;
-        }
-        match self.persist_active_tab(cx) {
-            Ok(()) => {
-                self.chat_error = None;
-                if let Some(layout) = self.tabs.active().cloned() {
-                    if let Err(error) =
-                        self.resume_visible_drawer_shell_on_launch(&layout, window, cx)
-                    {
-                        self.chat_error = Some(error.to_string().into());
-                    }
-                }
-                self.focus_drawer_terminal(session_id, window, cx);
-            }
-            Err(error) => self.chat_error = Some(error.to_string().into()),
-        }
-        cx.notify();
-    }
-
-    pub(crate) fn add_terminal_drawer_shell(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let remote = self.front_page_client(cx).is_remote();
-        let Some(original) = self.front_page_layout().cloned() else {
-            if !remote {
-                self.chat_error = Some(crate::i18n::message(
-                    "ui.open_a_chat_tab_before_creating_a_terminal",
-                ));
-                cx.notify();
-            }
-            return;
-        };
-        if !remote && self.active_tab_is_terminal(cx) {
-            return;
-        }
-        let (scope, cwd) = if remote {
-            (
-                ProjectScope::or_root(original.parent_id.clone()),
-                original
-                    .focused_session_id()
-                    .map(str::to_owned)
-                    .or_else(|| original.session_ids().first().cloned())
-                    .and_then(|id| self.front_page_session(&id, cx))
-                    .and_then(|session| session.cwd),
-            )
-        } else {
-            self.terminal_start_location(cx)
-        };
-        let size = self.estimated_drawer_terminal_size(&original, window, cx);
-        let input = crate::surfaces::front_page::actions::ShellStart {
-            draft: original.clone(),
-            pane: None,
-            project: scope.project_id().map(str::to_owned),
-            cwd,
-            size,
-        };
-        self.launch_workspace_shell(input, window, cx, move |this, result, window, cx| {
-            let spawned_id = result.as_ref().ok().cloned();
-            let result = result.and_then(|spawned| {
-                this.refresh_sessions(cx);
-                this.tabs
-                    .active_mut()
-                    .context("active tab disappeared")?
-                    .add_drawer_shell(spawned.clone());
-                this.persist_active_tab(cx)?;
-                this.reload_tabs(cx)?;
-                this.set_route(AppRoute::Chat, cx);
-                this.ensure_active_tab_attached(window, cx)?;
-                Ok(spawned)
-            });
-
-            match result {
-                Ok(session_id) => {
-                    this.chat_error = None;
-                    this.begin_chat_transition(
-                        &session_id,
-                        chat_lifecycle::TransitionKind::Starting,
-                        Some(0),
-                        window,
-                        cx,
-                    );
-                    this.focus_drawer_terminal(&session_id, window, cx);
-                }
-                Err(error) => {
-                    if let Some(session_id) = spawned_id {
-                        let _ = this.front_page_client(cx).close(&session_id);
-                    }
-                    let _ = this.front_page_client(cx).layout(&original, None);
-                    this.refresh_sessions(cx);
-                    let _ = this.reload_tabs(cx);
-                    this.chat_error = Some(error.to_string().into());
-                }
-            }
-            cx.notify();
-        });
     }
 
     pub(super) fn finish_terminal_drawer_update(

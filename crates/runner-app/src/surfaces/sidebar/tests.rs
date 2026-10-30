@@ -225,8 +225,7 @@ fn sidebar_shortcuts_skip_empty_and_drawer_only_tabs() {
         .map(|(position, name)| {
             let mut layout = PaneLayout::single(None, &[]);
             if name == "drawer-only" {
-                conn.execute("INSERT INTO sessions(id, status, agent_runtime, agent_command) VALUES ('drawer', 'stopped', 'shell', '/bin/sh')", []).unwrap();
-                layout.add_drawer_shell("drawer".into());
+                layout.add_drawer_shell("retired-drawer".into());
             } else if name != "empty" {
                 conn.execute("INSERT INTO sessions(id, status, agent_runtime, agent_command) VALUES (?1, 'stopped', 'codex', 'codex')", [name]).unwrap();
                 layout.assign_session("p1", name).unwrap();

@@ -86,14 +86,6 @@ impl RemoteClient {
         remote.resize_draft.take()
     }
 
-    pub(crate) fn resize_drawer(&mut self, height: f32, cx: &mut Context<NativeRoot>) {
-        if let Some(layout) = self.layout_mut() {
-            layout.set_drawer_height(height);
-        }
-        self.workspace.as_mut().unwrap().drawer_resizing = true;
-        cx.notify();
-    }
-
     pub(crate) fn finish_drawer_resize(&mut self, cx: &mut Context<NativeRoot>) {
         if self
             .workspace
@@ -250,10 +242,6 @@ impl RemoteClient {
         self.workspace
             .as_ref()
             .map(|remote| remote.resizing_split.as_deref())
-    }
-
-    pub(crate) fn drawer_resizing(&self) -> Option<bool> {
-        self.workspace.as_ref().map(|remote| remote.drawer_resizing)
     }
 
     pub(crate) fn sidebar_collapsed(&self) -> Option<bool> {

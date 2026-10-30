@@ -344,7 +344,7 @@ struct PersistedLayout {
     slots: Vec<Option<String>>,
     #[serde(default, skip_serializing, deserialize_with = "lenient_sizes")]
     sizes: BTreeMap<String, [f32; 2]>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     drawer: TerminalDrawer,
 }
 
@@ -1118,7 +1118,7 @@ mod tests {
     }
 
     #[test]
-    fn a_moved_layout_round_trips_slots_in_leaf_order_and_keeps_the_drawer() {
+    fn a_moved_layout_round_trips_slots_and_omits_retired_drawers() {
         let mut layout = PaneLayout::single(Some("a"), &["a".into()]);
         layout.split("p1", SplitOrientation::Row).unwrap();
         layout.assign_session("p3", "b").unwrap();
@@ -1136,10 +1136,10 @@ mod tests {
             serde_json::from_str(&layout.serialize().unwrap()).unwrap();
         assert_eq!(serialized["slots"], serde_json::json!(["b", "a", null]));
         assert_eq!(serialized["drawer"], before["drawer"]);
-        assert_eq!(serialized.as_object().unwrap().len(), 3);
+        assert_eq!(serialized.as_object().unwrap().len(), 2);
         let loaded = PaneLayout::from_node_row(&tab_row(None, &layout)).unwrap();
         assert_eq!(loaded.root, layout.root);
-        assert_eq!(loaded.drawer, layout.drawer);
+        assert!(loaded.drawer.shells().is_empty());
         assert_eq!(loaded.session_ids(), ["b", "a"]);
     }
 }

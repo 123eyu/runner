@@ -247,18 +247,6 @@ impl NativeRoot {
                 self.chat_error = Some(error.to_string().into());
             }
         }
-        if self.remote_client.is_local() && !layout.drawer_open() {
-            for id in layout.drawer_shells() {
-                if let Some(chat) = self
-                    .attached
-                    .get(id)
-                    .filter(|chat| !chat.terminal.control().desktop())
-                {
-                    chat.terminal_interaction
-                        .update(cx, |interaction, _| interaction.pane_size = None);
-                }
-            }
-        }
         let group_control = self.remote_client.is_local() && self.tab_control_covered(&layout, cx);
         let show_start = start_surface_visible(Some(&layout));
         let grouped = pane_identity_visible(layout.root.leaves().len());
@@ -293,13 +281,6 @@ impl NativeRoot {
             cx,
         );
 
-        let drawer = layout
-            .drawer_open()
-            .then(|| self.render_terminal_drawer(&layout, window, cx));
-        let drawer_height = layout.drawer_height();
-        let drawer_drag = DrawerResizeDrag;
-        let drawer_resizing = self.front_page_drawer_resizing();
-        let zoom = self.settings(cx).app_zoom;
         let tab_body = div()
             .id("chat-tab-body")
             .relative()
@@ -316,47 +297,6 @@ impl NativeRoot {
                     .flex_col()
                     .child(pane_tree),
             )
-            .children(drawer.map(|drawer| {
-                div()
-                    .flex_none()
-                    .h(rems(drawer_height / 16.))
-                    .min_h(rems(MIN_DRAWER_HEIGHT / 16.))
-                    .max_h(rems(MAX_DRAWER_HEIGHT / 16.))
-                    .flex()
-                    .flex_col()
-                    .child(
-                        resize_strip(
-                            "terminal-drawer-resize",
-                            ResizeAxis::Rows,
-                            drawer_resizing,
-                            zoom,
-                            Some(theme::border_strong()),
-                            true,
-                        )
-                        .id("terminal-drawer-resize")
-                        .on_drag(
-                            drawer_drag,
-                            |drag: &DrawerResizeDrag, _, _, cx: &mut App| cx.new(|_| drag.clone()),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h(px(0.))
-                            .flex()
-                            .flex_col()
-                            .pb(rems(8. / 16.))
-                            .child(drawer),
-                    )
-            }))
-            .on_drag_move::<DrawerResizeDrag>(cx.listener(
-                |this, event: &DragMoveEvent<DrawerResizeDrag>, _, cx| {
-                    this.resize_terminal_drawer(event, cx);
-                },
-            ))
-            .on_drop(cx.listener(|this, _: &DrawerResizeDrag, _, cx| {
-                this.finish_terminal_drawer_resize(cx);
-            }))
             .on_drop(cx.listener(|this, drag: &PaneDrag, window, cx| {
                 this.apply_pane_drop(drag, window, cx);
             }))

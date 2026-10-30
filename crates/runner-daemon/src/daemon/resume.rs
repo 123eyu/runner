@@ -40,12 +40,7 @@ pub fn consume_resume_on_launch_until(
                 crate::error::Error::msg(format!("list launch-resume node layouts: {error}"))
             })?
             .into_iter()
-            .filter(|row| {
-                matches!(
-                    row.node_type,
-                    repo::node::NodeType::Tab | repo::node::NodeType::Mission
-                )
-            })
+            .filter(|row| row.node_type == repo::node::NodeType::Mission)
             .flat_map(|row| repo::node::drawer_session_ids(&row))
             .collect()
     };

@@ -1255,6 +1255,62 @@ mod remote_isolation_tests {
     use gpui::TestAppContext;
 
     #[test]
+    fn palette_new_terminal_uses_a_shell_pane_or_tab_and_never_a_chat_drawer() {
+        use crate::surfaces::remote_client::tests::{action_trace, overview};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for empty_pane in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let (store, fake, _) = fixture(&mut cx, temp.path());
+            enable_front_page(&fake);
+            let mut data = overview();
+            if empty_pane {
+                data.tabs[0].panes = runner_core::companion::Pane::Split {
+                    split: runner_core::companion::SplitDirection::Row,
+                    sizes: [0.5, 0.5],
+                    a: Box::new(runner_core::companion::Pane::Leaf {
+                        session: Some("s".into()),
+                    }),
+                    b: Box::new(runner_core::companion::Pane::Leaf { session: None }),
+                };
+            }
+            fake.set_overview(data);
+            let window = add_window(&mut cx, &store, temp.path(), "palette-shell-pane");
+            window.update(&mut cx, choose_host).unwrap();
+            cx.run_until_parked();
+            let palette = window
+                .read_with(&cx, |root, _| root.command_palette.clone())
+                .unwrap();
+            let mut visual = gpui::VisualTestContext::from_window(window.into(), &cx);
+            visual.update(|window, cx| {
+                palette.update(cx, |palette, cx| {
+                    palette.open(window, cx);
+                    palette.query = "New terminal".into();
+                    assert_eq!(
+                        filtered_palette_items(&palette.items, &palette.query).len(),
+                        1
+                    );
+                    palette.select(0, window, cx);
+                });
+            });
+            visual.run_until_parked();
+            assert_eq!(action_trace(&fake, "startShell").len(), 1);
+            let layouts = action_trace(&fake, "layout");
+            assert_eq!(layouts.len(), 1);
+            assert_eq!(layouts[0]["shells"], serde_json::json!([]));
+            assert_eq!(layouts[0]["target"]["kind"], "tab");
+            if empty_pane {
+                assert_eq!(layouts[0]["target"]["id"], "remote-tab");
+                assert_eq!(layouts[0]["panes"]["b"]["session"], "started-session");
+                assert_eq!(layouts[0]["panes"]["a"]["session"], "s");
+            } else {
+                assert_ne!(layouts[0]["target"]["id"], "remote-tab");
+                assert_eq!(layouts[0]["panes"]["session"], "started-session");
+            }
+        }
+    }
+
+    #[test]
     fn remote_palette_return_navigates_mission_and_chat_without_reentering_the_palette() {
         let _theme = crate::theme_snapshot::ThemeGuard::new();
         let temp = tempfile::tempdir().unwrap();

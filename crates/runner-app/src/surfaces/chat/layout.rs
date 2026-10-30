@@ -283,27 +283,6 @@ impl NativeRoot {
         }
     }
 
-    pub(crate) fn resize_terminal_drawer(
-        &mut self,
-        event: &DragMoveEvent<DrawerResizeDrag>,
-        cx: &mut Context<Self>,
-    ) {
-        if self.remote_client.is_active() {
-            let height = f32::from(event.bounds.bottom() - event.event.position.y)
-                / self.settings(cx).app_zoom;
-            self.remote_client.resize_drawer(height, cx);
-            return;
-        }
-
-        let height =
-            f32::from(event.bounds.bottom() - event.event.position.y) / self.settings(cx).app_zoom;
-        if let Some(layout) = self.tabs.active_mut() {
-            layout.set_drawer_height(height);
-            self.drawer_resizing = true;
-            cx.notify();
-        }
-    }
-
     pub(crate) fn finish_terminal_drawer_resize(&mut self, cx: &mut Context<Self>) {
         if self.remote_client.is_active() {
             self.remote_client.finish_drawer_resize(cx);

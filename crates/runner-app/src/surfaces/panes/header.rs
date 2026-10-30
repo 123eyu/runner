@@ -37,7 +37,6 @@ impl NativeRoot {
         let sidebar_toggle = self.render_collapsed_titlebar_spacer();
         let root = cx.entity();
         let fork_root = root.clone();
-        let drawer_root = root.clone();
         let panel_root = root.clone();
         let control = (!focused_secondary)
             .then(|| self.render_topbar_session_control(layout, window, cx))
@@ -151,7 +150,6 @@ impl NativeRoot {
             .chain(control)
             .chain(fork_action)
             .chain(single_status);
-        let keymap_overrides = self.settings(cx).keymap_overrides.clone();
         // A single-pane tab has no identity line, so the header carries its
         // split menu; once split, every identity line carries its own.
         let split_action = (!grouped
@@ -165,28 +163,6 @@ impl NativeRoot {
             let pane_id = layout.focused_pane_id.clone();
             self.split_menu(SplitMenuSurface::Header, &tab_id, &pane_id, cx)
                 .into_any_element()
-        });
-        let drawer_action = (!terminal_tab
-            && (!layout.drawer_shells().is_empty()
-                || self
-                    .front_page_client(cx)
-                    .supports(&["startShell", "layout"])))
-        .then(|| {
-            let open = layout.drawer_open();
-            let tooltip = terminal_drawer_tooltip(open, &keymap_overrides);
-            IconButton::new(
-                "terminal-drawer-toggle",
-                if open {
-                    "panel-bottom-open.svg"
-                } else {
-                    "panel-bottom-hidden.svg"
-                },
-            )
-            .tooltip(tooltip)
-            .on_press(move |window, cx| {
-                drawer_root.update(cx, |this, cx| this.toggle_terminal_drawer(window, cx));
-            })
-            .into_any_element()
         });
         let panel_action = (self.remote_client.is_local()
             && !side_panel_open(self.settings(cx).chat_panel_open, focused_shell)
@@ -226,12 +202,7 @@ impl NativeRoot {
         )
         .sidebar_toggle(sidebar_toggle)
         .title_actions(title_actions)
-        .trailing_actions(
-            split_action
-                .into_iter()
-                .chain(drawer_action)
-                .chain(panel_action),
-        )
+        .trailing_actions(split_action.into_iter().chain(panel_action))
         .into_div()
         .w_full()
         .rounded_tl(rems(11. / 16.))

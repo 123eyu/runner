@@ -706,10 +706,15 @@ impl DaemonCore {
             } => {
                 match target.kind {
                     ActionKind::Tab => {
-                        let drawer = drawer_layout(core, Some(&target.id), shells)?;
+                        if !shells.is_empty() {
+                            return Err(Failure(
+                                ErrorCode::BadRequest,
+                                "Chat tabs have no terminal drawer; add a shell pane instead.",
+                            ));
+                        }
                         let mut slots = vec![];
                         let tree = pane_layout(panes, &mut slots)?;
-                        let layout = json!({"tree":tree,"slots":slots,"drawer":drawer}).to_string();
+                        let layout = json!({"tree":tree,"slots":slots}).to_string();
                         ops::node::node_tab_upsert(
                             core,
                             p::NodeTabUpsertInput {
@@ -977,4 +982,21 @@ fn catalog(core: &AppCore) -> Result<Catalog> {
         projects,
         recent_folders,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn chat_drawer_layout_requests_fail_without_mutation() {
+        let core = std::sync::Arc::new(crate::test_support::test_core());
+        let daemon = DaemonCore(std::sync::Arc::downgrade(&core));
+        let request = serde_json::from_value(json!({"type":"layout","id":1,"target":{"kind":"tab","id":"missing"},"name":"","panes":{"id":"p1","session":null},"shells":["shell"]})).unwrap();
+        let error = daemon.action(request).unwrap_err();
+        assert_eq!(error.0, ErrorCode::BadRequest);
+        assert!(error.1.contains("no terminal drawer"));
+        assert!(repo::node::list(&core.db.get().unwrap())
+            .unwrap()
+            .is_empty());
+    }
 }

@@ -1397,9 +1397,8 @@ mod tests {
                 variant.ends_with("error"),
                 "{variant}"
             );
-            assert_eq!(
-                visual.debug_bounds("CHAT_TERMINAL_DRAWER").is_some(),
-                variant == "single-empty-drawer",
+            assert!(
+                visual.debug_bounds("CHAT_TERMINAL_DRAWER").is_none(),
                 "{variant}"
             );
             if let Some(surface) = visual.debug_bounds("START_SURFACE") {

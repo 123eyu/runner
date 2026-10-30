@@ -140,24 +140,23 @@ fn a_five_pane_tree_round_trips_with_its_orientations_sizes_and_slot_order() {
     assert_eq!(restored.root, layout.root);
     assert_eq!(restored.root.leaves().len(), 5);
     assert_eq!(restored.session_ids(), ["A", "C", "D", "E", "B"]);
-    assert_eq!(restored.drawer_shells(), ["shell"]);
-    assert_eq!(restored.drawer_height(), 321.);
-    assert!(restored.drawer_open());
+    assert!(restored.drawer_shells().is_empty());
+    assert!(!restored.drawer_open());
 
-    // `slots` and `drawer` are the backend's reconciler contract.
+    // `slots` is the backend's reconciler contract.
     let raw: serde_json::Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(
         raw["slots"],
         serde_json::json!(["A", "C", "D", "E", "B"]),
         "{serialized}"
     );
-    assert_eq!(raw["drawer"]["shells"], serde_json::json!(["shell"]));
+    assert!(raw.get("drawer").is_none());
     assert!(raw.get("tree").is_some());
     assert!(raw.get("preset").is_none(), "{serialized}");
     assert!(raw.get("sizes").is_none(), "{serialized}");
     assert_eq!(
         runner_daemon::repo::node::session_ids_from_layout(&serialized),
-        ["A", "C", "D", "E", "B", "shell"]
+        ["A", "C", "D", "E", "B"]
     );
 }
 
@@ -337,7 +336,7 @@ fn a_layout_with_neither_a_tree_nor_a_preset_is_unreadable() {
 }
 
 #[test]
-fn persisted_layout_round_trips_drawer_state_and_old_rows_use_defaults() {
+fn chat_layout_saves_omit_retired_drawers_and_old_rows_use_defaults() {
     let mut layout = PaneLayout::single(Some("chat"), &["chat".into()]);
     layout.add_drawer_shell("shell-a".into());
     layout.add_drawer_shell("shell-b".into());
@@ -346,12 +345,12 @@ fn persisted_layout_round_trips_drawer_state_and_old_rows_use_defaults() {
     let restored =
         PaneLayout::from_node_row(&row("01K00000000000000000000000", 0, &layout)).unwrap();
 
-    assert!(restored.drawer_open());
-    assert_eq!(restored.drawer_height(), 412.);
-    assert_eq!(restored.drawer_shells(), ["shell-a", "shell-b"]);
-    assert_eq!(restored.active_drawer_shell(), Some("shell-a"));
+    let raw: serde_json::Value = serde_json::from_str(&layout.serialize().unwrap()).unwrap();
+    assert!(raw.get("drawer").is_none());
+    assert!(!restored.drawer_open());
+    assert!(restored.drawer_shells().is_empty());
     assert_eq!(restored.session_ids(), ["chat"]);
-    assert_eq!(restored.all_session_ids(), ["chat", "shell-a", "shell-b"]);
+    assert_eq!(restored.all_session_ids(), ["chat"]);
 
     let old = PaneLayout::from_node_row(&raw_row(
         "01K00000000000000000000001",

@@ -7,11 +7,7 @@ impl NativeRoot {
             .as_ref()
             .map(|confirm| &confirm.target)
         {
-            Some(
-                TerminalCloseTarget::Tab { .. }
-                | TerminalCloseTarget::Drawer { .. }
-                | TerminalCloseTarget::MissionDrawer { .. },
-            ) => (
+            Some(TerminalCloseTarget::Tab { .. } | TerminalCloseTarget::MissionDrawer { .. }) => (
                 crate::i18n::text("ui.close_terminal_confirmation"),
                 crate::i18n::text(
                     "ui.a_foreground_process_is_still_running_closing_this_terminal_will_stop_it",

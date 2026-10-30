@@ -173,9 +173,6 @@ pub(crate) enum TerminalCloseTarget {
     Tab {
         session_id: String,
     },
-    Drawer {
-        session_id: String,
-    },
     MissionDrawer {
         session_id: String,
     },

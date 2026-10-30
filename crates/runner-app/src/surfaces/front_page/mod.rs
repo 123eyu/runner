@@ -105,11 +105,6 @@ impl crate::NativeRoot {
             .resizing_split()
             .unwrap_or(self.resizing_split.as_deref())
     }
-    pub(crate) fn front_page_drawer_resizing(&self) -> bool {
-        self.remote_client
-            .drawer_resizing()
-            .unwrap_or(self.drawer_resizing)
-    }
 }
 
 impl crate::NativeRoot {

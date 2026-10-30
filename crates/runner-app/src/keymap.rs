@@ -192,7 +192,7 @@ pub(crate) fn entries() -> &'static [KeymapEntry] {
                 id: "toggle-terminal-drawer",
                 title_key: "keymap.toggle-terminal-drawer.title",
                 description_key: "keymap.toggle-terminal-drawer.description",
-                scope: KeymapScope::Global,
+                scope: KeymapScope::Mission,
                 default: default_combo("alt-f12", None, false),
                 fixed: false,
             },
@@ -1098,6 +1098,12 @@ mod tests {
 
     fn combo_for(code: &str, shift: bool) -> KeyCombo {
         key_combo(code, true, false, false, shift, None, false)
+    }
+
+    #[test]
+    fn terminal_drawer_binding_is_only_available_in_missions() {
+        let entry = entry("toggle-terminal-drawer").unwrap();
+        assert_eq!(binding_context(entry, &entry.default), Some("Mission"));
     }
 
     #[test]
