@@ -64,6 +64,7 @@ pub(crate) struct Fake {
     events: Mutex<Vec<futures::channel::mpsc::UnboundedSender<ClientEvent>>>,
     follows: Mutex<Vec<(String, bool)>>,
     pairs: AtomicUsize,
+    pair_pins: Mutex<Vec<runner_core::remote::Secret>>,
     pair_ops: Mutex<Vec<&'static str>>,
     refusal: Mutex<Option<String>>,
     attaches: Mutex<Vec<RemoteTerminal>>,
@@ -277,6 +278,7 @@ impl Transport for Fake {
             Request::remote_pair { computer, pin } => {
                 self.pair_ops.lock().unwrap().push("pair");
                 assert!(pin.0.len() == 6);
+                self.pair_pins.lock().unwrap().push(pin);
                 self.pairs.fetch_add(1, Ordering::SeqCst);
                 let result = self
                     .refusal
@@ -492,6 +494,7 @@ pub(crate) fn fixture(
         events: Mutex::default(),
         follows: Mutex::default(),
         pairs: AtomicUsize::new(0),
+        pair_pins: Mutex::default(),
         pair_ops: Mutex::default(),
         refusal: Mutex::default(),
         attaches: Mutex::default(),
@@ -776,6 +779,31 @@ fn one_pin_request_per_submit_and_every_refusal_is_rendered_without_exposing_pin
                 ("pinLocked", pairing::PairState::Locked),
                 ("noPin", pairing::PairState::NoPin),
                 ("busy", pairing::PairState::Failed),
+                (
+                    "Remote route closed: offline (4409).",
+                    pairing::PairState::Offline,
+                ),
+                (
+                    "Pairing timed out; enter the PIN again to retry.",
+                    pairing::PairState::TimedOut,
+                ),
+                (
+                    "Remote service is unavailable",
+                    pairing::PairState::Unreachable,
+                ),
+                (
+                    "Remote route refused: unavailable (HTTP 503).",
+                    pairing::PairState::Unreachable,
+                ),
+                (
+                    "Remote route closed: notFound (4404).",
+                    pairing::PairState::Unreachable,
+                ),
+                ("Remote route closed", pairing::PairState::Unreachable),
+                (
+                    "Could not list computers: unavailable",
+                    pairing::PairState::Unreachable,
+                ),
             ] {
                 *fake.refusal.lock().unwrap() = Some(reason.into());
                 let before = fake.pairs.load(Ordering::SeqCst);
@@ -801,13 +829,73 @@ fn one_pin_request_per_submit_and_every_refusal_is_rendered_without_exposing_pin
                     .unwrap();
                 cx.run_until_parked();
                 assert_eq!(fake.pairs.load(Ordering::SeqCst), before + 1);
-                window
-                    .read_with(&cx, |root, _| {
-                        assert!(root.remote_client.ui.pair.as_ref().unwrap().state == expected);
+                let retained = window
+                    .read_with(&cx, |root, cx| {
+                        let dialog = root.remote_client.ui.pair.as_ref().unwrap();
+                        assert!(dialog.state == expected);
+                        let field = dialog.field.read(cx);
+                        assert!(!field.disabled);
+                        assert_eq!(field.invalid, expected == pairing::PairState::WrongPin);
+                        assert!(
+                            field.value().0
+                                == if expected == pairing::PairState::WrongPin {
+                                    ""
+                                } else {
+                                    "001234"
+                                }
+                        );
+                        dialog.field.clone()
                     })
                     .unwrap();
                 let mut visual = VisualTestContext::from_window(window.into(), &cx);
                 assert!(visual.debug_bounds("COMPUTER_PAIR_DIALOG").is_some());
+                if matches!(
+                    expected,
+                    pairing::PairState::Offline
+                        | pairing::PairState::TimedOut
+                        | pairing::PairState::Unreachable
+                        | pairing::PairState::Failed
+                ) {
+                    assert_eq!(
+                        visual.debug_bounds("COMPUTER_PAIR_PIN").is_none(),
+                        expected == pairing::PairState::Offline
+                    );
+                    for action in ["enter", "mouse"] {
+                        let before = fake.pairs.load(Ordering::SeqCst);
+                        if action == "enter" {
+                            cx.simulate_keystrokes(window.into(), "enter");
+                        } else {
+                            let button = visual.debug_bounds("COMPUTER_PAIR_PRIMARY").unwrap();
+                            visual.simulate_click(button.center(), Default::default());
+                        }
+                        cx.run_until_parked();
+                        assert_eq!(fake.pairs.load(Ordering::SeqCst), before + 1);
+                        assert!(fake.pair_pins.lock().unwrap().last().unwrap().0 == "001234");
+                        window
+                            .read_with(&cx, |root, cx| {
+                                let dialog = root.remote_client.ui.pair.as_ref().unwrap();
+                                assert_eq!(dialog.field, retained);
+                                assert!(dialog.field.read(cx).value().0 == "001234");
+                                assert!(dialog.state == expected);
+                            })
+                            .unwrap();
+                    }
+                    if expected != pairing::PairState::Offline {
+                        window
+                            .update(&mut cx, |_, window, cx| {
+                                retained.update(cx, |field, cx| {
+                                    field.replace_text_in_range(Some(0..6), "00123", window, cx);
+                                })
+                            })
+                            .unwrap();
+                        let before = fake.pairs.load(Ordering::SeqCst);
+                        cx.simulate_keystrokes(window.into(), "enter");
+                        let button = visual.debug_bounds("COMPUTER_PAIR_PRIMARY").unwrap();
+                        visual.simulate_click(button.center(), Default::default());
+                        cx.run_until_parked();
+                        assert_eq!(fake.pairs.load(Ordering::SeqCst), before);
+                    }
+                }
             }
             *fake.refusal.lock().unwrap() = None;
             let before = fake.pairs.load(Ordering::SeqCst);
@@ -838,6 +926,145 @@ fn one_pin_request_per_submit_and_every_refusal_is_rendered_without_exposing_pin
                 .unwrap();
         });
     }
+}
+
+#[test]
+fn offline_pairing_gates_every_entry_point_and_refreshes_without_submitting() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    for locale in [Locale::English, Locale::SimplifiedChinese] {
+        with_locale(locale, || {
+            for entry in ["picker", "settings", "workspace", "workspace-again"] {
+                let temp = tempfile::tempdir().unwrap();
+                let mut cx = TestAppContext::single();
+                let (store, fake, clients) = fixture(&mut cx, temp.path());
+                let window = add_window(&mut cx, &store, temp.path(), "offline-pair");
+                if entry.starts_with("workspace") {
+                    window.update(&mut cx, choose_host).unwrap();
+                    cx.run_until_parked();
+                }
+                fake.computers.lock().unwrap()[1].online = false;
+                fake.computers.lock().unwrap()[1].paired = false;
+                clients.update(&mut cx, |clients, cx| {
+                    if entry.starts_with("workspace") {
+                        clients.connections.insert(
+                            "host".into(),
+                            if entry == "workspace" {
+                                Connection::Forgotten
+                            } else {
+                                Connection::Revoked
+                            },
+                        );
+                    }
+                    clients.refresh(cx);
+                });
+                cx.run_until_parked();
+                if entry == "picker" {
+                    let computer = fake.computers.lock().unwrap()[1].clone();
+                    window
+                        .update(&mut cx, |root, window, cx| {
+                            root.choose_computer(computer, false, window, cx)
+                        })
+                        .unwrap();
+                } else {
+                    if entry == "settings" {
+                        window
+                            .update(&mut cx, |root, _, cx| {
+                                root.route = crate::AppRoute::Settings;
+                                root.settings_page.pane =
+                                    crate::surfaces::settings::page::SettingsPane::Remote;
+                                cx.notify();
+                            })
+                            .unwrap();
+                    }
+                    cx.run_until_parked();
+                    let mut visual = VisualTestContext::from_window(window.into(), &cx);
+                    let button = visual
+                        .debug_bounds(if entry == "settings" {
+                            "COMPUTER_PAIR_ACTION"
+                        } else {
+                            "REMOTE_RECONNECT_ACTION"
+                        })
+                        .unwrap();
+                    visual.simulate_click(button.center(), Default::default());
+                }
+                cx.run_until_parked();
+                window
+                    .update(&mut cx, |root, window, cx| {
+                        let dialog = root.remote_client.ui.pair.as_ref().unwrap();
+                        assert!(dialog.state == pairing::PairState::Offline, "{entry}");
+                        assert!(!dialog.field.read(cx).focus.is_focused(window));
+                    })
+                    .unwrap();
+                let mut visual = VisualTestContext::from_window(window.into(), &cx);
+                assert!(visual.debug_bounds("COMPUTER_PAIR_PIN").is_none());
+                let before = fake.directory_calls.load(Ordering::SeqCst);
+                cx.simulate_keystrokes(window.into(), "enter");
+                cx.run_until_parked();
+                assert!(fake.directory_calls.load(Ordering::SeqCst) > before);
+                assert_eq!(fake.pairs.load(Ordering::SeqCst), 0);
+                fake.computers.lock().unwrap()[1].online = true;
+                clients.update(&mut cx, |clients, cx| clients.refresh(cx));
+                cx.run_until_parked();
+                window
+                    .update(&mut cx, |root, window, cx| {
+                        let dialog = root.remote_client.ui.pair.as_ref().unwrap();
+                        assert!(dialog.state == pairing::PairState::Entry);
+                        assert!(dialog.field.read(cx).focus.is_focused(window));
+                    })
+                    .unwrap();
+                assert!(visual.debug_bounds("COMPUTER_PAIR_PIN").is_some());
+                assert_eq!(fake.pairs.load(Ordering::SeqCst), 0);
+            }
+        });
+    }
+}
+
+#[test]
+fn online_listing_refresh_preserves_submit_time_offline_pin_and_never_retries_it() {
+    let _theme = crate::theme_snapshot::ThemeGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let mut cx = TestAppContext::single();
+    let (store, fake, clients) = fixture(&mut cx, temp.path());
+    let window = add_window(&mut cx, &store, temp.path(), "kept-offline-pin");
+    *fake.refusal.lock().unwrap() = Some("Remote route closed: offline (4409).".into());
+    window
+        .update(&mut cx, |root, window, cx| {
+            root.remote_client.open_computer_pair(
+                computers()[1].clone(),
+                pairing::Purpose::PairOnly,
+                window,
+                cx,
+            );
+            root.remote_client
+                .ui
+                .pair
+                .as_ref()
+                .unwrap()
+                .field
+                .update(cx, |field, cx| {
+                    field.replace_text_in_range(None, "001234", window, cx)
+                });
+            root.remote_client.submit_computer_pin(window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    clients.update(&mut cx, |clients, cx| clients.refresh(cx));
+    cx.run_until_parked();
+    window
+        .read_with(&cx, |root, cx| {
+            let dialog = root.remote_client.ui.pair.as_ref().unwrap();
+            assert!(dialog.state == pairing::PairState::Offline);
+            assert!(dialog.field.read(cx).value().0 == "001234");
+        })
+        .unwrap();
+    assert_eq!(fake.pairs.load(Ordering::SeqCst), 1);
+    *fake.refusal.lock().unwrap() = None;
+    cx.simulate_keystrokes(window.into(), "enter");
+    cx.run_until_parked();
+    assert_eq!(fake.pairs.load(Ordering::SeqCst), 2);
+    window
+        .read_with(&cx, |root, _| assert!(root.remote_client.ui.pair.is_none()))
+        .unwrap();
 }
 
 #[test]

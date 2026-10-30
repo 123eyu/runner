@@ -310,6 +310,7 @@ impl RemoteClient {
                         crate::i18n::text("client.pair"),
                     )
                     .size(ButtonSize::Sm)
+                    .debug_selector("COMPUTER_PAIR_ACTION")
                     .on_press(move |window, cx| {
                         let _ = root.update(cx, |root, cx| {
                             root.remote_client.open_computer_pair(

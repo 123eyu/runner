@@ -352,6 +352,7 @@ impl NativeRoot {
     }
 
     pub(super) fn remote_cancel_start(&mut self, cx: &mut Context<Self>) {
+        self.settings_page.remote.prompt_pin_after_sign_in = None;
         self.settings_page.remote.request_generation += 1;
         self.settings_page.remote.busy = false;
         self.settings_page.remote.opening = false;
