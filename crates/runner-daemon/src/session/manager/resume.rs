@@ -224,13 +224,12 @@ impl SessionManager {
         if mission_ctx.is_some() {
             role.args = crate::runtimes::for_key(&role.runtime)
                 .permissions()
-                .apply_mission(&role.args, self.mission_permission_mode());
+                .apply_mission(&role.args);
         }
         role = self.resolve_role_executable(&role, &pool)?;
 
-        // Permission posture belongs to MissionPermissionMode (feature
-        // 596): resumed chats are attended, including runtime-only
-        // chats. Strip permission flags and leave every other arg alone.
+        // Resumed chats are attended, including runtime-only chats.
+        // Strip permission flags and leave every other arg alone.
         if snap.mission_id.is_none() {
             role.args = crate::runtimes::for_key(&role.runtime)
                 .permissions()

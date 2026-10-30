@@ -1,7 +1,5 @@
 pub use runner_core::protocol::permissions::PermissionMode;
 
-pub use runner_core::protocol::permissions::MissionPermissionMode;
-
 pub const FIRST_TURN_ARGV_MAX_BYTES: usize = 32 * 1024;
 
 /// Output of `resume_plan` — the args to layer onto the spawn command plus

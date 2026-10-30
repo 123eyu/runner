@@ -75,12 +75,8 @@ fn copilot_permissions_roundtrip_and_strip_every_elevation_flag() {
         ["--model", "gpt-5.4"]
     );
     assert_eq!(
-        mission_permission_mode_args(Runtime::Copilot.key(), MissionPermissionMode::Bypass),
-        Some(vec!["--yolo".into()])
-    );
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Copilot.key(), MissionPermissionMode::Auto),
-        Some(vec![])
+        mission_permission_args(Runtime::Copilot.key()),
+        vec!["--yolo"]
     );
     assert_eq!(
         mission_bus_sandbox_args(Runtime::Copilot.key(), Some(Path::new("/mission"))),

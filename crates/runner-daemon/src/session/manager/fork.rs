@@ -83,9 +83,8 @@ impl SessionManager {
             crate::session::launch_definition::to_role(definition, effective_runtime, identity);
         let mut role = self.resolve_role_executable(&role, &pool)?;
 
-        // Permission posture belongs to MissionPermissionMode (feature
-        // 596): a fork is still an attended chat, so strip permission
-        // flags and leave every other arg alone.
+        // A fork is still an attended chat, so strip permission flags
+        // and leave every other arg alone.
         role.args = crate::runtimes::for_key(&role.runtime)
             .permissions()
             .strip(&role.args);

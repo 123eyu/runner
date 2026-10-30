@@ -95,7 +95,7 @@ fn permissions_strip_cursor_modes_and_keep_other_args() {
         strings(&["--model", "chosen", "--header", "X: value"])
     );
     assert_eq!(
-        PERMISSIONS.apply_mission(&args, crate::router::runtime::MissionPermissionMode::Bypass),
+        PERMISSIONS.apply_mission(&args),
         strings(&[
             "--model",
             "chosen",

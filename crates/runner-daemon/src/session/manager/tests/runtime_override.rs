@@ -176,10 +176,6 @@ fn mission_spawn_with_slot_override_uses_registry_engine_and_records_runtime() {
 
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
-    // Pin the app-wide mode off so the override's registry-default
-    // pair reaches the spawn unchanged; convergence under Bypass /
-    // Auto is covered by the `mission_spawn_converges_*` tests.
-    mgr.set_mission_permission_mode(MissionPermissionMode::RoleDefault);
     let spawned = mgr
         .spawn(
             &mission_row,
@@ -212,8 +208,8 @@ fn mission_spawn_with_slot_override_uses_registry_engine_and_records_runtime() {
     assert!(
         spec.args
             .windows(2)
-            .any(|w| w[0] == "--permission-mode" && w[1] == "auto"),
-        "override args must be the registry default permission-mode pair: {:?}",
+            .any(|w| w[0] == "--permission-mode" && w[1] == "bypassPermissions"),
+        "override args must use mission Bypass permissions: {:?}",
         spec.args,
     );
     assert!(

@@ -321,7 +321,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            crate::router::runtime::MissionPermissionMode::Bypass,
         )
         .unwrap();
         let loaded = load(&conn, data.path(), &out.mission).unwrap();
@@ -659,7 +658,6 @@ mod tests {
                     goal_override: None,
                     cwd: None,
                 },
-                crate::router::runtime::MissionPermissionMode::Bypass,
             )
             .map_err(|error| error.to_string());
             done_tx.send(result).unwrap();

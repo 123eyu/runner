@@ -318,11 +318,6 @@ pub struct SessionManager {
     resize_generation: AtomicU64,
     terminal_palette: Mutex<runner_terminal::palette::TerminalPalette>,
     terminal_control: Mutex<terminal::ControlState>,
-    /// App-wide permission mode for mission slots (feature 527). The
-    /// GPUI settings store pushes the current value here; every
-    /// mission spawn and resume reads it, so the MCP `mission_start`
-    /// and the Start Mission modal converge on the same flags.
-    mission_permission_mode: RwLock<router::runtime::MissionPermissionMode>,
 }
 
 /// RAII guard that releases a session state's `resuming` flag on drop. The
@@ -446,16 +441,7 @@ impl SessionManager {
             resize_generation: AtomicU64::new(0),
             terminal_palette: Mutex::new(runner_terminal::palette::RUNNER),
             terminal_control: Mutex::default(),
-            mission_permission_mode: RwLock::new(router::runtime::MissionPermissionMode::default()),
         })
-    }
-
-    pub fn set_mission_permission_mode(&self, mode: router::runtime::MissionPermissionMode) {
-        *self.mission_permission_mode.write().unwrap() = mode;
-    }
-
-    pub fn mission_permission_mode(&self) -> router::runtime::MissionPermissionMode {
-        *self.mission_permission_mode.read().unwrap()
     }
 
     pub fn start_runtime_watchers(

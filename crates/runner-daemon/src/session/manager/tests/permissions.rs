@@ -255,7 +255,7 @@ fn codex_mission_spawn_grants_event_log_dir_to_sandbox() {
     mgr.kill(&spawned.id).unwrap();
 }
 
-fn mission_spawn_args(role: &Role, mode: MissionPermissionMode) -> Vec<String> {
+fn mission_spawn_args(role: &Role) -> Vec<String> {
     let pool = pool_with_schema();
     let (mission, slot) = seed_mission_rows(&pool, role);
     let app_data = tempfile::tempdir().unwrap();
@@ -266,7 +266,6 @@ fn mission_spawn_args(role: &Role, mode: MissionPermissionMode) -> Vec<String> {
     );
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
-    mgr.set_mission_permission_mode(mode);
     let spawned = mgr
         .spawn(
             &mission,
@@ -285,12 +284,12 @@ fn mission_spawn_args(role: &Role, mode: MissionPermissionMode) -> Vec<String> {
 }
 
 #[test]
-fn mission_spawn_converges_claude_row_to_the_app_wide_permission_mode() {
+fn mission_spawn_converges_claude_row_to_bypass() {
     let mut role = role("/bin/sh", &["--permission-mode", "plan", "--model", "opus"]);
     role.runtime = "claude-code".into();
     role.handle = "perm-claude".into();
 
-    let bypass = mission_spawn_args(&role, MissionPermissionMode::Bypass);
+    let bypass = mission_spawn_args(&role);
     assert_eq!(
         &bypass[..4],
         ["--model", "opus", "--permission-mode", "bypassPermissions"]
@@ -304,34 +303,10 @@ fn mission_spawn_converges_claude_row_to_the_app_wide_permission_mode() {
         "{bypass:?}"
     );
     assert!(has_arg_pair(&bypass, "--model", "opus"), "{bypass:?}");
-
-    let auto = mission_spawn_args(&role, MissionPermissionMode::Auto);
-    assert_eq!(&auto[..4], ["--model", "opus", "--permission-mode", "auto"]);
-    assert!(has_arg_pair(&auto, "--permission-mode", "auto"), "{auto:?}");
-    assert!(
-        !has_arg_pair(&auto, "--permission-mode", "plan"),
-        "{auto:?}"
-    );
-    assert!(has_arg_pair(&auto, "--model", "opus"), "{auto:?}");
-
-    let role_default = mission_spawn_args(&role, MissionPermissionMode::RoleDefault);
-    assert_eq!(&role_default[..role.args.len()], role.args);
-    assert!(
-        has_arg_pair(&role_default, "--permission-mode", "plan"),
-        "{role_default:?}"
-    );
-    assert!(
-        !role_default.iter().any(|arg| arg == "bypassPermissions"),
-        "{role_default:?}"
-    );
-    assert!(
-        has_arg_pair(&role_default, "--model", "opus"),
-        "{role_default:?}"
-    );
 }
 
 #[test]
-fn mission_spawn_converges_codex_row_to_the_app_wide_permission_mode() {
+fn mission_spawn_converges_codex_row_to_bypass() {
     let mut role = role(
         "/bin/sh",
         &[
@@ -344,7 +319,7 @@ fn mission_spawn_converges_codex_row_to_the_app_wide_permission_mode() {
     role.runtime = "codex".into();
     role.handle = "perm-codex".into();
 
-    let bypass = mission_spawn_args(&role, MissionPermissionMode::Bypass);
+    let bypass = mission_spawn_args(&role);
     assert_eq!(
         &bypass[..4],
         [
@@ -371,53 +346,18 @@ fn mission_spawn_converges_codex_row_to_the_app_wide_permission_mode() {
         1,
         "{bypass:?}"
     );
-
-    let auto = mission_spawn_args(&role, MissionPermissionMode::Auto);
-    assert_eq!(
-        &auto[..4],
-        [
-            "--ask-for-approval",
-            "on-request",
-            "--sandbox",
-            "workspace-write"
-        ]
-    );
-    assert!(
-        has_arg_pair(&auto, "--ask-for-approval", "on-request"),
-        "{auto:?}"
-    );
-    assert!(
-        has_arg_pair(&auto, "--sandbox", "workspace-write"),
-        "{auto:?}"
-    );
-
-    let role_default = mission_spawn_args(&role, MissionPermissionMode::RoleDefault);
-    assert_eq!(&role_default[..role.args.len()], role.args);
-    assert!(
-        has_arg_pair(&role_default, "--ask-for-approval", "on-request"),
-        "{role_default:?}"
-    );
-    assert!(
-        has_arg_pair(&role_default, "--sandbox", "workspace-write"),
-        "{role_default:?}"
-    );
 }
 
 #[test]
-fn mission_spawn_converges_trae_row_to_the_app_wide_permission_mode() {
+fn mission_spawn_converges_trae_row_to_bypass() {
     let mut role = role("trae-custom", &["--permission-mode", "auto", "--debug"]);
     role.runtime = "trae".into();
 
-    let bypass = mission_spawn_args(&role, MissionPermissionMode::Bypass);
+    let bypass = mission_spawn_args(&role);
     assert_eq!(
         &bypass[..3],
         ["--debug", "--permission-mode", "bypass_permissions"]
     );
-    let auto = mission_spawn_args(&role, MissionPermissionMode::Auto);
-    assert_chat_has_no_permission_flags(&auto);
-    assert_eq!(auto[0], "--debug");
-    let role_default = mission_spawn_args(&role, MissionPermissionMode::RoleDefault);
-    assert_eq!(&role_default[..role.args.len()], role.args);
 }
 
 #[test]
@@ -479,16 +419,13 @@ fn trae_mission_resume_strips_conflicting_permission_mode() {
 }
 
 #[test]
-fn mission_spawn_with_shell_runtime_ignores_the_permission_mode() {
+fn mission_spawn_with_shell_runtime_preserves_args() {
     let role = role("/bin/sh", &["-c", "cat"]);
-    let baseline = mission_spawn_args(&role, MissionPermissionMode::RoleDefault);
-    for mode in [MissionPermissionMode::Bypass, MissionPermissionMode::Auto] {
-        assert_eq!(mission_spawn_args(&role, mode), baseline, "{mode:?}");
-    }
+    assert_eq!(mission_spawn_args(&role), role.args);
 }
 
 #[test]
-fn mission_resume_reads_the_current_permission_mode() {
+fn mission_resume_applies_bypass_permissions() {
     let pool = pool_with_schema();
     let mut role = role("/bin/sh", &["--permission-mode", "plan"]);
     role.runtime = "claude-code".into();
@@ -504,7 +441,6 @@ fn mission_resume_reads_the_current_permission_mode() {
     let fake = fake_runtime();
     let mgr = mgr_with_fake(None, Arc::clone(&fake));
     let cap = capture();
-    mgr.set_mission_permission_mode(MissionPermissionMode::Bypass);
     let spawned = mgr
         .spawn(
             &mission,
@@ -526,7 +462,6 @@ fn mission_resume_reads_the_current_permission_mode() {
     fake.close_spawn(0);
     wait_for_session_exit(&mgr, &pool, &spawned.id);
 
-    mgr.set_mission_permission_mode(MissionPermissionMode::Auto);
     let resumed = mgr
         .resume(
             &spawned.id,
@@ -540,107 +475,56 @@ fn mission_resume_reads_the_current_permission_mode() {
     assert_eq!(resumed.id, spawned.id);
     let second = fake.last_spawn_spec().unwrap().args;
     assert!(
-        has_arg_pair(&second, "--permission-mode", "auto"),
+        has_arg_pair(&second, "--permission-mode", "bypassPermissions"),
         "{second:?}"
     );
     assert!(
-        !second
-            .iter()
-            .any(|arg| arg == "bypassPermissions" || arg == "plan"),
+        !second.iter().any(|arg| arg == "auto" || arg == "plan"),
         "{second:?}"
-    );
-
-    fake.close_spawn(1);
-    wait_for_session_exit(&mgr, &pool, &spawned.id);
-
-    mgr.set_mission_permission_mode(MissionPermissionMode::RoleDefault);
-    mgr.resume(
-        &spawned.id,
-        None,
-        None,
-        app_data.path(),
-        Arc::clone(&pool),
-        Arc::clone(&cap) as Arc<dyn SessionEvents>,
-    )
-    .unwrap();
-    let third = fake.last_spawn_spec().unwrap().args;
-    assert!(
-        has_arg_pair(&third, "--permission-mode", "plan"),
-        "{third:?}"
-    );
-    assert!(
-        !third
-            .iter()
-            .any(|arg| arg == "auto" || arg == "bypassPermissions"),
-        "{third:?}"
     );
 
     mgr.kill(&spawned.id).unwrap();
 }
 
 #[test]
-fn direct_spawn_ignores_the_mission_permission_mode() {
-    // `--session-id <uuid>` and the `--settings` hook JSON embed the
-    // fresh session id; everything else must match byte for byte.
-    fn without_per_session_args(args: &[String]) -> Vec<String> {
-        let mut out = Vec::with_capacity(args.len());
-        let mut skip_next = false;
-        for arg in args {
-            if skip_next {
-                skip_next = false;
-                continue;
-            }
-            if arg == "--session-id" || arg == "--settings" {
-                skip_next = true;
-                continue;
-            }
-            out.push(arg.clone());
-        }
-        out
-    }
-
+fn direct_spawn_strips_permission_flags() {
     let pool = pool_with_schema();
     let mut role = role("/bin/sh", &["--permission-mode", "plan", "--model", "opus"]);
     role.runtime = "claude-code".into();
     role.handle = "perm-direct".into();
     insert_role_row(&pool.get().unwrap(), &role);
 
-    let mut seen: Vec<Vec<String>> = Vec::new();
-    for mode in MissionPermissionMode::ALL {
-        let fake = fake_runtime();
-        let mgr = mgr_with_fake(None, Arc::clone(&fake));
-        mgr.set_mission_permission_mode(mode);
-        let spawned = mgr
-            .spawn_direct(
-                &role,
-                None,
-                None,
-                None,
-                None,
-                Some(fixture_tmp_dir().to_str().unwrap()),
-                None,
-                None,
-                fixture_tmp_dir(),
-                Arc::clone(&pool),
-                capture(),
-                None,
-            )
-            .unwrap();
-        let args = fake.last_spawn_spec().unwrap().args;
-        assert!(
-            !args.iter().any(|arg| arg == "--permission-mode"),
-            "{mode:?}: {args:?}"
-        );
-        assert!(
-            !args
-                .iter()
-                .any(|arg| arg == "bypassPermissions" || arg == "auto" || arg == "plan"),
-            "{mode:?}: {args:?}"
-        );
-        seen.push(without_per_session_args(&args));
-        mgr.kill(&spawned.id).unwrap();
-    }
-    assert!(seen.windows(2).all(|pair| pair[0] == pair[1]), "{seen:?}");
+    let fake = fake_runtime();
+    let mgr = mgr_with_fake(None, Arc::clone(&fake));
+    let spawned = mgr
+        .spawn_direct(
+            &role,
+            None,
+            None,
+            None,
+            None,
+            Some(fixture_tmp_dir().to_str().unwrap()),
+            None,
+            None,
+            fixture_tmp_dir(),
+            Arc::clone(&pool),
+            capture(),
+            None,
+        )
+        .unwrap();
+    let args = fake.last_spawn_spec().unwrap().args;
+    assert!(
+        !args.iter().any(|arg| arg == "--permission-mode"),
+        "{args:?}"
+    );
+    assert!(
+        !args
+            .iter()
+            .any(|arg| arg == "bypassPermissions" || arg == "auto" || arg == "plan"),
+        "{args:?}"
+    );
+    assert!(has_arg_pair(&args, "--model", "opus"), "{args:?}");
+    mgr.kill(&spawned.id).unwrap();
 }
 
 #[test]

@@ -210,84 +210,32 @@ fn apply_permission_mode_no_op_for_unsupported_runtime() {
 }
 
 #[test]
-fn mission_permission_mode_args_per_runtime() {
-    use MissionPermissionMode as M;
+fn mission_permission_args_per_runtime() {
     assert_eq!(
-        mission_permission_mode_args(Runtime::ClaudeCode.key(), M::Bypass),
-        Some(vec![
-            "--permission-mode".to_string(),
-            "bypassPermissions".to_string(),
-        ]),
+        mission_permission_args(Runtime::ClaudeCode.key()),
+        vec!["--permission-mode", "bypassPermissions"],
+    );
+    // Codex cannot ask to escalate with `never`, so missions need full access.
+    assert_eq!(
+        mission_permission_args(Runtime::Codex.key()),
+        vec![
+            "--ask-for-approval",
+            "never",
+            "--sandbox",
+            "danger-full-access"
+        ],
     );
     assert_eq!(
-        mission_permission_mode_args(Runtime::ClaudeCode.key(), M::Auto),
-        Some(vec!["--permission-mode".to_string(), "auto".to_string()]),
-    );
-    // codex Bypass leaves the sandbox: with `never` codex cannot
-    // ask to escalate, so `workspace-write` would fail network
-    // and out-of-tree writes silently in an unwatched slot.
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Codex.key(), M::Bypass),
-        Some(vec![
-            "--ask-for-approval".to_string(),
-            "never".to_string(),
-            "--sandbox".to_string(),
-            "danger-full-access".to_string(),
-        ]),
+        mission_permission_args(Runtime::Trae.key()),
+        vec!["--permission-mode", "bypass_permissions"],
     );
     assert_eq!(
-        mission_permission_mode_args(Runtime::Codex.key(), M::Auto),
-        Some(vec![
-            "--ask-for-approval".to_string(),
-            "on-request".to_string(),
-            "--sandbox".to_string(),
-            "workspace-write".to_string(),
-        ]),
+        mission_permission_args(Runtime::Antigravity.key()),
+        vec!["--dangerously-skip-permissions"],
     );
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Trae.key(), M::Bypass),
-        Some(vec![
-            "--permission-mode".to_string(),
-            "bypass_permissions".to_string(),
-        ]),
-    );
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Trae.key(), M::Auto),
-        Some(vec![]),
-    );
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Antigravity.key(), M::Bypass),
-        Some(vec!["--dangerously-skip-permissions".to_string()]),
-    );
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Antigravity.key(), M::Auto),
-        Some(vec![]),
-    );
-    for runtime in [
-        "claude-code",
-        "codex",
-        "trae",
-        "copilot",
-        "pi",
-        "antigravity",
-        "shell",
-        "unknown",
-    ] {
-        assert_eq!(
-            mission_permission_mode_args(runtime, M::RoleDefault),
-            None,
-            "{runtime}"
-        );
-    }
-    assert_eq!(
-        mission_permission_mode_args(Runtime::Shell.key(), M::Bypass),
-        Some(vec![])
-    );
-    assert_eq!(
-        mission_permission_mode_args("unknown", M::Auto),
-        Some(vec![])
-    );
-    // The role-level codex Bypass mapping is untouched.
+    assert!(mission_permission_args(Runtime::Shell.key()).is_empty());
+    assert!(mission_permission_args("unknown").is_empty());
+    // The role-level Codex Bypass mapping is untouched.
     assert_eq!(
         permission_mode_args(Runtime::Codex.key(), PermissionMode::Bypass),
         vec![
@@ -300,43 +248,11 @@ fn mission_permission_mode_args_per_runtime() {
 }
 
 #[test]
-fn apply_mission_permission_mode_leaves_shell_and_unknown_alone() {
+fn apply_mission_permissions_leaves_shell_and_unknown_alone() {
     let row = vec!["--whatever".to_string()];
     for runtime in ["pi", "shell", "aider-future"] {
-        for mode in MissionPermissionMode::ALL {
-            assert_eq!(
-                apply_mission_permission_mode(runtime, &row, mode),
-                row,
-                "{runtime} {mode:?}"
-            );
-        }
+        assert_eq!(apply_mission_permissions(runtime, &row), row, "{runtime}");
     }
-}
-
-#[test]
-fn mission_permission_mode_serde_and_keys() {
-    for mode in MissionPermissionMode::ALL {
-        let json = serde_json::to_string(&mode).unwrap();
-        assert_eq!(json, format!("\"{}\"", mode.key()));
-        assert_eq!(
-            serde_json::from_str::<MissionPermissionMode>(&json).unwrap(),
-            mode
-        );
-        assert_eq!(MissionPermissionMode::parse(mode.key()), Some(mode));
-    }
-    assert_eq!(
-        serde_json::from_str::<MissionPermissionMode>(r#""runner-default""#).unwrap(),
-        MissionPermissionMode::RoleDefault
-    );
-    assert_eq!(
-        MissionPermissionMode::parse("runner-default"),
-        Some(MissionPermissionMode::RoleDefault)
-    );
-    assert_eq!(MissionPermissionMode::parse("plan"), None);
-    assert_eq!(
-        MissionPermissionMode::default(),
-        MissionPermissionMode::Bypass
-    );
 }
 
 #[test]

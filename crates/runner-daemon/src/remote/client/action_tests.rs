@@ -642,7 +642,6 @@ async fn a_followed_feed_keeps_the_shared_route_alive_without_an_overview_follow
             goal_override: None,
             cwd: Some(host.path()),
         },
-        host.core.sessions.mission_permission_mode(),
     )
     .unwrap();
     host.ok(json!({"type":"follow","mission":out.mission.id}))
@@ -886,7 +885,6 @@ fn feed_mission(host: &Host) -> (String, runner_core::event_log::EventLog) {
             goal_override: None,
             cwd: Some(host.path()),
         },
-        host.core.sessions.mission_permission_mode(),
     )
     .unwrap();
     let mission = out.mission.id;

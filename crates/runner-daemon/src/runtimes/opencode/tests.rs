@@ -34,11 +34,11 @@ fn native_identity_is_captured_and_only_used_for_resume() {
 }
 #[test]
 fn attended_permissions_and_mission_resume_keep_native_denies() {
-    use crate::router::runtime::{MissionPermissionMode, PermissionMode};
+    use crate::router::runtime::PermissionMode;
     let args = strings(&["--auto=false", "--auto", "--keep"]);
     assert_eq!(PERMISSIONS.strip(&args), strings(&["--keep"]));
     assert_eq!(
-        PERMISSIONS.apply_mission(&args, MissionPermissionMode::Bypass),
+        PERMISSIONS.apply_mission(&args),
         strings(&["--keep", "--auto"])
     );
     assert_eq!(

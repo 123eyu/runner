@@ -58,26 +58,15 @@ impl Permissions {
         out.extend(self.mode_args(mode));
         out
     }
-    pub fn mission_args(&self, mode: MissionPermissionMode) -> Option<Vec<String>> {
-        match mode {
-            MissionPermissionMode::RoleDefault => None,
-            MissionPermissionMode::Auto => Some(self.mode_args(PermissionMode::Auto)),
-            MissionPermissionMode::Bypass => Some(
-                self.mission_bypass
-                    .map(strings)
-                    .unwrap_or_else(|| self.mode_args(PermissionMode::Bypass)),
-            ),
-        }
+    pub fn mission_args(&self) -> Vec<String> {
+        self.mission_bypass
+            .map(strings)
+            .unwrap_or_else(|| self.mode_args(PermissionMode::Bypass))
     }
-    pub fn apply_mission(&self, args: &[String], mode: MissionPermissionMode) -> Vec<String> {
-        match self.mission_args(mode) {
-            None => args.to_vec(),
-            Some(extra) => {
-                let mut out = self.strip(args);
-                out.extend(extra);
-                out
-            }
-        }
+    pub fn apply_mission(&self, args: &[String]) -> Vec<String> {
+        let mut out = self.strip(args);
+        out.extend(self.mission_args());
+        out
     }
     pub fn infer(&self, args: &[String]) -> PermissionMode {
         [
@@ -885,6 +874,71 @@ pub fn model_discovery_runtimes() -> Vec<Runtime> {
         Runtime::Grok,
         Runtime::OpenCode,
     ]
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+
+    #[test]
+    fn mission_args_use_runtime_bypass() {
+        for (runtime, expected) in [
+            (
+                "codex",
+                strings(&[
+                    "--ask-for-approval",
+                    "never",
+                    "--sandbox",
+                    "danger-full-access",
+                ]),
+            ),
+            (
+                "cursor",
+                strings(&[
+                    "--force",
+                    "--sandbox",
+                    "disabled",
+                    "--approve-mcps",
+                    "--trust",
+                ]),
+            ),
+            (
+                "claude-code",
+                strings(&["--permission-mode", "bypassPermissions"]),
+            ),
+            ("shell", vec![]),
+            ("unknown", vec![]),
+        ] {
+            assert_eq!(
+                for_key(runtime).permissions().mission_args(),
+                expected,
+                "{runtime}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_mission_replaces_role_permissions_and_preserves_other_args() {
+        let args = strings(&[
+            "--sandbox=workspace-write",
+            "--model",
+            "gpt-5.5",
+            "--ask-for-approval",
+            "on-request",
+        ]);
+        assert_eq!(
+            for_key("codex").permissions().apply_mission(&args),
+            strings(&[
+                "--model",
+                "gpt-5.5",
+                "--ask-for-approval",
+                "never",
+                "--sandbox",
+                "danger-full-access"
+            ]),
+        );
+        assert_eq!(for_key("unknown").permissions().apply_mission(&args), args);
+    }
 }
 
 #[cfg(test)]

@@ -41,9 +41,6 @@ impl SessionManager {
             slot.model_override.as_deref(),
             slot.effort_override.as_deref(),
         )?;
-        // Mission slots follow the app-wide permission mode (feature
-        // 527): converge the row's permission flags to the setting,
-        // leaving every other arg alone. Direct chats never pass here.
         let mut role = effective.unwrap_or_else(|| role.clone());
         if crate::runtimes::for_key(&role.runtime)
             .capabilities()
@@ -54,7 +51,7 @@ impl SessionManager {
         let mut launch_definition = crate::session::launch_definition::from_effective(&role);
         role.args = crate::runtimes::for_key(&role.runtime)
             .permissions()
-            .apply_mission(&role.args, self.mission_permission_mode());
+            .apply_mission(&role.args);
         let mut role = self.resolve_role_executable(&role, &pool)?;
         launch_definition.claude_account = crate::claude_accounts::launch_account(
             &pool,

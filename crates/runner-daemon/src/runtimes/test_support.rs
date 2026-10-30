@@ -24,18 +24,11 @@ pub(crate) fn apply_permission_mode(
 ) -> Vec<String> {
     selected(runtime).permissions().apply(args, mode)
 }
-pub(crate) fn mission_permission_mode_args(
-    runtime: &str,
-    mode: MissionPermissionMode,
-) -> Option<Vec<String>> {
-    selected(runtime).permissions().mission_args(mode)
+pub(crate) fn mission_permission_args(runtime: &str) -> Vec<String> {
+    selected(runtime).permissions().mission_args()
 }
-pub(crate) fn apply_mission_permission_mode(
-    runtime: &str,
-    args: &[String],
-    mode: MissionPermissionMode,
-) -> Vec<String> {
-    selected(runtime).permissions().apply_mission(args, mode)
+pub(crate) fn apply_mission_permissions(runtime: &str, args: &[String]) -> Vec<String> {
+    selected(runtime).permissions().apply_mission(args)
 }
 pub(crate) fn infer_permission_mode(runtime: &str, args: &[String]) -> PermissionMode {
     selected(runtime).permissions().infer(args)
