@@ -681,6 +681,7 @@ impl FrontPageClient {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn pin_chat(
         &self,
         session: &str,

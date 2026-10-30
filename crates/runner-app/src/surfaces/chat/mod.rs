@@ -958,14 +958,6 @@ mod tests {
                     "Chat name",
                     "对话名称",
                 ),
-                (
-                    ChatRenameTarget::Tab {
-                        tab_id: "tab".into(),
-                        original: "literal {count} 标签页".into(),
-                    },
-                    "Tab name",
-                    "标签页名称",
-                ),
             ] {
                 windows[1]
                     .update(&mut visual, |root, window, cx| {

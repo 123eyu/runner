@@ -219,15 +219,6 @@ impl RemoteClient {
         self.workspace.as_ref()?.layouts.get(id)
     }
 
-    pub(crate) fn session_tab(&self, session: &str) -> Option<String> {
-        self.workspace
-            .as_ref()?
-            .layouts
-            .values()
-            .find(|layout| layout.contains_session(session))
-            .map(|layout| layout.id.clone())
-    }
-
     pub(crate) fn session_pending(&self, id: &str) -> bool {
         self.workspace
             .as_ref()

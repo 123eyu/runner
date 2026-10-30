@@ -248,7 +248,6 @@ impl NativeRoot {
             self.split_sizes_dirty = true;
             cx.notify();
         }
-        // A drag suppresses hover, so the gutter needs the drag itself to stay lit.
         if self.resizing_split.as_deref() != Some(split_id) {
             self.resizing_split = Some(split_id.to_owned());
             cx.notify();

@@ -459,7 +459,7 @@
 "ui.chat_actions" = "对话操作"
 "ui.chat_name" = "对话名称"
 "ui.chat_now" = "立即对话"
-"ui.chat_paused" = "对话已暂停"
+"ui.chat_stopped" = "对话已停止"
 "ui.chat_tab" = "对话标签页"
 "ui.chats" = "对话"
 "ui.chats_in_a_pane_file_with_their_tab" = "窗格中的对话归入其标签页所属的项目。"

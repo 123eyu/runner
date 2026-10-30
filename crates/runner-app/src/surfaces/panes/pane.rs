@@ -27,7 +27,7 @@ impl NativeRoot {
         });
         let pane_session_for_focus = entry.as_ref().map(|entry| entry.session_id.clone());
         let close_root = cx.entity();
-        let header = grouped.then(|| {
+        let header = {
             let split_menu = self
                 .front_page_client(cx)
                 .supports(if self.active_tab_is_terminal(cx) {
@@ -36,49 +36,6 @@ impl NativeRoot {
                     &["layout"]
                 })
                 .then(|| self.split_menu(SplitMenuSurface::Pane, &layout.id, &pane_id, cx));
-            let grip = div()
-                .w(rems(20. / 16.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .id(SharedString::from(format!("pane-grip-{pane_id}")))
-                        .group("pane-grip")
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(rems(20. / 16.))
-                        // GPUI captures the base cursor for the drag, before hover refinement.
-                        .cursor(CursorStyle::ClosedHand)
-                        .hover(|grip| grip.cursor(CursorStyle::OpenHand))
-                        .child(
-                            svg()
-                                .path("grip-horizontal.svg")
-                                .size(rems(12. / 16.))
-                                .text_color(theme::faint())
-                                .group_hover("pane-grip", |icon| icon.text_color(theme::text())),
-                        )
-                        .on_drag(
-                            PaneDrag {
-                                tab_id: layout.id.clone(),
-                                pane_id: pane_id.clone(),
-                                label: entry
-                                    .as_ref()
-                                    .map(|entry| entry.label(None))
-                                    .unwrap_or_else(|| crate::i18n::text("ui.empty").into()),
-                                icon: pane_identity_icon(
-                                    entry.as_ref().map(|entry| entry.agent_runtime.as_str()),
-                                ),
-                                live: entry
-                                    .as_ref()
-                                    .is_some_and(|entry| entry.status == SessionStatus::Running),
-                            },
-                            |drag: &PaneDrag, _, _, cx: &mut App| cx.new(|_| drag.clone()),
-                        ),
-                );
             let close_pane_id = pane_id.clone();
             let close_behavior =
                 pane_close_behavior(entry.as_ref().map(|entry| entry.agent_runtime.as_str()));
@@ -89,8 +46,84 @@ impl NativeRoot {
                     .filter(|rename| rename.session_id == entry.session_id)
                     .map(|rename| rename.input.clone())
             });
+            let menu = entry
+                .as_ref()
+                .filter(|_| rename_input.is_none())
+                .and_then(|entry| {
+                    (!pane_action_indexes(
+                        entry,
+                        &self.front_page_client(cx),
+                        secondary.as_ref().is_some_and(|state| state.secondary),
+                    )
+                    .is_empty())
+                    .then(|| {
+                        let disabled = self.session_lifecycle_disabled(&entry.session_id, cx)
+                            || secondary.as_ref().is_some_and(|state| state.secondary);
+                        self.pane_action_menu(entry, disabled, cx)
+                    })
+                });
+            let mark_icon =
+                pane_identity_icon(entry.as_ref().map(|entry| entry.agent_runtime.as_str()));
+            let mark_live = entry
+                .as_ref()
+                .is_some_and(|entry| entry.status == SessionStatus::Running);
+            let mark_label = entry
+                .as_ref()
+                .map(|entry| {
+                    entry.label(
+                        self.remote_client
+                            .is_local()
+                            .then(|| self.attached_title(&entry.session_id, cx))
+                            .flatten()
+                            .as_deref(),
+                    )
+                })
+                .unwrap_or_else(|| crate::i18n::text("ui.empty").into());
+            let drag_pane = pane_id.clone();
+            let drag_session = entry.as_ref().map(|entry| entry.session_id.clone());
+            let mark = div()
+                .id(SharedString::from(format!("pane-grip-{pane_id}")))
+                .debug_selector({
+                    let pane_id = pane_id.clone();
+                    move || format!("PANE_DRAG_MARK:{pane_id}")
+                })
+                .flex_none()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(session_id) = drag_session.as_deref() {
+                            this.focus_terminal(&drag_pane, session_id, window, cx);
+                        } else {
+                            this.focus_pane(&drag_pane, cx);
+                        }
+                    }),
+                )
+                .child(mark_icon.render(
+                    rems(15. / 16.),
+                    mark_icon.color(
+                        if entry.is_some() && focused {
+                            theme::accent()
+                        } else {
+                            theme::faint()
+                        },
+                        mark_live,
+                    ),
+                    mark_live,
+                ))
+                .when(self.front_page_client(cx).supports(&["layout"]), |mark| {
+                    mark.cursor(CursorStyle::OpenHand).on_drag(
+                        PaneDrag {
+                            tab_id: layout.id.clone(),
+                            pane_id: pane_id.clone(),
+                            label: mark_label,
+                            icon: mark_icon,
+                            live: mark_live,
+                        },
+                        |drag: &PaneDrag, _, _, cx: &mut App| cx.new(|_| drag.clone()),
+                    )
+                });
             let identity = if let Some(entry) = entry.as_ref() {
-                let icon = pane_identity_icon(Some(&entry.agent_runtime));
                 let session_id = entry.session_id.clone();
                 let live = self
                     .remote_client
@@ -100,12 +133,9 @@ impl NativeRoot {
                 let label = entry.label(live.as_deref());
                 let manual_title = entry.title.clone().unwrap_or_default();
                 let placeholder = entry.default_label();
-                let program_status = self
+                let status = self
                     .front_page_status(&entry.session_id, cx)
-                    .is_some_and(|status| status.program_status);
-                let status =
-                    pane_identity_shows_status(&entry.agent_runtime, program_status).then(|| {
-                        let mut status = self.front_page_status(&entry.session_id, cx).unwrap();
+                    .map(|mut status| {
                         if let Some(transition) = self
                             .chat_transitions
                             .get(&entry.session_id)
@@ -120,16 +150,11 @@ impl NativeRoot {
                         }
                         status
                     });
-                let disabled = self.session_lifecycle_disabled(&session_id, cx)
-                    || secondary.as_ref().is_some_and(|state| state.secondary);
-                let menu = (rename_input.is_none()
-                    && !pane_action_indexes(entry, &self.front_page_client(cx)).is_empty())
-                .then(|| self.pane_action_menu(entry, disabled, cx));
+                let renaming = rename_input.is_some();
                 let name = if let Some(input) = rename_input {
                     div()
-                        .ml_2()
-                        .w(rems(144. / 16.))
-                        .min_w(rems(64. / 16.))
+                        .w_full()
+                        .min_w(px(0.))
                         .child(input)
                         .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                             match pane_rename_key(&event.keystroke.key) {
@@ -149,7 +174,11 @@ impl NativeRoot {
                     let rename_root = cx.entity();
                     div()
                         .id(SharedString::from(format!("pane-name-{session_id}")))
-                        .ml_2()
+                        .debug_selector({
+                            let label = label.clone();
+                            move || format!("PANE_TITLE:{label}")
+                        })
+                        .w_full()
                         .min_w(px(0.))
                         .truncate()
                         .text_size(theme::text_ui())
@@ -182,68 +211,162 @@ impl NativeRoot {
                         })
                         .into_any_element()
                 };
-                div()
-                    .min_w(px(0.))
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .child(icon.render(
-                        rems(12. / 16.),
-                        icon.color(
-                            if focused {
-                                theme::accent()
-                            } else {
-                                theme::faint()
-                            },
+                let account = entry
+                    .local
+                    .as_ref()
+                    .and_then(|entry| self.claude_account_details(entry, cx))
+                    .map(|(name, _, _)| name);
+                let lifecycle = status
+                    .as_ref()
+                    .and_then(|status| {
+                        pane_lifecycle_action(
+                            &entry.agent_runtime,
                             entry.status == SessionStatus::Running,
-                        ),
-                        entry.status == SessionStatus::Running,
-                    ))
-                    .child(name)
-                    .children(
-                        entry
-                            .local
+                            status.kind,
+                            self.session_lifecycle_disabled(&entry.session_id, cx),
+                            secondary.as_ref().is_some_and(|state| state.secondary),
+                        )
+                    })
+                    .filter(|action| {
+                        self.front_page_client(cx).supports(&[match action {
+                            SessionControlKind::Stop => "stop",
+                            _ => "resume",
+                        }])
+                    })
+                    .map(|action| {
+                        (
+                            action,
+                            start_action_shortcut(
+                                if action == SessionControlKind::Stop {
+                                    "stop-session"
+                                } else {
+                                    "resume-session"
+                                },
+                                &self.settings(cx).keymap_overrides,
+                            ),
+                        )
+                    });
+                let target = pane_id.clone();
+                let target_session = entry.session_id.clone();
+                let root = cx.entity();
+                gpui::container_query(move |size, window, cx| {
+                    let zoom = f32::from(window.rem_size()) / 16.;
+                    let text_width = |text: &str, font_size: f32, weight| {
+                        let mut style = window.text_style();
+                        style.font_weight = weight;
+                        f32::from(
+                            window
+                                .text_system()
+                                .shape_line(
+                                    text.to_owned().into(),
+                                    px(font_size * zoom),
+                                    &[style.to_run(text.len())],
+                                    None,
+                                )
+                                .width
+                                .ceil(),
+                        )
+                    };
+                    let name_preferred = if renaming {
+                        144. * zoom
+                    } else {
+                        text_width(&label, 12., FontWeight::MEDIUM)
+                    };
+                    let account_preferred = account.as_ref().map_or(0., |account| {
+                        (text_width(account, 11., FontWeight::NORMAL) + 16. * zoom).min(160. * zoom)
+                    });
+                    let fixed = (15.
+                        + 8.
+                        + if account.is_some() { 8. } else { 0. }
+                        + if status.is_some() { 8. } else { 0. })
+                        * zoom
+                        + if lifecycle.is_some() {
+                            38. * zoom + 1.
+                        } else {
+                            0.
+                        };
+                    let budget = (f32::from(size.width) - fixed - 1.).max(0.);
+                    let label_width = status
+                        .as_ref()
+                        .map_or(0., |status| status.island_label_width(window));
+                    let min_name = name_preferred.min(28. * zoom);
+                    let label_visible =
+                        status.is_some() && budget >= min_name + account_preferred + label_width;
+                    let detail_visible = label_visible
+                        && status
                             .as_ref()
-                            .and_then(|entry| self.claude_account_details(entry, cx))
-                            .map(|(name, _, _)| account_chip(name)),
-                    )
-                    .children(menu)
-                    .children(status.map(|status| {
-                        let width = self
-                            .front_page_pane_bounds()
-                            .get(&PaneKey::new(&layout.id, &pane_id))
-                            .map_or(480., |size| {
-                                f32::from(size.width) / (f32::from(window.rem_size()) / 16.)
-                            });
-                        let target = pane_id.clone();
-                        div()
-                            .id(SharedString::from(format!("pane-status-{target}")))
-                            .ml_2()
-                            .flex_none()
-                            .child(runner_app::ui::agent_status::pane_status_indicator(
-                                status.clone(),
-                                status.shows_label(width),
-                                status.shows_detail(width),
+                            .is_some_and(|status| status.has_island_detail())
+                        && budget >= name_preferred + account_preferred + 180. * zoom;
+                    let status_width = if detail_visible {
+                        180. * zoom
+                    } else if label_visible {
+                        label_width
+                    } else if status.is_some() {
+                        12. * zoom
+                    } else {
+                        0.
+                    };
+                    let account_visible =
+                        account.is_some() && budget - status_width - min_name >= 24. * zoom;
+                    let account_width = if account_visible {
+                        account_preferred.min((budget - status_width - min_name).max(16. * zoom))
+                    } else {
+                        0.
+                    };
+                    let name_width =
+                        name_preferred.min((budget - status_width - account_width).max(0.));
+                    div()
+                        .debug_selector(|| "ISLAND_HEADER_IDENTITY".into())
+                        .size_full()
+                        .min_w(px(0.))
+                        .flex()
+                        .items_center()
+                        .child(mark)
+                        .child(
+                            div()
+                                .ml_2()
+                                .flex_none()
+                                .w(px(name_width))
+                                .overflow_hidden()
+                                .child(name),
+                        )
+                        .children(account.filter(|_| account_visible).map(|account| {
+                            account_chip(account)
+                                .ml_2()
+                                .min_w(px(0.))
+                                .w(px(account_width))
+                        }))
+                        .children(status.map(|status| {
+                            runner_app::ui::agent_status::pane_status_control(
+                                status,
+                                (label_visible, detail_visible),
                                 SharedString::from(format!("status-{target}")),
+                                lifecycle,
+                                move |window, cx| {
+                                    root.update(cx, |this, cx| {
+                                        this.focus_pane(&target, cx);
+                                        this.activate_primary_pane_action(
+                                            &target_session,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                },
                                 window,
                                 cx,
-                            ))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.focus_pane(&target, cx);
-                                this.mark_active_tab_viewed(window, cx);
-                                this.focus_active_terminal(window, cx);
-                            }))
-                            .into_any_element()
-                    }))
-                    .into_any_element()
+                            )
+                        }))
+                })
+                .flex_1()
+                .min_w(px(0.))
+                .into_any_element()
             } else {
                 div()
                     .min_w(px(0.))
                     .flex_1()
                     .flex()
                     .items_center()
-                    .child(pane_identity_icon(None).render(rems(12. / 16.), theme::faint(), false))
+                    .child(mark)
                     .child(
                         div()
                             .ml_2()
@@ -256,37 +379,35 @@ impl NativeRoot {
             };
             div()
                 .flex_none()
-                .h(rems(PANE_HEADER_HEIGHT / 16.))
+                .h(rems(40. / 16.))
                 .px(rems(8. / 16.))
                 .flex()
                 .items_center()
-                .bg(theme::panel())
-                .border_b_1()
-                .border_color(theme::border())
                 .map(|element| {
                     #[cfg(test)]
                     let element = crate::theme_snapshot::record_fill("PANE_IDENTITY_LINE", element);
-                    element.when(self.remote_client.is_active(), |element| {
-                        element.debug_selector({
-                            let id = leaf.session_id.clone().unwrap_or_else(|| pane_id.clone());
-                            move || format!("PANE_HEADER:{id}")
-                        })
+                    element.debug_selector({
+                        let id = leaf.session_id.clone().unwrap_or_else(|| pane_id.clone());
+                        move || format!("PANE_HEADER:{id}")
                     })
                 })
+                .when(layout.root.leaves()[0].id == pane_id, |header| {
+                    header
+                        .pl(px(self.workspace_titlebar_padding(window, cx)))
+                        .children(self.render_collapsed_titlebar_spacer())
+                })
                 .child(identity)
-                .children(
-                    self.front_page_client(cx)
-                        .supports(&["layout"])
-                        .then_some(grip),
-                )
                 .child(
                     div()
-                        .min_w(px(0.))
-                        .flex_1()
+                        .flex_none()
                         .flex()
                         .items_center()
                         .justify_end()
                         .gap_2()
+                        .when(cfg!(test), |actions| {
+                            actions.debug_selector(|| "PANE_HEADER_ACTIONS".into())
+                        })
+                        .children(menu)
                         .children(split_menu)
                         .children(
                             self.front_page_client(cx)
@@ -356,9 +477,17 @@ impl NativeRoot {
                                 }),
                         ),
                 )
-        });
+                .children(self.render_island_panel_toggle(layout, &pane_id, cx))
+        };
 
-        let body: AnyElement = if let Some(entry) = entry.as_ref() {
+        let header = self.render_titlebar_drag_area("island-header-drag", header, cx);
+        let body: AnyElement = if start_surface_visible(Some(layout)) {
+            render_start_surface(
+                &self.settings(cx).keymap_overrides,
+                &self.front_page_client(cx),
+            )
+            .into_any_element()
+        } else if let Some(entry) = entry.as_ref() {
             let session_id = entry.session_id.clone();
             let secondary_state = secondary.clone().unwrap_or_default();
             let fork_materializing = self.remote_client.is_local()
@@ -622,6 +751,13 @@ impl NativeRoot {
                                         });
                                     },
                                 )
+                                .when_some(
+                                    start_action_shortcut(
+                                        "resume-session",
+                                        &self.settings(cx).keymap_overrides,
+                                    ),
+                                    |overlay, shortcut| overlay.resume_shortcut(shortcut),
+                                )
                                 .actions_visible(
                                     self.front_page_client(cx).supports(&["resume"]),
                                     self.front_page_client(cx).supports(&["archive", "layout"]),
@@ -760,6 +896,10 @@ impl NativeRoot {
             .and_then(|(key, side)| (key == &drop_key).then_some(*side));
         div()
             .id(SharedString::from(format!("pane-{pane_id}")))
+            .debug_selector({
+                let pane_id = pane_id.clone();
+                move || format!("PANE_ISLAND:{pane_id}")
+            })
             .relative()
             .size_full()
             .min_w(px(0.))
@@ -767,6 +907,22 @@ impl NativeRoot {
             .flex()
             .flex_col()
             .overflow_hidden()
+            .rounded(rems(12. / 16.))
+            .border_1()
+            .border_color(if focused {
+                theme::with_alpha(
+                    theme::text(),
+                    if theme::active_variant().is_light() {
+                        0.22
+                    } else {
+                        0.2
+                    },
+                )
+            } else {
+                theme::border()
+            })
+            .bg(theme::bg())
+            .pb(rems(8. / 16.))
             .child(
                 canvas(
                     |_, _, _| {},
@@ -784,7 +940,7 @@ impl NativeRoot {
                 .absolute()
                 .inset_0(),
             )
-            .children(header)
+            .child(header)
             .child(
                 div()
                     .flex_1()

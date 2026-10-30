@@ -22,3 +22,20 @@ pub fn work_card(collapsed_sidebar: bool) -> Div {
         .bg(theme::bg())
         .overflow_hidden()
 }
+
+pub fn island_area(collapsed_sidebar: bool) -> Div {
+    div()
+        .debug_selector(|| "ISLAND_AREA".into())
+        .relative()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .my(rems(8. / 16.))
+        .when(cfg!(any(windows, target_os = "linux")), |area| area.mt_0())
+        .mr(rems(8. / 16.))
+        .ml(rems(if collapsed_sidebar {
+            8. / 16.
+        } else {
+            6. / 16.
+        }))
+}

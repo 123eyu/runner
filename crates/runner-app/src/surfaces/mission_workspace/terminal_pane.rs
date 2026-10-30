@@ -406,6 +406,7 @@ impl MissionWorkspace {
                 archive_root.update(cx, |this, cx| this.archive_open_mission(window, cx));
             },
         )
+        .mission_paused()
         .title(crate::i18n::text("ui.mission_paused"))
             .into_any_element()
     }

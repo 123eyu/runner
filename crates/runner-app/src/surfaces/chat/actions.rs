@@ -115,22 +115,6 @@ impl NativeRoot {
         self.resume_chats(vec![session_id], window, cx);
     }
 
-    pub(crate) fn stop_chats(
-        &mut self,
-        session_ids: Vec<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        for session_id in session_ids {
-            if self
-                .front_page_session(&session_id, cx)
-                .is_some_and(|entry| entry.status == SessionStatus::Running)
-            {
-                self.stop_chat(&session_id, window, cx);
-            }
-        }
-    }
-
     pub(crate) fn resume_chats(
         &mut self,
         session_ids: Vec<String>,
@@ -170,139 +154,14 @@ impl NativeRoot {
         }
     }
 
-    pub(crate) fn toggle_chat_pin(
-        &mut self,
-        session_id: String,
-        pinned: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let node = if self.remote_client.is_active() {
-            let tab = self.remote_client.session_tab(&session_id);
-            let Some(tab) = tab else {
-                return;
-            };
-            let Some(node) = self
-                .front_page_sidebar()
-                .read(cx)
-                .source_nodes(cx)
-                .into_iter()
-                .find(|node| node.id == tab)
-            else {
-                return;
-            };
-            Some(node)
-        } else {
-            None
-        };
-        let next = !pinned;
-        if node.is_none() {
-            self.app_store.update(cx, |store, store_cx| {
-                store.set_session_pinned(&session_id, next, store_cx)
-            });
-            if let Some(detail) = self
-                .active_chat_detail
-                .as_mut()
-                .filter(|entry| entry.session_id == session_id)
-            {
-                detail.pinned = next;
-            }
-            self.chat_error = None;
-            cx.notify();
-        }
-        let key = node
-            .as_ref()
-            .map(|node| format!("pin:{}", node.id))
-            .unwrap_or_else(|| format!("pin:{session_id}"));
-        let Some(operation) = WorkspaceAction::prepare(self, key, &["pin"], cx) else {
-            return;
-        };
-        let core = operation.client.clone();
-        let target = session_id.clone();
-        let pin = cx.background_spawn(async move {
-            core.pin_chat(&target, next, node.as_ref())
-                .map_err(|error| error.to_string())
-        });
-        let origin_epoch = self.remote_client.ui.epoch;
-        cx.spawn(async move |weak, cx| {
-            let result = pin.await;
-            let _ = weak.update(cx, |this, cx| {
-                let Some(result) =
-                    WorkspaceAction::complete(this, operation, result, |()| Default::default(), cx)
-                else {
-                    return;
-                };
-                if this.remote_client.ui.epoch != origin_epoch {
-                    cx.notify();
-                    return;
-                }
-                if let Err(error) = result {
-                    this.chat_error = Some(error.into());
-                    this.refresh_sessions(cx);
-                }
-                this.sync_active_chat_detail(cx);
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    pub(crate) fn handle_chat_menu_action(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self
-            .active_focused_session_id()
-            .is_some_and(|session_id| self.chat_secondary_state(&session_id, cx).secondary)
-        {
-            return;
-        }
-        let Some(action) = self.chat_menu_actions.get(index).cloned() else {
-            return;
-        };
-        match action {
-            ChatMenuAction::TogglePin { session_id, pinned } => {
-                self.toggle_chat_pin(session_id, pinned, cx)
-            }
-            ChatMenuAction::RenameSession {
-                session_id,
-                current,
-            } => self.open_chat_rename(
-                ChatRenameTarget::Session {
-                    session_id,
-                    original: current,
-                },
-                window,
-                cx,
-            ),
-            ChatMenuAction::RenameTab { tab_id, current } => self.open_chat_rename(
-                ChatRenameTarget::Tab {
-                    tab_id,
-                    original: current,
-                },
-                window,
-                cx,
-            ),
-            ChatMenuAction::Archive(session_ids) => {
-                self.archive_chat_sessions(session_ids, window, cx)
-            }
-            ChatMenuAction::ArchiveAll(session_ids) => {
-                self.request_archive_all(None, session_ids, ArchiveAllSource::Chat, window, cx)
-            }
-        }
-    }
-
-    pub(super) fn open_chat_rename(
+    pub(crate) fn open_chat_rename(
         &mut self,
         target: ChatRenameTarget,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let original = match &target {
-            ChatRenameTarget::Session { original, .. } | ChatRenameTarget::Tab { original, .. } => {
-                original.clone()
-            }
+            ChatRenameTarget::Session { original, .. } => original.clone(),
         };
         let placeholder = match &target {
             ChatRenameTarget::Session { session_id, .. }
@@ -313,7 +172,6 @@ impl NativeRoot {
                 crate::i18n::message("ui.terminal_name")
             }
             ChatRenameTarget::Session { .. } => crate::i18n::message("ui.chat_name"),
-            ChatRenameTarget::Tab { .. } => crate::i18n::message("ui.tab_name"),
         };
         let input = cx.new(|input_cx| {
             runner_app::ui::TextField::new(input_cx.focus_handle(), original, placeholder, false)

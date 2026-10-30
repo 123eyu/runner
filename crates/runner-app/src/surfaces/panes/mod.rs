@@ -21,11 +21,9 @@ use gpui::{
     Point, Size,
 };
 
-use runner_app::ui::resize::{resize_strip, resize_strip_inset, ResizeAxis};
+use runner_app::ui::resize::{resize_strip, ResizeAxis};
 
-use runner_app::ui::{
-    ButtonVariant, Modal, OverlayWidth, SessionControlVariant, SessionOverlay, SessionOverlayKind,
-};
+use runner_app::ui::{ButtonVariant, Modal, OverlayWidth, SessionOverlay, SessionOverlayKind};
 
 use runner_core::protocol::model::Runtime;
 
@@ -67,14 +65,12 @@ impl NativeRoot {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum SplitMenuSurface {
-    Header,
     Pane,
 }
 
 impl SplitMenuSurface {
     fn key(self) -> &'static str {
         match self {
-            Self::Header => "header",
             Self::Pane => "pane",
         }
     }
@@ -122,10 +118,6 @@ fn pane_rename_key(key: &str) -> Option<PaneRenameKey> {
         "escape" => Some(PaneRenameKey::Cancel),
         _ => None,
     }
-}
-
-fn pane_identity_visible(pane_count: usize) -> bool {
-    pane_count > 1
 }
 
 fn split_tab_archiving(layout: &PaneLayout, archiving: impl Fn(&str) -> bool) -> bool {
@@ -265,20 +257,6 @@ fn split_menu_items(
     .collect()
 }
 
-fn workspace_header_icon(
-    grouped: bool,
-    focused_session_id: Option<&str>,
-    focused_runtime: Option<&str>,
-) -> ChatIcon {
-    if grouped {
-        ChatIcon::split()
-    } else if focused_session_id.is_none() {
-        ChatIcon::generic("square-dashed.svg")
-    } else {
-        ChatIcon::for_runtime(focused_runtime.unwrap_or_default())
-    }
-}
-
 fn pane_body_opacity(grouped: bool, focused: bool) -> f32 {
     if grouped && !focused {
         UNFOCUSED_PANE_OPACITY
@@ -292,10 +270,6 @@ fn pane_identity_icon(runtime: Option<&str>) -> ChatIcon {
         || ChatIcon::generic("square-dashed.svg"),
         ChatIcon::for_runtime,
     )
-}
-
-fn pane_identity_shows_status(runtime: &str, program_status: bool) -> bool {
-    program_status || !Runtime::parse(runtime).is_some_and(Runtime::is_shell)
 }
 
 fn starting_overlay_label(runtime: &str, fork_materializing: bool) -> Option<&'static str> {
@@ -364,24 +338,56 @@ fn archive_chat_confirm_body(label: &str, running: bool) -> String {
     }
 }
 
+fn pane_lifecycle_action(
+    runtime: &str,
+    running: bool,
+    status: runner_app::ui::agent_status::StatusKind,
+    disabled: bool,
+    secondary: bool,
+) -> Option<SessionControlKind> {
+    use runner_app::ui::agent_status::StatusKind;
+    if runtime == "shell"
+        || disabled
+        || secondary
+        || matches!(status, StatusKind::Starting | StatusKind::Resuming)
+    {
+        None
+    } else if running {
+        Some(SessionControlKind::Stop)
+    } else {
+        Some(SessionControlKind::Resume)
+    }
+}
+
+fn top_right_pane(node: &PaneNode) -> &PaneLeaf {
+    match node {
+        PaneNode::Leaf(leaf) => leaf,
+        PaneNode::Split(split) => top_right_pane(match split.orientation {
+            SplitOrientation::Row => &split.b,
+            SplitOrientation::Column => &split.a,
+        }),
+    }
+}
+
 fn pane_action_indexes(
     entry: &SessionDisplay,
     client: &crate::surfaces::front_page::FrontPageClient,
+    secondary: bool,
 ) -> Vec<usize> {
     let mut indexes = Vec::new();
-    if entry.agent_runtime != "shell"
-        && client.supports(&[if entry.status == SessionStatus::Running {
+    if entry.agent_runtime != "shell" && !secondary {
+        if client.supports(&[if entry.status == SessionStatus::Running {
             "stop"
         } else {
             "resume"
-        }])
-    {
-        indexes.push(0);
+        }]) {
+            indexes.push(0);
+        }
+        if client.supports(&["catalog", "fork"]) {
+            indexes.push(1);
+        }
     }
     if client.supports(&["rename"]) {
-        indexes.push(if entry.agent_runtime == "shell" { 0 } else { 1 });
-    }
-    if entry.agent_runtime != "shell" && client.supports(&["archive", "layout"]) {
         indexes.push(2);
     }
     indexes
@@ -394,22 +400,14 @@ fn pane_action_items_for(
     stop_shortcut: Option<String>,
     resume_shortcut: Option<String>,
 ) -> Vec<UiMenuItem> {
-    let shell = Runtime::parse(runtime).is_some_and(Runtime::is_shell);
-    if shell {
-        return vec![
-            UiMenuItem::new(crate::i18n::message("ui.rename_chat_action"))
-                .icon("pencil.svg")
-                .disabled(disabled),
-        ];
+    let rename = UiMenuItem::new(crate::i18n::message("ui.rename_chat_action"))
+        .icon("pencil.svg")
+        .disabled(disabled);
+    if runtime == "shell" {
+        return vec![rename];
     }
     let (label, icon, shortcut) = if running {
         (crate::i18n::message("ui.stop"), "square.svg", stop_shortcut)
-    } else if shell {
-        (
-            crate::i18n::message("ui.restart"),
-            "rotate-ccw.svg",
-            resume_shortcut,
-        )
     } else {
         (
             crate::i18n::message("ui.resume"),
@@ -417,27 +415,20 @@ fn pane_action_items_for(
             resume_shortcut,
         )
     };
-    let primary = UiMenuItem::new(label).icon(icon).disabled(disabled);
+    let primary = UiMenuItem::new(label)
+        .icon(icon)
+        .disabled(disabled)
+        .destructive(running)
+        .accent(!running);
     let primary = match shortcut {
         Some(shortcut) => primary.shortcut(shortcut),
         None => primary,
     };
-    let mut items = vec![
+    vec![
         primary,
-        UiMenuItem::new(crate::i18n::message("ui.rename_chat_action"))
-            .icon("pencil.svg")
-            .disabled(disabled),
-    ];
-    if !shell {
-        items.push(
-            UiMenuItem::new(crate::i18n::message("ui.archive_chat_action"))
-                .icon("archive.svg")
-                .separator_before(true)
-                .destructive(true)
-                .disabled(disabled),
-        );
-    }
-    items
+        UiMenuItem::new(crate::i18n::message("ui.fork_chat_action")).icon("git-fork.svg"),
+        rename,
+    ]
 }
 
 pub(crate) fn pane_fractions(node: &PaneNode, pane_id: &str) -> Option<(f32, f32)> {
@@ -478,10 +469,9 @@ mod tests {
     use super::{
         adjacent_pane_index, archive_chat_confirm_body, drop_allowed, drop_preview, drop_side,
         header_fork_state, pane_action_items_for, pane_body_opacity, pane_close_behavior,
-        pane_identity_icon, pane_identity_shows_status, pane_identity_visible, pane_rename_key,
-        side_panel_open, split_allowed, split_decision, split_menu_items, split_tab_archiving,
-        starting_overlay_label, terminal_drawer_tooltip, workspace_header_icon, HeaderForkState,
-        PaneCloseBehavior, PaneRenameKey, SplitDecision, MIN_SPLIT_PANE_HEIGHT,
+        pane_identity_icon, pane_rename_key, side_panel_open, split_allowed, split_decision,
+        split_menu_items, split_tab_archiving, starting_overlay_label, terminal_drawer_tooltip,
+        HeaderForkState, PaneCloseBehavior, PaneRenameKey, SplitDecision, MIN_SPLIT_PANE_HEIGHT,
         MIN_SPLIT_PANE_WIDTH, TOO_SMALL_TO_SPLIT, UNFOCUSED_PANE_OPACITY,
     };
     use crate::keymap;
@@ -514,6 +504,349 @@ mod tests {
             agent_session_key: forkable.then(|| "key".into()),
             pinned: false,
             archived_at: None,
+        }
+    }
+
+    #[test]
+    fn island_lifecycle_controls_follow_lifecycle_and_never_control_shells() {
+        use runner_app::ui::{agent_status::StatusKind::*, SessionControlKind};
+        for status in [
+            Working,
+            Idle,
+            Approval,
+            Answer,
+            NeedsYou,
+            Error,
+            ResponseFailed,
+            Unavailable,
+        ] {
+            assert_eq!(
+                super::pane_lifecycle_action("codex", true, status, false, false),
+                Some(SessionControlKind::Stop)
+            );
+            assert_eq!(
+                super::pane_lifecycle_action("shell", true, status, false, false),
+                None
+            );
+            assert_eq!(
+                super::pane_lifecycle_action("codex", true, status, true, false),
+                None
+            );
+            assert_eq!(
+                super::pane_lifecycle_action("codex", true, status, false, true),
+                None
+            );
+        }
+        for status in [Starting, Resuming] {
+            assert_eq!(
+                super::pane_lifecycle_action("codex", true, status, false, false),
+                None
+            );
+        }
+        assert_eq!(
+            super::pane_lifecycle_action("codex", false, Stopped, false, false),
+            Some(SessionControlKind::Resume)
+        );
+        assert_eq!(
+            super::pane_lifecycle_action("shell", false, Stopped, false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn panel_toggle_follows_the_top_right_corner_across_nested_splits() {
+        let mut layout = PaneLayout::single(Some("chat"), &[]);
+        let left = layout.focused_pane_id.clone();
+        layout.split(&left, SplitOrientation::Row).unwrap();
+        let right = layout.focused_pane_id.clone();
+        assert_eq!(super::top_right_pane(&layout.root).id, right);
+        layout.split(&right, SplitOrientation::Column).unwrap();
+        assert_eq!(super::top_right_pane(&layout.root).id, right);
+        layout.split(&right, SplitOrientation::Row).unwrap();
+        assert_eq!(
+            super::top_right_pane(&layout.root).id,
+            layout.focused_pane_id
+        );
+        layout.focus_pane(&left);
+        assert_ne!(super::top_right_pane(&layout.root).id, left);
+    }
+
+    #[test]
+    fn dragging_an_empty_pane_mark_preserves_its_id_and_sibling_chat() {
+        use gpui::{Modifiers, MouseButton, TestAppContext, VisualTestContext};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut cx = TestAppContext::single();
+        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+        store.update(&mut cx, |store, cx| {
+            crate::app_store::seed_mixed_working_sessions(store);
+            let mut layout = PaneLayout::single(Some("direct-agent"), &[]);
+            layout.split("p1", SplitOrientation::Row).unwrap();
+            {
+                let conn = store.test_core.db.get().unwrap();
+                conn.execute("UPDATE sessions SET status = 'stopped'", [])
+                    .unwrap();
+                runner_daemon::repo::node::create_tab(
+                    &conn,
+                    None,
+                    "",
+                    0,
+                    &layout.serialize().unwrap(),
+                )
+                .unwrap();
+            }
+            store.refresh(crate::app_store::StoreRefreshKind::All, cx);
+        });
+        let window = cx.add_window(|window, cx| {
+            let mut root = crate::NativeRoot::new(
+                "empty-pane-drag".into(),
+                temp.path().join("logs"),
+                None,
+                None,
+                store.clone(),
+                window,
+                cx,
+            );
+            root.apply_tab_rows(cx);
+            assert!(root.tabs.activate_session("direct-agent"));
+            root.route = crate::AppRoute::Chat;
+            root.sync_active_chat_detail(cx);
+            root
+        });
+        let mut visual = VisualTestContext::from_window(window.into(), &cx);
+        visual.simulate_resize(size(px(1600.), px(900.)));
+        visual.run_until_parked();
+        let mark = visual.debug_bounds("PANE_DRAG_MARK:p3").unwrap();
+        let target = visual.debug_bounds("PANE_ISLAND:p1").unwrap();
+        let destination = point(target.center().x, target.top() + px(10.));
+        visual.simulate_mouse_down(mark.center(), MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            mark.center() + point(px(12.), px(12.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(destination, Some(MouseButton::Left), Modifiers::default());
+        visual.simulate_mouse_up(destination, MouseButton::Left, Modifiers::default());
+        visual.run_until_parked();
+        window
+            .read_with(&visual, |root, _| {
+                let layout = root.tabs.active().unwrap();
+                assert_eq!(
+                    layout
+                        .root
+                        .leaves()
+                        .iter()
+                        .map(|leaf| leaf.id.as_str())
+                        .collect::<Vec<_>>(),
+                    ["p3", "p1"]
+                );
+                assert!(layout.root.leaves()[0].session_id.is_none());
+                assert_eq!(layout.session_ids(), ["direct-agent"]);
+                assert_eq!(layout.focused_pane_id, "p3");
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn pane_menu_lifecycle_labels_fit_one_line_beside_their_shortcuts() {
+        use crate::i18n::{testing::with_locale, Language, Locale};
+        use gpui::{Focusable, TestAppContext, VisualTestContext};
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for locale in [Locale::English, Locale::SimplifiedChinese] {
+            with_locale(locale, || {
+                for zoom in [1., 1.5] {
+                    for running in [true, false] {
+                        let temp = tempfile::tempdir().unwrap();
+                        let mut cx = TestAppContext::single();
+                        let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+                        store.update(&mut cx, |store, cx| {
+                            crate::app_store::seed_mixed_working_sessions(store);
+                            store.settings.app_zoom = zoom;
+                            store.settings.language = if locale == Locale::English { Language::English } else { Language::SimplifiedChinese };
+                            if !running {
+                                store.test_core.db.get().unwrap().execute("UPDATE sessions SET status = 'stopped' WHERE id = 'direct-agent'", []).unwrap();
+                            }
+                            store.refresh(crate::app_store::StoreRefreshKind::All, cx);
+                            store.sync_locale(cx);
+                        });
+                        let window = cx.add_window(|window, cx| {
+                            let mut root = crate::NativeRoot::new(
+                                "pane-menu-fit".into(),
+                                temp.path().join("logs"),
+                                None,
+                                None,
+                                store.clone(),
+                                window,
+                                cx,
+                            );
+                            root.apply_tab_rows(cx);
+                            assert!(root.tabs.activate_session("direct-agent"));
+                            root.route = crate::AppRoute::Chat;
+                            root.sync_active_chat_detail(cx);
+                            root
+                        });
+                        let mut visual = VisualTestContext::from_window(window.into(), &cx);
+                        visual.simulate_resize(size(px(1799.), px(1128.)));
+                        visual.run_until_parked();
+                        let menu = window
+                            .read_with(&visual, |root, _| {
+                                root.pane_action_menus["direct-agent"].clone()
+                            })
+                            .unwrap();
+                        visual.update(|window, cx| {
+                            menu.read(cx).focus_handle(cx).focus(window, cx);
+                        });
+                        visual.simulate_keystrokes("down");
+                        visual.run_until_parked();
+                        let panel = visual.debug_bounds("POPOVER_MENU_PANEL").unwrap();
+                        assert!(
+                            panel.right() <= px(1799.),
+                            "menu must stay inside the window: {panel:?}"
+                        );
+                        for (label, key) in [
+                            (
+                                "POPOVER_LABEL_0",
+                                if running { "ui.stop" } else { "ui.resume" },
+                            ),
+                            ("POPOVER_LABEL_1", "ui.fork_chat_action"),
+                            ("POPOVER_LABEL_2", "ui.rename_chat_action"),
+                        ] {
+                            let bounds = visual.debug_bounds(label).unwrap();
+                            let full_text_width = visual.update(|window, _| {
+                                let text = crate::i18n::text(key);
+                                let style = window.text_style();
+                                window
+                                    .text_system()
+                                    .shape_line(
+                                        text.into(),
+                                        px(13. * zoom),
+                                        &[style.to_run(text.len())],
+                                        None,
+                                    )
+                                    .width
+                            });
+                            assert!(
+                                bounds.size.height <= px(18. * zoom + 1.),
+                                "{locale:?}, zoom={zoom}, running={running}: {label} {bounds:?}"
+                            );
+                            assert!(
+                                bounds.size.width >= full_text_width,
+                                "full lifecycle label must fit: {bounds:?}"
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn island_status_details_truncate_inside_the_header_without_displacing_controls() {
+        use gpui::{TestAppContext, VisualTestContext};
+        use runner_core::protocol::status::{
+            Activity, AgentObservation, AgentStatus, HumanInteraction, Lifecycle,
+            ProgramStatusEvidence, WaitReason, WorkDetail,
+        };
+        let _theme = crate::theme_snapshot::ThemeGuard::new();
+        for approval in [true, false] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cx = TestAppContext::single();
+            let store = crate::app_store::test_lifecycle_store(&mut cx, temp.path());
+            store.update(&mut cx, |store, cx| {
+                crate::app_store::seed_mixed_working_sessions(store);
+                store.test_core.db.get().unwrap().execute("UPDATE sessions SET title='Header detail fixture' WHERE id='direct-agent'", []).unwrap();
+                store.settings.chat_panel_open = false;
+                store.settings.sidebar_collapsed = false;
+                store.refresh(crate::app_store::StoreRefreshKind::All, cx);
+                store.session_statuses.insert("direct-agent".into(), AgentStatus {
+                    lifecycle: Lifecycle::Running,
+                    observation: AgentObservation {
+                        activity: Activity::Working,
+                        detail: (!approval).then_some(WorkDetail::CompactingContext),
+                        program_status: Some(ProgramStatusEvidence {
+                            message: approval.then(|| "Allow this command with a very long program status message? ".repeat(40)),
+                        }),
+                        interactions: if approval { vec![HumanInteraction {
+                            id: "approval".into(), reason: WaitReason::Approval, owners: vec![], since: chrono::Utc::now().timestamp_millis(),
+                        }] } else { vec![] },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+            });
+            let reported = store.read_with(&cx, |store, _| {
+                store.session_statuses["direct-agent"].clone()
+            });
+            let sidebar_width = store.read_with(&cx, |store, _| store.settings.sidebar_width);
+            let host = cx.add_window(|window, cx| {
+                let mut root = crate::NativeRoot::new(
+                    "status-detail-fit".into(),
+                    temp.path().join("logs"),
+                    None,
+                    None,
+                    store.clone(),
+                    window,
+                    cx,
+                );
+                root.apply_tab_rows(cx);
+                assert!(root.tabs.activate_session("direct-agent"));
+                root.route = crate::AppRoute::Chat;
+                root.sync_active_chat_detail(cx);
+                root
+            });
+            let mut visual = VisualTestContext::from_window(host.into(), &cx);
+            for zoom in [1., 1.3] {
+                host.update(&mut visual, |root, window, cx| {
+                    root.set_zoom(zoom, window, cx)
+                })
+                .unwrap();
+                for pane_width in if approval { [410., 600.] } else { [570., 800.] } {
+                    visual.simulate_resize(size(
+                        px((pane_width + sidebar_width + 14.) * zoom),
+                        px(900.),
+                    ));
+                    visual.run_until_parked();
+                    host.update(&mut visual, |_, _, cx| {
+                        store.update(cx, |store, _| {
+                            store
+                                .session_statuses
+                                .insert("direct-agent".into(), reported.clone());
+                        });
+                        cx.notify();
+                    })
+                    .unwrap();
+                    visual.run_until_parked();
+                    let pane = visual.debug_bounds("PANE_ISLAND:p1").unwrap();
+                    let header = visual.debug_bounds("PANE_HEADER:direct-agent").unwrap();
+                    let status = visual.debug_bounds("ISLAND_STATUS_INDICATOR").unwrap();
+                    let state = host
+                        .read_with(&visual, |root, cx| {
+                            root.front_page_status("direct-agent", cx).unwrap()
+                        })
+                        .unwrap();
+                    assert_eq!(
+                        state.kind,
+                        if approval {
+                            runner_app::ui::agent_status::StatusKind::Approval
+                        } else {
+                            runner_app::ui::agent_status::StatusKind::Working
+                        }
+                    );
+                    let detail = visual.debug_bounds("ISLAND_STATUS_DETAIL");
+                    let actions = visual.debug_bounds("PANE_HEADER_ACTIONS").unwrap();
+                    if let Some(detail) = detail {
+                        assert!((status.size.width - px(180. * zoom)).abs() < px(0.5));
+                        assert!(detail.size.width > px(0.) && detail.right() <= status.right());
+                    }
+                    assert_eq!(detail.is_some(), pane_width >= 570.);
+                    assert!(status.left() >= header.left() && status.right() <= actions.left());
+                    let lifecycle = visual.debug_bounds("PANE_LIFECYCLE:Stop chat").unwrap();
+                    assert!(
+                        lifecycle.left() >= status.right() && lifecycle.right() <= actions.left(), "pane={pane_width}, status={status:?}, action={lifecycle:?}, controls={actions:?}, identity={:?}", visual.debug_bounds("ISLAND_HEADER_IDENTITY")
+                    );
+                    assert!(actions.right() <= header.right() && header.right() < pane.right());
+                }
+            }
         }
     }
 
@@ -602,14 +935,30 @@ mod tests {
                 for width in [1000., 1600.] {
                     visual.simulate_resize(size(px(width), px(900.)));
                     visual.run_until_parked();
-                    let column = visual.debug_bounds("CHAT_TAB_HEADER").unwrap();
-                    let header = visual.debug_bounds("CHAT_TAB_HEADER_CONTENT").unwrap();
-                    assert_eq!(header.left(), column.left());
-                    assert_eq!(
-                        header.right(),
-                        column.right(),
+                    let column = visual.debug_bounds("PANE_ISLAND:p1").unwrap();
+                    let header = visual.debug_bounds("PANE_HEADER:direct-agent").unwrap();
+                    assert!((header.left() - column.left() - px(zoom)).abs() <= px(1.));
+                    assert!(
+                        (header.right() - column.right() + px(zoom)).abs() <= px(1.),
                         "panel={panel_open}, zoom={zoom}, width={width}"
                     );
+                    if panel_open {
+                        let panel = visual.debug_bounds("CHAT_SIDE_PANEL").unwrap();
+                        let gutter = visual.debug_bounds("CHAT_PANEL_GUTTER").unwrap();
+                        assert!((gutter.left() - column.right()).abs() <= px(0.5));
+                        assert!((gutter.right() - panel.left()).abs() <= px(0.5));
+                        assert_eq!(gutter.size.width, px(6. * zoom));
+                        for fraction in [0.01, 0.5, 0.99] {
+                            let position = point(
+                                column.right() + (panel.left() - column.right()) * fraction,
+                                panel.center().y,
+                            );
+                            assert!(
+                                gutter.contains(&position),
+                                "gap point {position:?} outside {gutter:?}"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -698,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn single_claude_tab_shows_its_account_in_the_top_header() {
+    fn claude_header_preserves_account_spacing_and_controls_in_narrow_panes() {
         let _theme = crate::theme_snapshot::ThemeGuard::new();
         let temp = tempfile::tempdir().unwrap();
         let mut cx = gpui::TestAppContext::single();
@@ -707,12 +1056,16 @@ mod tests {
             crate::app_store::seed_mixed_working_sessions(store);
             {
                 let conn = store.test_core.db.get().unwrap();
-                conn.execute("UPDATE sessions SET status='stopped', agent_runtime='claude-code', agent_command='claude' WHERE id='direct-agent'",[]).unwrap();
+                conn.execute("UPDATE sessions SET status='stopped', agent_runtime='claude-code', agent_command='claude', title='Claude Code' WHERE id='direct-agent'",[]).unwrap();
                 let accounts = serde_json::json!({"accounts":[{"id":"native","name":"Personal","folder":"/tmp/native","native":true},{"id":"work","name":"Work","folder":"/tmp/work","native":false}],"main_id":"native","active_id":"work"});
                 conn.execute("INSERT INTO _app_state(key,value) VALUES('claude_accounts',?1)",[accounts.to_string()]).unwrap();
             }
+            store.settings.chat_panel_open = true;
+            store.settings.keymap_overrides.insert("resume-session".into(), Some(crate::keymap::KeyCombo { meta: false, ctrl: false, alt: false, shift: false, code: "F8".into(), label: None, shift_optional: false }));
             store.refresh(crate::app_store::StoreRefreshKind::All,cx);
         });
+        let sidebar_width = store.read_with(&cx, |store, _| store.settings.sidebar_width);
+        let panel_width = store.read_with(&cx, |store, _| store.settings.chat_panel_width);
         let host = cx.add_window(|window, cx| {
             let mut root = crate::NativeRoot::new(
                 "account-header".into(),
@@ -730,11 +1083,66 @@ mod tests {
             root
         });
         let mut visual = gpui::VisualTestContext::from_window(host.into(), &cx);
-        visual.simulate_resize(size(px(1200.), px(900.)));
+        for zoom in [1., 1.3] {
+            host.update(&mut visual, |root, window, cx| {
+                root.set_zoom(zoom, window, cx)
+            })
+            .unwrap();
+            for width in [240., 360., 640.] {
+                visual.simulate_resize(size(
+                    px((width + sidebar_width + panel_width + 20.) * zoom),
+                    px(900.),
+                ));
+                visual.run_until_parked();
+                let header = visual.debug_bounds("PANE_HEADER:direct-agent").unwrap();
+                let chip = visual.debug_bounds("CHAT_ACCOUNT_CHIP");
+                let name = visual.debug_bounds("PANE_TITLE:Claude Code").unwrap();
+                if let Some(chip) = chip {
+                    assert!(chip.top() >= header.top() && chip.bottom() <= header.bottom());
+                    assert!((chip.left() - name.right() - px(8. * zoom)).abs() < px(1.));
+                }
+                assert_eq!(chip.is_some(), width >= 360.);
+                let indicator = visual.debug_bounds("ISLAND_STATUS_INDICATOR").unwrap();
+                let button = visual.debug_bounds("PANE_LIFECYCLE:Resume chat").unwrap();
+                let actions = visual.debug_bounds("PANE_HEADER_ACTIONS").unwrap();
+                assert!(indicator.left() >= chip.map_or(name.right(), |chip| chip.right()));
+                assert!(
+                    button.right() <= actions.left(),
+                    "{width}: {button:?}, {actions:?}, name={name:?}, chip={chip:?}, status={indicator:?}, identity={:?}", visual.debug_bounds("ISLAND_HEADER_IDENTITY")
+                );
+                assert!(actions.right() <= header.right());
+                assert_eq!(visual.debug_bounds("ISLAND_STATUS_LABEL").is_some(), width >= 360., "width={width}, name={name:?}, chip={chip:?}, header={header:?}, actions={actions:?}, status={indicator:?}");
+                if width == 360. {
+                    assert!(
+                        name.size.width >= px(24. * zoom) && name.size.width < px(70. * zoom),
+                        "{name:?}"
+                    );
+                }
+                assert!(visual
+                    .debug_bounds("CHAT_STOPPED_TITLE:Chat stopped")
+                    .is_some());
+                assert!(visual.debug_bounds("BUTTON_SHORTCUT:F8").is_some());
+            }
+        }
+        host.update(&mut visual, |root, _, cx| {
+            root.update_app_settings(cx, false, |settings| {
+                settings.chat_panel_open = false;
+                settings
+                    .keymap_overrides
+                    .insert("resume-session".into(), None);
+                true
+            });
+            root.chat_panel_visibility =
+                crate::surfaces::root::SidebarVisibilityTransition::new(false);
+        })
+        .unwrap();
+        visual.simulate_resize(size(px((240. + sidebar_width + 14.) * 1.3), px(900.)));
         visual.run_until_parked();
-        let header = visual.debug_bounds("CHAT_TAB_HEADER_CONTENT").unwrap();
-        let chip = visual.debug_bounds("CHAT_ACCOUNT_CHIP").unwrap();
-        assert!(chip.top() >= header.top() && chip.bottom() <= header.bottom());
+        let actions = visual.debug_bounds("PANE_HEADER_ACTIONS").unwrap();
+        let lifecycle = visual.debug_bounds("PANE_LIFECYCLE:Resume chat").unwrap();
+        assert!(lifecycle.right() <= actions.left(), "lifecycle={lifecycle:?}, actions={actions:?}, identity={:?}, chip={:?}, name={:?}, status={:?}", visual.debug_bounds("ISLAND_HEADER_IDENTITY"), visual.debug_bounds("CHAT_ACCOUNT_CHIP"), visual.debug_bounds("PANE_TITLE:Claude Code"), visual.debug_bounds("ISLAND_STATUS_INDICATOR"));
+        assert!(visual.debug_bounds("ISLAND_STATUS_LABEL").is_none());
+        assert!(visual.debug_bounds("BUTTON_SHORTCUT:F8").is_none());
     }
 
     #[test]
@@ -1092,14 +1500,11 @@ mod tests {
             pane_identity_icon(Some("unknown")).asset_path(),
             "message-square.svg"
         );
-        assert!(pane_identity_shows_status("codex", false));
 
         assert_eq!(
             pane_identity_icon(Some("shell")).asset_path(),
             "square-terminal.svg"
         );
-        assert!(!pane_identity_shows_status("shell", false));
-        assert!(pane_identity_shows_status("shell", true));
         assert!(!side_panel_open(true, true));
 
         assert_eq!(pane_identity_icon(None).asset_path(), "square-dashed.svg");
@@ -1115,38 +1520,6 @@ mod tests {
     }
 
     #[test]
-    fn workspace_header_icon_follows_the_split_then_the_focused_runtime() {
-        for (runtime, path) in [
-            (Some("shell"), "square-terminal.svg"),
-            (Some("claude-code"), "claude.svg"),
-            (Some("codex"), "openai.svg"),
-            (Some("trae"), "trae.svg"),
-            (Some("copilot"), "copilot.svg"),
-            (Some("pi"), "pi.svg"),
-            (Some("antigravity"), "antigravity-icon.png"),
-            (Some("unknown"), "message-square.svg"),
-            (None, "message-square.svg"),
-        ] {
-            assert_eq!(
-                workspace_header_icon(true, Some("session"), runtime).asset_path(),
-                "columns-2.svg"
-            );
-            assert_eq!(
-                workspace_header_icon(false, Some("session"), runtime).asset_path(),
-                path
-            );
-        }
-        assert_eq!(
-            workspace_header_icon(false, None, None).asset_path(),
-            "square-dashed.svg"
-        );
-        assert_eq!(
-            workspace_header_icon(true, None, None).asset_path(),
-            "columns-2.svg"
-        );
-    }
-
-    #[test]
     fn pane_actions_follow_session_status_and_terminals_cannot_be_archived() {
         let chat = pane_action_items_for(
             "codex",
@@ -1159,13 +1532,14 @@ mod tests {
             chat.iter()
                 .map(|item| item.label.as_ref())
                 .collect::<Vec<_>>(),
-            ["Stop", "Rename…", "Archive chat"]
+            ["Stop", "Fork chat", "Rename…"]
         );
         assert_eq!(
             chat[0].shortcut.as_ref().map(|shortcut| shortcut.as_ref()),
             Some("⇧⌘X")
         );
-        assert!(chat[2].separator_before);
+        assert!(chat[0].destructive);
+        assert!(!chat[2].separator_before);
         assert!(chat.iter().all(|item| item.label.as_ref() != "Close pane"));
 
         let stopped_chat = pane_action_items_for(
@@ -1176,6 +1550,7 @@ mod tests {
             Some("⇧⌘R".to_owned()),
         );
         assert_eq!(stopped_chat[0].label.as_ref(), "Resume");
+        assert!(stopped_chat[0].accent);
         assert_eq!(
             stopped_chat[0]
                 .shortcut
@@ -1246,13 +1621,6 @@ mod tests {
             archive_chat_confirm_body("this chat", false),
             "You can restore this chat from Settings → Archived."
         );
-    }
-
-    #[test]
-    fn pane_identity_renders_only_for_split_tabs() {
-        assert!(!pane_identity_visible(1));
-        assert!(pane_identity_visible(2));
-        assert!(pane_identity_visible(3));
     }
 
     #[test]

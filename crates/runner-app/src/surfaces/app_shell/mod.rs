@@ -177,29 +177,33 @@ impl NativeRoot {
             .flex()
             .children(sidebar)
             .child(
-                runner_app::ui::work_card::work_card(self.front_page_sidebar_collapsed())
-                    .when(cfg!(test), |column| {
-                        column.debug_selector(|| "APP_CONTENT_COLUMN".into())
-                    })
-                    .relative()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .flex()
-                    .flex_col()
-                    .children(self.render_main_titlebar_drag_area(cx))
-                    .children(
-                        (!matches!(
-                            self.route,
-                            AppRoute::Chat
-                                | AppRoute::ArchivedChat
-                                | AppRoute::Mission(_)
-                                | AppRoute::Settings
-                        ))
-                        .then(|| self.render_daemon_banner(cx))
-                        .flatten()
-                        .map(|banner| div().flex_none().pt(rems(44. / 16.)).child(banner)),
-                    )
-                    .child(workspace),
+                (if self.front_page_is_chat() {
+                    runner_app::ui::work_card::island_area(self.front_page_sidebar_collapsed())
+                } else {
+                    runner_app::ui::work_card::work_card(self.front_page_sidebar_collapsed())
+                })
+                .when(cfg!(test), |column| {
+                    column.debug_selector(|| "APP_CONTENT_COLUMN".into())
+                })
+                .relative()
+                .flex_1()
+                .min_w(px(0.))
+                .flex()
+                .flex_col()
+                .children(self.render_main_titlebar_drag_area(cx))
+                .children(
+                    (!matches!(
+                        self.route,
+                        AppRoute::Chat
+                            | AppRoute::ArchivedChat
+                            | AppRoute::Mission(_)
+                            | AppRoute::Settings
+                    ))
+                    .then(|| self.render_daemon_banner(cx))
+                    .flatten()
+                    .map(|banner| div().flex_none().pt(rems(44. / 16.)).child(banner)),
+                )
+                .child(workspace),
             )
             .children(sidebar_resize)
             .children(preview_trigger)
@@ -493,6 +497,10 @@ mod tests {
             layout
                 .split(&focused, runner_app::pane_layout::SplitOrientation::Row)
                 .unwrap();
+            let right = layout.focused_pane_id.clone();
+            layout
+                .split(&right, runner_app::pane_layout::SplitOrientation::Column)
+                .unwrap();
             layout.focus_pane(&focused);
             runner_daemon::repo::node::create_tab(&conn, None, "", 0, &layout.serialize().unwrap())
                 .unwrap();
@@ -530,12 +538,19 @@ mod tests {
             let card = visual.debug_bounds(card_selector).unwrap();
             let chrome = visual.debug_bounds(chrome_selector).unwrap();
             if path.starts_with("/chats/") {
-                assert_fill(&mut visual, "CHAT_TAB_HEADER_CONTENT", None);
                 assert_fill(&mut visual, "CHAT_PANEL_HEADER", None);
-                assert_fill(&mut visual, "PANE_IDENTITY_LINE", theme::colors().panel);
             } else if path.starts_with("/missions/") {
                 assert_fill(&mut visual, "MISSION_HEADER_ROW", None);
                 assert_fill(&mut visual, "MISSION_RAIL_HEADER", None);
+            }
+            if path.starts_with("/chats/") {
+                let first = visual.debug_bounds("PANE_ISLAND:p1").unwrap();
+                let second = visual.debug_bounds("PANE_ISLAND:p3").unwrap();
+                let third = visual.debug_bounds("PANE_ISLAND:p5").unwrap();
+                let panel = visual.debug_bounds("CHAT_SIDE_PANEL").unwrap();
+                assert_eq!(third.top() - second.bottom(), px(6.));
+                assert_eq!(second.left() - first.right(), px(6.));
+                assert_eq!(panel.left() - second.right(), px(6.));
             }
             let top_inset = if cfg!(target_os = "linux") { 0. } else { 8. };
             assert_eq!(card.top(), chrome.top() + px(top_inset), "{path}");
@@ -544,11 +559,12 @@ mod tests {
             assert_eq!(
                 card.left(),
                 chrome.left()
-                    + px(store.read_with(&visual, |store, _| store.settings.sidebar_width)),
+                    + px(store.read_with(&visual, |store, _| store.settings.sidebar_width))
+                    + px(if path.starts_with("/chats/") { 6. } else { 0. }),
                 "{path}"
             );
             for selector in if path.starts_with("/chats/") {
-                &["CHAT_TAB_HEADER", "CHAT_SIDE_PANEL"][..]
+                &["PANE_ISLAND:p1", "CHAT_SIDE_PANEL"][..]
             } else if path.starts_with("/missions/") {
                 &["MISSION_HEADER", "MISSION_RAIL"][..]
             } else {
@@ -556,16 +572,18 @@ mod tests {
             } {
                 let child = visual.debug_bounds(selector).unwrap();
                 assert!(
-                    child.left() > card.left() && child.right() < card.right(),
+                    child.left() >= card.left() && child.right() <= card.right(),
                     "{path}: {selector} {child:?} in {card:?}"
                 );
-                assert_eq!(child.top(), card.top() + px(1.), "{path}: {selector}");
-                assert!(
-                    child.bottom() <= card.bottom() - px(1.),
-                    "{path}: {selector}"
-                );
+                let inset = if path.starts_with("/chats/") { 0. } else { 1. };
+                assert_eq!(child.top(), card.top() + px(inset), "{path}: {selector}");
+                assert!(child.bottom() <= card.bottom(), "{path}: {selector}");
                 if matches!(*selector, "CHAT_SIDE_PANEL" | "MISSION_RAIL") {
-                    assert_eq!(child.bottom(), card.bottom() - px(1.), "{path}: {selector}");
+                    assert_eq!(
+                        child.bottom(),
+                        card.bottom() - px(inset),
+                        "{path}: {selector}"
+                    );
                 }
             }
             if path != "/settings" {
@@ -681,7 +699,7 @@ mod tests {
                     );
                 }
                 let header_selector = if path.starts_with("/chats/") {
-                    Some("CHAT_TAB_HEADER_CONTENT")
+                    Some("PANE_HEADER:direct-agent")
                 } else if path.starts_with("/missions/") {
                     Some("MISSION_HEADER_ROW")
                 } else {
@@ -690,8 +708,12 @@ mod tests {
                 if let Some(selector) = header_selector {
                     let header = visual.debug_bounds(selector).unwrap();
                     assert!(
-                        (header.center().y
-                            - original[0].center().y
+                        (header.center().y - original[0].center().y
+                            + px(if path.starts_with("/chats/") {
+                                2. * zoom
+                            } else {
+                                0.
+                            })
                             - px(if cfg!(any(windows, target_os = "linux")) {
                                 38. * zoom
                             } else {
@@ -1131,12 +1153,12 @@ mod tests {
         );
         cx.run_until_parked();
         let banner = chat_visual.debug_bounds("DAEMON_CRASH_BANNER").unwrap();
-        let header = chat_visual.debug_bounds("CHAT_TAB_HEADER").unwrap();
+        let area = chat_visual.debug_bounds("APP_CONTENT_COLUMN").unwrap();
         let sidebar = chat_visual.debug_bounds("APP_SIDEBAR").unwrap();
         let panel = chat_visual.debug_bounds("CHAT_SIDE_PANEL").unwrap();
-        assert_eq!(banner.top(), header.bottom());
-        assert_eq!(banner.left(), sidebar.right() + px(1.));
-        assert_eq!(banner.right(), panel.left());
+        assert_eq!(banner.top(), area.top());
+        assert_eq!(banner.left(), sidebar.right() + px(6.));
+        assert_eq!(banner.right(), panel.left() - px(6.));
         assert_eq!(banner.size.height, px(41.));
         let text = chat_visual.debug_bounds("DAEMON_CRASH_MESSAGE").unwrap();
         let log = chat_visual.debug_bounds("DAEMON_OPEN_LOG").unwrap();
@@ -1852,7 +1874,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_resize_bar_rides_the_divider() {
+    fn sidebar_resize_strip_spans_the_island_gap_at_each_zoom() {
         use crate::theme_snapshot::ThemeGuard;
         use gpui::{px, size, TestAppContext, VisualTestContext};
         use runner_daemon::{db, session, shell_path};
@@ -1897,7 +1919,7 @@ mod tests {
             cx.set_global(crate::GlobalUpdater(updater));
         });
         let host = cx.add_window(|window, cx| {
-            NativeRoot::new(
+            let mut root = NativeRoot::new(
                 "sidebar-resize".into(),
                 temp.path().join("logs"),
                 None,
@@ -1905,26 +1927,48 @@ mod tests {
                 store.clone(),
                 window,
                 cx,
-            )
+            );
+            root.route = AppRoute::Chat;
+            root
         });
         let mut visual = VisualTestContext::from_window(host.into(), &cx);
         visual.simulate_resize(size(px(1200.), px(900.)));
         visual.run_until_parked();
-        let sidebar = visual.debug_bounds("APP_SIDEBAR").expect("sidebar");
-        let bar = visual
-            .debug_bounds("sidebar-resize-bar")
-            .expect("resize bar");
-        let inside = sidebar.right() - bar.left();
-        let outside = bar.right() - sidebar.right();
+        for zoom in [1., 1.5] {
+            host.update(&mut visual, |root, window, cx| {
+                root.set_zoom(zoom, window, cx)
+            })
+            .unwrap();
+            visual.run_until_parked();
+            let sidebar = visual.debug_bounds("APP_SIDEBAR").unwrap();
+            let island_area = visual.debug_bounds("APP_CONTENT_COLUMN").unwrap();
+            let gutter = visual.debug_bounds("SIDEBAR_RESIZE_GUTTER").unwrap();
+            assert_eq!(island_area.left() - sidebar.right(), px(6. * zoom));
+            assert_eq!(gutter.left(), sidebar.right());
+            assert_eq!(gutter.right(), island_area.left());
+            for fraction in [0.01, 0.5, 0.99] {
+                let position = gpui::point(
+                    sidebar.right() + (island_area.left() - sidebar.right()) * fraction,
+                    sidebar.center().y,
+                );
+                assert!(
+                    gutter.contains(&position),
+                    "gap point {position:?} outside {gutter:?}"
+                );
+            }
+        }
+        host.update(&mut visual, |root, _, cx| {
+            root.set_sidebar_collapsed(true, false, cx);
+            root.sidebar_visibility = SidebarVisibilityTransition::new(false);
+            cx.notify();
+        })
+        .unwrap();
+        visual.run_until_parked();
         assert_eq!(
-            bar.size.width,
-            px(runner_app::ui::resize::RESIZE_BAR),
-            "{bar:?}"
+            visual.debug_bounds("APP_CONTENT_COLUMN").unwrap().left(),
+            px(8. * 1.5)
         );
-        assert!(
-            inside > px(0.) && (inside - outside).abs() <= px(0.01),
-            "the bar must ride the divider, not sit beside it: {inside:?} inside against {outside:?} outside, bar {bar:?}, sidebar {sidebar:?}"
-        );
+        assert!(visual.debug_bounds("SIDEBAR_RESIZE_GUTTER").is_none());
     }
 
     #[test]

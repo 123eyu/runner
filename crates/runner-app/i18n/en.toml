@@ -459,7 +459,7 @@
 "ui.chat_actions" = "Chat actions"
 "ui.chat_name" = "Chat name"
 "ui.chat_now" = "Chat now"
-"ui.chat_paused" = "Chat paused"
+"ui.chat_stopped" = "Chat stopped"
 "ui.chat_tab" = "Chat tab"
 "ui.chats" = "Chats"
 "ui.chats_in_a_pane_file_with_their_tab" = "Chats in a pane file with their tab."

@@ -27,6 +27,7 @@ pub struct MenuItem {
     pub shortcut: Option<SharedString>,
     pub tooltip: Option<SharedString>,
     pub destructive: bool,
+    pub accent: bool,
     pub disabled: bool,
     pub separator_before: bool,
 }
@@ -54,6 +55,7 @@ impl MenuItem {
             shortcut: None,
             tooltip: None,
             destructive: false,
+            accent: false,
             disabled: false,
             separator_before: false,
         }
@@ -86,6 +88,11 @@ impl MenuItem {
 
     pub fn destructive(mut self, destructive: bool) -> Self {
         self.destructive = destructive;
+        self
+    }
+
+    pub fn accent(mut self, accent: bool) -> Self {
+        self.accent = accent;
         self
     }
 
@@ -515,6 +522,8 @@ impl PopoverMenu {
                     theme::danger()
                 } else if item.disabled {
                     theme::faint()
+                } else if item.accent {
+                    theme::accent()
                 } else {
                     theme::text()
                 };
@@ -867,6 +876,8 @@ impl ContextMenu {
                     theme::danger()
                 } else if item.disabled {
                     theme::faint()
+                } else if item.accent {
+                    theme::accent()
                 } else {
                     theme::text()
                 };

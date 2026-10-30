@@ -113,14 +113,12 @@ impl NativeRoot {
 
     pub(crate) fn render_chat_rename_modal(&self, cx: &mut Context<Self>) -> AnyElement {
         let modal = self.chat_rename_modal.as_ref().expect("chat rename modal");
-        let is_group = matches!(modal.target, ChatRenameTarget::Tab { .. });
         let is_shell = match &modal.target {
             ChatRenameTarget::Session { session_id, .. } => self
                 .front_page_session(session_id, cx)
                 .is_some_and(|entry| {
                     Runtime::parse(&entry.agent_runtime).is_some_and(Runtime::is_shell)
                 }),
-            ChatRenameTarget::Tab { .. } => false,
         };
         let submitting = modal.submitting;
         let root = cx.entity();
@@ -142,9 +140,7 @@ impl NativeRoot {
                         div()
                             .text_size(theme::text_heading())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(if is_group {
-                                crate::i18n::text("ui.rename_group")
-                            } else if is_shell {
+                            .child(if is_shell {
                                 crate::i18n::text("ui.rename_terminal")
                             } else {
                                 crate::i18n::text("ui.rename_chat")
@@ -155,13 +151,9 @@ impl NativeRoot {
                             .text_size(theme::text_ui())
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme::muted())
-                            .child(if is_group {
-                                crate::i18n::text(
-                                    "ui.leave_blank_to_derive_the_name_from_its_panes",
-                                )
-                            } else {
-                                crate::i18n::text("ui.leave_blank_to_restore_the_default_name")
-                            }),
+                            .child(crate::i18n::text(
+                                "ui.leave_blank_to_restore_the_default_name",
+                            )),
                     ),
             )
             .child(

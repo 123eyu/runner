@@ -109,7 +109,6 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     let initial = counts.0.borrow().clone();
     for key in [
         "sidebar",
-        "tab-bar",
         "side-panel",
         "pane:p1",
         &format!("pane:{idle_pane}"),
@@ -136,7 +135,6 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
     );
     for key in [
         "sidebar",
-        "tab-bar",
         "side-panel",
         &format!("pane:{idle_pane}"),
         "terminal:direct-agent",
@@ -256,13 +254,7 @@ fn terminal_output_reuses_split_siblings_and_title_changes_update_sidebar() {
         Some(&1),
         "title spinner burst must paint once: {rendered:?}"
     );
-    for key in [
-        "sidebar",
-        "tab-bar",
-        "side-panel",
-        "pane:p1",
-        "terminal:busy-shell",
-    ] {
+    for key in ["sidebar", "side-panel", "pane:p1", "terminal:busy-shell"] {
         assert_eq!(
             rendered.get(key).copied().unwrap_or_default(),
             0,

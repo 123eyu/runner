@@ -1575,9 +1575,7 @@ fn remote_sidebar_groups_pins_projects_and_recents_and_collapses_project_childre
         .unwrap();
     visual.simulate_click(child.center(), Default::default());
     visual.run_until_parked();
-    assert!(visual
-        .debug_bounds("WORKSPACE_HEADER_TITLE:Project tab")
-        .is_some());
+    assert!(visual.debug_bounds("PANE_HEADER:s").is_some());
     data.tabs[1].pinned = true;
     fake.emit(
         "remote/overview",
@@ -1656,7 +1654,7 @@ fn remote_sidebar_uses_session_titles_for_unnamed_tabs_and_tracks_overview_updat
             for selector in [
                 "SIDEBAR_ITEM_TITLE:Project chat title",
                 "SIDEBAR_ITEM_TITLE:Recent chat title",
-                "WORKSPACE_HEADER_TITLE:Project chat title",
+                "PANE_TITLE:Project chat title",
             ] {
                 let bounds = visual.debug_bounds(selector).expect(selector);
                 assert!(bounds.size.width > px(0.) && bounds.size.height > px(0.));
@@ -1674,7 +1672,7 @@ fn remote_sidebar_uses_session_titles_for_unnamed_tabs_and_tracks_overview_updat
                 .debug_bounds("SIDEBAR_ITEM_TITLE:Updated chat title")
                 .is_some());
             assert!(visual
-                .debug_bounds("WORKSPACE_HEADER_TITLE:Updated chat title")
+                .debug_bounds("PANE_TITLE:Updated chat title")
                 .is_some());
             data.tabs[0].name = "Named tab".into();
             fake.emit(
@@ -1686,7 +1684,7 @@ fn remote_sidebar_uses_session_titles_for_unnamed_tabs_and_tracks_overview_updat
                 .debug_bounds("SIDEBAR_ITEM_TITLE:Named tab")
                 .is_some());
             assert!(visual
-                .debug_bounds("WORKSPACE_HEADER_TITLE:Named tab")
+                .debug_bounds("PANE_TITLE:Updated chat title")
                 .is_some());
             data.tabs[0].name.clear();
             data.tabs[0].panes = runner_core::companion::Pane::Split {
@@ -1705,7 +1703,7 @@ fn remote_sidebar_uses_session_titles_for_unnamed_tabs_and_tracks_overview_updat
             );
             visual.run_until_parked();
             assert!(visual
-                .debug_bounds("WORKSPACE_HEADER_TITLE:Recent chat title")
+                .debug_bounds("PANE_TITLE:Recent chat title")
                 .is_some());
             data.tabs[0].panes = runner_core::companion::Pane::Leaf { session: None };
             fake.emit(
@@ -1714,15 +1712,15 @@ fn remote_sidebar_uses_session_titles_for_unnamed_tabs_and_tracks_overview_updat
             );
             visual.run_until_parked();
             let empty = match locale {
-                Locale::English => "WORKSPACE_HEADER_TITLE:Empty tab",
-                Locale::SimplifiedChinese => "WORKSPACE_HEADER_TITLE:空标签页",
+                Locale::English => "PANE_TITLE:Empty tab",
+                Locale::SimplifiedChinese => "PANE_TITLE:空标签页",
             };
             assert!(visual.debug_bounds("START_SURFACE").is_some());
             window
                 .read_with(&visual, |root, cx| {
                     assert_eq!(
                         root.tab_label(root.front_page_layout().unwrap(), cx),
-                        empty.trim_start_matches("WORKSPACE_HEADER_TITLE:")
+                        empty.trim_start_matches("PANE_TITLE:")
                     )
                 })
                 .unwrap();
@@ -1736,9 +1734,7 @@ fn remote_sidebar_uses_session_titles_for_unnamed_tabs_and_tracks_overview_updat
             );
             visual.run_until_parked();
             assert!(visual.debug_bounds("SIDEBAR_ITEM_TITLE:Codex").is_some());
-            assert!(visual
-                .debug_bounds("WORKSPACE_HEADER_TITLE:Codex")
-                .is_some());
+            assert!(visual.debug_bounds("PANE_TITLE:Codex").is_some());
         });
     }
 }

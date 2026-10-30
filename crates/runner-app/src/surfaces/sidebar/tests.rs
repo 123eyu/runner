@@ -593,7 +593,7 @@ fn remote_role_labels_stay_consistent_in_pinned_project_active_rows_and_headers(
                 }
                 assert!(visual
                     .debug_bounds(Box::leak(
-                        format!("WORKSPACE_HEADER_TITLE:{}", expected[0]).into_boxed_str()
+                        format!("PANE_TITLE:{}", expected[0]).into_boxed_str()
                     ))
                     .is_some());
                 window

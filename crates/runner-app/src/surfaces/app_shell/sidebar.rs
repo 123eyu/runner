@@ -451,6 +451,11 @@ impl NativeRoot {
 
     pub(crate) fn render_sidebar_resize_handle(&self, divider: f32, cx: &App) -> AnyElement {
         let zoom = self.settings(cx).app_zoom;
+        let left = if self.front_page_is_chat() && !self.front_page_sidebar_collapsed() {
+            divider
+        } else {
+            divider - resize_strip_inset(zoom)
+        };
         resize_strip(
             "sidebar-resize",
             ResizeAxis::Columns,
@@ -460,6 +465,9 @@ impl NativeRoot {
             false,
         )
         .id("sidebar-resize")
+        .when(cfg!(test), |handle| {
+            handle.debug_selector(|| "SIDEBAR_RESIZE_GUTTER".into())
+        })
         .map(|handle| {
             #[cfg(any(windows, target_os = "linux"))]
             let handle = handle.occlude();
@@ -467,7 +475,7 @@ impl NativeRoot {
         })
         .absolute()
         .top_0()
-        .left(px(divider - resize_strip_inset(zoom)))
+        .left(px(left))
         .on_drag(
             SidebarResizeDrag,
             |drag: &SidebarResizeDrag, _, _, cx: &mut App| cx.new(|_| drag.clone()),

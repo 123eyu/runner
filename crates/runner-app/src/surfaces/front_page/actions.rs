@@ -513,13 +513,6 @@ impl NativeRoot {
                     },
                     original.clone(),
                 ),
-                ChatRenameTarget::Tab { tab_id, original } => (
-                    ActionTarget {
-                        kind: ActionKind::Tab,
-                        id: tab_id.clone(),
-                    },
-                    original.clone(),
-                ),
             };
             (modal.input.clone(), target, original)
         };
