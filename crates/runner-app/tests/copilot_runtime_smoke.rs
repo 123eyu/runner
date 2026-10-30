@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use runner_daemon::model::{Mission, MissionStatus, Runtime};
 use runner_daemon::ops::{crew, role, slot};
-use runner_daemon::router::runtime::{MissionPermissionMode, PermissionMode};
+use runner_daemon::router::runtime::PermissionMode;
 use runner_daemon::session::pty_runtime::PtyRuntime;
 use runner_daemon::session::SessionManager;
 use runner_daemon::AppCore;
@@ -238,9 +238,6 @@ fn copilot_real_binary_direct_mission_and_relaunch_resume() {
         archived_at: None,
     };
     runner_daemon::repo::mission::insert(&db.get().unwrap(), &(&mission).into()).unwrap();
-    relaunched
-        .sessions
-        .set_mission_permission_mode(MissionPermissionMode::Bypass);
 
     let events_path = relaunched
         .app_data_dir

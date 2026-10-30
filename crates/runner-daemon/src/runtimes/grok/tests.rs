@@ -120,7 +120,7 @@ fn permission_aliases_and_values_are_stripped_without_losing_other_args() {
         strings(&["--permission-mode", "default"])
     );
     assert_eq!(
-        PERMISSIONS.apply_mission(&args, crate::router::runtime::MissionPermissionMode::Bypass),
+        PERMISSIONS.apply_mission(&args),
         strings(&[
             "--no-subagents",
             "-m",

@@ -363,58 +363,55 @@ fn spawn_goldens() {
             rows.push(json!({"runtime": key, "shape": "direct-permission", "mode": mode, "spawn": snapshot}));
             effects_rows.push(json!({"runtime": key, "shape": "direct-permission", "mode": mode, "spawn": effects}));
         }
-        for mode in MissionPermissionMode::ALL {
-            for legacy_lead in [false, true] {
-                let data = tempfile::tempdir().unwrap();
-                let root = data.path();
-                let pool = pool_with_schema();
-                let mut configured = configured_role(key, root);
-                if key == "codex" {
-                    configured.env.insert(
-                        "CODEX_HOME".into(),
-                        root.join("custom-codex").to_string_lossy().into_owned(),
-                    );
-                }
-                let mut mission = mission();
-                mission.cwd = configured.working_dir.clone();
-                mission.crew_id = Some("c".into());
-                let mut slot = slot_for(&configured);
-                slot.id = insert_crew_role(&pool, &mission.id, &configured.id);
-                slot.lead = legacy_lead;
-                update_role_row(&pool.get().unwrap(), &configured);
-                let fake = fake_runtime();
-                let mgr = mgr_with_fake(None, Arc::clone(&fake));
-                mgr.set_mission_permission_mode(mode);
-                let (snapshot, effects) = with_conversation_home(root, || {
-                    let (system_prompt, first_turn) =
-                        crate::runtimes::for_key(key).prompt_channels().member(
-                            Some("GOLDEN_PERSONA"),
-                            Some("TEAM"),
-                            Some("Golden goal"),
-                            false,
-                        );
-                    let spawned = mgr
-                        .spawn_with_prompt_channels(
-                            &mission,
-                            &configured,
-                            &slot,
-                            root,
-                            root.join("events.ndjson"),
-                            Arc::clone(&pool),
-                            capture(),
-                            system_prompt,
-                            first_turn,
-                        )
-                        .unwrap();
-                    let mut normalizer = Normalizer::default();
-                    let snapshot = normalizer.spawn(&fake, root);
-                    let effects = normalizer.effects(&fake, &mgr, key, root);
-                    mgr.kill(&spawned.id).unwrap();
-                    (snapshot, effects)
-                });
-                rows.push(json!({"runtime": key, "shape": if legacy_lead {"mission-legacy-flag"} else {"mission-member"}, "mode": mode, "spawn": snapshot}));
-                effects_rows.push(json!({"runtime": key, "shape": if legacy_lead {"mission-legacy-flag"} else {"mission-member"}, "mode": mode, "spawn": effects}));
+        for legacy_lead in [false, true] {
+            let data = tempfile::tempdir().unwrap();
+            let root = data.path();
+            let pool = pool_with_schema();
+            let mut configured = configured_role(key, root);
+            if key == "codex" {
+                configured.env.insert(
+                    "CODEX_HOME".into(),
+                    root.join("custom-codex").to_string_lossy().into_owned(),
+                );
             }
+            let mut mission = mission();
+            mission.cwd = configured.working_dir.clone();
+            mission.crew_id = Some("c".into());
+            let mut slot = slot_for(&configured);
+            slot.id = insert_crew_role(&pool, &mission.id, &configured.id);
+            slot.lead = legacy_lead;
+            update_role_row(&pool.get().unwrap(), &configured);
+            let fake = fake_runtime();
+            let mgr = mgr_with_fake(None, Arc::clone(&fake));
+            let (snapshot, effects) = with_conversation_home(root, || {
+                let (system_prompt, first_turn) =
+                    crate::runtimes::for_key(key).prompt_channels().member(
+                        Some("GOLDEN_PERSONA"),
+                        Some("TEAM"),
+                        Some("Golden goal"),
+                        false,
+                    );
+                let spawned = mgr
+                    .spawn_with_prompt_channels(
+                        &mission,
+                        &configured,
+                        &slot,
+                        root,
+                        root.join("events.ndjson"),
+                        Arc::clone(&pool),
+                        capture(),
+                        system_prompt,
+                        first_turn,
+                    )
+                    .unwrap();
+                let mut normalizer = Normalizer::default();
+                let snapshot = normalizer.spawn(&fake, root);
+                let effects = normalizer.effects(&fake, &mgr, key, root);
+                mgr.kill(&spawned.id).unwrap();
+                (snapshot, effects)
+            });
+            rows.push(json!({"runtime": key, "shape": if legacy_lead {"mission-legacy-flag"} else {"mission-member"}, "mode": "bypass", "spawn": snapshot}));
+            effects_rows.push(json!({"runtime": key, "shape": if legacy_lead {"mission-legacy-flag"} else {"mission-member"}, "mode": "bypass", "spawn": effects}));
         }
     }
     crate::golden::assert_golden("spawns", json!(rows));

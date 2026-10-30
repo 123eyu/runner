@@ -268,7 +268,6 @@ fn cursor_mission_exact_resume_keeps_bypass_permissions() {
         "CURSOR_CONFIG_DIR".into(),
         data.path().join("shell-config").display().to_string(),
     );
-    mgr.set_mission_permission_mode(crate::router::runtime::MissionPermissionMode::Bypass);
     let mut configured = role("/bin/sh", &[]);
     configured.runtime = "cursor".into();
     configured.env.insert(

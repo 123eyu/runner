@@ -269,11 +269,7 @@ fn claude_settings_acknowledge_bypass_only_for_bypass_spawns() {
     for bypass_args in [
         vec!["--permission-mode".to_string(), "bypassPermissions".into()],
         vec!["--dangerously-skip-permissions".to_string()],
-        apply_mission_permission_mode(
-            Runtime::ClaudeCode.key(),
-            &["--verbose".to_string()],
-            MissionPermissionMode::Bypass,
-        ),
+        apply_mission_permissions(Runtime::ClaudeCode.key(), &["--verbose".to_string()]),
     ] {
         let settings = settings_for(&bypass_args);
         assert_eq!(
@@ -289,11 +285,6 @@ fn claude_settings_acknowledge_bypass_only_for_bypass_spawns() {
         vec![],
         vec!["--permission-mode".to_string(), "auto".into()],
         vec!["--permission-mode".to_string(), "acceptEdits".into()],
-        apply_mission_permission_mode(
-            Runtime::ClaudeCode.key(),
-            &["--permission-mode".to_string(), "bypassPermissions".into()],
-            MissionPermissionMode::Auto,
-        ),
     ] {
         let settings = settings_for(&other_args);
         assert!(
@@ -550,7 +541,7 @@ fn apply_permission_mode_claude_code_strips_legacy_dangerous_flag() {
 }
 
 #[test]
-fn apply_mission_permission_mode_keeps_unrelated_claude_args() {
+fn apply_mission_permissions_keeps_unrelated_claude_args() {
     let row = vec![
         "--permission-mode".to_string(),
         "plan".to_string(),
@@ -558,34 +549,13 @@ fn apply_mission_permission_mode_keeps_unrelated_claude_args() {
         "opus".to_string(),
     ];
     assert_eq!(
-        apply_mission_permission_mode(
-            Runtime::ClaudeCode.key(),
-            &row,
-            MissionPermissionMode::Bypass
-        ),
+        apply_mission_permissions(Runtime::ClaudeCode.key(), &row),
         vec![
             "--model".to_string(),
             "opus".to_string(),
             "--permission-mode".to_string(),
             "bypassPermissions".to_string(),
         ],
-    );
-    assert_eq!(
-        apply_mission_permission_mode(Runtime::ClaudeCode.key(), &row, MissionPermissionMode::Auto),
-        vec![
-            "--model".to_string(),
-            "opus".to_string(),
-            "--permission-mode".to_string(),
-            "auto".to_string(),
-        ],
-    );
-    assert_eq!(
-        apply_mission_permission_mode(
-            Runtime::ClaudeCode.key(),
-            &row,
-            MissionPermissionMode::RoleDefault
-        ),
-        row,
     );
 }
 

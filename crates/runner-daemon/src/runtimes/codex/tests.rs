@@ -466,7 +466,7 @@ fn apply_permission_mode_codex_default_strips_all_flags() {
 }
 
 #[test]
-fn apply_mission_permission_mode_converges_a_codex_row() {
+fn apply_mission_permissions_converges_a_codex_row() {
     let row = vec![
         "--ask-for-approval".to_string(),
         "on-request".to_string(),
@@ -474,21 +474,13 @@ fn apply_mission_permission_mode_converges_a_codex_row() {
         "workspace-write".to_string(),
     ];
     assert_eq!(
-        apply_mission_permission_mode(Runtime::Codex.key(), &row, MissionPermissionMode::Bypass),
+        apply_mission_permissions(Runtime::Codex.key(), &row),
         vec![
             "--ask-for-approval".to_string(),
             "never".to_string(),
             "--sandbox".to_string(),
             "danger-full-access".to_string(),
         ],
-    );
-    assert_eq!(
-        apply_mission_permission_mode(
-            Runtime::Codex.key(),
-            &row,
-            MissionPermissionMode::RoleDefault
-        ),
-        row,
     );
 }
 

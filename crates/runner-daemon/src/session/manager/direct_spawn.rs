@@ -164,9 +164,8 @@ impl SessionManager {
         role.codex_speed = speed_override.or(role.codex_speed);
         let mut launch_definition = crate::session::launch_definition::from_effective(&role);
         let mut role = self.resolve_role_executable(&role, &pool)?;
-        // Permission posture belongs to MissionPermissionMode (feature
-        // 596): attended chats strip the row's permission flags and
-        // append nothing, leaving every other arg alone.
+        // Attended chats strip the row's permission flags and leave
+        // every other arg alone.
         role.args = crate::runtimes::for_key(&role.runtime)
             .permissions()
             .strip(&role.args);

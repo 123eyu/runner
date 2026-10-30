@@ -62,9 +62,7 @@ use crate::{
         project::{self},
         slot,
     },
-    repo,
-    router::runtime::MissionPermissionMode,
-    AppCore,
+    repo, AppCore,
 };
 
 pub use runner_core::protocol::mission::StartMissionInput;
@@ -165,7 +163,6 @@ pub fn start(
     conn: &mut Connection,
     app_data_dir: &Path,
     input: impl Into<MissionStart>,
-    permission_mode: MissionPermissionMode,
 ) -> Result<StartMissionOutput> {
     let input = input.into();
     let title = input.title.trim().to_string();
@@ -253,7 +250,7 @@ pub fn start(
         payload: serde_json::json!({
             "title": title,
             "cwd": cwd,
-            "permission_mode": permission_mode,
+            "permission_mode": "bypass",
         }),
     })?;
     log.append(EventDraft {
@@ -566,12 +563,7 @@ pub async fn mission_start_impl_with_size(
 
     let out = {
         let mut conn = state.db.get()?;
-        start(
-            &mut conn,
-            &state.app_data_dir,
-            input,
-            state.sessions.mission_permission_mode(),
-        )?
+        start(&mut conn, &state.app_data_dir, input)?
     };
     log::info!(
         "mission starting: id={} crew={:?} title={:?}",
@@ -1496,7 +1488,6 @@ mod tests {
                 goal_override: Some("Ship it".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission;
@@ -1566,7 +1557,6 @@ mod tests {
                 goal_override: Some(oversized),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap_err();
         let msg = format!("{err}");
@@ -1590,7 +1580,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap_err();
         let msg = format!("{err}");
@@ -1618,7 +1607,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap_err();
         assert!(format!("{err}").contains("title must not be empty"));
@@ -1888,7 +1876,6 @@ mod tests {
                     goal_override: None,
                     cwd: None,
                 },
-                MissionPermissionMode::Bypass,
             )
             .unwrap()
             .mission
@@ -1939,7 +1926,6 @@ mod tests {
                     goal_override: None,
                     cwd: None,
                 },
-                MissionPermissionMode::Bypass,
             )
             .unwrap()
             .mission
@@ -2118,7 +2104,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2188,7 +2173,6 @@ mod tests {
                 goal_override: None,
                 cwd: Some(cwd.to_string_lossy().into_owned()),
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2228,7 +2212,6 @@ mod tests {
                 goal_override: None,
                 cwd: Some(cwd.clone()),
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2261,7 +2244,6 @@ mod tests {
                 goal_override: None,
                 cwd: Some("/override".into()),
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2269,43 +2251,33 @@ mod tests {
     }
 
     #[test]
-    fn start_records_the_permission_mode_it_spawned_with() {
+    fn start_records_bypass_permissions() {
         let pool = pool();
         let mut conn = pool.get().unwrap();
         let crew_id = seed_crew(&conn, "Alpha");
         add_role(&mut conn, &crew_id, "lead");
         let tmp = tempfile::tempdir().unwrap();
 
-        for mode in MissionPermissionMode::ALL {
-            let out = start(
-                &mut conn,
-                tmp.path(),
-                StartMissionInput {
-                    project_id: None,
-                    crew_id: Some(crew_id.clone()),
-                    title: format!("{mode:?}"),
-                    goal_override: None,
-                    cwd: None,
-                },
-                mode,
-            )
-            .unwrap();
-            let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
-            let entries = EventLog::open(&mission_dir).unwrap().read_from(0).unwrap();
-            let first = &entries[0].event;
-            assert_eq!(
-                first.signal_type.as_ref().unwrap().as_str(),
-                "mission_start"
-            );
-            assert_eq!(first.payload["permission_mode"], mode.key());
-            assert_eq!(
-                serde_json::from_value::<MissionPermissionMode>(
-                    first.payload["permission_mode"].clone()
-                )
-                .unwrap(),
-                mode
-            );
-        }
+        let out = start(
+            &mut conn,
+            tmp.path(),
+            StartMissionInput {
+                project_id: None,
+                crew_id: Some(crew_id.clone()),
+                title: "Bypass".into(),
+                goal_override: None,
+                cwd: None,
+            },
+        )
+        .unwrap();
+        let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
+        let entries = EventLog::open(&mission_dir).unwrap().read_from(0).unwrap();
+        let first = &entries[0].event;
+        assert_eq!(
+            first.signal_type.as_ref().unwrap().as_str(),
+            "mission_start"
+        );
+        assert_eq!(first.payload["permission_mode"], "bypass");
     }
 
     #[test]
@@ -2326,7 +2298,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap_err();
 
@@ -2359,7 +2330,6 @@ mod tests {
                 goal_override: Some("override goal".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2384,7 +2354,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2429,7 +2398,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2471,7 +2439,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2503,7 +2470,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         let id = out.mission.id.clone();
@@ -2677,7 +2643,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         stop(&mut conn, tmp.path(), &out.mission.id).unwrap();
@@ -2758,7 +2723,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         let id = out.mission.id.clone();
@@ -2835,7 +2799,6 @@ mod tests {
                 goal_override: Some("x".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission;
@@ -2857,7 +2820,6 @@ mod tests {
                 goal_override: Some("y".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission;
@@ -2871,7 +2833,6 @@ mod tests {
                 goal_override: Some("z".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2907,7 +2868,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2921,7 +2881,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -2988,7 +2947,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         drop(conn); // release our pool handle so both threads can grab one
@@ -3062,7 +3020,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -3098,7 +3055,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         let mission_dir = event_log::mission_dir(tmp.path(), Some(&crew_id), &out.mission.id);
@@ -3178,7 +3134,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -3259,7 +3214,6 @@ mod tests {
                 goal_override: None,
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -3344,7 +3298,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap_err();
         assert!(
@@ -3381,7 +3334,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
 
@@ -3430,7 +3382,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         let stopped = stop(&mut conn, tmp.path(), &out.mission.id).unwrap();
@@ -3463,7 +3414,6 @@ mod tests {
                 goal_override: Some("go".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         // Mirror mission_start's rollback path: flip to aborted
@@ -3509,7 +3459,6 @@ mod tests {
                 goal_override: Some("g".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap();
         let stopped = stop(&mut conn, tmp.path(), &out.mission.id).unwrap();
@@ -3569,7 +3518,6 @@ mod tests {
                 goal_override: Some("g".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission
@@ -3584,7 +3532,6 @@ mod tests {
                 goal_override: Some("g".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission
@@ -3599,7 +3546,6 @@ mod tests {
                 goal_override: Some("g".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission
@@ -3619,7 +3565,6 @@ mod tests {
                 goal_override: Some("g".into()),
                 cwd: None,
             },
-            MissionPermissionMode::Bypass,
         )
         .unwrap()
         .mission
