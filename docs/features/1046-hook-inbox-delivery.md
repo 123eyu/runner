@@ -1,8 +1,8 @@
 # 1046 — Deliver mission inbox notices without the composer
 
 > Tracking issue: [#1046](https://github.com/yicheng47/runner/issues/1046).
-> Status: draft for discussion, revised 2026-10-29. Nothing is built. This replaces the earlier proposal to combine hooks with typed fallback delivery.
-> Dependency: [#1012](https://github.com/yicheng47/runner/issues/1012), proposed in [PR #1063](https://github.com/yicheng47/runner/pull/1063), provides Codex's app-server connection. Its spec and hand-test record remain on that PR's branch until it lands.
+> Status: draft for discussion, revised 2026-10-29; deferred to a future update on 2026-10-30. Nothing is built. This replaces the earlier proposal to combine hooks with typed fallback delivery.
+> Codex: [#1012](https://github.com/yicheng47/runner/issues/1012), which would have given Runner a connection to Codex's app-server, was closed as not planned on 2026-10-30. Runner keeps each Codex session's embedded app-server, so Codex has no channel yet. The #1012 spec and hand-test record remain on the branch of the closed [PR #1063](https://github.com/yicheng47/runner/pull/1063).
 > Related: [#940](https://github.com/yicheng47/runner/issues/940) and [#1018](https://github.com/yicheng47/runner/issues/1018) (draft holds), [#861](https://github.com/yicheng47/runner/issues/861) and [#1051](https://github.com/yicheng47/runner/issues/1051) (status), [748](./748-mission-watch-delivery.md) (updates to a starting chat).
 
 ## Motivation
@@ -46,25 +46,25 @@ flowchart LR
 
 | Runtime | Proposed channel | Evidence and remaining gate |
 | --- | --- | --- |
-| Codex | #1012 app-server connection for both working and idle delivery. | PR #1063 reports draft-preserving `turn/start` on Codex 0.165.0. Active delivery, lifecycle and platform coverage still need validation. |
+| Codex | None today. A connection to an app-server that Runner starts, for both working and idle delivery. | PR #1063's hand test showed draft-preserving `turn/start` on Codex 0.165.0 against a separate server. Runner has no such server since #1012 was closed. |
 | Claude Code | Context from synchronous hooks while working; `asyncRewake` for idle delivery. | Hook schemas and official documentation support the pieces. A complete, continuously available idle wake-up path has not been demonstrated. |
 | Antigravity CLI, pi, Copilot CLI, Cursor Agent, Grok, OpenCode and opt-in TRAE | A native hook, extension or control API that satisfies the same contract. | Not evaluated for this replacement. Each remains a release gate; status hooks alone do not establish message delivery or idle wake-up. |
 
 The table is a readiness record, not a policy to use native delivery for some runtimes and typed delivery for the rest. Evaluate every supported mission runtime and platform before the final cutover. Do not silently remove a runtime from mission support to claim completion.
 
-### Codex: depend on #1012
+### Codex: needs a server Runner can reach
 
-#1012 attaches the Codex TUI to a shared app-server with `--remote` and gives Runner a client connection to that server. #1046 uses that connection and its thread binding; it does not create a second server or retain Codex hook delivery as another path.
+Each Codex session runs its own app-server inside the TUI process, with no socket Runner can connect to. A Codex channel needs the TUI attached with `--remote` to an app-server that Runner starts, plus a Runner client connection to it. #1012 explored this and was closed; no open issue owns that server. The rules below describe delivery once the connection exists. Codex hook delivery is not another path.
 
 - **Idle:** send the notice through `turn/start` on the member's thread.
 - **Working:** use `turn/steer` with the expected active turn ID. Validate this operation against the installed version's generated schema and live behavior before choosing it for implementation.
 - **Turn-state race:** if a request is explicitly rejected because the active turn changed or ended, refresh native state and choose the applicable operation again. Serialize this with the member's pending delivery attempt.
 - **Ambiguous connection loss:** retain the unread backlog and record the uncertain offer. Do not immediately resend the same notice as a new turn solely because the response was lost.
-- **Recovery:** when #1012 restores the connection and subscribes to the bound thread, make the pending backlog eligible again. No bytes are written through the PTY.
+- **Recovery:** when the connection is restored and subscribed to the bound thread, make the pending backlog eligible again. No bytes are written through the PTY.
 
 The [official app-server reference](https://learn.chatgpt.com/docs/app-server) documents `turn/start`, active-turn steering and native turn events. The [#1012 hand-test record](https://github.com/yicheng47/runner/blob/b01059ac08b6a9df9d64645e4f9c9c08540583f3/docs/tests/1012-codex-app-server.md) reports that a second client started a turn while a TUI draft remained unchanged, and Enter afterwards submitted only that draft. It also reports successful event subscription and separate thread environments. These are tests outside Runner, not completed Runner integration checks.
 
-#1012 owns server selection, launch settings, environment forwarding, thread identity, resume/fork and status from the native connection. Its unresolved shared-daemon, approvals and platform checks remain prerequisites here. If #1012 lands opt-in first, that does not complete #1046: the final mission delivery path cannot rely on the old embedded launch or typed nudges for sessions outside that mode.
+The server work comes first: launch settings, environment forwarding, thread identity, resume/fork, status and approvals with several clients, on every platform. Until it exists, Codex blocks the cutover; the final mission delivery path cannot rely on the embedded launch or typed nudges.
 
 ### Claude Code: prove a complete hook channel
 
@@ -102,7 +102,7 @@ A hook delivery decision must accompany the admitted report before the session r
 
 At `Stop`, recheck whether a notice offered earlier in the turn was actually read. An ignored mid-turn notice may justify a bounded continuation for the same unread range. Respect `stop_hook_active`, runtime continuation limits and per-range attempt bookkeeping; never repeatedly block on the same backlog without progress. If no notice is pending, return immediately. Never keep a model turn open waiting for a future message.
 
-Codex uses #1012's native turn events for these decisions. It needs no `Stop` hook or screen-based submission confirmation for this feature.
+Codex would use the app-server connection's native turn events for these decisions. It needs no `Stop` hook or screen-based submission confirmation for this feature.
 
 ## Remove automatic composer nudges
 
@@ -114,13 +114,13 @@ A disabled hook, missing app-server, unsupported runtime version or disconnected
 
 ## Implementation phases
 
-1. **Prove runtime coverage.** Complete #1012's Codex prerequisites, verify active and idle delivery, and establish a complete channel for every other supported mission runtime. Record exact versions, platforms, results and gaps in `docs/tests/1046-inbox-delivery.md`. Unproven cells block the cutover.
+1. **Prove runtime coverage.** Build Codex's app-server connection, verify active and idle delivery, and establish a complete channel for every other supported mission runtime. Record exact versions, platforms, results and gaps in `docs/tests/1046-inbox-delivery.md`. Unproven cells block the cutover.
 2. **Implement the replacement.** Add the shared offer/claim bookkeeping and each validated runtime channel, preserving inbox/read semantics and lifecycle identity. Keep development work isolated while the current production delivery remains in use; do not ship a partial native/typed delivery policy.
 3. **Cut over and remove typing.** Once every supported runtime satisfies the contract, switch mission notification delivery as one policy change, delete its composer-injection machinery, update the guide and complete the selected validation below.
 
 ## Verification
 
-Before implementation, run bounded spikes in isolated test sessions using the current development-app and agent-configuration isolation rules. Existing #1012 evidence is reusable only for the versions and behaviors it records. Do not claim live validation from schemas or documentation alone.
+Before implementation, run bounded spikes in isolated test sessions using the current development-app and agent-configuration isolation rules. The #1012 hand-test evidence is reusable only for the versions and behaviors it records. Do not claim live validation from schemas or documentation alone.
 
 | Check | Required result |
 | --- | --- |
@@ -139,7 +139,7 @@ Use in-process dispatcher, protocol and lifecycle tests for the changed state tr
 
 ## Affected documentation
 
-Update [Missions](../guide/concepts/missions.md), [Supported agents](../guide/reference/supported-agents.md) and [Drive Runner from agents](../guide/guides/drive-runner-from-agents.md), plus their zh-CN copies. Describe the validated per-runtime channels, queued/unavailable behavior and the continued requirement to run `runner msg read`. Codex's [Roles](../guide/concepts/roles.md) setting and launch behavior belong to #1012.
+Update [Missions](../guide/concepts/missions.md), [Supported agents](../guide/reference/supported-agents.md) and [Drive Runner from agents](../guide/guides/drive-runner-from-agents.md), plus their zh-CN copies. Describe the validated per-runtime channels, queued/unavailable behavior and the continued requirement to run `runner msg read`. A Codex launch change also updates [Roles](../guide/concepts/roles.md).
 
 At cutover, reconcile [architecture §8.5](../arch/arch.md#85-delivery-model), the [sessions and routing walkthrough](../tech/sessions-and-routing.md) and the [current delivery walkthrough](../tech/mission-message-delivery.md) with the new mechanism. Until then those references continue to describe the implemented composer path.
 
